@@ -43,44 +43,11 @@ impl Compilation {
         let mut diagnostics = prepared.result().diagnostics().clone();
 
         if !diagnostics.has_errors() {
-            let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
-
-            let types = body
-                .result()
-                .value()
-                .storage_flow()
-                .dependencies()
-                .synchronous_cleanup();
-
-            if !types.is_empty() && !body.result().diagnostics().has_errors() {
-                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-                let context = self.checker_context_for(key, cancellation)?;
-
-                let semantic_context =
-                    bray_binder::semantic_unit_context(context.symbols(), bound.result().value());
-
-                let request = bray_checker::CheckerUnitView::new(
-                    bound.result().value(),
-                    &semantic_context,
-                    &context,
-                );
-
-                let checked = prepared
-                    .result()
-                    .value()
-                    .check_synchronous_cleanup(request, types, &mut |call| {
-                        self.finalizer_is_complete(
-                            call.callable,
-                            call.result.completion_type(),
-                            None,
-                            cancellation,
-                        )
-                        .map_err(crate::compilation::checker::checker_query_error)
-                    })
-                    .map_err(FactQueryError::from)?;
-
-                diagnostics.add_range(checked.diagnostics().iter().cloned());
-            }
+            diagnostics.add_range(self.check_synchronous_cleanup_requirements(
+                key,
+                prepared.result().value(),
+                cancellation,
+            )?);
         }
 
         if prepared
@@ -280,6 +247,54 @@ impl Compilation {
             completed,
             diagnostics,
         ))
+    }
+
+    fn check_synchronous_cleanup_requirements(
+        &self,
+        key: &bray_bound_tree::BoundUnitKey,
+        prepared: &bray_checker::PreparedBodyAnalysis,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticBag, FactQueryError> {
+        let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+
+        let requirements = body
+            .result()
+            .value()
+            .storage_flow()
+            .dependencies()
+            .synchronous_cleanup();
+
+        if requirements.is_empty() || body.result().diagnostics().has_errors() {
+            return Ok(DiagnosticBag::new());
+        }
+
+        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+        let context = self.checker_context_for(key, cancellation)?;
+
+        let semantic_context =
+            bray_binder::semantic_unit_context(context.symbols(), bound.result().value());
+
+        let request =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
+
+        let checked = prepared
+            .check_synchronous_cleanup(
+                request,
+                requirements,
+                self.options().semantic_analysis_limits().recursion_depth(),
+                &mut |call| {
+                    self.finalizer_is_complete(
+                        call.callable,
+                        call.result.completion_type(),
+                        None,
+                        cancellation,
+                    )
+                    .map_err(crate::compilation::checker::checker_query_error)
+                },
+            )
+            .map_err(FactQueryError::from)?;
+
+        Ok(checked.into_parts().1)
     }
 
     fn cleanup_dependencies_verified(

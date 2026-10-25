@@ -8,15 +8,14 @@ use bray_binder::{
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    AnySymbolId, CallableContractSymbolId, CallableContractTypeQuery,
-    CallableParameterDefaultProviderSymbolId, CallableParameterSymbol, CallableParameterSymbolId,
-    FunctionSymbol, FunctionSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton,
-    MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId, NamedTypeSymbolId,
-    ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore, StaticSymbol,
-    StaticSymbolId, StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId,
-    SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeExpressionTemplate,
-    UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
-    UnionVariantSymbol, UnionVariantSymbolId,
+    AnySymbolId, CallableContractTypeQuery, CallableParameterDefaultProviderSymbolId,
+    CallableParameterSymbol, CallableParameterSymbolId, FunctionSymbol, FunctionSymbolId,
+    ImportedSemanticAddress, ImportedSymbolSkeleton, MemberLookupResult, ModuleSurfaceQuery,
+    ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSymbol, ReceiverParameterSymbolId,
+    SemanticValueStore, StaticSymbol, StaticSymbolId, StructFieldSymbol, StructFieldSymbolId,
+    StructSymbol, StructSymbolId, SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface,
+    TypeExpressionTemplate, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol,
+    UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 
@@ -417,14 +416,28 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         super::symbol::checked_callable_type_contracts(self, owner, syntax, callable, None)
     }
 
-    fn callable_contract_type(
+    fn type_definition_value(
         &self,
-        definition: CallableContractSymbolId,
+        definition: AnySymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
-        SymbolQueryProvider::resolve_symbol_query(
-            self,
-            SymbolQueryRequest::<CallableContractTypeQuery>::new(definition),
-        )
+        match definition {
+            AnySymbolId::CallableContract(definition) => self.resolve_symbol_query(
+                SymbolQueryRequest::<CallableContractTypeQuery>::new(definition),
+            ),
+            AnySymbolId::InherentTypeMember(definition) => {
+                self.resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::InherentTypeMemberValueQuery,
+                >::new(definition))
+            }
+            AnySymbolId::TraitTypeFulfillment(definition) => {
+                self.resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::TraitTypeFulfillmentValueQuery,
+                >::new(definition))
+            }
+            _ => panic!(
+                "type-definition lookup requires a checked type-valued declaration: {definition:?}"
+            ),
+        }
     }
 
     fn module_surface(

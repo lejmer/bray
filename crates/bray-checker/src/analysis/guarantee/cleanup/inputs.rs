@@ -49,7 +49,7 @@ impl Plan {
         Ok(())
     }
 
-    pub(super) fn select_inert_futures<C: CheckerRequestContext + ?Sized>(
+    pub(super) fn select_future_cleanup<C: CheckerRequestContext + ?Sized>(
         &mut self,
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
@@ -70,23 +70,25 @@ impl Plan {
                 continue;
             }
 
-            let mut inert = true;
+            let mut captures = Vec::new();
 
             for input in entry.selection().inputs() {
-                if cleanup_shapes.requirement(input.ty(request.semantic_values()))?
+                let ty = input.ty(request.semantic_values());
+
+                if cleanup_shapes.requirement(ty)?
                     != bray_bound_tree::AsyncStorageCleanupRequirement::None
                 {
-                    inert = false;
-                    break;
+                    captures.push(ty);
                 }
             }
 
-            if inert {
-                self.inert_futures.insert(
-                    entry.expression(),
+            self.future_cleanup.insert(
+                entry.expression(),
+                (
+                    captures,
                     cleanup_shapes.requirement(call.resolution().result().completion_type())?,
-                );
-            }
+                ),
+            );
         }
 
         Ok(())

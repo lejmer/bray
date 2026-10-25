@@ -161,9 +161,22 @@ impl GuardedDependencyRequirement {
     }
 }
 
-/// One direct or guarded portable dependency requirement.
+/// One portable value, report, or cleanup requirement.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyRequirement {
+    /// The type's remaining cleanup must execute synchronously.
+    SynchronousCleanup(super::TypeId),
+    /// A pending finalizer body must satisfy its synchronous callee obligations.
+    FinalizerBodyCleanup(super::TypeId),
+    /// Cleanup performed while evaluating one exact declaration-owned default.
+    DefaultCleanup {
+        /// The selected parameter or field provider.
+        provider: crate::DefaultValueProvider,
+        /// The enclosing declaration's selected generic arguments.
+        substitution: super::GenericSubstitutionId,
+        /// The provider's lexical Self context and selected subject, when present.
+        contextual_self: Option<(super::SelfTypeContext, super::TypeId)>,
+    },
     /// Finite equations for dependencies carried around a local control-flow cycle.
     FixedPoint {
         /// Equation values, addressed by variable ordinal.
@@ -200,7 +213,7 @@ pub enum DependencyRequirement {
     },
 }
 
-/// The owned output selected from one checked callable summary.
+/// The output selected from one checked callable summary.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyCallOutput {
     /// The ordinary returned value.
@@ -209,6 +222,8 @@ pub enum DependencyCallOutput {
     CompletionReport,
     /// Reports accompanying panic or cancellation.
     AbnormalReport,
+    /// Cleanup requirements imposed by synchronous bodies in the selected call graph.
+    SynchronousCleanup,
 }
 
 /// The storage and value dependencies supplied to one symbolic result call.
@@ -450,7 +465,7 @@ pub struct DependencyContractTemplateData {
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
-    synchronous_cleanup: Arc<[super::TypeId]>,
+    synchronous_cleanup: Arc<[DependencyRequirement]>,
     normal_completion: bool,
     normal_storage_preserved: bool,
 }
@@ -527,22 +542,35 @@ impl DependencyContractTemplateData {
     /// Transforms requirements in every output while preserving report presence.
     pub fn try_map_requirements<E>(
         &self,
-        mut map: impl FnMut(&[DependencyRequirement]) -> Result<Vec<DependencyRequirement>, E>,
+        mut map: impl FnMut(
+            DependencyCallOutput,
+            &[DependencyRequirement],
+        ) -> Result<Vec<DependencyRequirement>, E>,
     ) -> Result<Self, E> {
-        let mut result = self.with_requirements(map(self.requirements())?);
+        let mut result =
+            self.with_requirements(map(DependencyCallOutput::Value, self.requirements())?);
 
         if let Some(requirements) = self.completion_reports() {
-            result = result.with_completion_reports(map(requirements)?);
+            result = result.with_completion_reports(map(
+                DependencyCallOutput::CompletionReport,
+                requirements,
+            )?);
         }
 
         if let Some(requirements) = self.abnormal_reports() {
-            result = result.with_abnormal_reports(map(requirements)?);
+            result = result
+                .with_abnormal_reports(map(DependencyCallOutput::AbnormalReport, requirements)?);
         }
+
+        result = result.with_synchronous_cleanup(map(
+            DependencyCallOutput::SynchronousCleanup,
+            self.synchronous_cleanup(),
+        )?);
 
         Ok(result)
     }
 
-    /// Enumerates dependencies in every owned output of this callable.
+    /// Enumerates requirements in every output of this callable.
     pub fn all_requirements(&self) -> impl Iterator<Item = &DependencyRequirement> {
         self.requirements
             .iter()
@@ -556,6 +584,7 @@ impl DependencyContractTemplateData {
                     .iter()
                     .flat_map(|requirements| requirements.iter()),
             )
+            .chain(self.synchronous_cleanup.iter())
     }
 
     /// Enumerates formal reference paths required by exact relations and mutation effects.
@@ -579,13 +608,14 @@ impl DependencyContractTemplateData {
             }))
     }
 
-    /// Returns lifetime requirements for one selected owned output.
+    /// Returns requirements for one selected output.
     /// Absence and an independent report both have no lifetime requirements.
     pub fn output_requirements(&self, output: DependencyCallOutput) -> &[DependencyRequirement] {
         match output {
             DependencyCallOutput::Value => self.requirements(),
             DependencyCallOutput::CompletionReport => self.completion_reports().unwrap_or(&[]),
             DependencyCallOutput::AbnormalReport => self.abnormal_reports().unwrap_or(&[]),
+            DependencyCallOutput::SynchronousCleanup => self.synchronous_cleanup(),
         }
     }
 
@@ -715,15 +745,15 @@ impl DependencyContractTemplateData {
     /// These obligations survive forwarding through asynchronous callers.
     pub fn with_synchronous_cleanup(
         mut self,
-        types: impl IntoIterator<Item = super::TypeId>,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        self.synchronous_cleanup = sorted_unique_shared_slice(types);
+        self.synchronous_cleanup = sorted_unique_shared_slice(requirements);
 
         self
     }
 
     /// Returns cleanup obligations to discharge after generic substitution.
-    pub fn synchronous_cleanup(&self) -> &[super::TypeId] {
+    pub fn synchronous_cleanup(&self) -> &[DependencyRequirement] {
         &self.synchronous_cleanup
     }
 
@@ -759,7 +789,7 @@ mod tests {
             .with_abnormal_reports([]);
 
         let mapped = template
-            .try_map_requirements::<std::convert::Infallible>(|requirements| {
+            .try_map_requirements::<std::convert::Infallible>(|_, requirements| {
                 Ok(requirements.iter().chain(requirements).cloned().collect())
             })
             .unwrap();
@@ -774,7 +804,7 @@ mod tests {
 
         assert!(
             DependencyContractTemplateData::new([])
-                .try_map_requirements::<()>(|_| Ok(Vec::new()))
+                .try_map_requirements::<()>(|_, _| Ok(Vec::new()))
                 .unwrap()
                 .completion_reports()
                 .is_none()

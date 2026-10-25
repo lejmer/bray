@@ -63,7 +63,7 @@ pub enum ExecutionDependencyTarget {
         dispatch: bray_symbols::TraitConstraintDispatch,
     },
     /// An omitted argument or construction field's provider.
-    Default(bray_bound_tree::DefaultValueProvider),
+    Default(bray_symbols::DefaultValueProvider),
 }
 
 impl ExecutionDependencyTarget {

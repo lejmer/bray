@@ -208,7 +208,7 @@ impl CheckerRequestContext for TestCheckerContext {
 
     fn default_result_dependencies(
         &self,
-        _provider: bray_bound_tree::DefaultValueProvider,
+        _provider: bray_symbols::DefaultValueProvider,
     ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
     {
         Ok(self

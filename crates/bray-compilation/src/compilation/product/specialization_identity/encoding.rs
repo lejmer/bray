@@ -115,7 +115,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         })
     }
 
-    pub(in crate::compilation) fn ty(&mut self, id: TypeId) -> Result<(), FactQueryError> {
+    pub(super) fn ty(&mut self, id: TypeId) -> Result<(), FactQueryError> {
         let data = self.values.type_data(id);
 
         match data.as_ref() {

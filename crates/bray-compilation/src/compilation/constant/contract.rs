@@ -138,59 +138,57 @@ impl Compilation {
 
                     let result = normalizer.normalize_type(result)?;
 
-                    let inputs =
-                        if let bray_bound_tree::DefaultValueProvider::CallableParameter(_) =
-                            provider
-                        {
-                            let subject = binding
-                                .runtime_default_subject(provider.symbol())
-                                .map_err(binding_query_error)?
-                                .expect("default retains its declaration subject");
+                    let inputs = if let bray_symbols::DefaultValueProvider::CallableParameter(_) =
+                        provider
+                    {
+                        let subject = binding
+                            .runtime_default_subject(provider.symbol())
+                            .map_err(binding_query_error)?
+                            .expect("default retains its declaration subject");
 
-                            let bray_symbols::AnySymbolId::CallableParameter(parameter) = subject
-                            else {
-                                panic!("callable default retains its parameter subject");
-                            };
-
-                            let parameter = binding
-                                .callable_parameter(parameter)
-                                .map_err(binding_query_error)?
-                                .expect("default parameter retains its declaration");
-
-                            let callable = bray_symbols::CallableInstanceData::new(
-                                bray_symbols::CallableDefinitionId::try_new(
-                                    parameter.owner().into_any(),
-                                )
-                                .expect("parameter owner is callable"),
-                                *substitution,
-                            );
-
-                            let signature =
-                                self.constant_callable_signature(callable, cancellation)?;
-
-                            diagnostics.add_range(signature.diagnostics().iter().cloned());
-
-                            if diagnostics.has_errors() {
-                                return Ok(DiagnosticResult::new(None, diagnostics));
-                            }
-
-                            let signature = signature
-                                .value()
-                                .as_ref()
-                                .expect("checked default owner retains its signature");
-
-                            signature
-                                .input_types(values)?
-                                .into_iter()
-                                .take(
-                                    usize::try_from(parameter.ordinal())
-                                        .expect("parameter ordinal fits host")
-                                        + usize::from(signature.receiver().is_some()),
-                                )
-                                .collect::<Vec<_>>()
-                        } else {
-                            Vec::new()
+                        let bray_symbols::AnySymbolId::CallableParameter(parameter) = subject
+                        else {
+                            panic!("callable default retains its parameter subject");
                         };
+
+                        let parameter = binding
+                            .callable_parameter(parameter)
+                            .map_err(binding_query_error)?
+                            .expect("default parameter retains its declaration");
+
+                        let callable = bray_symbols::CallableInstanceData::new(
+                            bray_symbols::CallableDefinitionId::try_new(
+                                parameter.owner().into_any(),
+                            )
+                            .expect("parameter owner is callable"),
+                            *substitution,
+                        );
+
+                        let signature = self.constant_callable_signature(callable, cancellation)?;
+
+                        diagnostics.add_range(signature.diagnostics().iter().cloned());
+
+                        if diagnostics.has_errors() {
+                            return Ok(DiagnosticResult::new(None, diagnostics));
+                        }
+
+                        let signature = signature
+                            .value()
+                            .as_ref()
+                            .expect("checked default owner retains its signature");
+
+                        signature
+                            .input_types(values)?
+                            .into_iter()
+                            .take(
+                                usize::try_from(parameter.ordinal())
+                                    .expect("parameter ordinal fits host")
+                                    + usize::from(signature.receiver().is_some()),
+                            )
+                            .collect::<Vec<_>>()
+                    } else {
+                        Vec::new()
+                    };
 
                     Some(ConstantCallContract::new(inputs, result, []))
                 }

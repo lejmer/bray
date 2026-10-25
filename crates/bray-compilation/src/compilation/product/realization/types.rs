@@ -221,6 +221,48 @@ impl Compilation {
         Ok(ty)
     }
 
+    pub(in crate::compilation::product) fn normalize_codegen_callable_arguments(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        owner: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<bray_symbols::CallableInstanceData, CodegenPreparationError> {
+        let values = self.semantic_value_store()?;
+        let data = values.generic_substitution_data(callable.substitution());
+
+        if data.bindings().is_empty() {
+            return Ok(callable);
+        }
+
+        // An unconstrained callee does not inherit the caller's associated-type witnesses.
+        let arguments = data
+            .bindings()
+            .iter()
+            .map(|binding| match binding.argument() {
+                bray_symbols::GenericArgument::Type(ty) => self
+                    .concrete_codegen_type(ty, None, Some(owner), cancellation)
+                    .map(bray_symbols::GenericArgument::Type),
+                argument @ bray_symbols::GenericArgument::Constant(_) => Ok(argument),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let substitution = bray_symbols::GenericSubstitutionData::try_new(
+            data.owner(),
+            data.bindings().iter().map(|binding| binding.parameter()),
+            arguments,
+        )
+        .expect("normalizing callable arguments preserves selected parameter kinds");
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        Ok(bray_symbols::CallableInstanceData::new(
+            callable.definition(),
+            substitution,
+        ))
+    }
+
     pub(in crate::compilation::product) fn substitute_codegen_type(
         &self,
         ty: TypeId,

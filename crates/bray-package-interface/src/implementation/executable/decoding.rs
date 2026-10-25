@@ -1,12 +1,13 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire decoder keeps one exhaustive operation and terminator mapping")
 
+use bray_symbols::DefaultValueProvider;
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
     BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, DefaultValueProvider, InlineAssemblyContract,
-    InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder,
-    PatternOperation, PatternProjection, SelectedConversion, SelectedImplementationWitness,
+    ConstructionTarget, ConversionTarget, InlineAssemblyContract, InlineAssemblyOperand,
+    InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder, PatternOperation,
+    PatternProjection, SelectedConversion, SelectedImplementationWitness,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
@@ -1047,10 +1048,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             3 => {
                 let owner = match read_u32(&mut self.reader)? {
-                    0 => bray_ir::MirDefaultOwner::Callable(MirCallableReference::new(
-                        self.callable_instance()?,
-                        self.callable_abi()?,
-                    )),
+                    0 => bray_ir::MirDefaultOwner::Callable(self.callable_selection()?),
                     1 => bray_ir::MirDefaultOwner::Type {
                         target: self.construction_target()?,
                         ty: self.ty()?,

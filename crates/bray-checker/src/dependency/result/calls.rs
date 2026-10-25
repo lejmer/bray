@@ -98,6 +98,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             self.request,
             Some(callable),
             template,
+            None,
         )?;
 
         self.mapped_result_values(template.requirements(), |root| {
@@ -147,6 +148,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 self.request,
                 Some(instance),
                 template,
+                None,
             )?
         };
 
@@ -170,6 +172,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             self.request,
             Some(instance),
             template,
+            None,
         )?;
 
         self.map_exit_values(scoped, template.requirements())
@@ -334,6 +337,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     self.request,
                     Some(instance),
                     template,
+                    None,
                 )?;
 
                 let requirements = if output.is_abnormal() {

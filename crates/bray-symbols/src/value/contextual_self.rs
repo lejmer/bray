@@ -4,6 +4,26 @@ use super::{
     TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
 
+impl crate::SymbolGraph {
+    /// Returns the nearest containing declaration that defines contextual `Self`.
+    pub fn enclosing_self_type_context(
+        &self,
+        symbol: crate::AnySymbolId,
+    ) -> Option<SelfTypeContext> {
+        let mut current = self.containing_symbol(symbol);
+
+        while let Some(owner) = current {
+            if let Some(context) = SelfTypeContext::try_new(owner) {
+                return Some(context);
+            }
+
+            current = self.containing_symbol(owner);
+        }
+
+        None
+    }
+}
+
 impl SemanticValueStore {
     /// Replaces one declaration context's `Self` throughout a semantic type.
     pub fn substitute_contextual_self(
@@ -259,7 +279,9 @@ mod tests {
         let template = store
             .intern_dependency_contract_template(
                 DependencyContractTemplateData::new([])
-                    .with_synchronous_cleanup([nested])
+                    .with_synchronous_cleanup([crate::DependencyRequirement::SynchronousCleanup(
+                        nested,
+                    )])
                     .with_effects([
                         DependencyStorageEffect::Cleanup(contextual),
                         DependencyStorageEffect::Direct {
@@ -277,7 +299,10 @@ mod tests {
         let data = store.dependency_contract_template_data(instantiated);
         let expected = store.intern_type(TypeData::Nullable(replacement)).unwrap();
 
-        assert_eq!(data.synchronous_cleanup(), [expected]);
+        assert_eq!(
+            data.synchronous_cleanup(),
+            [crate::DependencyRequirement::SynchronousCleanup(expected)]
+        );
 
         assert!(
             data.effects()

@@ -449,7 +449,7 @@ fn body_result_dependencies(
             .synchronous_cleanup()
             .iter()
             .chain(checked.synchronous_cleanup())
-            .copied(),
+            .cloned(),
     )
     .with_normal_completion(previous.normal_completion() || checked.normal_completion())
     .with_normal_storage_preservation(
@@ -653,7 +653,7 @@ fn source_summary(
 
 pub(in crate::compilation) fn default_result_dependencies(
     context: &CompilationBindingContext<'_>,
-    provider: bray_bound_tree::DefaultValueProvider,
+    provider: bray_symbols::DefaultValueProvider,
 ) -> BindingQueryResult<DependencyContractTemplateId> {
     summary(
         context,

@@ -612,6 +612,89 @@ mod tests {
     };
 
     #[test]
+    fn cleanup_and_value_outputs_reject_mixed_requirement_categories() {
+        let cleanup =
+            crate::InterfaceDependencyRequirement::synchronous_cleanup(InterfaceTypeId::new(0));
+
+        let value = crate::InterfaceDependencyRequirement::new(
+            crate::InterfaceDependencySubject::new(
+                crate::InterfaceDependencySubjectRoot::Receiver,
+                [],
+            ),
+            crate::InterfaceDependencyRequirementKind::StorageAlive,
+        );
+
+        let value_call = crate::InterfaceDependencyRequirement::result_call(
+            crate::InterfaceCallableInstanceId::new(0),
+            None,
+            [],
+            bray_symbols::DependencyCallOutput::Value,
+        );
+
+        for contract in [
+            InterfaceDependencyContract::new([cleanup]),
+            InterfaceDependencyContract::new([
+                crate::InterfaceDependencyRequirement::finalizer_body_cleanup(
+                    InterfaceTypeId::new(0),
+                ),
+            ]),
+            InterfaceDependencyContract::new([
+                crate::InterfaceDependencyRequirement::default_cleanup(
+                    crate::InterfaceSymbolReference::Local(bray_symbols::InterfaceSymbolId::new(0)),
+                    crate::InterfaceGenericSubstitutionId::new(0),
+                    None,
+                ),
+            ]),
+            InterfaceDependencyContract::new([]).with_synchronous_cleanup([value]),
+            InterfaceDependencyContract::new([]).with_synchronous_cleanup([value_call]),
+        ] {
+            let (surface, mut semantics) = fixture();
+
+            semantics.dependency_contracts = vec![contract].into();
+
+            assert_eq!(
+                encode_semantics(&semantics, &surface, InterfaceValidationLimits::default())
+                    .unwrap_err(),
+                crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency),
+            );
+        }
+    }
+
+    #[test]
+    fn default_cleanup_round_trips_and_rejects_an_invalid_provider_kind() {
+        let substitution = crate::InterfaceGenericSubstitutionId::new(0);
+
+        let (surface, mut semantics) = fixture();
+
+        let provider =
+            crate::InterfaceSymbolReference::Local(bray_symbols::InterfaceSymbolId::new(0));
+
+        semantics.dependency_contracts = vec![
+            crate::InterfaceDependencyContract::new([]).with_synchronous_cleanup([
+                crate::InterfaceDependencyRequirement::default_cleanup(
+                    provider.clone(),
+                    substitution,
+                    None,
+                ),
+            ]),
+        ]
+        .into();
+
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        let decoded =
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+
+        assert_eq!(decoded, semantics);
+
+        let store = SemanticValueStore::try_new().unwrap();
+
+        assert!(matches!(decoded.intern(&store, &resolver(&surface)),
+            Err(crate::InterfaceSemanticInternError::InvalidSymbolKind(reference)) if reference == provider));
+    }
+
+    #[test]
     fn mutation_effects_round_trip_and_intern_entry_reference_targets() {
         use crate::{
             InterfaceDependencyContract, InterfaceDependencyProjection, InterfaceDependencySubject,
@@ -674,7 +757,14 @@ mod tests {
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
-                .with_synchronous_cleanup([crate::InterfaceTypeId::new(0)])
+                .with_synchronous_cleanup([
+                    crate::InterfaceDependencyRequirement::synchronous_cleanup(
+                        crate::InterfaceTypeId::new(0),
+                    ),
+                    crate::InterfaceDependencyRequirement::finalizer_body_cleanup(
+                        crate::InterfaceTypeId::new(0),
+                    ),
+                ])
                 .with_normal_completion(false)
                 .with_normal_storage_preservation(true),
             InterfaceDependencyContract::new([]).with_effects([DependencyStorageEffect::Atomic]),
@@ -694,7 +784,14 @@ mod tests {
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 12);
-        assert_eq!(template.synchronous_cleanup(), [imported.types()[0]]);
+
+        assert_eq!(
+            template.synchronous_cleanup(),
+            [
+                bray_symbols::DependencyRequirement::SynchronousCleanup(imported.types()[0]),
+                bray_symbols::DependencyRequirement::FinalizerBodyCleanup(imported.types()[0])
+            ]
+        );
 
         assert_eq!(
             store

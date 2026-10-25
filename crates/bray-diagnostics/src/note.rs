@@ -105,6 +105,8 @@ pub enum DiagnosticNoteKind {
     ConstantExpressionMustBeEvaluable,
     /// Constant-evaluation resource-limit recovery guidance.
     ConstantEvaluationMustFitLimits,
+    /// Recovery guidance for unbounded recursive generic cleanup checking.
+    SimplifyRecursiveCleanup,
     /// Accepted type-layout directive forms and constraints.
     TypeLayoutDirectiveForms,
     /// Accepted union-tag directive forms and consistency rules.
@@ -211,6 +213,7 @@ impl DiagnosticNoteKind {
             Self::ExplicitDiscardAcknowledgesResult => "explicit_discard_acknowledges_result",
             Self::ConstantExpressionMustBeEvaluable => "constant_expression_must_be_evaluable",
             Self::ConstantEvaluationMustFitLimits => "constant_evaluation_must_fit_limits",
+            Self::SimplifyRecursiveCleanup => "simplify_recursive_cleanup",
             Self::TypeLayoutDirectiveForms => "type_layout_directive_forms",
             Self::UnionTagDirectiveForms => "union_tag_directive_forms",
             Self::CopyContractRequirements => "copy_contract_requirements",

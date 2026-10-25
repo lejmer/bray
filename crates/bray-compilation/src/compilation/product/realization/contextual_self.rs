@@ -117,32 +117,52 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
         )));
     }
 
-    let Some(callable) = instance.callable_instance() else {
-        return Ok(None);
+    let values = binding_context.semantic_values();
+
+    let declaration = match instance.callable_instance() {
+        Some(callable) => callable.definition().symbol(),
+        None => {
+            let Some(substitution) = instance.substitution() else {
+                return Ok(None);
+            };
+
+            values
+                .generic_substitution_data(substitution)
+                .owner()
+                .symbol()
+        }
     };
 
-    let Some(container) = binding_context
-        .containing_symbol(callable.definition().symbol())
-        .map_err(binding_query_error)?
-    else {
-        return Ok(None);
-    };
+    let context = SelfTypeContext::try_new(declaration).or_else(|| {
+        binding_context
+            .symbols()
+            .enclosing_self_type_context(declaration)
+    });
 
-    if let Some(implementation) = ImplementationSymbolId::try_from_any(container) {
-        let subject = implementation_subject(binding_context, implementation)?;
+    match context {
+        Some(SelfTypeContext::Implementation(implementation)) => {
+            let subject = implementation_subject(binding_context, implementation)?;
 
-        return Ok(Some((
-            SelfTypeContext::Implementation(implementation),
-            subject,
-        )));
-    }
+            let subject = match instance.substitution() {
+                Some(substitution) => values
+                    .substitute_type(subject, substitution)
+                    .map_err(FactQueryError::SemanticValueStore)?,
+                None => subject,
+            };
 
-    if TraitSymbolId::try_from_any(container).is_some() {
-        return Err(ProductQueryFailure::missing(
-            ProductQueryContext::Instance(instance.key().clone()),
-            ProductDataKind::ContextualSelfWitness,
-        )
-        .into());
+            return Ok(Some((
+                SelfTypeContext::Implementation(implementation),
+                subject,
+            )));
+        }
+        Some(SelfTypeContext::Trait(_)) => {
+            return Err(ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.key().clone()),
+                ProductDataKind::ContextualSelfWitness,
+            )
+            .into());
+        }
+        Some(SelfTypeContext::NamedType(_)) | None => {}
     }
 
     Ok(None)

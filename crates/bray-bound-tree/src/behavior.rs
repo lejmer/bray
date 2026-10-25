@@ -1,3 +1,4 @@
+use bray_symbols::DefaultValueProvider;
 use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
@@ -6,10 +7,7 @@ use bray_symbols::{
     CurrentRunCancellation, LifecycleObligationKind, StaticSymbolId, TrustedCapabilitySymbolId,
 };
 
-use crate::{
-    BoundCallableTarget, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKind,
-    DefaultValueProvider,
-};
+use crate::{BoundCallableTarget, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKind};
 
 /// Whether one selected callable contributes invocation or deferred body behavior.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

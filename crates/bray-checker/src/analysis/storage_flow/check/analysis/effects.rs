@@ -64,7 +64,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if self.publish {
             self.synchronous_cleanup
-                .extend(contracts.synchronous_cleanup().iter().copied());
+                .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
         let mut task_effects = task_effects(

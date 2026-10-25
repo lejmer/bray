@@ -27,8 +27,8 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         |encoder, contract| {
             write_count(encoder, contract.synchronous_cleanup.len());
 
-            for ty in &*contract.synchronous_cleanup {
-                encoder.write_u32(ty.raw());
+            for requirement in &*contract.synchronous_cleanup {
+                encode_dependency_requirement(encoder, requirement);
             }
 
             encoder.write_u32(u32::from(contract.normal_completion));
@@ -261,6 +261,32 @@ pub(super) fn encode_dependency_requirement(
     requirement: &InterfaceDependencyRequirement,
 ) {
     match &requirement.value {
+        InterfaceDependencyRequirementValue::SynchronousCleanup(ty) => {
+            encoder.write_u32(7);
+            encoder.write_u32(ty.raw());
+        }
+        InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+            encoder.write_u32(8);
+            encoder.write_u32(ty.raw());
+        }
+        InterfaceDependencyRequirementValue::DefaultCleanup {
+            provider,
+            substitution,
+            contextual_self,
+        } => {
+            encoder.write_u32(9);
+            write_symbol_reference(encoder, provider);
+            encoder.write_u32(substitution.raw());
+
+            write_optional_u32(
+                encoder,
+                contextual_self.as_ref().map(|(_, subject)| subject.raw()),
+            );
+
+            if let Some((context, _)) = contextual_self {
+                write_symbol_reference(encoder, context);
+            }
+        }
         InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
             encoder.write_u32(5);
             encoder.write_u32(*depth);

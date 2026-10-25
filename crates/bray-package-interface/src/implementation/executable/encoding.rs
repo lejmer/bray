@@ -992,8 +992,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 match owner {
                     bray_ir::MirDefaultOwner::Callable(callable) => {
                         self.wire.write_u32(0);
-                        self.callable_instance(callable.instance())?;
-                        self.callable_abi(callable.abi());
+                        self.callable_selection(callable)?;
                     }
                     bray_ir::MirDefaultOwner::Type { target, ty } => {
                         self.wire.write_u32(1);

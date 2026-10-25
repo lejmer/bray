@@ -78,6 +78,9 @@ impl Lowerer<'_> {
             && !completed
             && phase == MirCleanupPhase::LifecycleResolution
             && let Some(callable) = self.input.cleanup_type(owner).and_then(|ty| ty.finalizer())
+            && (callable.result.execution() == bray_symbols::CallableExecution::Synchronous
+                || self.input.unit_kind().protected_frame().is_some()
+                || self.input.semantic_values().type_is_concrete(owner))
         {
             return self.push_finalizer(block, source, place, callable);
         }

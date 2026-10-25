@@ -327,6 +327,11 @@ impl SemanticValueStore {
         super::concrete::substitution_is_concrete(&self.tables(), self.id, id)
     }
 
+    /// Returns whether a type contains no unresolved generic types or associated projections.
+    pub fn type_is_concrete(&self, ty: TypeId) -> bool {
+        super::concrete::type_is_concrete(&self.tables(), self.id, ty)
+    }
+
     /// Interns one canonical trait application.
     pub fn intern_trait_application(
         &self,

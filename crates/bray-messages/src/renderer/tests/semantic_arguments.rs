@@ -2,22 +2,72 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArrayGeneratorCardinalityProblem,
     DiagnosticArrayLength, DiagnosticCallbackStateProblem, DiagnosticConstructionInputRejection,
     DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
-    DiagnosticExpressionCategory, DiagnosticId, DiagnosticKind, DiagnosticLayoutOption,
-    DiagnosticLayoutProblem, DiagnosticMemoryOperation, DiagnosticNamedType, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticPatternCoverage, DiagnosticPatternMissingCase,
-    DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
-    DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
-    DiagnosticSelectionCandidate, DiagnosticSelectionCandidateIdentity,
-    DiagnosticSelectionCandidateSignature, DiagnosticSelectionCandidates, DiagnosticSelectionKind,
-    DiagnosticSelectionRejectionReason, DiagnosticSelectionRejections, DiagnosticSourceInput,
-    DiagnosticSourceInputOrigin, DiagnosticStorageAccess, DiagnosticStorageAccessPurpose,
-    DiagnosticStorageProjection, DiagnosticStorageRoot, DiagnosticType, DiagnosticTypeArgument,
-    DiagnosticUnionTagProblem, DiagnosticYieldCardinality, SeverityKind,
+    DiagnosticExpressionCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticLayoutOption, DiagnosticLayoutProblem,
+    DiagnosticMemoryOperation, DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticPropagationProblem,
+    DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
+    DiagnosticRejectedSelectionCandidate, DiagnosticSelectionCandidate,
+    DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
+    DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
+    DiagnosticSelectionRejections, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
+    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
+    DiagnosticStorageRoot, DiagnosticType, DiagnosticTypeArgument, DiagnosticUnionTagProblem,
+    DiagnosticYieldCardinality, SeverityKind,
 };
 use bray_source::TextSize;
 
 use crate::renderer::DiagnosticRenderer;
 use crate::{DiagnosticLocale, RenderedDiagnosticNoteKind};
+
+#[test]
+fn recursive_cleanup_limit_identifies_the_callable_and_recovery() {
+    let span = bray_source::SourceSpan::new(
+        bray_source::SourceId::new(0),
+        bray_source::TextRange::new(TextSize::new(4), TextSize::new(12)),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingCleanupRecursionLimitExceeded,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::declaration_name("discard"))
+    .with_arg(DiagnosticArg::actual_count(257))
+    .with_arg(DiagnosticArg::maximum_count(256))
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::CleanupRecursionLimitExceeded,
+        span,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::SimplifyRecursiveCleanup,
+    ));
+
+    let rendered = DiagnosticRenderer::new(DiagnosticLocale::English).render(&diagnostic);
+
+    assert_eq!(
+        rendered.message(),
+        "cleanup checking for 'discard' reached 257 nested calls, exceeding the limit of 256"
+    );
+
+    assert_eq!(rendered.primary_span(), diagnostic.primary_span());
+
+    assert_eq!(
+        rendered.labels()[0].message(),
+        "recursive cleanup calls exceed the configured limit here"
+    );
+
+    assert_eq!(
+        rendered.notes()[0].rendered_kind(),
+        RenderedDiagnosticNoteKind::Help
+    );
+
+    assert_eq!(
+        rendered.notes()[0].message(),
+        "reduce recursive generic nesting in the calls that retain these values"
+    );
+}
 
 #[test]
 fn scoped_selection_failures_identify_enter_and_exit() {

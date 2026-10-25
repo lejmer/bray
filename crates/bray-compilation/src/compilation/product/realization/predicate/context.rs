@@ -174,7 +174,7 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let symbol = self.predicate_symbol(key)?;
 
-        if let Some(provider) = bray_bound_tree::DefaultValueProvider::try_from_symbol(symbol) {
+        if let Some(provider) = bray_symbols::DefaultValueProvider::try_from_symbol(symbol) {
             assert!(
                 dispatch.is_none(),
                 "default helper has no selected trait dispatch"

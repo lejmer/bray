@@ -52,7 +52,11 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 let child = child.with_normal_completion(normal_completion);
 
                 let child = child
-                    .try_map_requirements(|requirements| {
+                    .try_map_requirements(|output, requirements| {
+                        if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                            return Ok(requirements.to_vec());
+                        }
+
                         crate::dependency::witness::map_requirements(
                             requirements,
                             &mut |subject, kind| {
@@ -79,7 +83,11 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
 
                 let child = if matches!(shape.as_ref(), TypeData::Nullable(_)) {
                     child
-                        .try_map_requirements(|requirements| {
+                        .try_map_requirements(|output, requirements| {
+                            if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                                return Ok(requirements.to_vec());
+                            }
+
                             Ok::<_, std::convert::Infallible>(vec![DependencyRequirement::guarded(
                                 bray_symbols::DependencyGuard::NullablePresent(
                                     DependencySubject::root(DependencySubjectRoot::Receiver),
@@ -219,7 +227,7 @@ pub(super) fn sequence_dependencies(
                 .synchronous_cleanup()
                 .iter()
                 .chain(next.synchronous_cleanup())
-                .copied(),
+                .cloned(),
         )
         .with_normal_completion(first.normal_completion() && next.normal_completion())
         .with_normal_storage_preservation(

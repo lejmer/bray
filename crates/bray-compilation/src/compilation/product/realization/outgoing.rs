@@ -233,7 +233,7 @@ impl Compilation {
             selection.clone(),
         );
 
-        let callee = self.concrete_codegen_callee(owner, &demand, target, cancellation)?;
+        let callee = self.concrete_codegen_callee(owner, &demand, None, target, cancellation)?;
 
         let super::super::specialization::ConcreteCodegenCallee::Instance(callee) = callee else {
             panic!(

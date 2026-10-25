@@ -74,6 +74,23 @@ pub(in crate::dependency) fn deferred_outputs<C: CheckerRequestContext + ?Sized>
         bray_symbols::DependencyCallOutput::Value,
     )]);
 
+    if requirement.is_some()
+        || !request
+            .semantic_values()
+            .dependency_contract_template_data(
+                request.callable_result_dependencies(instance.definition().callable_symbol())?,
+            )
+            .synchronous_cleanup()
+            .is_empty()
+    {
+        template = template.with_synchronous_cleanup([DependencyRequirement::result_call(
+            callable,
+            requirement,
+            [],
+            bray_symbols::DependencyCallOutput::SynchronousCleanup,
+        )]);
+    }
+
     if publishes_reports {
         template = template.with_abnormal_reports([DependencyRequirement::result_call(
             callable,
@@ -142,7 +159,6 @@ struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
     parameters: super::parameters::ResultParameters,
-    synchronous_cleanup: std::collections::BTreeSet<bray_symbols::TypeId>,
 }
 
 pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
@@ -157,17 +173,21 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
         equations: Vec::new(),
         scope: None,
         parameters: Default::default(),
-        synchronous_cleanup: template.synchronous_cleanup().iter().copied().collect(),
     };
 
     loop {
         resolver.changed = false;
 
-        let result =
-            template.try_map_requirements(|requirements| resolver.requirements(requirements))?;
+        let result = template.try_map_requirements(|output, requirements| {
+            if output == bray_symbols::DependencyCallOutput::SynchronousCleanup {
+                Ok(requirements.to_vec())
+            } else {
+                resolver.requirements(requirements)
+            }
+        })?;
 
         if !resolver.changed {
-            return Ok(result.with_synchronous_cleanup(resolver.synchronous_cleanup));
+            return Ok(result);
         }
     }
 }
@@ -192,9 +212,6 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             .callable_result_dependencies(selected.callable.definition().callable_symbol())?;
 
         let template = instantiate_template(request, template, selected)?;
-
-        self.synchronous_cleanup
-            .extend(template.synchronous_cleanup().iter().copied());
 
         let requirements = template.output_requirements(key.output);
         let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
@@ -402,7 +419,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                         self.requirements(guarded.requirements())?,
                     ))
                 }
-                DependencyRequirement::Direct { .. } => result.push(item.clone()),
+                DependencyRequirement::Direct { .. }
+                | DependencyRequirement::SynchronousCleanup(_)
+                | DependencyRequirement::FinalizerBodyCleanup(_)
+                | DependencyRequirement::DefaultCleanup { .. } => result.push(item.clone()),
             }
         }
 

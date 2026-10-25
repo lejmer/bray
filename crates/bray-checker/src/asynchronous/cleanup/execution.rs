@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use bray_symbols::{
     CallableContractsQuery, CallableInstanceData, SymbolQueryRequest, TypeData, TypeId,
@@ -33,11 +33,9 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
         };
 
         let cleanup = self.receiver_cleanup(*target)?;
-        let mut active = BTreeSet::new();
-        let mut known = BTreeMap::new();
 
         for ty in &cleanup {
-            if !self.cleanup_is_synchronous(*ty, completed, &mut active, &mut known)? {
+            if !self.cleanup_is_synchronous(*ty, completed, &mut |_| {})? {
                 return Ok(false);
             }
         }
@@ -74,45 +72,46 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
             .collect())
     }
 
-    pub(crate) fn cleanup_is_synchronous<F>(
+    pub(crate) fn cleanup_is_synchronous<F, G>(
         &mut self,
         ty: TypeId,
         completed: &mut F,
-        active: &mut BTreeSet<TypeId>,
-        known: &mut BTreeMap<TypeId, bool>,
+        dependency: &mut G,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
     where
         F: FnMut(
             bray_bound_tree::LifecycleCallable,
         ) -> Result<bool, CheckerQueryError<C::UpstreamError>>,
+        G: FnMut(bray_symbols::DependencyRequirement),
     {
-        if let Some(known) = known.get(&ty) {
-            return Ok(*known);
+        let mut pending = vec![ty];
+        let mut expanded = BTreeSet::new();
+
+        while let Some(ty) = pending.pop() {
+            if !expanded.insert(ty) {
+                continue;
+            }
+
+            if !self.cleanup_parts_are_synchronous(ty, completed, &mut pending, dependency)? {
+                return Ok(false);
+            }
         }
 
-        if !active.insert(ty) {
-            return Ok(true);
-        }
-
-        let result = self.cleanup_parts_are_synchronous(ty, completed, active, known)?;
-
-        active.remove(&ty);
-        known.insert(ty, result);
-
-        Ok(result)
+        Ok(true)
     }
 
-    fn cleanup_parts_are_synchronous<F>(
+    fn cleanup_parts_are_synchronous<F, G>(
         &mut self,
         ty: TypeId,
         completed: &mut F,
-        active: &mut BTreeSet<TypeId>,
-        known: &mut BTreeMap<TypeId, bool>,
+        pending: &mut Vec<TypeId>,
+        dependency: &mut G,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
     where
         F: FnMut(
             bray_bound_tree::LifecycleCallable,
         ) -> Result<bool, CheckerQueryError<C::UpstreamError>>,
+        G: FnMut(bray_symbols::DependencyRequirement),
     {
         let parts = super::super::parts::full_cleanup_parts(
             self,
@@ -140,10 +139,10 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
                 self.diagnostics
                     .add_range(selected.diagnostics().iter().cloned());
 
-                if let Some(selected) = selected.value()
-                    && !self.cleanup_is_synchronous(*selected, completed, active, known)?
-                {
-                    return Ok(false);
+                if let Some(selected) = selected.value() {
+                    pending.push(*selected);
+                } else {
+                    dependency(bray_symbols::DependencyRequirement::SynchronousCleanup(*ty));
                 }
 
                 continue;
@@ -153,11 +152,25 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
                 self.request.semantic_values().type_data(*ty).as_ref(),
                 TypeData::TypeParameter(_) | TypeData::ContextualSelf(_)
             ) {
+                dependency(bray_symbols::DependencyRequirement::SynchronousCleanup(*ty));
+
                 continue;
             }
 
-            if part.as_ref().is_some_and(|part| part.release().is_some()) {
-                continue;
+            if let Some(part) = part {
+                for projection in part.projections() {
+                    if let bray_bound_tree::StorageCleanupProjectionKind::OwnedTarget(borrow) =
+                        projection.projection()
+                    {
+                        self.observe_cleanup_call(borrow.callable(), dependency);
+                    }
+                }
+
+                if let Some(release) = part.release() {
+                    self.observe_cleanup_call(release.callable(), dependency);
+
+                    continue;
+                }
             }
 
             if let TypeData::Named {
@@ -169,11 +182,7 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
                     .context()
                     .raw_buffer_element(*definition, *substitution)?
             {
-                if !self.cleanup_is_synchronous(element, completed, active, known)? {
-                    return Ok(false);
-                }
-
-                continue;
+                pending.push(element);
             }
 
             if part
@@ -191,53 +200,85 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
                 continue;
             }
 
-            for slot in [
-                bray_symbols::TypeAssociatedLifecycleSlot::Finalizer,
-                bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
-            ] {
-                let selected = self.request.context().lifecycle_callable(*ty, slot)?;
+            if let Some(lifecycle) = self.pending_finalizer(*ty, completed)? {
+                if lifecycle.result.execution() == bray_symbols::CallableExecution::Asynchronous
+                    || self.resolve(lifecycle.result.completion_type())?.quiescence
+                {
+                    return Ok(false);
+                }
 
-                self.diagnostics
-                    .add_range(selected.diagnostics().iter().cloned());
+                self.observe_cleanup_call(lifecycle.callable, dependency);
+            }
 
-                let Some((target, signature)) = selected.value() else {
-                    continue;
-                };
+            let selected = self
+                .request
+                .context()
+                .lifecycle_callable(*ty, bray_symbols::TypeAssociatedLifecycleSlot::Destructor)?;
 
-                let data = self
-                    .request
-                    .semantic_values()
-                    .type_data(signature.callable_type());
+            self.diagnostics
+                .add_range(selected.diagnostics().iter().cloned());
 
-                let TypeData::Callable(callable) = data.as_ref() else {
-                    panic!("selected lifecycle retains its callable type");
-                };
+            if let Some((target, _)) = selected.value() {
+                self.observe_cleanup_call(*target, dependency);
 
-                if slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer {
-                    let lifecycle = bray_bound_tree::LifecycleCallable::from_signature(
-                        self.request.semantic_values(),
-                        self.request.available_compiler_known_symbols(),
-                        *target,
-                        signature,
-                    )
-                    .expect("selected lifecycle uses checked semantic types");
-
-                    if !completed(lifecycle)?
-                        && (callable.execution() == bray_symbols::CallableExecution::Asynchronous
-                            || self.resolve(callable.result())?.quiescence)
-                    {
-                        return Ok(false);
-                    }
-                } else {
-                    for child in &self.receiver_cleanup(*target)? {
-                        if !self.cleanup_is_synchronous(*child, completed, active, known)? {
-                            return Ok(false);
-                        }
-                    }
+                for child in &self.receiver_cleanup(*target)? {
+                    pending.push(*child);
                 }
             }
         }
 
         Ok(true)
+    }
+
+    pub(crate) fn pending_finalizer<F>(
+        &mut self,
+        ty: TypeId,
+        completed: &mut F,
+    ) -> Result<Option<bray_bound_tree::LifecycleCallable>, CheckerQueryError<C::UpstreamError>>
+    where
+        F: FnMut(
+            bray_bound_tree::LifecycleCallable,
+        ) -> Result<bool, CheckerQueryError<C::UpstreamError>>,
+    {
+        let selected = self
+            .request
+            .context()
+            .lifecycle_callable(ty, bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)?;
+
+        self.diagnostics
+            .add_range(selected.diagnostics().iter().cloned());
+
+        let Some((target, signature)) = selected.value() else {
+            return Ok(None);
+        };
+
+        let lifecycle = bray_bound_tree::LifecycleCallable::from_signature(
+            self.request.semantic_values(),
+            self.request.available_compiler_known_symbols(),
+            *target,
+            signature,
+        )
+        .expect("selected lifecycle uses checked semantic types");
+
+        Ok((!completed(lifecycle)?).then_some(lifecycle))
+    }
+
+    fn observe_cleanup_call(
+        &self,
+        callable: CallableInstanceData,
+        dependency: &mut impl FnMut(bray_symbols::DependencyRequirement),
+    ) {
+        let callable = self
+            .request
+            .semantic_values()
+            .intern_callable_instance(callable)
+            .expect("selected cleanup retains its callable identity");
+
+        dependency(bray_symbols::DependencyRequirement::result_call(
+            callable,
+            None,
+            [],
+            bray_symbols::DependencyCallOutput::SynchronousCleanup,
+        ))
     }
 }

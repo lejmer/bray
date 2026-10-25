@@ -183,7 +183,7 @@ pub trait CheckerRequestContext: Sync {
     /// Returns the retained dependencies of a selected runtime-default provider.
     fn default_result_dependencies(
         &self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
     /// Returns the compilation-wide symbol graph.

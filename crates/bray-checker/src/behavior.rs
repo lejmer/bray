@@ -1,10 +1,11 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
     BoundCallableTarget, CheckedSemanticSelections, ConstructionTarget, ConversionTarget,
-    DefaultValueProvider, IndexTarget, OperatorTarget, SelectedArgument, SelectedConstructionInput,
-    SelectedConversion, SelectedOperation, SemanticSelection,
+    IndexTarget, OperatorTarget, SelectedArgument, SelectedConstructionInput, SelectedConversion,
+    SelectedOperation, SemanticSelection,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_symbols::DefaultValueProvider;
 
 use crate::unit::assert_unit_inputs;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};

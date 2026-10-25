@@ -385,11 +385,12 @@ mod tests {
         BoundConversionExpression, BoundExpression, BoundExpressionId, BoundOperator,
         BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundUnit, BoundUnitId, CheckedExpressionTypes,
-        ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider,
-        ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, IndexTarget, MemberTarget,
-        OperatorTarget, SelectedConstructionInput, SelectedConversion,
-        SelectedImplementationWitness, SelectedOperation, SelectionKind,
+        ConstructionInputId, ConstructionTarget, ConversionTarget, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, IndexTarget, MemberTarget, OperatorTarget,
+        SelectedConstructionInput, SelectedConversion, SelectedImplementationWitness,
+        SelectedOperation, SelectionKind,
     };
+    use bray_symbols::DefaultValueProvider;
     use bray_symbols::{
         CallablePosition, FunctionSymbolId, ImplementationSelection,
         StructFieldDefaultProviderSymbolId, StructFieldSymbolId, StructSymbolId, SymbolId,

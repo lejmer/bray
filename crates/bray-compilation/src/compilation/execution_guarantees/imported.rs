@@ -36,7 +36,7 @@ pub(super) type ExecutionProofGraph = BTreeMap<
 impl Compilation {
     pub(super) fn imported_default_proves_execution(
         &self,
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
         required: ExecutionObligation,
         predicate: bool,
         diagnostics: &mut DiagnosticBag,

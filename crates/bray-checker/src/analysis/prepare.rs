@@ -86,7 +86,8 @@ impl PreparedBodyAnalysis {
     pub fn check_synchronous_cleanup<C, F>(
         &self,
         request: CheckerUnitView<'_, C>,
-        types: &[TypeId],
+        requirements: &[bray_symbols::DependencyRequirement],
+        maximum_depth: usize,
         completed: &mut F,
     ) -> Result<bray_diagnostics::DiagnosticResult<()>, crate::CheckerQueryError<C::UpstreamError>>
     where
@@ -97,26 +98,13 @@ impl PreparedBodyAnalysis {
             bray_bound_tree::LifecycleCallable,
         ) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>>,
     {
-        let mut resolver = self.cleanup_shapes(request);
-        let mut active = BTreeSet::new();
-        let mut known = BTreeMap::new();
-
-        for ty in types {
-            if !resolver.cleanup_is_synchronous(*ty, completed, &mut active, &mut known)? {
-                crate::lifecycle::report_finalization(
-                    request,
-                    request.unit().root().into(),
-                    *ty,
-                    bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationOutsideAsyncCallable,
-                    &mut resolver.diagnostics,
-                )?;
-            }
-        }
-
-        Ok(bray_diagnostics::DiagnosticResult::new(
-            (),
-            resolver.diagnostics,
-        ))
+        crate::dependency::check_synchronous_cleanup(
+            request,
+            self.cleanup_shapes(request),
+            requirements,
+            maximum_depth,
+            completed,
+        )
     }
 
     pub(crate) const fn kind(&self) -> BoundUnitKind {

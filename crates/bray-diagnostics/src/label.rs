@@ -141,6 +141,8 @@ pub enum DiagnosticLabelKind {
     RefinementCapacityExceeded,
     /// This declaration or expression exceeds a compiler representation limit.
     CompilerCapacityExceeded,
+    /// Recursive cleanup calls exceeded the configured analysis limit.
+    CleanupRecursionLimitExceeded,
     /// Label for the source expression whose memory operation fails.
     MemoryOperationFailure,
     /// The selected call whose trusted obligation lacks live evidence.
@@ -250,6 +252,7 @@ impl DiagnosticLabelKind {
             Self::UnsupportedTargetRequirement => "unsupported_target_requirement",
             Self::RefinementCapacityExceeded => "refinement_capacity_exceeded",
             Self::CompilerCapacityExceeded => "compiler_capacity_exceeded",
+            Self::CleanupRecursionLimitExceeded => "cleanup_recursion_limit_exceeded",
             Self::MemoryOperationFailure => "memory_operation_failure",
             Self::TrustedObligationFailure => "trusted_obligation_failure",
             Self::TrustedCallable => "trusted_callable",

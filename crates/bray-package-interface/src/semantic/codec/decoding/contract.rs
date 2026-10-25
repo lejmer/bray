@@ -83,7 +83,7 @@ pub(super) fn decode_dependency_contract(
     let mut synchronous_cleanup = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
-        synchronous_cleanup.push(crate::InterfaceTypeId::new(read_u32(reader)?));
+        synchronous_cleanup.push(decode_dependency_requirement(reader, limits, context, 0)?);
     }
 
     let normal_completion =
@@ -436,6 +436,29 @@ pub(super) fn decode_dependency_requirement(
     let raw = read_u32(reader)?;
 
     match raw {
+        7 => Ok(InterfaceDependencyRequirement::synchronous_cleanup(
+            crate::InterfaceTypeId::new(read_u32(reader)?),
+        )),
+        8 => Ok(InterfaceDependencyRequirement::finalizer_body_cleanup(
+            crate::InterfaceTypeId::new(read_u32(reader)?),
+        )),
+        9 => {
+            let provider = read_symbol_reference(reader, context)?;
+            let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
+
+            let contextual_self = read_optional_u32(reader)?
+                .map(|subject| {
+                    read_symbol_reference(reader, context)
+                        .map(|context| (context, crate::InterfaceTypeId::new(subject)))
+                })
+                .transpose()?;
+
+            Ok(InterfaceDependencyRequirement::default_cleanup(
+                provider,
+                substitution,
+                contextual_self,
+            ))
+        }
         1 => Ok(InterfaceDependencyRequirement::new(
             decode_dependency_subject(reader, limits, context)?,
             decode_dependency_requirement_kind(reader)?,
@@ -757,12 +780,15 @@ mod tests {
     #[test]
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
-        let decoded = decode_words(&[1, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).unwrap();
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).unwrap();
 
         assert_eq!(
             decoded,
-            InterfaceDependencyContract::new([])
-                .with_synchronous_cleanup([crate::InterfaceTypeId::new(3)])
+            InterfaceDependencyContract::new([]).with_synchronous_cleanup([
+                crate::InterfaceDependencyRequirement::synchronous_cleanup(
+                    crate::InterfaceTypeId::new(3)
+                )
+            ])
         );
 
         assert!(matches!(

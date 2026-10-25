@@ -153,7 +153,7 @@ where
             ));
         };
 
-        if let Some(provider) = bray_bound_tree::DefaultValueProvider::try_from_symbol(symbol) {
+        if let Some(provider) = bray_symbols::DefaultValueProvider::try_from_symbol(symbol) {
             assert!(
                 implementation.is_none(),
                 "default invocation has no selected trait dispatch"

@@ -488,6 +488,9 @@ fn requirement_subject(requirement: &DependencyRequirement) -> Option<&Dependenc
     match requirement {
         DependencyRequirement::Direct { subject, .. } => Some(subject),
         DependencyRequirement::Guarded(_)
+        | DependencyRequirement::SynchronousCleanup(_)
+        | DependencyRequirement::FinalizerBodyCleanup(_)
+        | DependencyRequirement::DefaultCleanup { .. }
         | DependencyRequirement::ResultCall { .. }
         | DependencyRequirement::FixedPoint { .. }
         | DependencyRequirement::Variable { .. } => None,

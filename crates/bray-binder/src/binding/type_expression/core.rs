@@ -6,11 +6,11 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableContractSymbolId, ConstantTermData, GenericArgument,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, ModuleSymbolId, SelfTypeContext,
-    SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
-    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, ConstantTermData, GenericArgument, GenericOwnerId,
+    GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
+    ImportedSymbolSkeleton, ModuleSymbolId, SelfTypeContext, SemanticValueStore, SymbolGraph,
+    SymbolName, TraitApplicationData, TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -55,10 +55,10 @@ pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
         Err(BindingQueryError::DependencyUnavailable)
     }
 
-    /// Returns the callable type named by one callable-contract declaration.
-    fn callable_contract_type(
+    /// Returns the type template named by a callable contract or an implementation type member.
+    fn type_definition_value(
         &self,
-        definition: CallableContractSymbolId,
+        definition: AnySymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Upstream>;
 }
 
@@ -103,11 +103,11 @@ where
         BindingQueryContext::callable_type_contracts(self, owner, syntax, callable)
     }
 
-    fn callable_contract_type(
+    fn type_definition_value(
         &self,
-        definition: CallableContractSymbolId,
+        definition: AnySymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, T::UpstreamError> {
-        BindingQueryContext::callable_contract_type(self, definition)
+        BindingQueryContext::type_definition_value(self, definition)
     }
 }
 

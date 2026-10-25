@@ -113,11 +113,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
-                let effects = match mutation {
+                let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
                     CleanupMutation::Opaque { ty, .. } => Some(
-                        super::effects::task_effects(&memory, task_source)
+                        task_path
+                            .and_then(|path| domain.inactive_future_captures(execution, ty, path))
+                            .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
+                            .or_else(|| super::effects::task_effects(&memory, task_source))
                             .or_else(|| {
                                 self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
                             })
@@ -128,7 +131,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }
                 };
 
-                let inherited_tail = self.record_cleanup_obligations(operation, &mutation);
+                let inherited_tail =
+                    self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
+
+                if inherited_tail && matches!(operation, AnalysisOperationKind::ScopeExit {
+                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                }) {
+                    // Broadcast work can affect external state without invoking the receiver's destructor.
+                    effects = Some(vec![Effect::Unknown, Effect::Escape]);
+                }
 
                 // Remaining receiver parts use the selected tail disposition. Their
                 // ordinary finalizers execute after the body, while abandonment omits them.
@@ -259,11 +270,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
         match template.and_then(|template| {
-            crate::dependency::resolved_result_template(request, instance, template)
+            crate::dependency::resolved_result_template(request, instance, template, None)
         }) {
             Ok(template) => self
                 .synchronous_cleanup
-                .extend(template.synchronous_cleanup().iter().copied()),
+                .extend(template.synchronous_cleanup().iter().cloned()),
             Err(error) => self.query_failure = Some(error),
         }
     }
@@ -272,6 +283,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &mut self,
         operation: AnalysisOperationKind,
         mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
+        effects: Option<&[Effect]>,
     ) -> bool {
         use crate::analysis::guarantee::CleanupMutation;
 
@@ -300,44 +312,48 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         );
 
         let values = self.request.semantic_values();
-        let raw_buffers = &self.input.raw_buffers;
-
-        let deferred = |ty| match values.type_data(ty).as_ref() {
-            bray_symbols::TypeData::TypeParameter(_)
-            | bray_symbols::TypeData::ContextualSelf(_)
-            | bray_symbols::TypeData::TypeValuedMemberProjection { .. } => Some(ty),
-            bray_symbols::TypeData::Named { substitution, .. }
-                if !values.substitution_is_concrete(*substitution) =>
-            {
-                raw_buffers.get(&ty).map(|(fields, _)| fields.element)
-            }
-            _ => None,
-        };
+        let deferred = |ty| (!values.type_is_concrete(ty)).then_some(ty);
 
         if self.publish {
             if let CleanupMutation::Lifecycle(call) = mutation {
                 let contract =
                     &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
-                self.synchronous_cleanup
-                    .extend(contract.synchronous_cleanup().iter().copied());
-
-                if synchronous && !inherited_tail {
+                if call
+                    .lifecycle
+                    .call
+                    .callable
+                    .definition()
+                    .callable_symbol()
+                    .kind()
+                    == bray_symbols::SymbolKind::Finalizer
+                {
+                    if !contract.synchronous_cleanup().is_empty() {
+                        self.synchronous_cleanup.insert(
+                            bray_symbols::DependencyRequirement::FinalizerBodyCleanup(call.ty),
+                        );
+                    }
+                } else {
                     self.synchronous_cleanup
-                        .extend(contract.effects().iter().filter_map(|effect| match effect {
-                            bray_symbols::DependencyStorageEffect::Cleanup(ty) => deferred(*ty),
-                            _ => None,
-                        }));
+                        .extend(contract.synchronous_cleanup().iter().cloned());
                 }
             }
 
             if inherited_tail {
-                self.receiver_cleanup.insert(ty);
-            } else if synchronous
-                && matches!(mutation, CleanupMutation::Opaque { .. })
-                && let Some(ty) = deferred(ty)
-            {
-                self.synchronous_cleanup.insert(ty);
+                if !matches!(operation, AnalysisOperationKind::ScopeExit {
+                    phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
+                }) {
+                    self.receiver_cleanup.insert(ty);
+                }
+            } else if synchronous {
+                self.synchronous_cleanup
+                    .extend(effects.into_iter().flatten().filter_map(|effect| {
+                        match effect {
+                            Effect::Cleanup(ty) => deferred(*ty)
+                                .map(bray_symbols::DependencyRequirement::SynchronousCleanup),
+                            _ => None,
+                        }
+                    }));
             }
         }
 

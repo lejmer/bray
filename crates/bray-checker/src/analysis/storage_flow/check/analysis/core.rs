@@ -383,7 +383,7 @@ where
         Option<crate::analysis::storage_flow::memory::Target>,
     >,
     pub(super) effects: BTreeSet<bray_symbols::DependencyStorageEffect>,
-    pub(super) synchronous_cleanup: BTreeSet<bray_symbols::TypeId>,
+    pub(super) synchronous_cleanup: BTreeSet<bray_symbols::DependencyRequirement>,
     pub(super) receiver_cleanup: BTreeSet<bray_symbols::TypeId>,
     pub(super) terminal_diagnostics: BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) on_normal_path: bool,

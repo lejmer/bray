@@ -40,6 +40,7 @@ wire_tags!(bray_symbols::DependencyCallOutput {
     1 => bray_symbols::DependencyCallOutput::Value,
     2 => bray_symbols::DependencyCallOutput::CompletionReport,
     3 => bray_symbols::DependencyCallOutput::AbnormalReport,
+    4 => bray_symbols::DependencyCallOutput::SynchronousCleanup,
 });
 
 wire_tags!(InterfaceProductKind {

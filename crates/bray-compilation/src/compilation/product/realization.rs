@@ -37,3 +37,5 @@ pub(in crate::compilation::product) use storage::{NativeCallableEffects, Product
 pub(super) use support::closed_array_length;
 #[cfg(test)]
 pub(in crate::compilation::product) use symbols::NativeBoundaryMapping;
+
+pub(in crate::compilation::product) use support::codegen_checker_error;

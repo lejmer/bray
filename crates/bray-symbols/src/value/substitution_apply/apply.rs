@@ -269,7 +269,7 @@ impl SemanticValueStore {
         Ok(substitution.type_replacement(ty).unwrap_or(ty))
     }
 
-    fn substitute_generic_substitution_data(
+    pub(super) fn substitute_generic_substitution_data(
         &self,
         nested: GenericSubstitutionId,
         substitution: &Substitution<'_>,

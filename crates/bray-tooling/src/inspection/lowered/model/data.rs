@@ -1,11 +1,12 @@
 // rust-style: allow(module-too-large, reason = "the MIR inspection DTOs and exhaustive projection form one cohesive serialization contract")
 
+use bray_symbols::DefaultValueProvider;
 use std::fmt::Write;
 
 use bray_bound_tree::{
     BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId, ConstructionTarget,
-    ConversionTarget, DefaultValueProvider, MemoryLayoutQueryKind, PatternOperation,
-    PatternProjection, SelectedConversion,
+    ConversionTarget, MemoryLayoutQueryKind, PatternOperation, PatternProjection,
+    SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
@@ -1235,7 +1236,7 @@ fn call_parts(
 
             match owner {
                 bray_ir::MirDefaultOwner::Callable(callable) => {
-                    callable_reference("owner", *callable, parts, context)
+                    callable_reference("owner", callable.reference(), parts, context)
                 }
                 bray_ir::MirDefaultOwner::Type { target, ty } => {
                     construction_target(*target, parts, context)?;

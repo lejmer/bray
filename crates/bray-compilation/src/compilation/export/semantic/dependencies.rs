@@ -139,12 +139,7 @@ impl<'a> SemanticExporter<'a> {
                     .transpose()?,
             )
             .with_effects(effects)
-            .with_synchronous_cleanup(
-                self.dependency_order(data.synchronous_cleanup(), |encoder, ty| encoder.ty(*ty))?
-                    .into_iter()
-                    .map(|ty| self.type_id(*ty))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )
+            .with_synchronous_cleanup(self.dependency_requirements(data.synchronous_cleanup())?)
             .with_normal_completion(data.normal_completion())
             .with_normal_storage_preservation(data.preserves_storage_on_normal_return());
 
@@ -224,6 +219,28 @@ impl<'a> SemanticExporter<'a> {
         requirement: &DependencyRequirement,
     ) -> Result<InterfaceDependencyRequirement, PackageInterfaceExportError> {
         match requirement {
+            DependencyRequirement::SynchronousCleanup(ty) => Ok(
+                InterfaceDependencyRequirement::synchronous_cleanup(self.type_id(*ty)?),
+            ),
+            DependencyRequirement::FinalizerBodyCleanup(ty) => Ok(
+                InterfaceDependencyRequirement::finalizer_body_cleanup(self.type_id(*ty)?),
+            ),
+            DependencyRequirement::DefaultCleanup {
+                provider,
+                substitution,
+                contextual_self,
+            } => Ok(InterfaceDependencyRequirement::default_cleanup(
+                self.symbol_reference(provider.symbol())?,
+                self.substitution_id(*substitution)?,
+                contextual_self
+                    .map(|(context, subject)| {
+                        Ok((
+                            self.symbol_reference(context.symbol())?,
+                            self.type_id(subject)?,
+                        ))
+                    })
+                    .transpose()?,
+            )),
             DependencyRequirement::Variable { depth, ordinal } => {
                 Ok(InterfaceDependencyRequirement::variable(*depth, *ordinal))
             }

@@ -137,10 +137,10 @@ impl MirRuntimeReference {
 }
 
 /// Declaration context selecting a default provider's specialization and witnesses.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirDefaultOwner {
     /// A callable parameter default, including type-form parameters.
-    Callable(MirCallableReference),
+    Callable(MirCallableSelection),
     /// A field default of a constructed named type.
     Type {
         /// Selected field-bearing construction.
@@ -167,7 +167,7 @@ pub enum MirCallTarget {
         /// Exact declaration context selecting the provider specialization.
         owner: MirDefaultOwner,
         /// Selected declaration-owned provider.
-        provider: bray_bound_tree::DefaultValueProvider,
+        provider: bray_symbols::DefaultValueProvider,
     },
     /// One complete checked predicate evaluated without consuming observed inputs.
     Predicate(crate::MirPredicateReference),

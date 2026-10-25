@@ -1,6 +1,7 @@
 mod assignment;
 mod call;
 mod check;
+mod cleanup;
 mod defaults;
 mod equations;
 mod implementation;
@@ -14,6 +15,7 @@ mod value;
 mod witness;
 
 pub(crate) use check::check_dependency_contracts;
+pub(crate) use cleanup::check_synchronous_cleanup;
 pub(crate) use implementation::implementation_dependency_source;
 pub(crate) use result::{State as ResultState, Transfer as ResultTransfer};
 pub(crate) use returned::{

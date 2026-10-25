@@ -241,6 +241,7 @@ fn remap_dependency_contract(
     for requirements in std::iter::once(&mut contract.requirements)
         .chain(contract.completion_reports.iter_mut())
         .chain(contract.abnormal_reports.iter_mut())
+        .chain(std::iter::once(&mut contract.synchronous_cleanup))
     {
         for requirement in Arc::make_mut(requirements) {
             remap_dependency_requirement(requirement, maps)?;
@@ -300,12 +301,6 @@ fn remap_dependency_contract(
         })
         .collect::<Result<Vec<_>, InterfaceValidationError>>()?;
 
-    let synchronous_cleanup = contract
-        .synchronous_cleanup
-        .iter()
-        .map(|ty| maps.type_id(*ty))
-        .collect::<Result<Vec<_>, _>>()?;
-
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
@@ -341,7 +336,6 @@ fn remap_dependency_contract(
 
     Ok(contract
         .with_borrows(borrows)
-        .with_synchronous_cleanup(synchronous_cleanup)
         .with_carriers(carriers)
         .with_effects(effects.iter().cloned()))
 }
@@ -604,6 +598,21 @@ fn remap_dependency_requirement(
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
     match &mut requirement.value {
+        InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
+        | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
+            *ty = maps.type_id(*ty)?;
+        }
+        InterfaceDependencyRequirementValue::DefaultCleanup {
+            substitution,
+            contextual_self,
+            ..
+        } => {
+            *substitution = maps.substitution_id(*substitution)?;
+
+            if let Some((_, subject)) = contextual_self {
+                *subject = maps.type_id(*subject)?;
+            }
+        }
         InterfaceDependencyRequirementValue::Variable { .. } => {}
         InterfaceDependencyRequirementValue::FixedPoint {
             definitions,

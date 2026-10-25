@@ -175,7 +175,7 @@ impl SemanticValueStore {
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(template);
 
-        let substituted = template.try_map_requirements(|requirements| {
+        let substituted = template.try_map_requirements(|_, requirements| {
             requirements
                 .iter()
                 .map(|requirement| {
@@ -283,14 +283,7 @@ impl SemanticValueStore {
                         .map(|input| self.substitute_constant_term_data(input, substitution))
                         .transpose()?,
                 )
-                .with_effects(effects)
-                .with_synchronous_cleanup(
-                    template
-                        .synchronous_cleanup()
-                        .iter()
-                        .map(|ty| self.substitute_type_data(*ty, substitution))
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
+                .with_effects(effects),
         )
     }
 
@@ -325,6 +318,30 @@ impl SemanticValueStore {
         substitution: &Substitution<'_>,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
+            DependencyRequirement::SynchronousCleanup(ty) => {
+                Ok(DependencyRequirement::SynchronousCleanup(
+                    self.substitute_type_data(*ty, substitution)?,
+                ))
+            }
+            DependencyRequirement::FinalizerBodyCleanup(ty) => {
+                Ok(DependencyRequirement::FinalizerBodyCleanup(
+                    self.substitute_type_data(*ty, substitution)?,
+                ))
+            }
+            DependencyRequirement::DefaultCleanup {
+                provider,
+                substitution: selected,
+                contextual_self,
+            } => Ok(DependencyRequirement::DefaultCleanup {
+                provider: *provider,
+                substitution: self.substitute_generic_substitution_data(*selected, substitution)?,
+                contextual_self: contextual_self
+                    .map(|(context, subject)| {
+                        self.substitute_type_data(subject, substitution)
+                            .map(|subject| (context, subject))
+                    })
+                    .transpose()?,
+            }),
             DependencyRequirement::FixedPoint {
                 definitions,
                 result,
