@@ -321,7 +321,7 @@ fn imported_aggregate_static_borrows_emit_valid_native_units() {
                         value = core.atomic.initialize<usize>(7)
                     };
                 "#,
-            runtime_frames: None,
+            runtime_frames: &[],
             executable_templates: 1,
             platform_service: None,
         },
@@ -465,7 +465,7 @@ fn imported_execution_guarantees_emit_native_units() {
         false,
         GenericDependencyFixture {
             source: "module templates; func helper<T>() -> bool executes(pure, total) when(true) { ensures(result) } { return true; } public func certified<T>() -> bool executes(pure, total) when(true) { ensures(result) } { return helper<T>(); }",
-            runtime_frames: None,
+            runtime_frames: &[],
             executable_templates: 2,
             platform_service: None,
         },

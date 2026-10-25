@@ -540,7 +540,25 @@ where
             .map(|binding| match binding.argument() {
                 GenericArgument::Type(ty) => self.normalize_type(ty).map(GenericArgument::Type),
                 GenericArgument::Constant(term) => {
-                    self.normalize_term(term).map(GenericArgument::Constant)
+                    let term = self.normalize_term(term)?;
+
+                    let bray_symbols::GenericParameterSymbolId::Const(parameter) =
+                        binding.parameter()
+                    else {
+                        panic!("constant type binding retains its parameter kind");
+                    };
+
+                    let normalized = self.request.normalize_constant_argument(
+                        parameter,
+                        substitution,
+                        None,
+                        term,
+                    )?;
+
+                    self.diagnostics
+                        .extend(normalized.diagnostics().iter().cloned());
+
+                    Ok(GenericArgument::Constant(*normalized.value()))
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;

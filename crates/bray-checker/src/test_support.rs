@@ -277,6 +277,26 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn normalize_constant_argument(
+        &self,
+        _parameter: bray_symbols::GenericConstParameterSymbolId,
+        _substitution: bray_symbols::GenericSubstitutionId,
+        _contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+        assert!(
+            matches!(
+                self.semantic_values().constant_term_data(term).as_ref(),
+                bray_symbols::ConstantTermData::Value(_)
+            ) || !self.semantic_values().constant_term_is_closed(term),
+            "this test context requires pre-evaluated closed generic arguments"
+        );
+
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            term,
+        ))
+    }
+
     fn generic_constraints(
         &self,
         _obligation: bray_symbols::GenericConstraintObligationKey,

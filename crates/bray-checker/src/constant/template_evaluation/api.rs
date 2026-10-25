@@ -304,23 +304,17 @@ where
     complete_closed_evaluation(evaluator, evaluated, result_type, diagnostic_span)
 }
 
-/// Evaluates one closed array extent through the ordinary checked constant interpreter.
-///
-/// The result is checked against the selected target's usize domain.
-pub fn evaluate_array_length<C>(
+/// Evaluates one closed checked term in its instantiated result type.
+pub fn evaluate_constant_term<C>(
     context: &C,
     term: bray_symbols::ConstantTermId,
+    result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
 ) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let result_type = crate::representation::representation_type_for_context(
-        context,
-        bray_compiler_known::RepresentationRole::ScalarUsize,
-    );
-
     let limits = crate::ConstantEvaluationLimits::default();
     let mut budget = EvaluationBudget::from_limits(limits);
     let mut evaluator = TemplateEvaluator::new(context, None, None, resolver, limits, &mut budget);

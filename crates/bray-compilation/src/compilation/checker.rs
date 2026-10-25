@@ -619,8 +619,17 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 .map_err(checker_binder_error)?,
         );
 
-        let evaluated = checker_result(bray_checker::evaluate_array_length(
-            self, term, &resolver, None,
+        let result_type = bray_checker::representation_type_for_context(
+            self,
+            bray_compiler_known::RepresentationRole::ScalarUsize,
+        );
+
+        let evaluated = checker_result(bray_checker::evaluate_constant_term(
+            self,
+            term,
+            result_type,
+            &resolver,
+            None,
         ))
         .map_err(checker_query_error)?;
 
@@ -643,6 +652,97 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 })
                 .expect("checked array extent retains a valid semantic value")
         }))
+    }
+
+    fn normalize_constant_argument(
+        &self,
+        parameter: bray_symbols::GenericConstParameterSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, TypeId)>,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>> {
+        let values = self.semantic_values();
+
+        if matches!(
+            values.constant_term_data(term).as_ref(),
+            bray_symbols::ConstantTermData::Value(_)
+        ) || !values.constant_term_is_closed(term)
+        {
+            return Ok(DiagnosticResult::without_diagnostics(term));
+        }
+
+        let template = self
+            .binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::GenericConstParameterDeclaredTypeQuery,
+            >::new(parameter))
+            .map_err(checker_binder_error)?;
+
+        let compilation = self.binding_context.compilation();
+
+        let constants = compilation
+            .checked_constant_terms_for_templates_with_cancellation(
+                [template.value()],
+                self.binding_context.cancellation(),
+            )
+            .map_err(checker_query_error)?;
+
+        let mut diagnostics =
+            DiagnosticBag::merged_all([template.diagnostics(), constants.diagnostics()]);
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(term, diagnostics));
+        }
+
+        let ty = bray_checker::resolve_type_expression_template(
+            values,
+            template.value(),
+            constants.value(),
+        )
+        .expect("checked constant parameter retains its declared type");
+
+        let ty = values
+            .substitute_type(ty, substitution)
+            .expect("constant parameter type uses established generic bindings");
+
+        let ty = match contextual_self {
+            Some((context, subject)) => values
+                .substitute_contextual_self(ty, context, subject)
+                .expect("constant parameter type retains selected Self"),
+            None => ty,
+        };
+
+        let mut normalizer = bray_checker::TypeNormalizer::new(self, Some(substitution));
+        let ty = normalizer.normalize_type(ty)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
+
+        if diagnostics.has_errors() || !values.type_is_concrete(ty) {
+            return Ok(DiagnosticResult::new(term, diagnostics));
+        }
+
+        let resolver = crate::compilation::constant::CompilationConstantTemplateResolver::new(
+            compilation,
+            self.binding_context.cancellation(),
+            self.binding_context
+                .imported_symbols()
+                .map_err(checker_binder_error)?,
+        );
+
+        let evaluated = checker_result(bray_checker::evaluate_constant_term(
+            self, term, ty, &resolver, None,
+        ))
+        .map_err(checker_query_error)?;
+
+        diagnostics.extend(evaluated.diagnostics().iter().cloned());
+
+        let normalized = evaluated.value().as_ref().map_or(term, |evaluated| {
+            values
+                .intern_constant_term(bray_symbols::ConstantTermData::Value(evaluated.value()))
+                .expect("evaluated generic constant retains its materialized value")
+        });
+
+        Ok(DiagnosticResult::new(normalized, diagnostics))
     }
 
     fn generic_constraints(

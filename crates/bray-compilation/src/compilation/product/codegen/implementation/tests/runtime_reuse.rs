@@ -197,7 +197,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                     return value + 1;
                 }
             "#,
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };
@@ -411,7 +411,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
                     return value + 1;
                 }
             "#,
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 1,
         platform_service: None,
     };

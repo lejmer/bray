@@ -896,8 +896,7 @@ fn constrained_async_admission_realizes_the_selected_implementation() {
 
 #[test]
 fn admitted_synchronous_generic_cleanup_emits_native_units() {
-    assert_source_emits_valid_native_units(
-        r#"
+    const SOURCE: &str = r#"
         module app;
         struct Owner { async finalize() executes(pure, total) {} }
         func discard<T>(pos value: T) {}
@@ -906,16 +905,79 @@ fn admitted_synchronous_generic_cleanup_emits_native_units() {
             async finalize() when(Ready) { executes(pure, total) } {}
         }
         func forward<T, const Ready: bool>(pos value: T) {
-            let wrapped: Container<T, Ready> = { value = value };
-            discard<Container<T, Ready>>(wrapped);
+            let wrapped: Container<T, Ready && true> = { value = value };
+            discard<Container<T, Ready && true>>(wrapped);
+        }
+        func recur<T, const N: i32>(pos value: T, pos stop: bool) {
+            if stop { return; }
+            recur<T, N + 0>(value, stop);
         }
         public func root() {
             discard<i32>(1);
             discard<Owner>(Owner {});
             forward<Owner, true>(Owner {});
+            recur<i32, 0>(1, true);
         }
-    "#,
-        crate::BuildConfiguration::Development,
+    "#;
+
+    assert_source_emits_valid_native_units(SOURCE, crate::BuildConfiguration::Development);
+
+    let dependency = super::support::dependencies::generic_dependency_from_fixture(
+        true,
+        false,
+        super::support::dependencies::GenericDependencyFixture {
+            source: SOURCE,
+            runtime_frames: &[1, 1],
+            executable_templates: 6,
+            platform_service: None,
+        },
+    );
+
+    let (backend, codegen) = super::support::compilation::codegen_configuration();
+
+    let request = crate::CompilationRequest::with_options(
+        crate::test_support::package_identity(),
+        vec![crate::test_support::source_input(
+            r#"
+            module consumer;
+            using example.dependency.app.root;
+            public func forwarded()
+            {
+                example.dependency.app.root();
+            }
+            "#,
+            0,
+        )],
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    )
+    .with_dependency_interfaces([dependency]);
+
+    let consumer = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let plan = consumer
+        .native_product_plan(
+            super::support::compilation::test_product_identity(),
+            crate::BuildConfiguration::Development,
+            None,
+            [],
+            None,
+        )
+        .unwrap();
+
+    assert!(
+        generated_artifacts(&backend, &plan)
+            .iter()
+            .all(|artifact| !artifact.is_empty())
     );
 }
 
@@ -984,7 +1046,7 @@ fn selected_associated_runtime_default_emits_source_and_imported_native_units() 
             false,
             super::support::dependencies::GenericDependencyFixture {
                 source,
-                runtime_frames: None,
+                runtime_frames: &[],
                 executable_templates,
                 platform_service: None,
             },
@@ -993,13 +1055,25 @@ fn selected_associated_runtime_default_emits_source_and_imported_native_units() 
         let (backend, codegen) = super::support::compilation::codegen_configuration();
 
         let request = crate::CompilationRequest::with_options(
-        crate::test_support::package_identity(),
-        vec![crate::test_support::source_input(
-            "module consumer; using example.dependency.app.root; public func forwarded() { example.dependency.app.root(); }",
-            0,
-        )],
-        crate::CompilationOptions::new(crate::WorkerBudget::serial(), ProductKind::Library, SelectedTarget::baseline()),
-    ).with_dependency_interfaces([dependency]);
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                r#"
+            module consumer;
+            using example.dependency.app.root;
+            public func forwarded()
+            {
+                example.dependency.app.root();
+            }
+            "#,
+                0,
+            )],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        )
+        .with_dependency_interfaces([dependency]);
 
         let consumer = crate::Compilation::load_with_codegen(request, codegen).unwrap();
 

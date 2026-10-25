@@ -104,7 +104,24 @@ impl CleanupKey {
                     )
                     .map(GenericArgument::Type)
                 }
-                argument @ GenericArgument::Constant(_) => Ok(argument),
+                GenericArgument::Constant(term) => {
+                    let bray_symbols::GenericParameterSymbolId::Const(parameter) =
+                        binding.parameter()
+                    else {
+                        panic!("constant cleanup binding retains its parameter kind");
+                    };
+
+                    let normalized = request.context().normalize_constant_argument(
+                        parameter,
+                        substitution,
+                        self.contextual_self(),
+                        term,
+                    )?;
+
+                    diagnostics.extend(normalized.diagnostics().iter().cloned());
+
+                    Ok(GenericArgument::Constant(*normalized.value()))
+                }
             })
             .collect::<Result<Vec<_>, _>>()?;
 

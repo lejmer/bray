@@ -2722,6 +2722,40 @@ fn imported_recursive_generic_destructor_cleanup_preserves_admission() {
 }
 
 #[test]
+fn imported_recursive_cleanup_normalizes_closed_constant_expressions() {
+    for (ty, expression, argument) in [
+        ("i32", "N + 0", "0"),
+        ("usize", "N + 0", "0"),
+        ("bool", "N && true", "true"),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            func recur<T, const N: {ty}>(pos value: T, pos stop: bool) {{
+                if stop {{ return; }}
+                recur<T, {expression}>(value, stop);
+            }}
+            "#
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api.recur;
+            func main() {{ example.package.api.recur<i32, {argument}>(1, true); }}
+            "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{ty}: {diagnostics:?}");
+    }
+}
+
+#[test]
 fn imported_recursive_cleanup_retains_completion_arguments() {
     let provider = compilation(
         r#"
@@ -2732,8 +2766,8 @@ fn imported_recursive_cleanup_retains_completion_arguments() {
         }
         func sink<T, const Ready: bool>(pos value: T, pos stop: bool) {
             if stop { return; }
-            let wrapped: Container<T, Ready> = { value = value };
-            sink<Container<T, Ready>, Ready>(wrapped, stop);
+            let wrapped: Container<T, Ready && true> = { value = value };
+            sink<Container<T, Ready && true>, Ready && true>(wrapped, stop);
         }
     "#,
     );

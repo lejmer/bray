@@ -310,6 +310,16 @@ pub trait CheckerRequestContext: Sync {
         term: bray_symbols::ConstantTermId,
     ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
 
+    /// Materializes a closed generic constant in its instantiated declared type.
+    /// Open terms or declared types retain their symbolic identity.
+    fn normalize_constant_argument(
+        &self,
+        parameter: bray_symbols::GenericConstParameterSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, TypeId)>,
+        term: bray_symbols::ConstantTermId,
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
+
     /// Proves the static constraints for one exact generic declaration instance.
     fn generic_constraints(
         &self,

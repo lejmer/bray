@@ -164,7 +164,7 @@ public func invoke<T>(pos value: T)
     _ = trusted flush();
 }
 "#,
-        runtime_frames: None,
+        runtime_frames: &[],
         executable_templates: 2,
         platform_service: Some((role, "templates.flush")),
     };
@@ -671,7 +671,7 @@ const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
         "    return invoke(value);\n",
         "}\n",
     ),
-    runtime_frames: None,
+    runtime_frames: &[],
     executable_templates: 3,
     platform_service: None,
 };
@@ -699,7 +699,7 @@ public async func identity<T>(pos value: T) -> T
     return await invoke(worker, value);
 }
 "#,
-    runtime_frames: Some(3),
+    runtime_frames: &[3],
     executable_templates: 4,
     platform_service: None,
 };
@@ -744,7 +744,7 @@ const TRAIT_DEFAULT_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixt
         "    return value.quadrupled();\n",
         "}\n",
     ),
-    runtime_frames: None,
+    runtime_frames: &[],
     executable_templates: 6,
     platform_service: None,
 };
@@ -882,7 +882,7 @@ fn imported_generic_destructors_retain_their_receiver_continuations() {
                 return { value = Child {} };
             }
         "#,
-            runtime_frames: None,
+            runtime_frames: &[],
             executable_templates: 3,
             platform_service: None,
         },

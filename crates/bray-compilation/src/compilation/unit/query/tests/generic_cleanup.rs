@@ -364,6 +364,30 @@ fn recursive_generic_cleanup_preserves_certified_finalizers() {
 }
 
 #[test]
+fn recursive_cleanup_normalizes_closed_constant_expressions() {
+    for (ty, expression, argument) in [
+        ("i32", "N + 0", "0"),
+        ("usize", "N + 0", "0"),
+        ("bool", "N && true", "true"),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            module app;
+            func recur<T, const N: {ty}>(pos value: T, pos stop: bool) {{
+                if stop {{ return; }}
+                recur<T, {expression}>(value, stop);
+            }}
+            func main() {{ recur<i32, {argument}>(1, true); }}
+            "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{ty}: {diagnostics:?}");
+    }
+}
+
+#[test]
 fn recursive_generic_cleanup_retains_constant_completion_arguments() {
     for (ready, valid) in [("true", true), ("false", false)] {
         let application = compilation(&format!(
@@ -375,8 +399,8 @@ fn recursive_generic_cleanup_retains_constant_completion_arguments() {
             }}
             func sink<T, const Ready: bool>(pos value: T, pos stop: bool) {{
                 if stop {{ return; }}
-                let wrapped: Container<T, Ready> = {{ value = value }};
-                sink<Container<T, Ready>, Ready>(wrapped, stop);
+                let wrapped: Container<T, Ready && true> = {{ value = value }};
+                sink<Container<T, Ready && true>, Ready && true>(wrapped, stop);
             }}
             func main() {{ sink<i32, {ready}>(1, true); }}
         "#
