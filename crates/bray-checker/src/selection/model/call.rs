@@ -135,9 +135,10 @@ impl CallableCandidate {
         let mut defaults = defaults.into_iter().collect::<Vec<_>>();
 
         let substitution = match resolution.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
-                Some(instance.substitution())
-            }
+            bray_bound_tree::BoundCallableTarget::Declaration(instance)
+            | bray_bound_tree::BoundCallableTarget::TraitView {
+                member: instance, ..
+            } => Some(instance.substitution()),
             _ => None,
         };
 
@@ -195,7 +196,10 @@ impl CallableCandidate {
         >,
     ) -> Self {
         let substitution = match self.resolution.target() {
-            bray_bound_tree::BoundCallableTarget::Declaration(instance) => instance.substitution(),
+            bray_bound_tree::BoundCallableTarget::Declaration(instance)
+            | bray_bound_tree::BoundCallableTarget::TraitView {
+                member: instance, ..
+            } => instance.substitution(),
             _ => unreachable!("declaration semantics require a declaration target"),
         };
 

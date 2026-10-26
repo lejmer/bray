@@ -37,3 +37,4 @@ mod support;
 mod terminal_destructor;
 mod trait_result_dependencies;
 mod trait_selection;
+mod trait_views;

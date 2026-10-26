@@ -62,6 +62,7 @@ pub struct MemberTarget {
         )],
     >,
     trait_dispatch: Option<bray_symbols::TraitConstraintDispatch>,
+    trait_view_dispatch: Option<(bray_symbols::SymbolOrdinal, bray_symbols::SymbolOrdinal)>,
     witnesses: Arc<[SelectedImplementationWitness]>,
 }
 
@@ -80,6 +81,7 @@ impl MemberTarget {
             callable_template: None,
             callable_defaults: Arc::new([]),
             trait_dispatch: None,
+            trait_view_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -118,6 +120,24 @@ impl MemberTarget {
         self.trait_dispatch = Some(dispatch);
 
         self
+    }
+
+    /// Retains the method slot and first parameter-default slot in the view table.
+    pub const fn with_trait_view_dispatch(
+        mut self,
+        method: bray_symbols::SymbolOrdinal,
+        defaults: bray_symbols::SymbolOrdinal,
+    ) -> Self {
+        self.trait_view_dispatch = Some((method, defaults));
+
+        self
+    }
+
+    /// Returns the method slot and first parameter-default slot for runtime dispatch.
+    pub const fn trait_view_dispatch(
+        &self,
+    ) -> Option<(bray_symbols::SymbolOrdinal, bray_symbols::SymbolOrdinal)> {
+        self.trait_view_dispatch
     }
 
     /// Returns the exact selected member.
@@ -609,6 +629,17 @@ pub enum SelectedOperation {
     Conversion(SelectedConversion),
     /// A trait implementation witness selected for an exact requirement.
     Implementation(SelectedImplementationWitness),
+    /// Borrowed view formation with its proven exact implementation requirement.
+    TraitView {
+        /// The concrete or constrained subject and exact trait application.
+        requirement: ImplementationRequirementKey,
+        /// The shared or mutable borrowed view type.
+        result_type: TypeId,
+        /// Callable fulfillments in the trait's declaration order.
+        methods: Arc<[Option<MemberTarget>]>,
+        /// Declaration-owned parameter providers in method and parameter order.
+        defaults: Arc<[Option<(MemberTarget, CallableParameterDefaultProviderSymbolId)>]>,
+    },
 }
 
 impl SelectedOperation {
@@ -636,7 +667,7 @@ impl SelectedOperation {
                 | IndexTarget::ArraySlice
                 | IndexTarget::Slice => None,
             },
-            Self::Member(_) | Self::Implementation(_) => None,
+            Self::Member(_) | Self::Implementation(_) | Self::TraitView { .. } => None,
             Self::Operator { .. } | Self::CompoundAssignment(_) => {
                 unreachable!("operator selections retain their target")
             }
@@ -651,7 +682,7 @@ impl SelectedOperation {
             Self::Index { .. } => SelectionKind::Index,
             Self::Construction(_) => SelectionKind::Construction,
             Self::Conversion(_) => SelectionKind::Conversion,
-            Self::Implementation(_) => SelectionKind::Implementation,
+            Self::Implementation(_) | Self::TraitView { .. } => SelectionKind::Implementation,
         }
     }
 
@@ -670,7 +701,7 @@ impl SelectedOperation {
             Self::Conversion(conversion) => conversion.invokes_source(),
             Self::Construction(_) => true,
             Self::Member(member) => matches!(member.member(), AnySymbolId::UnionVariant(_)),
-            Self::Implementation(_) => false,
+            Self::Implementation(_) | Self::TraitView { .. } => false,
         }
     }
 
@@ -678,9 +709,9 @@ impl SelectedOperation {
     pub const fn result_type(&self) -> Option<TypeId> {
         match self {
             Self::Member(target) => Some(target.result_type()),
-            Self::Operator { result_type, .. } | Self::Index { result_type, .. } => {
-                Some(*result_type)
-            }
+            Self::Operator { result_type, .. }
+            | Self::Index { result_type, .. }
+            | Self::TraitView { result_type, .. } => Some(*result_type),
             Self::CompoundAssignment(selection) => Some(selection.result_type()),
             Self::Construction(construction) => Some(construction.result_type()),
             Self::Conversion(conversion) => Some(conversion.target_type()),
@@ -743,6 +774,9 @@ impl SelectedOperation {
                 .target_type()
                 .is_none_or(|target| target == conversion.target_type()),
             (Self::Implementation(_), _) => true,
+            (Self::TraitView { .. }, BoundExpression::Structured(source)) => {
+                source.kind() == BoundStructuredExpressionKind::Borrow
+            }
             _ => false,
         }
     }
@@ -788,6 +822,12 @@ impl SelectedOperation {
                 } => vec![SelectedImplementationWitness::new(requirement, witness)],
                 ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => Vec::new(),
             },
+            Self::TraitView { methods, .. } => methods
+                .iter()
+                .flatten()
+                .flat_map(MemberTarget::witnesses)
+                .copied()
+                .collect(),
             Self::Operator { .. } | Self::CompoundAssignment(_) | Self::Index { .. } => Vec::new(),
         };
 

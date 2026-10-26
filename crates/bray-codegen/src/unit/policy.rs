@@ -314,6 +314,8 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Borrow { .. }
+        | MirOperationKind::TraitView { .. }
+        | MirOperationKind::TraitViewMethod { .. }
         | MirOperationKind::Unary { .. } => 1,
         MirOperationKind::Store { .. }
         | MirOperationKind::Binary { .. }

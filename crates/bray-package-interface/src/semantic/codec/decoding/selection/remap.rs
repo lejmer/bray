@@ -697,6 +697,13 @@ fn remap_dependency_subject(
         *implementation = maps.implementation_instance_id(*implementation)?;
     }
 
+    if let InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) =
+        &mut subject.root
+    {
+        *ty = maps.type_id(*ty)?;
+        *application = maps.trait_application_id(*application)?;
+    }
+
     remap_dependency_projections(Arc::make_mut(&mut subject.projections), maps)
 }
 

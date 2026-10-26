@@ -717,6 +717,20 @@ pub enum MirOperationKind {
         /// Borrowed place.
         place: MirPlace,
     },
+    /// Erase a checked concrete borrow while retaining its selected implementation table.
+    TraitView {
+        /// Borrow of the concrete storage, with its original authority.
+        operand: MirOperand,
+        /// Trait methods followed by parameter providers, with excluded slots left empty.
+        entries: Arc<[Option<crate::MirTraitViewEntry>]>,
+    },
+    /// Resolve a checked view member to an indirect callable and its erased receiver.
+    TraitViewMethod {
+        /// Shared or mutable borrowed view retaining the implementation table.
+        operand: MirOperand,
+        /// Declaration-order slot of the selected trait member.
+        slot: bray_symbols::SymbolOrdinal,
+    },
     /// Apply a typed unary operator.
     Unary {
         /// Selected operator.

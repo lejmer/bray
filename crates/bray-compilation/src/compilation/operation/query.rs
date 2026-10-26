@@ -44,7 +44,9 @@ impl Compilation {
         let mut resolutions = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        for &expression in expressions {
+        let views = trait_view_borrows(&binding_context, bound, semantics.types());
+
+        for expression in expressions.iter().copied().chain(views) {
             if semantics.selections().expression(expression).is_some()
                 && !existing.contains(&expression)
             {
@@ -95,6 +97,19 @@ impl Compilation {
                 types,
                 scoped,
                 cancellation,
+                diagnostics,
+            );
+        }
+
+        if let BoundExpression::Structured(borrow) = expression
+            && borrow.kind() == BoundStructuredExpressionKind::Borrow
+        {
+            return self.resolve_trait_view_borrow(
+                key,
+                binding_context,
+                unit,
+                types,
+                borrow,
                 diagnostics,
             );
         }
@@ -338,6 +353,29 @@ fn variant_construction_callees(
             is_variant.then_some(call.callee())
         })
         .collect()
+}
+
+pub(in crate::compilation) fn trait_view_borrows<'a>(
+    context: &'a CompilationBindingContext<'_>,
+    unit: &'a BoundUnit,
+    types: &'a bray_bound_tree::CheckedExpressionTypes,
+) -> impl Iterator<Item = BoundExpressionId> + 'a {
+    use bray_symbols::TypeData;
+
+    types.entries().iter().filter_map(move |entry| {
+        let expression = entry.expression();
+
+        if entry.result().is_recovered() || !matches!(unit.view().expression(expression), Some(BoundExpression::Structured(borrow)) if borrow.kind() == BoundStructuredExpressionKind::Borrow) {
+            return None;
+        }
+
+        let values = context.semantic_values();
+        let data = values.type_data(entry.result().ty());
+
+        let TypeData::Borrow { target, .. } = data.as_ref() else { return None; };
+
+        matches!(values.type_data(*target).as_ref(), TypeData::TraitView(_)).then_some(expression)
+    })
 }
 
 pub(in crate::compilation) fn operation_expressions(

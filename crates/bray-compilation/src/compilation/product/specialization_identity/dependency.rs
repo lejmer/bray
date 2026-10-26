@@ -446,6 +446,11 @@ impl StructuralValueEncoder<'_, '_> {
                 self.tag(4);
                 self.implementation_instance(instance)?;
             }
+            DependencySubjectRoot::ImplementationRequirement(requirement) => {
+                self.tag(8);
+                self.ty(requirement.subject())?;
+                self.trait_application(requirement.trait_application())?;
+            }
             DependencySubjectRoot::ProductStatic(id) => {
                 self.tag(5);
                 self.symbol(id.into())?;

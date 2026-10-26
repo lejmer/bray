@@ -165,7 +165,9 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
-        MirOperationKind::Unary { operand, .. }
+        MirOperationKind::TraitView { operand, .. }
+        | MirOperationKind::TraitViewMethod { operand, .. }
+        | MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
             collect_operand_value(operand, demands);

@@ -561,7 +561,8 @@ fn body_callees<'a>(
             )),
             BoundCallableTarget::Anonymous(_)
             | BoundCallableTarget::Predicate(_)
-            | BoundCallableTarget::Indirect(_) => None,
+            | BoundCallableTarget::Indirect(_)
+            | BoundCallableTarget::TraitView { .. } => None,
         })
         // Inactive async construction also needs the body's deferred result summary.
         .chain(

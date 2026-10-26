@@ -16,6 +16,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             && !matches!(
                 call.target(),
                 bray_bound_tree::BoundCallableTarget::Declaration(_)
+                    | bray_bound_tree::BoundCallableTarget::TraitView { .. }
             )
             && let Some(BoundExpression::Call(source)) = self.request.view().expression(expression)
         {

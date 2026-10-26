@@ -278,6 +278,14 @@ impl HeaderMatcher<'_> {
                 DependencySubjectRoot::ImplementationWitness(pattern),
                 DependencySubjectRoot::ImplementationWitness(actual),
             ) => self.match_implementation_instance(pattern, actual),
+            (
+                DependencySubjectRoot::ImplementationRequirement(pattern),
+                DependencySubjectRoot::ImplementationRequirement(actual),
+            ) => Ok(self.match_type(pattern.subject(), actual.subject())?
+                && self.match_trait_application(
+                    pattern.trait_application(),
+                    actual.trait_application(),
+                )?),
             (pattern, actual) => Ok(pattern == actual),
         }
     }

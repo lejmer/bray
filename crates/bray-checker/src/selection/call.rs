@@ -290,7 +290,10 @@ where
             let resolution = candidate.resolution().clone();
 
             let implementation_symbol = match resolution.target() {
-                BoundCallableTarget::Declaration(instance) => Some(instance.definition().symbol()),
+                BoundCallableTarget::Declaration(instance)
+                | BoundCallableTarget::TraitView {
+                    member: instance, ..
+                } => Some(instance.definition().symbol()),
                 BoundCallableTarget::Predicate(instance) => Some(instance.definition().into_any()),
                 BoundCallableTarget::Indirect(_) => {
                     input.callee_member.map(|member| member.member())
@@ -392,7 +395,11 @@ where
         );
     }
 
-    if let BoundCallableTarget::Declaration(callable) = candidate.resolution().target() {
+    if let BoundCallableTarget::Declaration(callable)
+    | BoundCallableTarget::TraitView {
+        member: callable, ..
+    } = candidate.resolution().target()
+    {
         request
             .semantic_values()
             .intern_callable_instance(callable).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in check_candidate_applicability: {error:?}"));
@@ -481,7 +488,10 @@ where
     }
 
     let expected_count = match target {
-        BoundCallableTarget::Declaration(callable) => request
+        BoundCallableTarget::Declaration(callable)
+        | BoundCallableTarget::TraitView {
+            member: callable, ..
+        } => request
             .semantic_values()
             .generic_substitution_data(callable.substitution())
             .bindings()

@@ -959,16 +959,19 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let mut arguments = Vec::new();
 
-        let target = if let Some(role) =
+        let target = if self.is_trait_view_call(selection) {
+            None
+        } else if let Some(role) =
             super::super::run::runtime_call_role(selection.implementation_hook()).or_else(|| {
                 selection
                     .target()
                     .declaration()
                     .and_then(|declaration| self.input.runtime_call(declaration))
-            }) {
-            MirCallTarget::Runtime(self.runtime_reference(role))
+            })
+        {
+            Some(MirCallTarget::Runtime(self.runtime_reference(role)))
         } else {
-            match selection.target() {
+            Some(match selection.target() {
                 BoundCallableTarget::Declaration(instance) => {
                     MirCallTarget::Direct(MirCallableReference::new(instance, selection.abi()))
                 }
@@ -997,13 +1000,16 @@ impl Lowerer<'_> {
                         abi: selection.abi(),
                     }
                 }
+                BoundCallableTarget::TraitView { .. } => unreachable!(
+                    "view calls resolve their table entry before ordinary callable lowering"
+                ),
                 BoundCallableTarget::Predicate(_) => {
                     panic!(
                         "lowering contract violation: UnsupportedExpression {value:?}",
                         value = id
                     );
                 }
-            }
+            })
         };
 
         if let Some(receiver) = selection.receiver() {
@@ -1043,82 +1049,15 @@ impl Lowerer<'_> {
 
         for argument in selection.arguments() {
             match argument {
-                SelectedArgument::Default {
-                    parameter,
-                    ordinal,
-                    provider,
-                    ty,
-                } => {
-                    let MirCallTarget::Direct(callable) = &target else {
-                        panic!(
-                            "lowering contract violation: MissingSemanticSelection {value:?}",
-                            value = id
-                        );
-                    };
-
-                    let preceding = self.borrow_staged_inputs(
+                argument @ SelectedArgument::Default { .. } => {
+                    current = self.lower_default_call_input(
                         id,
                         current,
                         &source,
-                        selection.receiver().map(|receiver| receiver.mode()),
-                        arguments.iter().filter_map(|argument| match argument {
-                            MirCallArgument::Receiver { value, .. } => Some((None, value)),
-                            MirCallArgument::Explicit {
-                                ordinal: previous,
-                                value,
-                                ..
-                            } if previous < ordinal => Some((Some(*previous), value)),
-                            MirCallArgument::Explicit { .. } => None,
-                        }),
+                        selection,
+                        argument,
+                        &mut arguments,
                     )?;
-
-                    let default = MirCall::protocol(
-                        MirCallTarget::DefaultValue {
-                            owner: Self::default_callable_owner(selection, *callable),
-                            provider: bray_symbols::DefaultValueProvider::CallableParameter(
-                                *provider,
-                            ),
-                        },
-                        bray_bound_tree::BoundCallResult::Immediate(*ty),
-                        preceding,
-                        [],
-                    );
-
-                    let input = selection
-                        .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
-                            bray_symbols::SymbolOrdinal::new(*ordinal),
-                        ))
-                        .expect("selected default has its input ordinal");
-
-                    let (continued, value) = self.push_checked_value_operation(
-                        bray_bound_tree::BoundExecutionSite::CallInput {
-                            expression: id,
-                            ordinal: input,
-                        },
-                        current,
-                        Self::retained_source(&source),
-                        MirOperationKind::Call(default),
-                        *ty,
-                    )?;
-
-                    current = continued;
-
-                    let value = self.materialize_call_input(
-                        bray_bound_tree::BoundExecutionSite::CallInput {
-                            expression: id,
-                            ordinal: input,
-                        },
-                        current,
-                        &source,
-                        value,
-                        *ty,
-                    )?;
-
-                    arguments.push(MirCallArgument::Explicit {
-                        parameter: Some(*parameter),
-                        ordinal: *ordinal,
-                        value,
-                    });
                 }
                 SelectedArgument::Explicit {
                     expression,
@@ -1180,34 +1119,25 @@ impl Lowerer<'_> {
 
         current = self.lower_call_requirements(id, current, &source, selection, &arguments)?;
 
+        let target = if self.is_trait_view_call(selection) {
+            self.lower_trait_view_call_target(
+                id,
+                callee_expression,
+                current,
+                selection,
+                &mut arguments,
+                &source,
+            )?
+        } else {
+            target.expect("selected call retains its invocation target")
+        };
+
         let call = self.selected_mir_call(id, selection, target, arguments);
 
         let (current, value) =
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
-    }
-
-    fn default_callable_owner(
-        selection: &bray_bound_tree::SelectedCall,
-        callable: bray_ir::MirCallableReference,
-    ) -> bray_ir::MirDefaultOwner {
-        bray_ir::MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
-            callable,
-            selection.resolution().trait_dispatch(),
-            None,
-            selection
-                .resolution()
-                .implementation_witnesses()
-                .iter()
-                .copied()
-                .chain(
-                    selection
-                        .witnesses()
-                        .iter()
-                        .map(|selection| selection.witness()),
-                ),
-        ))
     }
 
     fn selected_mir_call(

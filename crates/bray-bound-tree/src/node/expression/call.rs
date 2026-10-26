@@ -78,6 +78,17 @@ pub enum BoundCallableTarget {
     /// Compiler-provided behavior is classified from this declaration identity, never from the
     /// callee's source spelling.
     Declaration(CallableInstanceData),
+    /// A trait-view member dispatched through its retained implementation table.
+    TraitView {
+        /// Exact trait declaration and applied trait arguments.
+        member: CallableInstanceData,
+        /// Declaration-order table slot selected before lowering.
+        slot: bray_symbols::SymbolOrdinal,
+        /// First parameter-default slot for this method.
+        defaults: bray_symbols::SymbolOrdinal,
+        /// Checked callable surface, including its phase contracts.
+        ty: TypeId,
+    },
     /// A compile-time predicate and its complete generic substitution.
     Predicate(PredicateInstanceData),
     /// A separately bound anonymous callable unit.
@@ -90,7 +101,10 @@ impl BoundCallableTarget {
     /// Returns the declaration identity when the target is statically declared.
     pub const fn declaration(self) -> Option<CallableDefinitionId> {
         match self {
-            Self::Declaration(instance) => Some(instance.definition()),
+            Self::Declaration(instance)
+            | Self::TraitView {
+                member: instance, ..
+            } => Some(instance.definition()),
             Self::Predicate(_) | Self::Anonymous(_) | Self::Indirect(_) => None,
         }
     }
@@ -238,11 +252,27 @@ impl BoundResolvedCall {
 
     pub(crate) fn set_declaration_source(&mut self, callable: CallableInstanceData) {
         assert!(
-            matches!(self.target, BoundCallableTarget::Indirect(_)),
-            "only an indirect callable value needs a separate declaration source"
+            matches!(
+                self.target,
+                BoundCallableTarget::Indirect(_) | BoundCallableTarget::TraitView { .. }
+            ),
+            "only runtime dispatch needs a separate implementation source"
         );
 
         self.value_source = Some(CallableValueSource::Declaration(callable));
+    }
+
+    pub(crate) fn set_trait_view_source(&mut self, method: &crate::MemberTarget) {
+        self.set_declaration_source(
+            method
+                .callable_instance()
+                .expect("view entry retains its selected callable"),
+        );
+
+        self.implementation_witnesses =
+            sorted_unique_shared_slice(method.witnesses().iter().map(|witness| witness.witness()));
+
+        self.trait_dispatch = method.trait_dispatch();
     }
 
     /// Returns the exact named implementation, including immutable callable aliases.

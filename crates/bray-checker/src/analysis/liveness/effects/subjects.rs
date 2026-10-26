@@ -41,6 +41,14 @@ fn collect_subject(
     storage: &StoragePlan,
     subjects: &mut BTreeSet<BoundDependencySubject>,
 ) {
+    if matches!(
+        subject,
+        BoundDependencySubject::ImplementationWitness(_)
+            | BoundDependencySubject::ImplementationRequirement(_)
+    ) {
+        return;
+    }
+
     subjects.insert(subject);
 
     match subject {

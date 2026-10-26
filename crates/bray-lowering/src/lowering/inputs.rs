@@ -1,6 +1,12 @@
-use bray_bound_tree::{AsyncCleanupPhases, AsyncStorageCleanupRequirement, BoundExpressionId};
+use bray_bound_tree::{
+    AsyncCleanupPhases, AsyncStorageCleanupRequirement, BoundCallableTarget, BoundExpressionId,
+    SelectedArgument,
+};
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirBlockId, MirCleanupPhase, MirOperand, MirPlace, MirSourceAnchor};
+use bray_ir::{
+    MirBlockId, MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupPhase,
+    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
+};
 use bray_symbols::TypeId;
 
 use super::LoweringError;
@@ -59,6 +65,139 @@ impl InputExit {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn lower_default_call_input(
+        &mut self,
+        id: BoundExpressionId,
+        mut current: MirBlockId,
+        source: &MirSourceAnchor,
+        selection: &bray_bound_tree::SelectedCall,
+        argument: &SelectedArgument,
+        arguments: &mut Vec<MirCallArgument>,
+    ) -> Result<MirBlockId, LoweringError> {
+        let SelectedArgument::Default {
+            parameter,
+            ordinal,
+            provider,
+            ty,
+        } = argument
+        else {
+            panic!("selected default input retains its provider and parameter");
+        };
+
+        let callable = match selection.target() {
+            BoundCallableTarget::Declaration(callable)
+            | BoundCallableTarget::TraitView {
+                member: callable, ..
+            } => MirCallableReference::new(callable, selection.abi()),
+            _ => panic!("selected defaults retain their declaration owner at {id:?}"),
+        };
+
+        let mut preceding = self.borrow_staged_inputs(
+            id,
+            current,
+            source,
+            selection.receiver().map(|receiver| receiver.mode()),
+            arguments.iter().filter_map(|argument| match argument {
+                MirCallArgument::Receiver { value, .. } => Some((None, value)),
+                MirCallArgument::Explicit {
+                    ordinal: previous,
+                    value,
+                    ..
+                } if previous < ordinal => Some((Some(*previous), value)),
+                MirCallArgument::Explicit { .. } => None,
+            }),
+        )?;
+
+        let default_target = if self.is_trait_view_call(selection) {
+            let Some(MirCallArgument::Receiver { value, .. }) = arguments.first() else {
+                panic!("view default retains its checked receiver")
+            };
+
+            self.lower_trait_view_default_target(
+                id,
+                current,
+                source,
+                selection,
+                *ordinal,
+                *ty,
+                value.clone(),
+                &mut preceding,
+            )?
+        } else {
+            MirCallTarget::DefaultValue {
+                owner: Self::default_callable_owner(selection, callable),
+                provider: bray_symbols::DefaultValueProvider::CallableParameter(*provider),
+            }
+        };
+
+        let default = MirCall::protocol(
+            default_target,
+            bray_bound_tree::BoundCallResult::Immediate(*ty),
+            preceding,
+            [],
+        );
+
+        let input = selection
+            .input_ordinal(bray_symbols::DependencySubjectRoot::Parameter(
+                bray_symbols::SymbolOrdinal::new(*ordinal),
+            ))
+            .expect("selected default has its input ordinal");
+
+        let (continued, value) = self.push_checked_value_operation(
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: id,
+                ordinal: input,
+            },
+            current,
+            Self::retained_source(source),
+            MirOperationKind::Call(default),
+            *ty,
+        )?;
+
+        current = continued;
+
+        let value = self.materialize_call_input(
+            bray_bound_tree::BoundExecutionSite::CallInput {
+                expression: id,
+                ordinal: input,
+            },
+            current,
+            source,
+            value,
+            *ty,
+        )?;
+
+        arguments.push(MirCallArgument::Explicit {
+            parameter: Some(*parameter),
+            ordinal: *ordinal,
+            value,
+        });
+
+        Ok(current)
+    }
+
+    fn default_callable_owner(
+        selection: &bray_bound_tree::SelectedCall,
+        callable: bray_ir::MirCallableReference,
+    ) -> bray_ir::MirDefaultOwner {
+        bray_ir::MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
+            callable,
+            selection.resolution().trait_dispatch(),
+            None,
+            selection
+                .resolution()
+                .implementation_witnesses()
+                .iter()
+                .copied()
+                .chain(
+                    selection
+                        .witnesses()
+                        .iter()
+                        .map(|selection| selection.witness()),
+                ),
+        ))
+    }
+
     pub(super) fn borrow_staged_inputs<'input>(
         &mut self,
         expression: BoundExpressionId,

@@ -129,8 +129,8 @@ where
     let mut expectations = Vec::new();
     let mut inferred_initializers = Vec::new();
 
-    // Nullable and callable destinations can coerce one initializer without changing
-    // the source value's type at every other use. Inferred aliases retain equality.
+    // Contextual destinations coerce their initializer without changing the source
+    // value at other uses. Inferred aliases retain equality.
     for constraint in declared
         .constraints()
         .iter()
@@ -155,8 +155,10 @@ where
             && types.iter().any(|ty| {
                 matches!(
                     request.semantic_values().type_data(*ty).as_ref(),
-                    TypeData::Nullable(_) | TypeData::Callable(_)
-                )
+                    TypeData::Nullable(_) | TypeData::Callable(_) | TypeData::Tuple(_)
+                ) || matches!(request.semantic_values().type_data(*ty).as_ref(),
+                    TypeData::Borrow { target, .. }
+                        if matches!(request.semantic_values().type_data(*target).as_ref(), TypeData::TraitView(_)))
             })
         {
             expectations.extend(

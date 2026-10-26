@@ -18,6 +18,58 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
     Option<(BoundCallDependencyContracts, Vec<DependencySubjectRoot>)>,
     bray_bound_tree::DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 > {
+    if let SelectedOperation::TraitView {
+        methods,
+        defaults,
+        requirement,
+        ..
+    } = operation
+    {
+        let mut cleanup = Vec::new();
+
+        for method in methods.iter().flatten() {
+            let template = super::templates::invocation_dependencies(
+                request,
+                method
+                    .callable_instance()
+                    .expect("view formation retains each checked implementation callable"),
+                method.trait_dispatch(),
+                [],
+            )
+            .map_err(bray_bound_tree::DependencyContractInstantiationError::Resolution)?;
+
+            cleanup.extend_from_slice(template.synchronous_cleanup());
+        }
+
+        for (method, provider) in defaults.iter().flatten() {
+            let instance = method
+                .callable_instance()
+                .expect("view default retains its declaration context");
+
+            let application = request
+                .semantic_values()
+                .trait_application_data(requirement.trait_application());
+
+            cleanup.push(bray_symbols::DependencyRequirement::DefaultCleanup {
+                provider: bray_symbols::DefaultValueProvider::CallableParameter(*provider),
+                substitution: instance.substitution(),
+                contextual_self: Some((
+                    bray_symbols::SelfTypeContext::Trait(application.definition()),
+                    requirement.subject(),
+                )),
+            });
+        }
+
+        let contracts = BoundCallDependencyContracts::new(
+            BoundDependencyContract::new([]),
+            BoundDependencyContract::new([]),
+            None,
+        )
+        .with_synchronous_cleanup(&cleanup);
+
+        return Ok(Some((contracts, Vec::new())));
+    }
+
     let Some(template) = operation_result_dependencies(request, expression, operation)
         .map_err(bray_bound_tree::DependencyContractInstantiationError::Resolution)?
     else {

@@ -235,7 +235,10 @@ pub(crate) fn selected_input_template<C: CheckerRequestContext + ?Sized>(
 
         let template = crate::dependency::resolved_result_template(request, None, template, None)?;
 
-        return Ok(if cleanup {
+        // Formation certifies every selected provider before its concrete Self is erased.
+        let erased = matches!(selection, SemanticSelection::Call(call) if matches!(call.target(), bray_bound_tree::BoundCallableTarget::TraitView { .. }));
+
+        return Ok(if cleanup && !erased {
             template.with_synchronous_cleanup([
                 bray_symbols::DependencyRequirement::DefaultCleanup {
                     provider,

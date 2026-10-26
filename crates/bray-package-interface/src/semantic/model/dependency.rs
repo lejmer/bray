@@ -21,6 +21,8 @@ pub enum InterfaceDependencySubjectRoot {
     ScopedCapability(SymbolOrdinal),
     /// Selected implementation witness.
     ImplementationWitness(InterfaceImplementationInstanceId),
+    /// Subject and exact trait application whose witness survives type erasure.
+    ImplementationRequirement(super::InterfaceTypeId, super::InterfaceTraitApplicationId),
     /// Product-static declaration identity.
     ProductStatic(InterfaceSymbolReference),
     /// Exact-thread static declaration identity.

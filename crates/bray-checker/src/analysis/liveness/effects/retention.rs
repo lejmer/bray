@@ -492,6 +492,7 @@ fn retained_storage_borrows(
             }
             BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
+            | BoundDependencySubject::ImplementationRequirement(_)
             | BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_)
             | BoundDependencySubject::LifecycleObligation(_) => {}

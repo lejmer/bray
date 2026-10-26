@@ -394,6 +394,11 @@ pub(super) fn encode_dependency_subject(
         InterfaceDependencySubjectRoot::ImplementationWitness(instance) => {
             write_tagged_id(encoder, 5, instance.raw());
         }
+        InterfaceDependencySubjectRoot::ImplementationRequirement(subject, application) => {
+            encoder.write_u32(9);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(application.raw());
+        }
         InterfaceDependencySubjectRoot::ProductStatic(reference) => {
             encoder.write_u32(6);
             write_symbol_reference(encoder, reference);

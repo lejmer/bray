@@ -60,6 +60,8 @@ pub enum BoundDependencySubject {
     ScopedCapability(ScopedCapabilityId),
     /// A selected semantic implementation witness.
     ImplementationWitness(ImplementationInstanceId),
+    /// A retained implementation requirement awaiting generic instantiation.
+    ImplementationRequirement(bray_symbols::ImplementationRequirementKey),
     /// One product-static declaration instance.
     ProductStatic(StaticSymbolId),
     /// One exact native-thread static declaration instance.
@@ -77,6 +79,7 @@ impl BoundDependencySubject {
             Self::ScopedCapability(capability) => capability.unit() == unit,
             Self::LifecycleObligation(obligation) => obligation.unit() == unit,
             Self::ImplementationWitness(_)
+            | Self::ImplementationRequirement(_)
             | Self::ProductStatic(_)
             | Self::ExactThreadStatic(_) => true,
         }
@@ -90,6 +93,7 @@ impl BoundDependencySubject {
             Self::ScopedCapability(capability) => capability.unit() == storage.unit(),
             Self::LifecycleObligation(obligation) => obligation.unit() == storage.unit(),
             Self::ImplementationWitness(_)
+            | Self::ImplementationRequirement(_)
             | Self::ProductStatic(_)
             | Self::ExactThreadStatic(_) => true,
         }

@@ -63,7 +63,8 @@ pub(crate) fn operation_result_dependencies<C: CheckerRequestContext + ?Sized>(
             } => (*member, Some(*dispatch)),
             SelectedOperation::Member(_)
             | SelectedOperation::Index { .. }
-            | SelectedOperation::Implementation(_) => return Ok(None),
+            | SelectedOperation::Implementation(_)
+            | SelectedOperation::TraitView { .. } => return Ok(None),
             SelectedOperation::Operator { .. }
             | SelectedOperation::CompoundAssignment(_)
             | SelectedOperation::Construction(_)

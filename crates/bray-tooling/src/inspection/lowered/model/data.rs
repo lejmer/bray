@@ -690,6 +690,17 @@ fn operation_parts(
 
             "declared_callable"
         }
+        MirOperationKind::TraitView { operand, entries } => {
+            trait_view_entries(operand, entries, parts, context)?;
+
+            "trait_view"
+        }
+        MirOperationKind::TraitViewMethod { operand, slot } => {
+            parts.operand("operand", operand, context)?;
+            parts.attribute("slot", slot.raw());
+
+            "trait_view_method"
+        }
         MirOperationKind::Store {
             kind,
             destination,
@@ -883,6 +894,44 @@ fn operation_parts(
     };
 
     Ok(kind)
+}
+
+fn trait_view_entries(
+    operand: &MirOperand,
+    entries: &[Option<bray_ir::MirTraitViewEntry>],
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    parts.operand("operand", operand, context)?;
+    parts.attribute("entry_count", compact_id(entries.len()));
+
+    for (index, entry) in entries.iter().enumerate() {
+        let role = format!("entry[{index}]");
+
+        let Some(entry) = entry else {
+            parts.attribute(role, "excluded");
+            continue;
+        };
+
+        callable_reference(&role, entry.callable().reference(), parts, context);
+
+        if let Some(bray_symbols::DefaultValueProvider::CallableParameter(provider)) =
+            entry.default_provider()
+        {
+            parts.symbol(format!("{role}_provider"), provider.into(), context.symbols);
+        }
+
+        for (ordinal, witness) in entry.callable().witnesses().iter().enumerate() {
+            parts.semantic_value(
+                format!("{role}_witness[{ordinal}]"),
+                "implementation_instance",
+                witness.slot(),
+                None,
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn text_operation_parts(

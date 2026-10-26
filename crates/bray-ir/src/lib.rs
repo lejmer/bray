@@ -50,7 +50,7 @@ pub use predicate::{MirPredicateKey, MirPredicateReference};
 pub use reference::{
     MirAnonymousCallableReference, MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget,
     MirCallableReference, MirCallableSelection, MirDefaultOwner, MirFieldReference,
-    MirRuntimeReference,
+    MirRuntimeReference, MirTraitViewEntry,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};

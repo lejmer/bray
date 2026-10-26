@@ -218,7 +218,9 @@ impl Compilation {
         };
 
         let BoundCallableTarget::Declaration(instance) = target else {
-            if let BoundCallableTarget::Indirect(ty) = target {
+            if let BoundCallableTarget::Indirect(ty) | BoundCallableTarget::TraitView { ty, .. } =
+                target
+            {
                 let values = self.semantic_value_store()?;
                 let data = values.type_data(ty);
 

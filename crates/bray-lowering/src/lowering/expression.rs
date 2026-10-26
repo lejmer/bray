@@ -12,6 +12,7 @@ pub(crate) mod sequence;
 mod static_access;
 mod testing;
 pub(crate) mod text;
+mod trait_view;
 mod value;
 
 pub(super) use control::CallOutcome;

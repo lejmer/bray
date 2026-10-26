@@ -55,6 +55,7 @@ impl MirGeneratedLifecycleRole {
             MirHelperReference::LifecycleFrame { role, .. } => Some(*role),
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
+            | MirHelperReference::TraitViewEntry(_)
             | MirHelperReference::DefaultValue(_)
             | MirHelperReference::Predicate(_)
             | MirHelperReference::TypeForm(_)

@@ -1,5 +1,4 @@
 use super::{
-    CallableParameterData, CallableTypeData, GenericArgument, GenericSubstitutionData,
     GenericSubstitutionId, SelfTypeContext, SemanticValueStore, SemanticValueStoreError,
     TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
@@ -32,123 +31,10 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let data = self.type_data(ty);
+        let contextual = self.intern_type(TypeData::ContextualSelf(context))?;
+        let types = std::collections::BTreeMap::from([(contextual, replacement)]);
 
-        if matches!(data.as_ref(), TypeData::ContextualSelf(candidate) if *candidate == context) {
-            return Ok(replacement);
-        }
-
-        let substituted = match data.as_ref() {
-            TypeData::ExactInteger { .. }
-            | TypeData::Error
-            | TypeData::TypeParameter(_)
-            | TypeData::ContextualSelf(_) => {
-                return Ok(ty);
-            }
-            TypeData::Named {
-                definition,
-                substitution,
-            } => TypeData::Named {
-                definition: *definition,
-                substitution: self.substitute_contextual_self_in_substitution(
-                    *substitution,
-                    context,
-                    replacement,
-                )?,
-            },
-            TypeData::TypeValuedMemberProjection {
-                subject,
-                application,
-                member,
-            } => TypeData::TypeValuedMemberProjection {
-                subject: self.substitute_contextual_self(*subject, context, replacement)?,
-                application: self.substitute_contextual_self_in_application(
-                    *application,
-                    context,
-                    replacement,
-                )?,
-                member: *member,
-            },
-            TypeData::Tuple(elements) => TypeData::tuple(
-                elements
-                    .iter()
-                    .map(|element| self.substitute_contextual_self(*element, context, replacement))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            TypeData::Array { element, length } => TypeData::Array {
-                element: self.substitute_contextual_self(*element, context, replacement)?,
-                length: *length,
-            },
-            TypeData::FlexibleArray(element) => TypeData::FlexibleArray(
-                self.substitute_contextual_self(*element, context, replacement)?,
-            ),
-            TypeData::Slice(element) => {
-                TypeData::Slice(self.substitute_contextual_self(*element, context, replacement)?)
-            }
-            TypeData::Generator(element) => TypeData::Generator(self.substitute_contextual_self(
-                *element,
-                context,
-                replacement,
-            )?),
-            TypeData::Nullable(target) => TypeData::Nullable(self.substitute_contextual_self(
-                *target,
-                context,
-                replacement,
-            )?),
-            TypeData::Borrow { kind, target } => TypeData::Borrow {
-                kind: *kind,
-                target: self.substitute_contextual_self(*target, context, replacement)?,
-            },
-            TypeData::TraitView(application) => TypeData::TraitView(
-                self.substitute_contextual_self_in_application(*application, context, replacement)?,
-            ),
-            TypeData::OwnedIndirection { storage, target } => TypeData::OwnedIndirection {
-                storage: self.substitute_contextual_self(*storage, context, replacement)?,
-                target: self.substitute_contextual_self(*target, context, replacement)?,
-            },
-            TypeData::Callable(callable) => {
-                let parameters = callable
-                    .parameters()
-                    .iter()
-                    .map(|parameter| {
-                        Ok(CallableParameterData::new(
-                            parameter.name().clone(),
-                            parameter.position(),
-                            parameter.mode(),
-                            self.substitute_contextual_self(parameter.ty(), context, replacement)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
-
-                TypeData::Callable(
-                    CallableTypeData::new(
-                        parameters,
-                        self.substitute_contextual_self(callable.result(), context, replacement)?,
-                        callable.constness(),
-                        callable.trust(),
-                        callable.abi(),
-                        callable.dependency_contracts(),
-                    )
-                    .with_variadic(callable.is_variadic())
-                    .with_phase_behaviors(
-                        callable.phase_behaviors().clone().with_receiver_cleanup(
-                            callable
-                                .phase_behaviors()
-                                .deferred_execution()
-                                .unwrap_or_else(|| callable.phase_behaviors().invocation())
-                                .receiver_cleanup()
-                                .iter()
-                                .map(|ty| {
-                                    self.substitute_contextual_self(*ty, context, replacement)
-                                })
-                                .collect::<Result<Vec<_>, _>>()?,
-                        ),
-                    ),
-                )
-            }
-        };
-
-        self.intern_type(substituted)
+        self.substitute_type_data(ty, &super::substitution_apply::Substitution::Types(&types))
     }
 
     /// Replaces one declaration context's `Self` throughout a trait application.
@@ -176,27 +62,13 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let data = self.generic_substitution_data(substitution);
+        let contextual = self.intern_type(TypeData::ContextualSelf(context))?;
+        let types = std::collections::BTreeMap::from([(contextual, replacement)]);
 
-        let arguments = data
-            .bindings()
-            .iter()
-            .map(|binding| match binding.argument() {
-                GenericArgument::Type(ty) => self
-                    .substitute_contextual_self(ty, context, replacement)
-                    .map(GenericArgument::Type),
-                GenericArgument::Constant(term) => Ok(GenericArgument::Constant(term)),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let substituted = GenericSubstitutionData::try_new(
-            data.owner(),
-            data.bindings().iter().map(|binding| binding.parameter()),
-            arguments,
+        self.substitute_generic_substitution_data(
+            substitution,
+            &super::substitution_apply::Substitution::Types(&types),
         )
-        .expect("substitution preserves parameter kinds and arity");
-
-        self.intern_generic_substitution(substituted)
     }
 }
 

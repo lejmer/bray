@@ -212,7 +212,8 @@ pub(crate) fn collect_operation_behavior(
         | SelectedOperation::Operator { .. }
         | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
-        | SelectedOperation::Implementation(_) => {}
+        | SelectedOperation::Implementation(_)
+        | SelectedOperation::TraitView { .. } => {}
     }
 
     true

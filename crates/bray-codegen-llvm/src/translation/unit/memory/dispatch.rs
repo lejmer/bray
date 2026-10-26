@@ -569,7 +569,7 @@ mod tests {
         TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirAggregate, MirAggregateKind, MirBlockKind, MirCallFailureEdge, MirCleanupPhase, MirEdge,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirCallFailureEdge, MirEdge,
         MirHelperReference, MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationKind,
         MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
         MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
@@ -591,7 +591,6 @@ mod tests {
 
     const MEMORY_ALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_allocate";
     const MEMORY_DEALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_deallocate";
-    const MEMORY_VALUE_CLEANUP_HELPER_SYMBOL: &str = "bray_test_memory_value_cleanup";
 
     #[derive(Clone, Copy)]
     struct MemoryTypes {
@@ -756,8 +755,10 @@ mod tests {
             })
             .count();
 
-        assert_eq!(deallocations, 3);
-        assert!(!ir.contains("memory.buffer.previous_index"));
+        assert_eq!(deallocations, 4);
+
+        assert!(!ir.contains("memory.buffer.previous_index"), "initialized-prefix retirement belongs to MIR cleanup, not memory primitives: {ir}");
+
         assert!(!ir.contains("memory.buffer.next_index"));
     }
 
@@ -960,7 +961,6 @@ mod tests {
         let mir = builder.finish(entry);
         let allocation = helper_instance_key(172, 1, mir.target());
         let deallocation = helper_instance_key(173, 2, mir.target());
-        let cleanup = helper_instance_key(174, 3, mir.target());
 
         let instance = CodegenInstance::try_new(
             CodegenInstanceKey::non_generic(&mir),
@@ -984,7 +984,6 @@ mod tests {
             source,
             &allocation,
             &deallocation,
-            &cleanup,
             true,
         );
 
@@ -1412,7 +1411,6 @@ mod tests {
 
         let allocation = helper_instance_key(172, 1, mir.target());
         let deallocation = helper_instance_key(173, 2, mir.target());
-        let cleanup = helper_instance_key(174, 3, mir.target());
 
         let instance = CodegenInstance::try_new(
             CodegenInstanceKey::non_generic(&mir),
@@ -1420,7 +1418,6 @@ mod tests {
             [
                 CodegenInstanceDependency::definition(allocation.clone()),
                 CodegenInstanceDependency::definition(deallocation.clone()),
-                CodegenInstanceDependency::definition(cleanup.clone()),
             ],
         )
         .unwrap_or_else(|error| panic!("memory test instance must be valid: {error:?}"));
@@ -1440,7 +1437,6 @@ mod tests {
             source,
             &allocation,
             &deallocation,
-            &cleanup,
             true,
         );
 
@@ -1883,6 +1879,18 @@ mod tests {
             builder,
             block,
             source,
+            CheckedMemoryOperationKind::RawBufferRelease { element: types.value },
+            [MirOperand::Value(buffer)],
+            [types.raw_buffer_borrow],
+            None,
+        );
+
+        let block = checked_memory_continuation(builder, block, source, types);
+
+        push_memory(
+            builder,
+            block,
+            source,
             CheckedMemoryOperationKind::RawBufferReplace {
                 element: types.value,
             },
@@ -2248,7 +2256,6 @@ mod tests {
         source: MirSourceAnchor,
         allocation: &CodegenInstanceKey,
         deallocation: &CodegenInstanceKey,
-        cleanup: &CodegenInstanceKey,
         checked_allocation: bool,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
@@ -2473,8 +2480,7 @@ mod tests {
             CodegenSymbolKey::Instance(instance.key().clone()),
             name,
             CodegenLinkage::Internal,
-            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false)
-                .with_panic_report_context(),
+            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false).with_panic_report_context(),
         );
 
         let allocation_signature = CodegenCallableSignature::new(
@@ -2509,19 +2515,7 @@ mod tests {
                 CodegenResultMapping::Void,
                 CallableAbi::Bray,
                 false,
-            )
-            .with_panic_report_context(),
-        );
-
-        let cleanup_symbol = helper_symbol(
-            cleanup,
-            MEMORY_VALUE_CLEANUP_HELPER_SYMBOL,
-            CodegenCallableSignature::new(
-                (0..3).map(|_| CodegenParameterMapping::direct(types.pointer, None, [])),
-                CodegenResultMapping::Void,
-                CallableAbi::Bray,
-                false,
-            ),
+            ).with_panic_report_context(),
         );
 
         let operation_mappings =
@@ -2545,13 +2539,6 @@ mod tests {
                             ) => CodegenHelperMapping::new(
                                 reference,
                                 CodegenSymbolKey::Instance(deallocation.clone()),
-                            ),
-                            MirHelperReference::Cleanup {
-                                phase: MirCleanupPhase::LifecycleResolution,
-                                ty,
-                            } if *ty == types.value => CodegenHelperMapping::new(
-                                reference,
-                                CodegenSymbolKey::Instance(cleanup.clone()),
                             ),
                             _ => panic!(
                                 "memory fixture contains an unexpected helper: {reference:?}"
@@ -2620,7 +2607,6 @@ mod tests {
                 owner_symbol,
                 allocation_symbol,
                 deallocation_symbol,
-                cleanup_symbol,
             ]
             .into_iter()
             .chain(atomic_symbols),

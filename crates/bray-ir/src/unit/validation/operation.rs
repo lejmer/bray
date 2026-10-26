@@ -86,7 +86,9 @@ pub(super) fn validate_operation(
                 validate_operand(unit, abandoned, block, Some(id))?;
             }
         }
-        MirOperationKind::Unary { operand, .. }
+        MirOperationKind::TraitView { operand, .. }
+        | MirOperationKind::TraitViewMethod { operand, .. }
+        | MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
             validate_operand(unit, operand, block, Some(id))?;
@@ -213,6 +215,8 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
+        | MirOperationKind::TraitView { .. }
+        | MirOperationKind::TraitViewMethod { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::PatternProjection { .. }
@@ -246,6 +250,8 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         MirOperationKind::AnonymousCallable(_)
             | MirOperationKind::DeclaredCallable(_)
             | MirOperationKind::Borrow { .. }
+            | MirOperationKind::TraitView { .. }
+            | MirOperationKind::TraitViewMethod { .. }
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
             | MirOperationKind::PatternProjection { .. }

@@ -289,7 +289,10 @@ impl SemanticSelection {
     /// Returns the selected callable substitution for callable-owned defaults.
     pub fn input_instance(&self) -> Option<bray_symbols::CallableInstanceData> {
         match self {
-            Self::Call(call) => call.resolution().declaration_source(),
+            Self::Call(call) => match call.target() {
+                crate::BoundCallableTarget::TraitView { member, .. } => Some(member),
+                _ => call.resolution().declaration_source(),
+            },
             Self::Operation(SelectedOperation::Construction(construction)) => {
                 match construction.target() {
                     ConstructionTarget::TypeForm { callable, .. } => Some(callable),

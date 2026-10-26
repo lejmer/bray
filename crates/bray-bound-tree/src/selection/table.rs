@@ -177,7 +177,10 @@ impl CheckedSemanticSelections {
         match (site, selection) {
             (crate::BoundExecutionSite::Node(_), SemanticSelection::Call(call)) => {
                 match call.target() {
-                    crate::BoundCallableTarget::Declaration(callable) => Some(callable),
+                    crate::BoundCallableTarget::Declaration(callable)
+                    | crate::BoundCallableTarget::TraitView {
+                        member: callable, ..
+                    } => Some(callable),
                     _ => None,
                 }
             }
@@ -222,7 +225,21 @@ fn retain_callable_value_sources(unit: &BoundUnit, entries: &mut [SemanticSelect
         })
         .collect::<std::collections::BTreeMap<_, _>>();
 
-    if references.is_empty() {
+    // Each formation owns an immutable table shared by its aliases.
+    let views = entries
+        .iter()
+        .filter_map(|entry| {
+            let SemanticSelection::Operation(SelectedOperation::TraitView { methods, .. }) =
+                entry.selection()
+            else {
+                return None;
+            };
+
+            Some((entry.expression(), Arc::clone(methods)))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    if references.is_empty() && views.is_empty() {
         return;
     }
 
@@ -232,6 +249,54 @@ fn retain_callable_value_sources(unit: &BoundUnit, entries: &mut [SemanticSelect
         let SemanticSelection::Call(call) = &mut entry.selection else {
             continue;
         };
+
+        if let crate::BoundCallableTarget::TraitView { slot, .. } = call.target() {
+            let mut origin = call
+                .receiver()
+                .expect("view call retains its receiver")
+                .expression();
+
+            loop {
+                if let Some(methods) = views.get(&origin) {
+                    if let Some(Some(method)) =
+                        methods.get(usize::try_from(slot.raw()).expect("view slot fits host"))
+                        && !method.witnesses().is_empty()
+                    {
+                        call.set_trait_view_source(method);
+                    }
+
+                    break;
+                }
+
+                match unit.tree().expression(origin) {
+                    Some(BoundExpression::Name(name)) => {
+                        let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(
+                            binding,
+                        )) = name.target()
+                        else {
+                            break;
+                        };
+
+                        let Some(initializer) = initializers.get(&binding) else {
+                            break;
+                        };
+
+                        origin = *initializer;
+                    }
+                    Some(BoundExpression::Structured(borrow))
+                        if borrow.kind() == BoundStructuredExpressionKind::Borrow =>
+                    {
+                        origin = *borrow
+                            .operands()
+                            .first()
+                            .expect("reborrow retains its operand");
+                    }
+                    _ => break,
+                }
+            }
+
+            continue;
+        }
 
         if !matches!(call.target(), crate::BoundCallableTarget::Indirect(_)) {
             continue;
@@ -534,7 +599,10 @@ fn call_matches_expression(
         return false;
     }
 
-    let declaration_backed = matches!(call.target(), crate::BoundCallableTarget::Declaration(_));
+    let declaration_backed = matches!(
+        call.target(),
+        crate::BoundCallableTarget::Declaration(_) | crate::BoundCallableTarget::TraitView { .. }
+    );
 
     let source_receiver = declaration_backed
         .then(|| source_call_receiver(unit, source.callee()))

@@ -634,6 +634,38 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 destination: self.place()?,
                 value: self.operand()?,
             }),
+            29 => {
+                let operand = self.operand()?;
+                let count = self.count()?;
+                let mut entries = self.items(count)?;
+
+                for _ in 0..count {
+                    entries.push(if read_bool(&mut self.reader)? {
+                        let kind = read_u32(&mut self.reader)?;
+                        let callable = self.callable_selection()?;
+
+                        Some(match kind {
+                            0 => bray_ir::MirTraitViewEntry::Callable(callable),
+                            1 => bray_ir::MirTraitViewEntry::DefaultValue {
+                                callable,
+                                provider: self.exact_symbol()?,
+                            },
+                            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                        })
+                    } else {
+                        None
+                    });
+                }
+
+                Ok(MirOperationKind::TraitView {
+                    operand,
+                    entries: entries.into(),
+                })
+            }
+            30 => Ok(MirOperationKind::TraitViewMethod {
+                operand: self.operand()?,
+                slot: bray_symbols::SymbolOrdinal::new(read_u32(&mut self.reader)?),
+            }),
             2 => Ok(MirOperationKind::Borrow {
                 kind: self.borrow_kind()?,
                 place: self.place()?,

@@ -51,6 +51,7 @@ fn retained_subject_has_storage(storage: &StoragePlan, subject: BoundDependencyS
         | BoundDependencySubject::BorrowCapability(_)
         | BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ImplementationRequirement(_)
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => true,

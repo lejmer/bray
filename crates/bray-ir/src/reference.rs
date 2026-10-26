@@ -112,6 +112,39 @@ impl MirCallableSelection {
     }
 }
 
+/// One executable address retained by a trait-view implementation table.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirTraitViewEntry {
+    /// Selected callable fulfillment or instantiated trait default body.
+    Callable(MirCallableSelection),
+    /// Parameter initializer owned by the trait declaration and its selected witness.
+    DefaultValue {
+        /// Trait callable context selecting substitutions and the implementation witness.
+        callable: MirCallableSelection,
+        /// Declaration-owned parameter initializer.
+        provider: bray_symbols::CallableParameterDefaultProviderSymbolId,
+    },
+}
+
+impl MirTraitViewEntry {
+    /// Returns the exact declared callable context of this table entry.
+    pub const fn callable(&self) -> &MirCallableSelection {
+        match self {
+            Self::Callable(callable) | Self::DefaultValue { callable, .. } => callable,
+        }
+    }
+
+    /// Returns the parameter provider when this entry evaluates an omitted argument.
+    pub const fn default_provider(&self) -> Option<bray_symbols::DefaultValueProvider> {
+        match self {
+            Self::Callable(_) => None,
+            Self::DefaultValue { provider, .. } => Some(
+                bray_symbols::DefaultValueProvider::CallableParameter(*provider),
+            ),
+        }
+    }
+}
+
 /// One exact private runtime ABI requirement selected during lowering.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct MirRuntimeReference {

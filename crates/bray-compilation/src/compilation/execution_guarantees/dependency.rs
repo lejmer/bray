@@ -48,14 +48,14 @@ impl Compilation {
             ExecutionDependencyTarget::Callable(BoundCallableTarget::Declaration(callable)) => {
                 Some(CallableExecutionTarget::Callable(map_callable(callable)?))
             }
-            ExecutionDependencyTarget::Callable(BoundCallableTarget::Indirect(ty)) => {
-                Some(CallableExecutionTarget::Indirect(
-                    substitution
-                        .map(|parent| values.substitute_type(ty, parent))
-                        .transpose()?
-                        .unwrap_or(ty),
-                ))
-            }
+            ExecutionDependencyTarget::Callable(
+                BoundCallableTarget::Indirect(ty) | BoundCallableTarget::TraitView { ty, .. },
+            ) => Some(CallableExecutionTarget::Indirect(
+                substitution
+                    .map(|parent| values.substitute_type(ty, parent))
+                    .transpose()?
+                    .unwrap_or(ty),
+            )),
             ExecutionDependencyTarget::Requirement { callable, dispatch } => {
                 let binding = self.binding_context(cancellation)?;
 
@@ -180,9 +180,12 @@ impl Compilation {
                 }
             }
             CallableExecutionTarget::Indirect(ty) => {
-                if required != ExecutionObligation::Property(ExecutionProperty::Pure, None)
-                    || !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Callable(callable)
-                        if callable.phase_behaviors().invocation().execution_properties().contains(&ExecutionProperty::Pure))
+                let ExecutionObligation::Property(property, None) = required else {
+                    return Ok(None);
+                };
+
+                if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Callable(callable)
+                    if callable.phase_behaviors().invocation().execution_properties().contains(&property))
                 {
                     return Ok(None);
                 }

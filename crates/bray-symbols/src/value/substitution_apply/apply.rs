@@ -112,7 +112,7 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
     }
 
-    pub(super) fn substitute_type_data(
+    pub(in crate::value) fn substitute_type_data(
         &self,
         ty: TypeId,
         substitution: &Substitution<'_>,
@@ -269,7 +269,7 @@ impl SemanticValueStore {
         Ok(substitution.type_replacement(ty).unwrap_or(ty))
     }
 
-    pub(super) fn substitute_generic_substitution_data(
+    pub(in crate::value) fn substitute_generic_substitution_data(
         &self,
         nested: GenericSubstitutionId,
         substitution: &Substitution<'_>,

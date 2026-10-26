@@ -42,6 +42,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     Some(pointer.into())
                 }
             }
+            MirOperationKind::TraitView { operand, entries } => {
+                Some(self.translate_trait_view(id, operation, operand, entries)?)
+            }
+            MirOperationKind::TraitViewMethod { operand, slot } => {
+                Some(self.translate_trait_view_method(operation, operand, *slot)?)
+            }
             MirOperationKind::Unary { operator, operand } => {
                 Some(self.translate_unary(*operator, operand)?)
             }

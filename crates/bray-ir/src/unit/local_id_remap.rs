@@ -73,7 +73,9 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
                 abandoned.remap_local_ids(mappings);
             }
         }
-        MirOperationKind::Unary { operand, .. }
+        MirOperationKind::TraitView { operand, .. }
+        | MirOperationKind::TraitViewMethod { operand, .. }
+        | MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
             operand.remap_local_ids(mappings);

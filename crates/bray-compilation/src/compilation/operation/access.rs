@@ -57,9 +57,9 @@ use super::signature::{
     normalize_callable_type_valued_members, substitute_callable_self,
 };
 
-struct ResolvedCallableMember {
-    signature: CallableSignature,
-    instance: CallableInstanceData,
+pub(super) struct ResolvedCallableMember {
+    pub(super) signature: CallableSignature,
+    pub(super) instance: CallableInstanceData,
     template: Option<bray_bound_tree::CallableDeclarationTemplate>,
 }
 
@@ -136,6 +136,18 @@ impl Compilation {
             self.resolve_access_subject_type(binding_context, raw_receiver_type, diagnostics)?;
 
         let data = binding_context.semantic_values().type_data(receiver_type);
+
+        if let TypeData::TraitView(application) = data.as_ref() {
+            return self.resolve_trait_view_member(
+                binding_context,
+                unit,
+                expression,
+                receiver_type,
+                *application,
+                selector,
+                diagnostics,
+            );
+        }
 
         if let (TypeData::Tuple(elements), Some(BoundMemberSelector::TupleElement(index))) =
             (data.as_ref(), selector)
@@ -578,7 +590,7 @@ impl Compilation {
         clippy::too_many_arguments,
         reason = "selected trait methods retain the exact subject, application, member, and witness"
     )]
-    fn resolve_selected_trait_member_operation(
+    pub(super) fn resolve_selected_trait_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
@@ -847,7 +859,7 @@ impl Compilation {
         clippy::too_many_arguments,
         reason = "the operation subject, trait application, dispatch, and member are distinct semantic inputs"
     )]
-    fn resolve_constrained_trait_member_operation(
+    pub(super) fn resolve_constrained_trait_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
@@ -920,7 +932,7 @@ impl Compilation {
         )))
     }
 
-    fn trait_constraint_requirements(
+    pub(super) fn trait_constraint_requirements(
         constraints: &[(GenericOwnerId, bray_symbols::CheckedConstraint)],
         receiver_type: TypeId,
     ) -> BTreeMap<TraitApplicationId, TraitConstraintDispatch> {
@@ -1305,7 +1317,7 @@ impl Compilation {
         Ok(template.value().clone())
     }
 
-    fn resolve_callable_defaults(
+    pub(super) fn resolve_callable_defaults(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         signature: &CallableSignature,
@@ -1350,7 +1362,7 @@ impl Compilation {
         Ok(defaults)
     }
 
-    fn resolve_callable_signature(
+    pub(super) fn resolve_callable_signature(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         member: AnySymbolId,

@@ -678,6 +678,19 @@ impl InterfaceSemantics {
             validate_symbol(symbol, symbol_count, dependency_count)?;
         }
 
+        if let InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) =
+            subject.root
+        {
+            if !subject.projections.is_empty() {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Dependency,
+                ));
+            }
+
+            validate_index(ty.to_index(), self.types.len())?;
+            validate_index(application.to_index(), self.trait_applications.len())?;
+        }
+
         self.validate_dependency_projections(&subject.projections, symbol_count, dependency_count)
     }
 

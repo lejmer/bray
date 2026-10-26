@@ -193,7 +193,9 @@ impl Compilation {
         let symbols = self.symbol_graph()?;
 
         for call in contributions.result().value().behavior().calls() {
-            if let BoundCallableTarget::Indirect(ty) = call.target() {
+            if let BoundCallableTarget::Indirect(ty) | BoundCallableTarget::TraitView { ty, .. } =
+                call.target()
+            {
                 let data = binding_context.semantic_values().type_data(ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
@@ -438,7 +440,7 @@ impl Compilation {
                 Some(unit) => pending.push(unit.clone()),
                 None => builder.is_recovered = true,
             },
-            BoundCallableTarget::Indirect(ty) => {
+            BoundCallableTarget::Indirect(ty) | BoundCallableTarget::TraitView { ty, .. } => {
                 let data = binding_context.semantic_values().type_data(ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {

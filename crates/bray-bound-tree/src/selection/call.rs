@@ -218,8 +218,10 @@ impl SelectedCall {
                 self.resolution().result(),
                 crate::BoundCallResult::LazyFuture(_)
             )
-            && (!matches!(self.target(), BoundCallableTarget::Declaration(_))
-                || self.resolution().trait_dispatch().is_some()
+            && (!matches!(
+                self.target(),
+                BoundCallableTarget::Declaration(_) | BoundCallableTarget::TraitView { .. }
+            ) || self.resolution().trait_dispatch().is_some()
                 || !self
                     .phase_behaviors()
                     .invocation()
@@ -328,6 +330,11 @@ impl SelectedCall {
 
     pub(crate) fn set_declaration_source(&mut self, callable: bray_symbols::CallableInstanceData) {
         self.resolution.set_declaration_source(callable);
+    }
+
+    pub(crate) fn set_trait_view_source(&mut self, method: &crate::MemberTarget) {
+        self.resolution.set_trait_view_source(method);
+        self.witnesses = sorted_unique_shared_slice(method.witnesses().iter().copied());
     }
 
     /// Returns the exact declared, anonymous, or indirect call target.

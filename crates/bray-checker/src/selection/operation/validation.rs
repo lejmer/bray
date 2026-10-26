@@ -59,7 +59,8 @@ pub(super) fn validate_operation_instances(operation: &SelectedOperation) {
         | SelectedOperation::Operator { .. }
         | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
-        | SelectedOperation::Implementation(_) => {}
+        | SelectedOperation::Implementation(_)
+        | SelectedOperation::TraitView { .. } => {}
     }
 }
 
@@ -383,7 +384,8 @@ fn collect_compiler_known_operations<C>(
         | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
         | SelectedOperation::Construction(_)
-        | SelectedOperation::Implementation(_) => {}
+        | SelectedOperation::Implementation(_)
+        | SelectedOperation::TraitView { .. } => {}
     }
 }
 

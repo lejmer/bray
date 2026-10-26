@@ -1088,6 +1088,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
         }
 
+        if let InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) =
+            subject.root
+        {
+            self.enqueue(PendingRecord::Type(ty.raw()));
+            self.enqueue(PendingRecord::TraitApplication(application.raw()));
+        }
+
         self.include_dependency_projections(&subject.projections);
     }
 
