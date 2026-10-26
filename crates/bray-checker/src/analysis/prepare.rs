@@ -87,7 +87,6 @@ impl PreparedBodyAnalysis {
         &self,
         request: CheckerUnitView<'_, C>,
         requirements: &[bray_symbols::DependencyRequirement],
-        maximum_depth: usize,
         completed: &mut F,
     ) -> Result<bray_diagnostics::DiagnosticResult<()>, crate::CheckerQueryError<C::UpstreamError>>
     where
@@ -102,7 +101,6 @@ impl PreparedBodyAnalysis {
             request,
             self.cleanup_shapes(request),
             requirements,
-            maximum_depth,
             completed,
         )
     }

@@ -422,6 +422,48 @@ pub(crate) fn anchor_diagnostics(
         .collect();
 }
 
+pub(crate) fn report_cleanup_recursion_limit<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    owner: Option<bray_symbols::AnySymbolId>,
+    actual: usize,
+    maximum: usize,
+    diagnostics: &mut bray_diagnostics::DiagnosticBag,
+) {
+    use bray_diagnostics::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
+
+    let source = request.unit().key().source().syntax();
+    let span = SourceSpan::new(source.source_id(), source.full_range());
+
+    let name = owner.and_then(|owner| request.symbols().member_name(owner)).map_or_else(
+        || DiagnosticArg::new(
+            DiagnosticArgName::DeclarationName,
+            DiagnosticArgValue::SyntaxKind(source.syntax_kind()),
+        ),
+        |name| DiagnosticArg::declaration_name(name.as_str()),
+    );
+
+    diagnostics.add(
+        Diagnostic::new(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingCleanupRecursionLimitExceeded,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::CleanupRecursionLimitExceeded,
+            span,
+        ))
+        .with_arg(name)
+        .with_arg(DiagnosticArg::actual_count(
+            u64::try_from(actual).expect("cleanup depth fits diagnostic count"),
+        ))
+        .with_arg(DiagnosticArg::maximum_count(
+            u64::try_from(maximum).expect("semantic recursion limit fits diagnostic count"),
+        ))
+        .with_note(DiagnosticNote::new(DiagnosticNoteKind::SimplifyRecursiveCleanup)),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use bray_symbols::{

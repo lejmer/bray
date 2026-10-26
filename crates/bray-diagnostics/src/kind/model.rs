@@ -417,7 +417,7 @@ define_diagnostic_kinds! {
     CheckingRecursiveTypeRepresentation,
     /// Type-representation analysis exceeded its deterministic recursion limit.
     CheckingTypeRepresentationRecursionLimitExceeded,
-    /// Checking recursive generic cleanup exceeded its deterministic recursion limit.
+    /// Cleanup analysis exceeded its deterministic recursion limit.
     CheckingCleanupRecursionLimitExceeded,
     /// A layout directive does not describe a valid source-level layout contract.
     CheckingInvalidLayoutDirective,

@@ -281,7 +281,6 @@ impl Compilation {
             .check_synchronous_cleanup(
                 request,
                 requirements,
-                self.options().semantic_analysis_limits().recursion_depth(),
                 &mut |call| {
                     self.finalizer_is_complete(
                         call.callable,
