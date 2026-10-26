@@ -443,7 +443,7 @@ where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     match target {
-        BoundCallableTarget::Declaration(instance) => {
+        BoundCallableTarget::Declaration(instance) | BoundCallableTarget::TraitView { member: instance, .. } => {
             let signature =
                 request.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                     instance.definition().callable_symbol(),

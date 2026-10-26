@@ -149,6 +149,11 @@ fn portable_bound_subject(
         BoundDependencySubject::ImplementationWitness(witness) => Ok(Some(PortableSubject::root(
             DependencySubjectRoot::ImplementationWitness(witness),
         ))),
+        BoundDependencySubject::ImplementationRequirement(requirement) => {
+            Ok(Some(PortableSubject::root(
+                DependencySubjectRoot::ImplementationRequirement(requirement),
+            )))
+        }
         BoundDependencySubject::ProductStatic(id) => Ok(Some(PortableSubject::root(
             DependencySubjectRoot::ProductStatic(id),
         ))),

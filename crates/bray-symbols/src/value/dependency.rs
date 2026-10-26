@@ -25,6 +25,8 @@ pub enum DependencySubjectRoot {
     ScopedCapability(SymbolOrdinal),
     /// A required selected implementation witness.
     ImplementationWitness(ImplementationInstanceId),
+    /// An implementation witness selected when its generic subject becomes concrete.
+    ImplementationRequirement(crate::ImplementationRequirementKey),
     /// Storage owned by one product-static instance.
     ProductStatic(StaticSymbolId),
     /// Storage owned by one exact native-thread static instance.

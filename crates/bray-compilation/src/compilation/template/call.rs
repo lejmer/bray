@@ -70,9 +70,10 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         }
 
         let (declaration, substitution) = match target {
-            BoundCallableTarget::Declaration(callable) => {
-                (callable.definition().symbol(), callable.substitution())
-            }
+            BoundCallableTarget::Declaration(callable)
+            | BoundCallableTarget::TraitView {
+                member: callable, ..
+            } => (callable.definition().symbol(), callable.substitution()),
             BoundCallableTarget::Predicate(predicate) => {
                 (predicate.definition().into_any(), predicate.substitution())
             }

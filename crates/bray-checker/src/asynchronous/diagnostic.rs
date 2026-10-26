@@ -146,6 +146,7 @@ where
             .map(bray_bound_tree::PlannedBorrowCapability::source),
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ImplementationRequirement(_)
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => None,
@@ -201,7 +202,8 @@ const fn diagnostic_dependency_subject(
         BoundDependencySubject::ScopedCapability(_) => {
             DiagnosticDependencySubjectKind::ScopedCapability
         }
-        BoundDependencySubject::ImplementationWitness(_) => {
+        BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ImplementationRequirement(_) => {
             DiagnosticDependencySubjectKind::SelectedImplementation
         }
         BoundDependencySubject::ProductStatic(_) => DiagnosticDependencySubjectKind::ProductStatic,

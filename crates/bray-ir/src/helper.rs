@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bray_bound_tree::{ConstructionTarget, ConversionTarget, SelectedConversion};
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::DefaultValueProvider;
@@ -108,6 +110,8 @@ pub enum MirHelperReference {
     AnonymousCallable(MirAnonymousCallableReference),
     /// Declared callable whose stable function address is materialized as a value.
     DeclaredCallable(crate::MirCallableReference),
+    /// Selected implementation callable retained by a trait-view table.
+    TraitViewEntry(Arc<crate::MirTraitViewEntry>),
     /// Declaration-owned default evaluated before input ownership transfers.
     DefaultValue(DefaultValueProvider),
     /// Evaluate one complete checked predicate over readonly caller inputs.
@@ -160,9 +164,13 @@ pub enum MirHelperReference {
 
 impl MirHelperReference {
     /// Returns the calling convention required by this helper role.
-    pub const fn abi(&self) -> CallableAbi {
+    pub fn abi(&self) -> CallableAbi {
         match self {
             Self::DeclaredCallable(callable) => callable.abi(),
+            Self::TraitViewEntry(entry) => match entry.as_ref() {
+                crate::MirTraitViewEntry::Callable(callable) => callable.reference().abi(),
+                crate::MirTraitViewEntry::DefaultValue { .. } => CallableAbi::Bray,
+            },
             Self::AnonymousCallable(_)
             | Self::DefaultValue(_)
             | Self::Predicate(_)
@@ -197,6 +205,7 @@ impl MirHelperReference {
             | Self::LifecycleFrame { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
+            | Self::TraitViewEntry(_)
             | Self::DefaultValue(_)
             | Self::Predicate(_)
             | Self::TypeForm(_)
@@ -225,6 +234,7 @@ impl MirHelperReference {
             Self::DestroyTerminalTask => Some(RuntimeAbiRole::TaskDestruction),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
+            | Self::TraitViewEntry(_)
             | Self::DefaultValue(_)
             | Self::Predicate(_)
             | Self::TypeForm(_)
@@ -253,6 +263,16 @@ impl MirOperationKind {
             Self::DeclaredCallable(callable) => {
                 helpers.push(MirHelperReference::DeclaredCallable(*callable));
             }
+            Self::TraitView { entries, .. } => {
+                helpers.extend(
+                    entries
+                        .iter()
+                        .flatten()
+                        .cloned()
+                        .map(|entry| MirHelperReference::TraitViewEntry(Arc::new(entry))),
+                );
+            }
+            Self::TraitViewMethod { .. } => {}
             Self::Construct(construction) => {
                 if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                     helpers.push(MirHelperReference::TypeForm(callable));

@@ -356,6 +356,17 @@ impl InternState {
 
                 DependencySubjectRoot::ImplementationWitness(id)
             }
+            InterfaceDependencySubjectRoot::ImplementationRequirement(ty, application) => {
+                let (Some(ty), Some(application)) =
+                    (self.type_id(*ty), self.trait_application_id(*application))
+                else {
+                    return Ok(None);
+                };
+
+                DependencySubjectRoot::ImplementationRequirement(
+                    bray_symbols::ImplementationRequirementKey::new(ty, application),
+                )
+            }
             InterfaceDependencySubjectRoot::ProductStatic(reference) => {
                 DependencySubjectRoot::ProductStatic(resolve_exact(symbols, reference)?)
             }

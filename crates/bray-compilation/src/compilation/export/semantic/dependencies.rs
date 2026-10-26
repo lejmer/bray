@@ -339,6 +339,12 @@ impl<'a> SemanticExporter<'a> {
                     self.implementation_instance_id(instance)?,
                 )
             }
+            DependencySubjectRoot::ImplementationRequirement(requirement) => {
+                InterfaceDependencySubjectRoot::ImplementationRequirement(
+                    self.type_id(requirement.subject())?,
+                    self.trait_application_id(requirement.trait_application())?,
+                )
+            }
             DependencySubjectRoot::ProductStatic(id) => {
                 InterfaceDependencySubjectRoot::ProductStatic(self.symbol_reference(id.into())?)
             }

@@ -105,6 +105,7 @@ fn dependency_subject_is_satisfied(
             }
             BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
+            | BoundDependencySubject::ImplementationRequirement(_)
             | BoundDependencySubject::LifecycleObligation(_) => false,
             BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_) => true,
@@ -171,6 +172,7 @@ fn dependency_subject_is_initialized(
         }
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ImplementationRequirement(_)
         | BoundDependencySubject::LifecycleObligation(_) => Ok(false),
     }
 }
@@ -209,6 +211,7 @@ fn dependency_subject_has_exclusive_access(
         BoundDependencySubject::Storage(_)
         | BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
+        | BoundDependencySubject::ImplementationRequirement(_)
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => return Ok(false),

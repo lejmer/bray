@@ -15,3 +15,4 @@ mod static_lifecycle;
 mod static_storage;
 mod support;
 mod test_hosts;
+mod trait_views;

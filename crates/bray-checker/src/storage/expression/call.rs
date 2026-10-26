@@ -24,14 +24,17 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             Some(call)
         });
 
-        let direct = selection
-            .is_some_and(|call| matches!(call.target(), BoundCallableTarget::Declaration(_)))
-            || matches!(
-                semantic_selection,
-                Some(SemanticSelection::Operation(
-                    SelectedOperation::Construction(_)
-                ))
-            );
+        let direct = selection.is_some_and(|call| {
+            matches!(
+                call.target(),
+                BoundCallableTarget::Declaration(_) | BoundCallableTarget::TraitView { .. }
+            )
+        }) || matches!(
+            semantic_selection,
+            Some(SemanticSelection::Operation(
+                SelectedOperation::Construction(_)
+            ))
+        );
 
         if !direct {
             self.plan_expression(callee, Some(StorageAccessPurpose::Read))?;

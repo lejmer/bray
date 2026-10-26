@@ -220,7 +220,13 @@ impl Liveness {
             .chain(live_across_scopes.iter().map(|entry| entry.subject()))
             .chain(live_across_suspensions.iter().map(|entry| entry.subject()))
             .chain(owner_retained_subjects.iter().copied())
-            .any(|subject| matches!(subject, BoundDependencySubject::ImplementationWitness(_)))
+            .any(|subject| {
+                matches!(
+                    subject,
+                    BoundDependencySubject::ImplementationWitness(_)
+                        | BoundDependencySubject::ImplementationRequirement(_)
+                )
+            })
         {
             return Err(LivenessBuildError::UnsupportedSubject);
         }

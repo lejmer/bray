@@ -49,6 +49,17 @@ enum InspectionSelectionTarget {
     Indirect {
         r#type: InspectionType,
     },
+    TraitViewCall {
+        member: InspectionSymbolIdentity,
+        slot: u32,
+        defaults: u32,
+        r#type: InspectionType,
+    },
+    TraitViewFormation {
+        subject: InspectionType,
+        view: InspectionType,
+        witnesses: Vec<InspectionImplementationEvidence>,
+    },
     BuiltInOperator {
         operator: &'static str,
     },
@@ -124,6 +135,12 @@ impl InspectionSelectionTarget {
                 format!("{symbol_kind}{name} [local:{region}:{id}]")
             }
             Self::Indirect { r#type } => format!("indirect {}", r#type.text()),
+            Self::TraitViewCall { member, slot, .. } => {
+                format!("trait view {} [{slot}]", member.text())
+            }
+            Self::TraitViewFormation { subject, view, .. } => {
+                format!("{} as {}", subject.text(), view.text())
+            }
             Self::BuiltInOperator { operator } => format!("built-in {operator}"),
             Self::TraitOperator {
                 operator,
@@ -420,6 +437,17 @@ fn callable_target(
             ),
         }),
         BoundCallableTarget::Anonymous(callable) => Ok(local_target(callable.into(), locals)),
+        BoundCallableTarget::TraitView {
+            member,
+            slot,
+            defaults,
+            ty,
+        } => Ok(InspectionSelectionTarget::TraitViewCall {
+            member: callable_identity(symbols, member),
+            slot: slot.raw(),
+            defaults: defaults.raw(),
+            r#type: InspectionType::from_type(semantic_values, symbols, ty)?,
+        }),
         BoundCallableTarget::Indirect(ty) => indirect_target(semantic_values, symbols, ty),
     }
 }
@@ -430,6 +458,26 @@ fn operation_target(
     semantic_values: &SemanticValueStore,
 ) -> Result<InspectionSelectionTarget, TypeInspectionError> {
     match operation {
+        SelectedOperation::TraitView {
+            requirement,
+            result_type,
+            ..
+        } => Ok(InspectionSelectionTarget::TraitViewFormation {
+            subject: InspectionType::from_type(semantic_values, symbols, requirement.subject())?,
+            view: InspectionType::from_type(semantic_values, symbols, *result_type)?,
+            witnesses: operation
+                .witnesses()
+                .into_iter()
+                .map(|witness| {
+                    implementation_evidence(
+                        witness.requirement(),
+                        witness.witness(),
+                        symbols,
+                        semantic_values,
+                    )
+                })
+                .collect::<Result<_, _>>()?,
+        }),
         SelectedOperation::Member(target) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, target.member()),
         }),

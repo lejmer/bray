@@ -306,6 +306,8 @@ fn operation_runtime_references(
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
+        | MirOperationKind::TraitView { .. }
+        | MirOperationKind::TraitViewMethod { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Aggregate(_)

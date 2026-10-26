@@ -546,6 +546,14 @@ fn validate_dependency_subject(
         tables.implementation_instances.get(store, instance);
     }
 
+    if let DependencySubjectRoot::ImplementationRequirement(requirement) = subject.subject_root() {
+        tables.types.get(store, requirement.subject());
+
+        tables
+            .trait_applications
+            .get(store, requirement.trait_application());
+    }
+
     validate_dependency_projections(tables, store, subject.projections());
 }
 

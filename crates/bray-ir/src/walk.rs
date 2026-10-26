@@ -159,7 +159,9 @@ impl MirOperationKind {
                     visit_operand(abandoned, &mut visit);
                 }
             }
-            Self::Unary { operand, .. }
+            Self::TraitView { operand, .. }
+            | Self::TraitViewMethod { operand, .. }
+            | Self::Unary { operand, .. }
             | Self::Convert { operand, .. }
             | Self::NumericConversion { operand, .. } => visit_operand(operand, &mut visit),
             Self::Binary { left, right, .. } => {
@@ -491,7 +493,9 @@ pub fn for_each_operation_storage(
         ) => {
             visit(incident.storage());
         }
-        MirOperationKind::Unary { .. }
+        MirOperationKind::TraitView { .. }
+        | MirOperationKind::TraitViewMethod { .. }
+        | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Convert { .. }
         | MirOperationKind::NumericConversion { .. }

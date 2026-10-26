@@ -186,7 +186,8 @@ impl Compilation {
             )?;
 
             if (!contract.preconditions.is_empty() || !contract.requirements.is_empty())
-                && let BoundCallableTarget::Declaration(target) = call.target()
+                && let BoundCallableTarget::Declaration(target)
+                | BoundCallableTarget::TraitView { member: target, .. } = call.target()
             {
                 contract.preserves_inputs = self.call_preserves_required_inputs(
                     target,
@@ -246,7 +247,10 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Option<usize>, FactQueryError> {
         let count = match target {
-            BoundCallableTarget::Declaration(callable) => self
+            BoundCallableTarget::Declaration(callable)
+            | BoundCallableTarget::TraitView {
+                member: callable, ..
+            } => self
                 .execution_callable_inputs(callable.definition().symbol(), cancellation)?
                 .len(),
             BoundCallableTarget::Indirect(ty) => {

@@ -523,6 +523,31 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.place(destination)?;
                 self.operand(value)?;
             }
+            MirOperationKind::TraitView { operand, entries } => {
+                self.wire.write_u32(29);
+                self.operand(operand)?;
+                write_count(&mut self.wire, entries.len());
+
+                for entry in entries.iter() {
+                    write_bool(&mut self.wire, entry.is_some());
+
+                    if let Some(entry) = entry {
+                        self.wire
+                            .write_u32(u32::from(entry.default_provider().is_some()));
+
+                        self.callable_selection(entry.callable())?;
+
+                        if let bray_ir::MirTraitViewEntry::DefaultValue { provider, .. } = entry {
+                            self.symbol((*provider).into())?;
+                        }
+                    }
+                }
+            }
+            MirOperationKind::TraitViewMethod { operand, slot } => {
+                self.wire.write_u32(30);
+                self.operand(operand)?;
+                self.wire.write_u32(slot.raw());
+            }
             MirOperationKind::Borrow { kind, place } => {
                 self.wire.write_u32(2);
                 self.borrow_kind(*kind);

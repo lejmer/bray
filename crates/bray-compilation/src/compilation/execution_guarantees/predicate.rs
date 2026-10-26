@@ -63,7 +63,8 @@ impl Compilation {
                             self.declares_constant_callable(callable.definition(), cancellation)?
                         }
                         bray_bound_tree::BoundCallableTarget::Anonymous(_)
-                        | bray_bound_tree::BoundCallableTarget::Indirect(_) => {
+                        | bray_bound_tree::BoundCallableTarget::Indirect(_)
+                        | bray_bound_tree::BoundCallableTarget::TraitView { .. } => {
                             matches!(site.expression().and_then(|expression|
                                 semantics.result().value().selections().expression(expression)),
                                 Some(bray_bound_tree::SemanticSelection::Call(call))

@@ -448,6 +448,17 @@ impl SemanticValueStore {
                     self.substitute_implementation_instance_data(instance, substitution)?,
                 )
             }
+            DependencySubjectRoot::ImplementationRequirement(requirement) => {
+                DependencySubjectRoot::ImplementationRequirement(
+                    crate::ImplementationRequirementKey::new(
+                        self.substitute_type_data(requirement.subject(), substitution)?,
+                        self.substitute_trait_application_data(
+                            requirement.trait_application(),
+                            substitution,
+                        )?,
+                    ),
+                )
+            }
             root => root,
         };
 

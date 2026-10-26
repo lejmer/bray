@@ -118,6 +118,8 @@ fn operation_callable_instances(
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
         | MirOperationKind::Borrow { .. }
+        | MirOperationKind::TraitView { .. }
+        | MirOperationKind::TraitViewMethod { .. }
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::Aggregate(_)

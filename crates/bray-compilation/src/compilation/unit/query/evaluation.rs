@@ -308,7 +308,16 @@ impl Compilation {
                 let operations =
                     operation_expressions(&binding_context, bound.result().value(), cancellation)?;
 
-                if !has_iterations && operations.is_empty() {
+                if !has_iterations
+                    && operations.is_empty()
+                    && crate::compilation::operation::trait_view_borrows(
+                        &binding_context,
+                        bound.result().value(),
+                        provisional.result().value().types(),
+                    )
+                    .next()
+                    .is_none()
+                {
                     let result = self.finish_expression_diagnostics(
                         &key,
                         bound.result().value(),

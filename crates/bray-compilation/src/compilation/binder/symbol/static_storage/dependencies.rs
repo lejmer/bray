@@ -197,8 +197,24 @@ fn collect_witness_subject_requirement(
     root: bray_symbols::DependencySubjectRoot,
     requirements: &mut Vec<bray_symbols::SymbolKey>,
 ) -> BindingQueryResult<()> {
-    let bray_symbols::DependencySubjectRoot::ImplementationWitness(witness) = root else {
-        return Ok(());
+    let witness = match root {
+        bray_symbols::DependencySubjectRoot::ImplementationWitness(witness) => witness,
+        bray_symbols::DependencySubjectRoot::ImplementationRequirement(requirement) => {
+            let selected = context
+                .compilation()
+                .implementation_selection_result_with_cancellation(
+                    requirement,
+                    context.cancellation(),
+                )
+                .map_err(super::super::binding::binder_error)?;
+
+            let bray_symbols::ImplementationSelection::Selected(witness) = selected.value() else {
+                return Ok(());
+            };
+
+            *witness
+        }
+        _ => return Ok(()),
     };
 
     let instance = context
@@ -281,6 +297,7 @@ fn collect_static_subject_dependency(
         | bray_symbols::DependencySubjectRoot::EvaluationStorage
         | bray_symbols::DependencySubjectRoot::Result
         | bray_symbols::DependencySubjectRoot::ScopedCapability(_)
-        | bray_symbols::DependencySubjectRoot::ImplementationWitness(_) => {}
+        | bray_symbols::DependencySubjectRoot::ImplementationWitness(_)
+        | bray_symbols::DependencySubjectRoot::ImplementationRequirement(_) => {}
     }
 }

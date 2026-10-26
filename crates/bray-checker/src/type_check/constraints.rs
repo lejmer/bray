@@ -442,7 +442,8 @@ where
                 || matches!(expression, BoundExpression::StructConstruction(_))
                 || matches!(expression, BoundExpression::Structured(expression)
                     if matches!(expression.kind(), BoundStructuredExpressionKind::Tuple
-                        | BoundStructuredExpressionKind::Array | BoundStructuredExpressionKind::RepeatedArray))
+                        | BoundStructuredExpressionKind::Array | BoundStructuredExpressionKind::RepeatedArray
+                        | BoundStructuredExpressionKind::Borrow))
                 || is_contextual_numeric_literal(request, expectation.expression());
 
             if present {
@@ -462,6 +463,16 @@ where
         }
 
         match (expression, data.as_ref()) {
+            (BoundExpression::Structured(borrow), TypeData::Borrow { kind, target })
+                if borrow.kind() == BoundStructuredExpressionKind::Borrow
+                    && borrow.borrow_kind() == Some(*kind)
+                    && matches!(
+                        request.semantic_values().type_data(*target).as_ref(),
+                        TypeData::TraitView(_)
+                    ) =>
+            {
+                inference.replace_evidence(variable, expectation.ty());
+            }
             (BoundExpression::Name(name), TypeData::Callable(_))
                 if matches!(
                     name.target(),

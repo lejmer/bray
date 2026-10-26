@@ -203,6 +203,38 @@ impl Compilation {
                 }
             }
 
+            if let MirHelperReference::TraitViewEntry(entry) = &reference
+                && let bray_ir::MirTraitViewEntry::Callable(selection) = entry.as_ref()
+            {
+                use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+
+                let context = self.binding_context(cancellation)?;
+
+                let signature = context
+                    .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                        bray_symbols::CallableSignatureQuery,
+                    >::new(
+                        selection
+                            .reference()
+                            .instance()
+                            .definition()
+                            .callable_symbol(),
+                    ))
+                    .map_err(crate::compilation::binder::binding_query_error)?;
+
+                if signature
+                    .value()
+                    .execution(context.semantic_values())
+                    .expect("checked view callable retains its execution mode")
+                    == bray_symbols::CallableExecution::Asynchronous
+                {
+                    return Ok(CodegenHelperMapping::new(
+                        reference,
+                        CodegenSymbolKey::FrameFactory(dependency.key().clone()),
+                    ));
+                }
+            }
+
             return dependency_symbol(owner, dependency.key(), &reference)
                 .map(|symbol| CodegenHelperMapping::new(reference, symbol));
         }
@@ -252,6 +284,29 @@ impl Compilation {
                 target,
                 cancellation,
             )?,
+            MirHelperReference::TraitViewEntry(entry) => {
+                let selection = entry.callable();
+
+                let demand = bray_codegen::DemandedCallableInstance::new(
+                    bray_codegen::CodegenCallSite::Operation(operation_id),
+                    selection.clone(),
+                );
+
+                match self.concrete_codegen_callee(
+                    owner,
+                    &demand,
+                    entry.default_provider(),
+                    target,
+                    cancellation,
+                )? {
+                    super::super::specialization::ConcreteCodegenCallee::Instance(instance) => {
+                        instance
+                    }
+                    super::super::specialization::ConcreteCodegenCallee::Intrinsic(_) => {
+                        panic!("view entries retain callable implementations")
+                    }
+                }
+            }
             MirHelperReference::Predicate(reference) => {
                 self.concrete_codegen_predicate(owner, reference, target, cancellation)?
             }
@@ -326,6 +381,7 @@ impl Compilation {
             },
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
+            | MirHelperReference::TraitViewEntry(_)
             | MirHelperReference::DefaultValue(_)
             | MirHelperReference::Predicate(_)
             | MirHelperReference::TypeForm(_)

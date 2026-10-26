@@ -392,6 +392,7 @@ impl Lowerer<'_> {
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)
                 | BoundDependencySubject::ImplementationWitness(_)
+                | BoundDependencySubject::ImplementationRequirement(_)
                 | BoundDependencySubject::ProductStatic(_)
                 | BoundDependencySubject::ExactThreadStatic(_)
                 | BoundDependencySubject::LifecycleObligation(_) => continue,

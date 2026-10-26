@@ -54,10 +54,8 @@ pub(crate) fn opaque_result(call: &SelectedCall) -> bool {
     call.implementation_hook()
         .and_then(super::implementation_dependency_source)
         .is_none()
-        && !matches!(
-            call.target(),
-            BoundCallableTarget::Declaration(_) | BoundCallableTarget::Anonymous(_)
-        )
+        && call.resolution().declaration_source().is_none()
+        && !matches!(call.target(), BoundCallableTarget::Anonymous(_))
 }
 
 /// Resolves the selected callee independently of caller-owned input evaluation.

@@ -170,6 +170,13 @@ impl OrderEncoder<'_, '_> {
             DependencySubjectRoot::ImplementationWitness(id) => {
                 term("implementation_witness", [self.implementation(id)?])
             }
+            DependencySubjectRoot::ImplementationRequirement(requirement) => term(
+                "implementation_requirement",
+                [
+                    self.ty(requirement.subject())?,
+                    self.trait_application(requirement.trait_application())?,
+                ],
+            ),
             DependencySubjectRoot::ProductStatic(id) => {
                 term("product_static", [self.symbol(id.into())?])
             }

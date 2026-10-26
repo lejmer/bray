@@ -391,6 +391,13 @@ fn infer_borrow<C>(
         matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind)
     });
 
+    let expected = expected.or_else(|| inference.evidence(variable).filter(|ty| {
+        let data = request.semantic_values().type_data(*ty);
+
+        matches!(data.as_ref(), TypeData::Borrow { kind: selected, target }
+            if *selected == kind && matches!(request.semantic_values().type_data(*target).as_ref(), TypeData::TraitView(_)))
+    }));
+
     if let Some(expected) = expected {
         let data = request.semantic_values().type_data(expected);
 
@@ -418,7 +425,15 @@ fn infer_borrow<C>(
             None => false,
         };
 
-        if !is_reborrow {
+        if !is_reborrow
+            && !matches!(
+                request
+                    .semantic_values()
+                    .type_data(*expected_target)
+                    .as_ref(),
+                TypeData::TraitView(_)
+            )
+        {
             add_operand_expectation(
                 request,
                 Some(operand),

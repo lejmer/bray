@@ -176,7 +176,9 @@ fn selection_internal_dependency(
             )?;
         }
         SemanticSelection::Call(call) => {
-            if let BoundCallableTarget::Declaration(target) = call.target() {
+            if let BoundCallableTarget::Declaration(target)
+            | BoundCallableTarget::TraitView { member: target, .. } = call.target()
+            {
                 dependencies.push(target.definition().symbol());
 
                 if let Some(internal) = callable_instance_internal_dependency(
@@ -284,6 +286,35 @@ fn selection_internal_dependency(
     Ok(semantic_internal.or(internal))
 }
 
+fn push_member_dependencies(
+    semantic_values: &SemanticValueStore,
+    symbols: &SymbolGraph,
+    declarations: &DeclarationTable,
+    target: &bray_bound_tree::MemberTarget,
+    dependencies: &mut Vec<AnySymbolId>,
+) -> Result<Option<AnySymbolId>, FactQueryError> {
+    dependencies.push(target.member());
+
+    let mut internal = resolved_type_internal_dependency(
+        target.result_type(),
+        semantic_values,
+        symbols,
+        declarations,
+    )?;
+
+    for witness in target.witnesses() {
+        internal = internal.or(push_witness_dependencies(
+            semantic_values,
+            symbols,
+            declarations,
+            *witness,
+            dependencies,
+        )?);
+    }
+
+    Ok(internal)
+}
+
 fn push_iteration_dependencies(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
@@ -379,24 +410,13 @@ fn push_operation_dependencies(
 
     match operation {
         SelectedOperation::Member(target) => {
-            dependencies.push(target.member());
-
-            internal = resolved_type_internal_dependency(
-                target.result_type(),
+            internal = push_member_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
+                target,
+                dependencies,
             )?;
-
-            for witness in target.witnesses() {
-                internal = internal.or(push_witness_dependencies(
-                    semantic_values,
-                    symbols,
-                    declarations,
-                    *witness,
-                    dependencies,
-                )?);
-            }
         }
         SelectedOperation::Index {
             target:
@@ -440,6 +460,44 @@ fn push_operation_dependencies(
                 conversion,
                 dependencies,
             )?;
+        }
+        SelectedOperation::TraitView {
+            requirement,
+            methods,
+            defaults,
+            ..
+        } => {
+            dependencies.push(
+                semantic_values
+                    .trait_application_data(requirement.trait_application())
+                    .definition()
+                    .into(),
+            );
+
+            internal = resolved_type_internal_dependency(
+                requirement.subject(),
+                semantic_values,
+                symbols,
+                declarations,
+            )?;
+
+            for target in methods
+                .iter()
+                .flatten()
+                .chain(defaults.iter().flatten().map(|(target, _)| target))
+            {
+                internal = internal.or(push_member_dependencies(
+                    semantic_values,
+                    symbols,
+                    declarations,
+                    target,
+                    dependencies,
+                )?);
+            }
+
+            for (_, provider) in defaults.iter().flatten() {
+                dependencies.push((*provider).into());
+            }
         }
         SelectedOperation::Implementation(witness) => {
             internal = push_witness_dependencies(

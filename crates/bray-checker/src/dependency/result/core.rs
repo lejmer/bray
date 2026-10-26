@@ -319,6 +319,19 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             }
         };
 
+        if let Some(SemanticSelection::Operation(bray_bound_tree::SelectedOperation::TraitView {
+            requirement,
+            ..
+        })) = self.selections.expression(id)
+        {
+            requirements.insert(DependencyRequirement::direct(
+                bray_symbols::DependencySubject::root(
+                    bray_symbols::DependencySubjectRoot::ImplementationRequirement(*requirement),
+                ),
+                DependencyRequirementKind::ValueDependencies,
+            ));
+        }
+
         for (value, path) in self.inputs.projected_operands(id) {
             requirements.extend(self.projected_values(value, &path));
         }

@@ -117,6 +117,7 @@ where
             | BoundDependencySubject::BorrowCapability(_)
             | BoundDependencySubject::ScopedCapability(_)
             | BoundDependencySubject::ImplementationWitness(_)
+            | BoundDependencySubject::ImplementationRequirement(_)
             | BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_)
             | BoundDependencySubject::LifecycleObligation(_) => {
@@ -298,6 +299,7 @@ where
             | DependencySubjectRoot::EvaluationStorage
             | DependencySubjectRoot::ScopedCapability(_)
             | DependencySubjectRoot::ImplementationWitness(_)
+            | DependencySubjectRoot::ImplementationRequirement(_)
             | DependencySubjectRoot::ProductStatic(_)
             | DependencySubjectRoot::ExactThreadStatic(_) => false,
         };
@@ -369,6 +371,22 @@ where
     ) -> Result<BoundDependencySubject, Self::Error> {
         if let DependencySubjectRoot::ImplementationWitness(witness) = subject.subject_root() {
             return Ok(BoundDependencySubject::ImplementationWitness(witness));
+        }
+
+        if let DependencySubjectRoot::ImplementationRequirement(requirement) =
+            subject.subject_root()
+        {
+            let selected = self
+                .request
+                .context()
+                .implementation_selection(requirement)?;
+
+            return Ok(match selected.value() {
+                bray_symbols::ImplementationSelection::Selected(witness) => {
+                    BoundDependencySubject::ImplementationWitness(*witness)
+                }
+                _ => BoundDependencySubject::ImplementationRequirement(requirement),
+            });
         }
 
         match subject.subject_root() {

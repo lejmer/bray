@@ -79,6 +79,30 @@ impl Lowerer<'_> {
             );
         };
 
+        if let Some(bray_bound_tree::SemanticSelection::Operation(
+            bray_bound_tree::SelectedOperation::TraitView {
+                requirement,
+                methods,
+                defaults,
+                ..
+            },
+        )) = self.input.semantic_selections().expression(id)
+        {
+            let requirement = *requirement;
+            let methods = methods.clone();
+            let defaults = defaults.clone();
+
+            return self.lower_trait_view(
+                id,
+                current,
+                kind,
+                source,
+                requirement,
+                &methods,
+                &defaults,
+            );
+        }
+
         if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type) {
             return Ok(LoweredExpression::continuing(current, Some(value), source));
         }

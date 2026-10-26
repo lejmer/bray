@@ -82,7 +82,9 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
                 collect_operand_types(abandoned, types);
             }
         }
-        MirOperationKind::Unary { operand, .. } => collect_operand_types(operand, types),
+        MirOperationKind::TraitView { operand, .. }
+        | MirOperationKind::TraitViewMethod { operand, .. }
+        | MirOperationKind::Unary { operand, .. } => collect_operand_types(operand, types),
         MirOperationKind::Binary { left, right, .. } => {
             collect_operand_types(left, types);
             collect_operand_types(right, types);

@@ -66,6 +66,7 @@ impl Plan {
             ) || !matches!(
                 call.target(),
                 bray_bound_tree::BoundCallableTarget::Declaration(_)
+                    | bray_bound_tree::BoundCallableTarget::TraitView { .. }
             ) {
                 continue;
             }

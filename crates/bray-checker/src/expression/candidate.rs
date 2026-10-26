@@ -1130,7 +1130,7 @@ where
         Some((anonymous, _)) => BoundCallableTarget::Anonymous(*anonymous),
         None => member
             .and_then(bray_bound_tree::MemberTarget::callable_instance)
-            .map(BoundCallableTarget::Declaration)
+            .map(|instance| member_call_target(instance, member, callee_type.ty()))
             .unwrap_or(BoundCallableTarget::Indirect(callee_type.ty())),
     };
 
@@ -1196,6 +1196,22 @@ where
         Cow::Owned(CallableSelectionRequest::canonical_candidates(candidates)),
         diagnostics,
     )))
+}
+
+fn member_call_target(
+    instance: bray_symbols::CallableInstanceData,
+    member: Option<&bray_bound_tree::MemberTarget>,
+    ty: TypeId,
+) -> BoundCallableTarget {
+    match member.and_then(bray_bound_tree::MemberTarget::trait_view_dispatch) {
+        Some((slot, defaults)) => BoundCallableTarget::TraitView {
+            member: instance,
+            slot,
+            defaults,
+            ty,
+        },
+        None => BoundCallableTarget::Declaration(instance),
+    }
 }
 
 pub(super) fn converge<C>(
