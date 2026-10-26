@@ -307,6 +307,56 @@ pub enum NativePipeReader {
     Stderr(ChildStderr),
 }
 
+impl NativePipeReader {
+    /// Reads bytes already available without waiting for additional child output.
+    /// A zero count means no bytes are ready and does not distinguish an open pipe from EOF.
+    #[cfg(any(unix, windows))]
+    pub fn read_available(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        #[cfg(unix)]
+        let ready = {
+            use system_interface::io::ReadReady;
+
+            let ready = match self {
+                Self::Stdout(reader) => reader.num_ready_bytes()?,
+                Self::Stderr(reader) => reader.num_ready_bytes()?,
+            };
+
+            usize::try_from(ready).unwrap_or(usize::MAX).min(buffer.len())
+        };
+
+        #[cfg(windows)]
+        let ready = {
+            use std::os::windows::io::AsHandle;
+            use system_interface::io::IoExt;
+
+            let handle = match self {
+                Self::Stdout(reader) => reader.as_handle(),
+                Self::Stderr(reader) => reader.as_handle(),
+            };
+
+            let file = std::fs::File::from(handle.try_clone_to_owned()?);
+
+            match IoExt::peek(&file, buffer) {
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => 0,
+                Err(error) => return Err(error),
+            }
+        };
+
+        if ready == 0 {
+            return Ok(0);
+        }
+
+        self.read(&mut buffer[..ready])
+    }
+
+    /// Reports that ready-byte pipe reads are unsupported on this host.
+    #[cfg(not(any(unix, windows)))]
+    pub fn read_available(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::ErrorKind::Unsupported.into())
+    }
+}
+
 impl Read for NativePipeReader {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         match self {

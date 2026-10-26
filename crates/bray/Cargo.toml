@@ -10,7 +10,7 @@ bray-base = { path = "../bray-base" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-emitter = { path = "../bray-emitter" }
 bray-messages = { path = "../bray-messages" }
-bray-platform = { path = "../bray-platform" }
+bray-platform = { path = "../bray-platform", features = ["test-output"] }
 bray-profile = { path = "../bray-profile" }
 bray-project = { path = "../bray-project" }
 bray-source = { path = "../bray-source" }

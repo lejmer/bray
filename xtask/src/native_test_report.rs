@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use bray_test_protocol::TestHostTermination;
 
 #[derive(Deserialize)]
 pub(crate) struct NativeTestReport {
@@ -86,6 +87,7 @@ pub(crate) enum NativeOutcome {
     InfrastructureFailed {
         failure: String,
         detail_code: Option<u64>,
+        host_termination: Option<TestHostTermination>,
     },
 }
 

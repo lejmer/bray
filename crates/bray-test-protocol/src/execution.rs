@@ -190,17 +190,48 @@ pub enum TestInfrastructureFailureKind {
     ForcedTermination,
 }
 
+/// Native termination observed after a test host stopped.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(feature = "serialization", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serialization", serde(tag = "kind", rename_all = "snake_case"))]
+pub enum TestHostTermination {
+    /// The host returned a native exit code.
+    ExitCode {
+        /// Signed native exit code, preserving the host's complete value.
+        code: i32,
+    },
+    /// The host was terminated by a native signal.
+    Signal {
+        /// Native signal number.
+        signal: i64,
+    },
+}
+
 /// Structured infrastructure failure without rendered user-facing text.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TestInfrastructureFailure {
     kind: TestInfrastructureFailureKind,
     detail_code: Option<u64>,
+    host_termination: Option<TestHostTermination>,
 }
 
 impl TestInfrastructureFailure {
     /// Creates an infrastructure failure with an optional domain-specific code.
     pub const fn new(kind: TestInfrastructureFailureKind, detail_code: Option<u64>) -> Self {
-        Self { kind, detail_code }
+        Self { kind, detail_code, host_termination: None }
+    }
+
+    /// Retains native termination alongside the failure that prevented a host result.
+    pub const fn with_host_termination(self, termination: TestHostTermination) -> Self {
+        Self {
+            host_termination: Some(termination),
+            ..self
+        }
+    }
+
+    /// Returns the native termination when the runner observed a stopped host.
+    pub const fn host_termination(self) -> Option<TestHostTermination> {
+        self.host_termination
     }
 
     /// Returns the stable failure category.

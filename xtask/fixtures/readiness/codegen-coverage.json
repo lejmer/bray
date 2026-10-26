@@ -43,6 +43,22 @@
       }
     },
     {
+      "name": "TraitView",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::TraitView"
+      }
+    },
+    {
+      "name": "TraitViewMethod",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::TraitViewMethod"
+      }
+    },
+    {
       "name": "Store",
       "disposition": "translated",
       "production": {
