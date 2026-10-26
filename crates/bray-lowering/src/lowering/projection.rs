@@ -126,11 +126,11 @@ mod tests {
 
     #[test]
     fn owned_targets_require_a_policy_call_instead_of_a_static_projection() {
-        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+        let values = bray_symbols::SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         let ty = values
             .intern_type(bray_symbols::TypeData::tuple([]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let subject = MirOperand::Move(MirPlace::new(
             MirStorageId::from_slot(MirUnitId::new(7), 0),
@@ -148,11 +148,11 @@ mod tests {
 
     #[test]
     fn pattern_field_moves_retain_the_exact_nested_place() {
-        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+        let values = bray_symbols::SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         let ty = values
             .intern_type(bray_symbols::TypeData::Tuple([].into()))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let storage = MirStorageId::from_slot(MirUnitId::new(7), 0);
         let nullable = MirProjection::new(MirProjectionKind::NullableValue, ty, ty);

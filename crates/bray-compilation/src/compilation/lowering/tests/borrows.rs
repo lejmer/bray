@@ -116,7 +116,7 @@ fn shared_string_literal_borrows_lower_as_static_constants() {
             matches!(
                 lowered_mir(&lowered)
                     .storage(destination.storage())
-                    .unwrap()
+                    .expect("fixture expression must retain its checked type or storage")
                     .kind(),
                 bray_ir::MirStorageKind::Return
             )
@@ -340,7 +340,7 @@ fn returned_nullable_borrow_outlives_argument_evaluation() {
     );
 
     let key = crate::test_support::source_function_body_key(&compilation, "probe");
-    let lowered = compilation.lowered_unit(key).unwrap();
+    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
     assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 }
@@ -374,7 +374,7 @@ fn returned_nullable_borrow_cannot_outlive_local_storage() {
                 &compilation,
                 "probe",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             lowered.diagnostics(),

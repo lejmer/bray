@@ -30,8 +30,7 @@ impl Compilation {
         types: &bray_bound_tree::CheckedExpressionTypes,
         semantic_context: &bray_checker::SemanticUnitContext,
         checker_context: &(
-             impl bray_checker::CheckerRequestContext<UpstreamError = FactQueryError>
-             + bray_checker::CheckerSemanticQueryProvider<bray_symbols::GenericConstraintsQuery>
+             impl bray_checker::CheckerSemanticQueryProvider<bray_symbols::GenericConstraintsQuery, UpstreamError = FactQueryError>
              + bray_checker::CheckerSemanticQueryProvider<bray_symbols::GenericTypeConstraintsQuery>
          ),
     ) -> Result<(Vec<SemanticSelectionEntry>, DiagnosticBag), FactQueryError> {

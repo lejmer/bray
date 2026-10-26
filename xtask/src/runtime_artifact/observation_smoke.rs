@@ -342,10 +342,6 @@ fn observation_product(
     Ok((compilation, product))
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the fixture emission needs the exact compilation and runtime inputs"
-)]
 fn emit_product(
     compilation: &Compilation,
     product: ProductIdentity,

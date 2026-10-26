@@ -421,10 +421,10 @@ mod tests {
                     let mut events = Vec::new();
 
                     loop {
-                        let block = graph.block(cursor).unwrap();
+                        let block = graph.block(cursor).expect("fixture MIR block must exist");
 
                         for operation in block.operations() {
-                            match graph.operation(*operation).unwrap().kind() {
+                            match graph.operation(*operation).expect("fixture MIR operation must exist").kind() {
                                 AnalysisOperationKind::Call { phase, .. } => {
                                     if phase == AnalysisCallPhase::Input {
                                         continue;
@@ -456,7 +456,7 @@ mod tests {
                         let successors = block
                             .successors()
                             .iter()
-                            .map(|id| graph.edge(*id).unwrap())
+                            .map(|id| graph.edge(*id).expect("fixture `edge` call must succeed"))
                             .collect::<Vec<_>>();
 
                         let failure = successors.iter().find(|edge| {

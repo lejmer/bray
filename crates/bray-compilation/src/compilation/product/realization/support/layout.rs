@@ -143,6 +143,10 @@ pub(in crate::compilation::product::realization) const fn target_layout_contract
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "scalar layout construction retains semantic role, target representation, recursive maps, and pending types"
+)]
 pub(in crate::compilation::product::realization) fn scalar_mapping(
     compilation: &Compilation,
     ty: TypeId,

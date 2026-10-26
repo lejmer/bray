@@ -12,6 +12,9 @@ use crate::{
     UnionPayloadDefaultProviderSymbol, UnionPayloadDefaultProviderSymbolId,
 };
 
+pub(super) type ImportedLookups =
+    BTreeMap<AnySymbolId, BTreeMap<SymbolName, (AnySymbolId, MemberVisibility)>>;
+
 macro_rules! define_imported_symbol_skeleton {
     ($($record:ident, $id:ident, $variant:ident, $singular:ident, $plural:ident, $relationships:ty;)+) => {
         /// An immutable deterministic provider for symbols reconstructed from package interfaces.
@@ -34,7 +37,7 @@ macro_rules! define_imported_symbol_skeleton {
                 UnionPayloadDefaultProviderSymbol,
             >,
             pub(crate) external_index: BTreeMap<ExternalSymbolKey, AnySymbolId>,
-            pub(crate) lookups: BTreeMap<AnySymbolId, BTreeMap<SymbolName, (AnySymbolId, MemberVisibility)>>,
+            pub(crate) lookups: ImportedLookups,
             pub(crate) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
             pub(crate) module_paths:
                 BTreeMap<PackageSymbolId, BTreeMap<crate::ModulePathKey, ModuleSymbolId>>,

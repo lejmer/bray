@@ -400,6 +400,10 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "callable templates retain parameter, result, ABI, trust, dependency, and execution contracts"
+    )]
     fn make_callable_type_template(
         &self,
         parameters: Vec<CallableParameterTypeTemplate>,

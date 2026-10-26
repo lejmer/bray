@@ -26,10 +26,7 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
         return CheckerOutcome::without_diagnostics(());
     };
 
-    match crate::representation::type_representation(request, result) {
-        Some(RepresentationRole::Unit) => return CheckerOutcome::without_diagnostics(()),
-        _ => {}
-    }
+    if let Some(RepresentationRole::Unit) = crate::representation::type_representation(request, result) { return CheckerOutcome::without_diagnostics(()) }
 
     if !can_fall_through {
         return CheckerOutcome::without_diagnostics(());
@@ -137,16 +134,11 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
             .completion_semantics
             .and_then(|expressions| expressions.types().expression(id))
             .map(|entry| entry.ty())
-        {
-            match crate::representation::type_representation(self.request(), ty) {
-                Some(bray_compiler_known::RepresentationRole::Never) => {
-                    self.push_exit(current, AnalysisExitKind::Divergence, id.into());
+            && let Some(bray_compiler_known::RepresentationRole::Never) = crate::representation::type_representation(self.request(), ty) {
+                self.push_exit(current, AnalysisExitKind::Divergence, id.into());
 
-                    return Some(None);
-                }
-                _ => {}
+                return Some(None);
             }
-        }
 
         Some(Some(current))
     }

@@ -404,7 +404,7 @@ fn custom_slice_without_a_bound_type_reports_selection_failure() {
     let diagnostics = application.check_diagnostics();
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &diagnostics,
+        diagnostics,
         bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
     );
 }

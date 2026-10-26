@@ -77,6 +77,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
 }
 
 impl StorageFlowInput {
+    #[expect(clippy::too_many_arguments, reason = "storage-flow preparation consumes independently checked type, dependency, cleanup and memory inputs")]
     pub(in crate::analysis::storage_flow) fn new<C>(
         cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
         request: CheckerUnitView<'_, C>,
@@ -452,7 +453,7 @@ impl StorageFlowInput {
 
                     Some((
                         identity,
-                        bray_bound_tree::BoundExecutionSite::from(*initializer),
+                        (*initializer),
                     ))
                 })
             })

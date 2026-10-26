@@ -846,7 +846,7 @@ mod tests {
 
         let result = terminator.try_for_each_edge_mut(|edge| {
             visited.push(edge.target());
-            assert_eq!(edge.arguments(), [argument.clone()]);
+            assert_eq!(edge.arguments(), std::slice::from_ref(&argument));
             *edge = crate::MirEdge::new(replacement, edge.arguments().iter().cloned());
 
             Err(first)

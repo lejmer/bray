@@ -192,17 +192,17 @@ mod tests {
     #[test]
     fn target_usize_bounds_follow_the_pointer_width() {
         for width in [8, 32, 64, 128, 256] {
-            let alignment = NonZeroU32::new(16).unwrap();
+            let alignment = NonZeroU32::new(16).expect("fixture non zero u32 must be valid");
 
             let machine = TargetMachineProperties::try_new(
                 TargetArchitecture::X86_64,
                 ObjectFormat::Elf,
                 Endianness::Little,
-                NonZeroU16::new(width).unwrap(),
+                NonZeroU16::new(width).expect("fixture non zero u16 must be valid"),
                 alignment,
                 alignment,
             )
-            .unwrap();
+            .expect("fixture target machine properties must be valid");
 
             assert!(machine.fits_usize(0));
 

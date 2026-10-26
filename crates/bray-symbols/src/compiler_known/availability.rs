@@ -208,9 +208,7 @@ impl AvailableCompilerKnownSymbols {
             return None;
         };
 
-        let Some(definition) = NamedTypeSymbolId::try_from_any(symbol) else {
-            return None;
-        };
+        let definition = NamedTypeSymbolId::try_from_any(symbol)?;
 
         let data = values.type_data(ty);
 

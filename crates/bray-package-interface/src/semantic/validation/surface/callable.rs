@@ -583,13 +583,13 @@ mod tests {
         use bray_symbols::{PredicateDomain, SymbolOrdinal};
 
         let key = bray_symbols::SymbolKey::compiler_known_declaration(
-            bray_compiler_known::CompilerKnownDeclarationKey::try_new("BlockingExecution").unwrap(),
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("BlockingExecution").expect("fixture compiler known declaration key must be valid"),
             bray_symbols::SymbolKind::Predicate,
         )
-        .unwrap();
+        .expect("fixture `bray_symbols::SymbolKey::compiler_known_declaration` call must succeed");
 
         let predicate = crate::InterfaceSymbolReference::CompilerKnown(
-            crate::CompilerKnownSymbolReference::try_new(key).unwrap(),
+            crate::CompilerKnownSymbolReference::try_new(key).expect("fixture compiler known symbol reference must be valid"),
         );
 
         let semantics = crate::InterfaceSemantics::new().with_values(

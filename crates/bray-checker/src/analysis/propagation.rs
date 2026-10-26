@@ -162,11 +162,9 @@ where
 
         // Before semantic selection, provisional graphs can use the bound operand type.
         // Completed selection tables must never infer an outcome for a rejected operation.
-        let Some(operand) = expression.operands().first().copied() else {
-            return None;
-        };
+        let operand = expression.operands().first().copied()?;
 
-        let Some(operand_type) = self
+        let operand_type = self
             .checked_storage()
             .and_then(|storage| {
                 storage
@@ -174,10 +172,7 @@ where
                     .find_map(|plan| storage.access(plan.access()))
                     .map(|access| access.reached_type())
             })
-            .or_else(|| self.view().expression(operand)?.ty())
-        else {
-            return None;
-        };
+            .or_else(|| self.view().expression(operand)?.ty())?;
 
         type_representation(self.request(), operand_type)
     }

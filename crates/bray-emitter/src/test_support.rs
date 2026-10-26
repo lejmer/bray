@@ -168,16 +168,14 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         }),
     );
 
-    let plan = EmissionPlan::new(
+    EmissionPlan::new(
         request,
         None,
         None,
         [artifact],
         [],
         Some(interface_artifact()),
-    );
-
-    plan
+    )
 }
 
 pub(crate) fn backend_artifact_plan_parts() -> (

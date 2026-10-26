@@ -231,7 +231,7 @@ impl ScalarAnalysis<'_> {
         let value = self
             .values
             .intern_constant_value(ConstantValueData::new(ty, folded))
-            .map_err(|error| crate::fact::FactQueryError::SemanticValueStore(error))?;
+            .map_err(crate::fact::FactQueryError::SemanticValueStore)?;
 
         Ok(Scalar::Constant(value))
     }

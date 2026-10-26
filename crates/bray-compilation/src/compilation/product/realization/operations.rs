@@ -148,6 +148,10 @@ impl Compilation {
         Ok(classified)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "helper mapping joins its MIR operation and result with concrete ownership, selected reference, and target"
+    )]
     pub(super) fn codegen_helper(
         &self,
         owner: &CodegenInstance,
@@ -251,6 +255,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "helper dependencies retain operation identity, result type, selected helper, target, and cancellation"
+    )]
     pub(in crate::compilation::product) fn concrete_codegen_helper_dependency(
         &self,
         owner: &ConcreteCodegenInstance,

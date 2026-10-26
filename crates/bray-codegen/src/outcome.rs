@@ -39,7 +39,7 @@ pub enum CodegenFailure {
     /// A backend support program completed unsuccessfully with its exact captured output.
     BackendToolExited {
         program: PathBuf,
-        exit: bray_diagnostics::DiagnosticExternalToolExit,
+        exit: Box<bray_diagnostics::DiagnosticExternalToolExit>,
     },
     /// Serialization failed for one requested artifact kind.
     ArtifactConstruction(BackendArtifactKind),
@@ -285,7 +285,7 @@ pub fn codegen_failure_diagnostic(
         CodegenFailure::BackendToolExited { program, exit } => {
             diagnostic = diagnostic
                 .with_arg(DiagnosticArg::file_path(program))
-                .with_arg(DiagnosticArg::external_tool_exit(exit.clone()));
+                .with_arg(DiagnosticArg::external_tool_exit(exit.as_ref().clone()));
         }
         _ => {}
     }
@@ -401,11 +401,11 @@ mod tests {
             fixture.request(),
             CodegenFailure::BackendToolExited {
                 program: std::path::PathBuf::from("opt"),
-                exit: bray_diagnostics::DiagnosticExternalToolExit::new(
+                exit: Box::new(bray_diagnostics::DiagnosticExternalToolExit::new(
                     Some(1),
                     &[],
                     b"optimizer failure",
-                ),
+                )),
             },
             DiagnosticBag::new(),
         );

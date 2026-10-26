@@ -65,9 +65,7 @@ pub fn test_mir_unit_with_declaration_for_target(
         },
     );
 
-    let unit = builder.finish(entry);
-
-    unit
+    builder.finish(entry)
 }
 
 /// Returns deterministic target properties for MIR tests.

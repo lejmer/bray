@@ -31,7 +31,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
         let contracts = consumer
             .dependency_contracts(source_function_body_key(&consumer, "caller"))
-            .unwrap();
+            .expect("fixture `dependency_contracts` call must succeed");
 
         assert!(
             !contracts.diagnostics().has_errors(),
@@ -43,7 +43,7 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
         assert_eq!(calls.len(), 1);
 
-        let call = calls.values().next().unwrap();
+        let call = calls.values().next().expect("fixture iterator must provide its expected item");
 
         assert_eq!(call.effects().is_empty(), unchanged, "{:?}", call.effects());
 
@@ -122,9 +122,9 @@ fn imported_immutable_function_values_reuse_the_producers_report_contract() {
         lowered
             .value()
             .as_ref()
-            .unwrap()
+            .expect("fixture optional value must be present")
             .mir()
-            .unwrap()
+            .expect("fixture instance must retain its MIR")
             .blocks()
             .iter()
             .all(|block| {
@@ -188,7 +188,7 @@ fn returned_values_preserve_imported_generic_dependencies() {
 
         let flow = consumer
             .storage_flow(source_function_body_key(&consumer, "caller"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         if valid {
             assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
@@ -275,7 +275,7 @@ fn returned_assignments_and_errors_survive_interfaces() {
 
             let flow = consumer
                 .storage_flow(source_function_body_key(&consumer, "caller"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             if valid {
                 assert!(
@@ -342,7 +342,7 @@ fn returned_borrow_alias_assignments_survive_interfaces() {
             assert!(diagnostics.is_empty(), "{diagnostics:?}");
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
             );
         }
@@ -433,7 +433,7 @@ func check(pos caller: &mut bool)
             let diagnostics = consumer.check_diagnostics();
 
             if let Some(expected) = expected {
-                bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, expected);
             } else {
                 assert!(!diagnostics.has_errors(), "{body}: {diagnostics:?}");
 
@@ -524,7 +524,7 @@ fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
 
         let flow = consumer
             .storage_flow(source_function_body_key(&consumer, "caller"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         if valid {
             assert!(
@@ -594,17 +594,17 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
         );
 
         let key = source_function_body_key(&consumer, "root");
-        let storage = consumer.storage_plan(key.clone()).unwrap();
-        let unit = consumer.bound_unit(key.clone()).unwrap();
-        let contracts = consumer.dependency_contracts(key).unwrap();
+        let storage = consumer.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+        let unit = consumer.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let contracts = consumer.dependency_contracts(key).expect("fixture `dependency_contracts` call must succeed");
 
         let (capability, input) = storage
             .value()
             .borrow_capability_entries()
             .find(|(_, capability)| capability.entry_binding().is_some())
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
-        let root = storage.value().root_identity(input.access()).unwrap();
+        let root = storage.value().root_identity(input.access()).expect("fixture `root_identity` call must succeed");
 
         let call = unit
             .value()
@@ -613,13 +613,13 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             .find_map(|(id, expression)| {
                 matches!(expression, BoundExpression::Call(_)).then_some(id)
             })
-            .unwrap();
+            .expect("fixture selection must find its expected value");
 
         let contract = contracts
             .value()
             .expression(call)
             .and_then(|id| contracts.value().contract(id))
-            .unwrap();
+            .expect("fixture `and_then` call must succeed");
 
         assert!(
             contract.requirements().iter().any(|requirement| matches!(
@@ -662,7 +662,7 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
 
         let flow = escaping
             .storage_flow(source_function_body_key(&escaping, "root"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             flow.diagnostics(),
@@ -712,7 +712,7 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
 
     let context = consumer
         .binding_context(&consumer.state.cancellation)
-        .unwrap();
+        .expect("fixture compilation must provide a binding context");
 
     let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
         &context,
@@ -720,11 +720,11 @@ fn exact_borrow_origin_survives_generic_export_and_import() {
             callable.into(),
         ),
     )
-    .unwrap();
+    .expect("fixture symbol query must resolve");
 
     let template = consumer
         .semantic_value_store()
-        .unwrap()
+        .expect("fixture compilation must provide its semantic value store")
         .dependency_contract_template_data(*dependencies.value());
 
     assert_eq!(template.borrows().len(), 2, "{template:#?}");
@@ -834,7 +834,7 @@ fn inferred_unwind_behavior_survives_export_and_import() {
 
         let summary = consumer
             .unwind_behavior(key.clone(), &consumer.state.cancellation)
-            .unwrap();
+            .expect("fixture callable must resolve its unwind behavior");
 
         assert!(
             !summary.result().diagnostics().has_errors(),
@@ -850,7 +850,7 @@ fn inferred_unwind_behavior_survives_export_and_import() {
             "{callee}"
         );
 
-        let lowered = consumer.lowered_unit(key).unwrap();
+        let lowered = consumer.lowered_unit(key).expect("fixture callable must lower successfully");
 
         assert!(
             !lowered.diagnostics().has_errors(),
@@ -1040,7 +1040,7 @@ fn imported_field_addresses_keep_the_projection_from_the_original_reference() {
 
     let flow = consumer
         .storage_flow(source_function_body_key(&consumer, "caller"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
@@ -1490,7 +1490,7 @@ fn imported_task_owners_retain_dependencies_through_cleanup_and_consumption() {
 
         let flow = consumer
             .storage_flow(source_function_body_key(&consumer, "caller"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         if valid {
             assert!(
@@ -1529,7 +1529,7 @@ fn terminal_destructor_checks_imported_generic_replacement_types() {
 
     let flow = provider
         .storage_flow(source_function_body_key(&provider, "replace"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(
         flow.value()
@@ -1575,7 +1575,7 @@ fn terminal_destructor_checks_imported_generic_replacement_types() {
 
         if rejected {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingDestructorOwnershipIntroduction,
             );
         } else {
@@ -1601,7 +1601,7 @@ fn imported_unknown_call_effects_do_not_claim_only_retirement() {
 
     let flow = provider
         .storage_flow(source_function_body_key(&provider, "forward"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(
         flow.value()
@@ -1646,7 +1646,7 @@ fn imported_unknown_call_effects_do_not_claim_only_retirement() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &consumer.check_diagnostics(),
+        consumer.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingUnprovedDestructorEffects,
     );
 }
@@ -1811,7 +1811,7 @@ fn imported_escape_effects_distinguish_retained_arguments_from_opaque_execution(
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
@@ -2182,7 +2182,7 @@ fn compound_assignment_preserves_operator_effects_at_terminal_and_imported_bound
             let diagnostics = consumer.check_diagnostics();
 
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 bray_diagnostics::DiagnosticKind::CheckingUnprovedDestructorEffects,
             );
         }
@@ -2342,7 +2342,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
 
             let contracts = consumer
                 .dependency_contracts(source_function_body_key(&consumer, "caller"))
-                .unwrap();
+                .expect("fixture `dependency_contracts` call must succeed");
 
             assert!(
                 !contracts.diagnostics().has_errors(),
@@ -2354,7 +2354,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
 
             assert_eq!(calls.len(), 1);
 
-            let effects = calls.values().next().unwrap().effects();
+            let effects = calls.values().next().expect("fixture iterator must provide its expected item").effects();
 
             assert!(
                 !effects.iter().any(|effect| matches!(
@@ -2452,7 +2452,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
 
         for (application, name) in [(&application, "caller"), (&consumer, "forward")] {
             let key = crate::test_support::source_function_body_key(application, name);
-            let flow = application.storage_flow(key).unwrap();
+            let flow = application.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
             let summary = flow.value().dependencies().effects();
 
             let summary_roots = summary
@@ -2476,7 +2476,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
                 );
 
                 assert!(
-                    expected.contains(reference.projections().first().unwrap()),
+                    expected.contains(reference.projections().first().expect("fixture sequence must contain its first item")),
                     "{summary:#?}"
                 );
             }
@@ -2491,7 +2491,7 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
         }
 
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let contracts = application.dependency_contracts(key).unwrap();
+        let contracts = application.dependency_contracts(key).expect("fixture `dependency_contracts` call must succeed");
 
         let effects = contracts
             .value()
@@ -2583,7 +2583,7 @@ fn custom_index_effects_preserve_owned_and_borrowed_input_origins() {
         for name in ["owned", "borrowed"] {
             let flow = application
                 .storage_flow(source_function_body_key(application, name))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             let effects = flow.value().dependencies().effects();
 
@@ -3075,7 +3075,7 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
 
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
             }
@@ -3172,7 +3172,7 @@ fn independent_pointer_origins_survive_calls_without_publishing_other_inputs() {
 
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
             }
@@ -3326,7 +3326,7 @@ fn completed_composite_values_drop_only_the_obsolete_frame_capture() {
 
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
             }

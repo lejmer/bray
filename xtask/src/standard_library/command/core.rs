@@ -86,7 +86,7 @@ fn native_test_options(
                 let value = required_argument(arguments, "--part")?;
 
                 let value = super::super::native::TestPart::parse(&value)
-                    .ok_or_else(|| BuildError::UnexpectedArgument(value))?;
+                    .ok_or(BuildError::UnexpectedArgument(value))?;
 
                 if !parts.contains(&value) {
                     parts.push(value);
@@ -485,7 +485,7 @@ fn build_bundle(
             artifacts.push(foreign_package(
                 platform.name,
                 &platform.bytes,
-                platform.optimization.as_ref().map(Vec::as_slice),
+                platform.optimization.as_deref(),
                 &platform.native_links,
             )?);
 

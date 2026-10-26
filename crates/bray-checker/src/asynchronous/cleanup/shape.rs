@@ -10,6 +10,9 @@ use bray_symbols::{GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+/// A concrete cleanup subject with its optional represented subpart.
+pub(crate) type ResolvedCleanupPart = (TypeId, Option<bray_bound_tree::StorageCleanupPart>);
+
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct CleanupShape {
     pub(in crate::asynchronous) cancellation: bool,
@@ -72,7 +75,7 @@ where
     pub(in crate::asynchronous) recursive_cleanup: bool,
     pub(in crate::asynchronous) expanded_types: BTreeSet<TypeId>,
     pub(in crate::asynchronous) full_parts:
-        BTreeMap<TypeId, std::sync::Arc<[(TypeId, Option<bray_bound_tree::StorageCleanupPart>)]>>,
+        BTreeMap<TypeId, std::sync::Arc<[crate::asynchronous::ResolvedCleanupPart]>>,
     pub(super) requirements: Option<std::sync::Arc<[AsyncStorageRequirement]>>,
     active: BTreeSet<TypeId>,
     // Query diagnostics are cloned because the cleanup result owns them independently.

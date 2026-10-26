@@ -667,14 +667,14 @@ mod tests {
             root
         });
 
-        let expression = expression.unwrap();
+        let expression = expression.expect("fixture source must contain the selected expression");
         let mut analysis = empty_expression_inputs(&unit);
-        let first_type = analysis.values.intern_type(TypeData::tuple([])).unwrap();
+        let first_type = analysis.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let second_type = analysis
             .values
             .intern_type(TypeData::Nullable(first_type))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
         let mut identities = Vec::new();
@@ -682,9 +682,9 @@ mod tests {
         for ty in [first_type, second_type, second_type] {
             let identity = storage
                 .push_identity(StorageIdentity::Temporary(expression))
-                .unwrap();
+                .expect("fixture identity must fit its identity space");
 
-            storage.set_identity_type(identity, ty).unwrap();
+            storage.set_identity_type(identity, ty).expect("fixture `set_identity_type` call must succeed");
             identities.push(identity);
         }
 
@@ -728,12 +728,12 @@ mod tests {
         let second = expressions[1];
         let kind = unit.key().kind();
         let mut analysis = empty_expression_inputs(&unit);
-        let ty = analysis.values.intern_type(TypeData::tuple([])).unwrap();
+        let ty = analysis.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
         let mut storage = StoragePlanBuilder::new(unit.unit(), kind);
 
         let identity = storage
             .push_identity(StorageIdentity::Temporary(first))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let mut accesses = Vec::new();
 
@@ -747,7 +747,7 @@ mod tests {
                         unit.key().source(),
                         false,
                     ))
-                    .unwrap(),
+                    .expect("fixture access must fit its identity space"),
             );
         }
 
@@ -760,7 +760,7 @@ mod tests {
         for (expression, purpose, access) in plans {
             storage
                 .plan_access(expression.into(), expression, purpose, access)
-                .unwrap();
+                .expect("fixture `plan_access` call must succeed");
         }
 
         let operations = [
@@ -809,7 +809,7 @@ mod tests {
         analysis.storage = storage.finish();
 
         analysis.storage_flow =
-            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false).unwrap();
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false).expect("fixture storage flow must be valid");
 
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
         let input = lowering_input(&unit, &control_flow, (&analysis).into());

@@ -24,7 +24,8 @@ fn constant_kinds_equal(
     left: &ConstantValueKind,
     right: &ConstantValueKind,
 ) -> bool {
-    let equal = match (left, right) {
+
+    match (left, right) {
         (ConstantValueKind::Error, _) | (_, ConstantValueKind::Error) => false,
         (ConstantValueKind::NullablePresent(left), ConstantValueKind::NullablePresent(right)) => {
             constant_values_equal(values, *left, *right)
@@ -76,9 +77,7 @@ fn constant_kinds_equal(
 
             equal
         }
-    };
-
-    equal
+    }
 }
 
 fn constant_sequences_equal(
@@ -152,6 +151,6 @@ mod tests {
 
         assert_ne!(positive, negative);
 
-        assert_eq!(constant_values_equal(&values, positive, negative), true);
+        assert!(constant_values_equal(&values, positive, negative));
     }
 }

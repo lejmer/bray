@@ -651,7 +651,7 @@ mod tests {
 
         assert!(!execution_condition_is_implied(
             &source,
-            &[source.clone()],
+            std::slice::from_ref(&source),
             &Default::default(),
         ));
     }

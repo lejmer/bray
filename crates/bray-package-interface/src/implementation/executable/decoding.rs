@@ -1533,8 +1533,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        validate_decoded_protected_memory_types(kind, &operand_types, result_type, self.semantics)?;
-        validate_decoded_atomic_result(kind, result_type, self.semantics)?;
+        validate_decoded_protected_memory_types(&kind, &operand_types, result_type, self.semantics)?;
+        validate_decoded_atomic_result(&kind, result_type, self.semantics)?;
 
         let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
             .with_inline_assembly_symbols(self.callable_references()?);
@@ -1740,12 +1740,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 let contract = self.inline_assembly_contract(output.is_some())?;
 
                 self.validate_inline_assembly_types(inputs, output, labels, contract)?;
+                self.charge_items::<InlineAssemblyContract>(1)?;
 
                 Ok(Kind::InlineAssembly {
                     inputs,
                     output,
                     labels,
-                    contract,
+                    contract: contract.into(),
                 })
             }
             40 => Ok(Kind::AtomicInitialize { value: self.ty()? }),
@@ -2767,7 +2768,7 @@ fn decoded_atomic_kind(
 }
 
 fn validate_decoded_protected_memory_types(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
     operands: &[bray_symbols::TypeId],
     result: Option<bray_symbols::TypeId>,
     semantics: &ImportedSemantics,
@@ -2803,7 +2804,7 @@ enum ProtectedMemoryWrapper {
 }
 
 fn protected_memory_types_valid(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
     operands: &[bray_symbols::TypeId],
     result: Option<bray_symbols::TypeId>,
     mut wrapper_argument: impl FnMut(
@@ -2818,7 +2819,7 @@ fn protected_memory_types_valid(
     use bray_bound_tree::CheckedMemoryOperationKind as Kind;
     use bray_symbols::BorrowKind;
 
-    match kind {
+    match *kind {
         Kind::UninitFrom { element } => {
             operands == [element]
                 && result.is_some_and(|result| {
@@ -2899,7 +2900,7 @@ const fn address_borrow_kind(kind: bray_bound_tree::MemoryAddressKind) -> bray_s
 }
 
 fn validate_decoded_atomic_result(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
     result: Option<bray_symbols::TypeId>,
     semantics: &ImportedSemantics,
 ) -> Result<(), ExecutableTemplateDecodeError> {
@@ -2916,7 +2917,7 @@ fn validate_decoded_atomic_result(
     let boolean = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool")
         .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
-    atomic_compare_exchange_result_elements_valid(value, &elements, |ty| {
+    atomic_compare_exchange_result_elements_valid(*value, &elements, |ty| {
         semantics.is_compiler_known_type(ty, &boolean)
     })
     .then_some(())
@@ -3114,11 +3115,11 @@ mod tests {
         bytes: &[u8],
         symbols: &ProjectionSymbols,
     ) -> Result<bray_ir::MirProjectionKind, ExecutableTemplateDecodeError> {
-        let values = SemanticValueStore::try_new().unwrap();
+        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         let semantics = crate::InterfaceSemantics::new()
             .intern(&values, symbols)
-            .unwrap();
+            .expect("fixture `intern` call must succeed");
 
         let mut decoder = super::Decoder {
             reader: crate::wire::WireReader::new(bytes),
@@ -3131,7 +3132,7 @@ mod tests {
             owner: symbols.0,
             identity: bray_ir::MirExecutableTemplateId::new(0),
             family_size: 1,
-            target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
+            target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc").expect("fixture target identity must be valid"),
         };
 
         decoder.projection_kind()
@@ -3152,7 +3153,7 @@ mod tests {
 
             let bytes =
                 super::super::encoding::encode_projection_for_test(&projection, &mut symbols)
-                    .unwrap();
+                    .expect("fixture `super::super::encoding::encode_projection_for_test` call must succeed");
 
             assert_eq!(decode_projection(&bytes, &symbols), Ok(projection));
 
@@ -3221,7 +3222,7 @@ mod tests {
             result: Option<TypeId>,
         ) -> bool {
             protected_memory_types_valid(
-                kind,
+                &kind,
                 operands,
                 result,
                 |ty, wrapper| match (ty, wrapper) {
@@ -3310,32 +3311,32 @@ mod tests {
         ];
 
         for (kind, operands, result) in &valid {
-            assert!(fixture.valid(*kind, operands, *result));
+            assert!(fixture.valid(kind.clone(), operands, *result));
         }
 
         let malformed = [
-            (valid[0].0, Vec::new(), Some(fixture.other)),
-            (valid[1].0, vec![fixture.mutable_storage], valid[1].2),
-            (valid[2].0, vec![fixture.shared_storage], valid[2].2),
+            (valid[0].0.clone(), Vec::new(), Some(fixture.other)),
+            (valid[1].0.clone(), vec![fixture.mutable_storage], valid[1].2),
+            (valid[2].0.clone(), vec![fixture.shared_storage], valid[2].2),
             (
-                valid[3].0,
+                valid[3].0.clone(),
                 vec![fixture.mutable_storage, fixture.other],
                 valid[3].2,
             ),
-            (valid[4].0, vec![fixture.other], valid[4].2),
-            (valid[5].0, vec![fixture.shared_storage], valid[5].2),
+            (valid[4].0.clone(), vec![fixture.other], valid[4].2),
+            (valid[5].0.clone(), vec![fixture.shared_storage], valid[5].2),
             (
-                valid[6].0,
+                valid[6].0.clone(),
                 vec![fixture.mutable_authority, fixture.pointer],
                 valid[6].2,
             ),
             (
-                valid[7].0,
+                valid[7].0.clone(),
                 vec![fixture.mutable_authority, fixture.pointer],
                 Some(fixture.shared_result),
             ),
-            (valid[8].0, vec![fixture.other], valid[8].2),
-            (valid[8].0, vec![element], Some(element)),
+            (valid[8].0.clone(), vec![fixture.other], valid[8].2),
+            (valid[8].0.clone(), vec![element], Some(element)),
         ];
 
         for (kind, operands, result) in malformed {

@@ -209,7 +209,7 @@ pub fn run_build_request(
                 let diagnostics = match error {
                     TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
                     TestCatalogPublicationError::Diagnostic(diagnostic) => {
-                        DiagnosticBag::single(diagnostic)
+                        DiagnosticBag::single(*diagnostic)
                     }
                 };
 
@@ -315,14 +315,14 @@ fn encode_test_catalog(
         .test_discovery(product.clone())
         .map_err(|error| match error {
             bray_compilation::FactQueryError::Cancelled => TestCatalogPublicationError::Cancelled,
-            error => TestCatalogPublicationError::Diagnostic(test_discovery_failure(
+            error => TestCatalogPublicationError::Diagnostic(Box::new(test_discovery_failure(
                 error, product, target,
-            )),
+            ))),
         })?;
 
     let (bytes, _) =
         bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product, target))
+            TestCatalogPublicationError::Diagnostic(Box::new(test_catalog_failure(error, product, target)))
         })?;
 
     Ok(bytes)
@@ -330,7 +330,7 @@ fn encode_test_catalog(
 
 enum TestCatalogPublicationError {
     Cancelled,
-    Diagnostic(Diagnostic),
+    Diagnostic(Box<Diagnostic>),
 }
 
 fn test_discovery_failure(
@@ -903,7 +903,7 @@ mod tests {
                 ArtifactKind::StaticLibrary,
                 0,
             )
-            .unwrap_err(),
+            .expect_err("unpublished static library must be unavailable"),
             bray_emitter::PublishedGenerationReadError::ArtifactUnavailable
         );
 

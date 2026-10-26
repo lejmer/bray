@@ -142,6 +142,12 @@ impl BodyBehaviorBuilder {
     }
 }
 
+type DirectTrustedCapabilityUses = (
+    BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
+    DiagnosticBag,
+    bool,
+);
+
 impl Compilation {
     /// Returns normalized effects and obligations for one checked semantic body.
     pub fn body_behavior(
@@ -176,14 +182,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
-            DiagnosticBag,
-            bool,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<DirectTrustedCapabilityUses, FactQueryError> {
         let contributions = self.body_semantics_with_cancellation(key, cancellation)?;
 
         let mut capabilities = BTreeMap::<_, BTreeSet<_>>::new();
@@ -941,7 +940,7 @@ mod tests {
 
         let behavior = compilation
             .body_behavior(source_callable_body_key(&compilation))
-            .unwrap();
+            .expect("fixture `body_behavior` call must succeed");
 
         assert!(
             behavior.value().trusted_capabilities().is_empty(),
@@ -960,7 +959,7 @@ mod tests {
 
         let behavior = compilation
             .body_behavior(source_callable_body_key(&compilation))
-            .unwrap();
+            .expect("fixture `body_behavior` call must succeed");
 
         assert!(
             behavior.value().trusted_capabilities().is_empty(),
@@ -988,7 +987,7 @@ mod tests {
             let diagnostics = compilation.check_diagnostics();
 
             assert_eq!(
-                crate::test_support::diagnostic_kinds(&diagnostics),
+                crate::test_support::diagnostic_kinds(diagnostics),
                 expected.into_iter().collect::<Vec<_>>(),
                 "{declaration}: {diagnostics:?}"
             );
@@ -1019,7 +1018,7 @@ using core.memory;
             let diagnostics = compilation.check_diagnostics();
 
             assert_eq!(
-                crate::test_support::diagnostic_kinds(&diagnostics),
+                crate::test_support::diagnostic_kinds(diagnostics),
                 expected.into_iter().collect::<Vec<_>>(),
                 "{declaration}: {diagnostics:?}"
             );
@@ -1051,8 +1050,8 @@ trusted func wrapper() -> i32 uses(foreign_call)
 }
 "#;
 
-        let package = PackageIdentity::try_new("example.trust").unwrap();
-        let product = InterfaceProductIdentity::try_new("library").unwrap();
+        let package = PackageIdentity::try_new("example.trust").expect("fixture package identity must be valid");
+        let product = InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid");
 
         let identity = PackageInterfaceIdentity::try_new(
             package.clone(),
@@ -1061,7 +1060,7 @@ trusted func wrapper() -> i32 uses(foreign_call)
             InterfaceProductKind::Library,
             "public",
         )
-        .unwrap();
+        .expect("fixture package interface identity must be valid");
 
         let options = CompilationOptions::new(
             WorkerBudget::serial(),
@@ -1069,7 +1068,7 @@ trusted func wrapper() -> i32 uses(foreign_call)
             SelectedTarget::baseline(),
         )
         .with_native_link_inputs([NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+            bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )]);
 
@@ -1083,18 +1082,18 @@ trusted func wrapper() -> i32 uses(foreign_call)
             InterfaceLanguageRevision::new(0),
         ));
 
-        let library = Compilation::load(request).unwrap();
+        let library = Compilation::load(request).expect("fixture input must load");
         let diagnostics = library.check_diagnostics();
 
         assert!(diagnostics.is_empty(), "library: {diagnostics:?}");
 
         let bundle = library
             .package_interface_export_bundle()
-            .unwrap()
+            .expect("fixture `package_interface_export_bundle` call must succeed")
             .as_ref()
-            .unwrap();
+            .expect("fixture optional value must be present");
 
-        let encoded = encode_package_interface(bundle).unwrap();
+        let encoded = encode_package_interface(bundle).expect("fixture package interface must encode");
 
         let dependency = DependencyInterfaceInput::new(
             package,

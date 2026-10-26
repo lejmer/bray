@@ -838,7 +838,7 @@ fn available_internal_metadata_does_not_root_unused_executable_templates() {
                 key,
                 bray_ir::MirUnitKey::ImportedExecutable(_)
             ))
-            .unwrap(),
+            .expect("fixture `codegen_instance_count_for_test` call must succeed"),
         1
     );
 }
@@ -868,16 +868,16 @@ fn dependency_reexports_keep_the_defining_visibility_and_identity() {
         "#,
     );
 
-    let package = PackageIdentity::try_new("proxy.package").unwrap();
+    let package = PackageIdentity::try_new("proxy.package").expect("fixture package identity must be valid");
 
     let identity = PackageInterfaceIdentity::try_new(
         package.clone(),
         crate::test_support::package_version(),
-        InterfaceProductIdentity::try_new("library").unwrap(),
+        InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
         InterfaceProductKind::Library,
         "public",
     )
-    .unwrap();
+    .expect("fixture package interface identity must be valid");
 
     let request = CompilationRequest::with_options(
         package,
@@ -902,7 +902,7 @@ fn dependency_reexports_keep_the_defining_visibility_and_identity() {
         InterfaceLanguageRevision::new(0),
     ));
 
-    let proxy = Compilation::load(request).unwrap();
+    let proxy = Compilation::load(request).expect("fixture input must load");
 
     assert!(
         proxy.check_diagnostics().is_empty(),

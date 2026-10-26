@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::core::UnitTranslator;
 use super::support::{llvm, next_helper};
-use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
     MirConstruction, MirHelperReference, MirOperation, SelectedConversion,
@@ -276,11 +276,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.place_value(storage, result, "construction.union.value")
     }
 
-    pub(super) fn translate_conversion_plan<'mapping>(
+    pub(super) fn translate_conversion_plan(
         &mut self,
         value: BasicValueEnum<'context>,
         conversion: &SelectedConversion,
-        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match conversion.target() {
             ConversionTarget::CallableContract => Ok(value),
@@ -312,7 +311,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         self.aggregate_field_value(value, conversion.source_type(), index)?;
 
                     let child_value =
-                        self.translate_conversion_plan(child_value, child, helpers)?;
+                        self.translate_conversion_plan(child_value, child)?;
 
                     result =
                         self.insert_aggregate_field(result, &target_fields, index, child_value)?;

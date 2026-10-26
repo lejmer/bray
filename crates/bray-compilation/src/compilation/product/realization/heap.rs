@@ -331,7 +331,7 @@ mod tests {
     #[test]
     fn heap_methods_have_valid_declaration_owned_bodies_and_failed_creation_cleans_input() {
         let request = CompilationRequest::new(
-            PackageIdentity::try_new("std").unwrap(),
+            PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
             vec![source_input(
                 r#"trusted internal module std.runtime.memory;
 
@@ -349,29 +349,29 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
         )
         .with_standard_library_source_authority();
 
-        let compilation = Compilation::load(request).unwrap();
+        let compilation = Compilation::load(request).expect("fixture input must load");
         let cancellation = CancellationToken::new();
-        let binding = compilation.binding_context(&cancellation).unwrap();
-        let values = compilation.semantic_value_store().unwrap();
+        let binding = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
         let heap = compilation
             .available_compiler_known_symbols()
             .declaration_symbol::<StructSymbolId>(
-                &CompilerKnownDeclarationKey::try_new("Heap").unwrap(),
+                &CompilerKnownDeclarationKey::try_new("Heap").expect("fixture compiler known declaration key must be valid"),
             )
-            .unwrap();
+            .expect("fixture `declaration_symbol` call must succeed");
 
-        let heap = named_type(values, NamedTypeSymbolId::Struct(heap)).unwrap();
+        let heap = named_type(values, NamedTypeSymbolId::Struct(heap)).expect("fixture `named_type` call must succeed");
 
         let element = compilation
             .codegen_representation_type(RepresentationRole::ScalarI32)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         let target = compilation
             .selected_target()
             .target()
             .codegen_target()
-            .unwrap();
+            .expect("fixture target must support code generation");
 
         for member in [
             "StorageCreate",
@@ -384,10 +384,10 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
                 &binding,
                 heap,
                 element,
-                &CompilerKnownDeclarationKey::try_new(member).unwrap(),
+                &CompilerKnownDeclarationKey::try_new(member).expect("fixture compiler known declaration key must be valid"),
                 &cancellation,
             )
-            .unwrap();
+            .expect("fixture `selected_storage_callable` call must succeed");
 
             assert!(
                 !selected.diagnostics().has_errors(),
@@ -395,11 +395,11 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
                 selected.diagnostics()
             );
 
-            let (_, _, callable, _) = selected.value().as_ref().unwrap();
+            let (_, _, callable, _) = selected.value().as_ref().expect("fixture optional value must be present");
 
             let instance = compilation
                 .concrete_codegen_callable(*callable, [], &target, &cancellation)
-                .unwrap();
+                .expect("fixture `concrete_codegen_callable` call must succeed");
 
             assert_eq!(
                 instance.key().template(),

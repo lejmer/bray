@@ -902,7 +902,7 @@ func main() {}
         assert_eq!(diagnostics.len(), 1);
 
         assert_eq!(
-            diagnostics.iter().next().unwrap().primary_span(),
+            diagnostics.iter().next().expect("fixture iterator must provide its expected item").primary_span(),
             error.source()
         );
     }
@@ -921,7 +921,7 @@ func main() {}
         let mut source = String::from("module app;\n");
 
         for index in 0..count {
-            writeln!(source, "func item{index}() {{}}").unwrap();
+            writeln!(source, "func item{index}() {{}}").expect("fixture source must be constructed");
         }
 
         let compilation = compilation(&source);
@@ -944,7 +944,7 @@ func main() {}
                     observed_contracts.fetch_add(1, Ordering::SeqCst);
                 }
             }))
-            .unwrap();
+            .expect("fixture task observer must be installed");
 
         assert!(compilation.check_diagnostics().is_empty());
         assert_eq!(bodies.load(Ordering::SeqCst), count);

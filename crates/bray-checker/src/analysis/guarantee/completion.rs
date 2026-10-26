@@ -169,7 +169,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .and_then(|expression| memory.operation(expression))
                             .is_some_and(|operation| {
                                 crate::memory::execution::guarantees(
-                                    operation.kind(),
+                                    &operation.kind(),
                                     crate::ExecutionProperty::Pure,
                                 )
                             })
@@ -387,7 +387,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        return Some(crate::ExecutionCallEvidence {
+        Some(crate::ExecutionCallEvidence {
             returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -395,7 +395,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             arguments,
             assumptions: state.assumptions.clone(),
             trusted_assumptions: state.call_trusted_assumptions([]),
-        });
+        })
     }
 
     pub(super) fn call_entry(

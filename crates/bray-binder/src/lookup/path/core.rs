@@ -109,6 +109,10 @@ where
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "source path lookup joins local and imported scopes, access, ordinary lookup, and semantic members"
+)]
 pub(crate) fn bind_source_path<Upstream>(
     symbols: &SymbolGraph,
     declarations: &bray_declarations::DeclarationTable,
@@ -661,6 +665,10 @@ pub(crate) fn classify_pattern_target(name: ResolvedName) -> Option<BoundPattern
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "path lookup retains module ownership, source scope, imported visibility, and member lookup"
+)]
 fn bind_path_with_ordinary<Upstream>(
     symbols: &SymbolGraph,
     imported_root: Option<ImportedPathRoot<'_>>,

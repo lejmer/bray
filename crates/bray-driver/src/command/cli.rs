@@ -326,7 +326,7 @@ fn project_command_failure(failure: DiagnosticProjectCommandFailure) -> Diagnost
 #[derive(Debug, Subcommand)]
 enum CliCommand {
     #[command(about = help::BUILD)]
-    Build(CliBuildCommand),
+    Build(Box<CliBuildCommand>),
     #[command(about = help::CHECK)]
     Check(CliCheckCommand),
     #[command(about = help::INSPECT)]

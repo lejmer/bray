@@ -472,22 +472,22 @@ mod tests {
     #[test]
     fn portable_predicate_definitions_use_link_once_even_as_roots() {
         let compilation = crate::test_support::compilation("module app;");
-        let values = compilation.semantic_value_store().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
         let boolean = compilation
             .codegen_representation_type(bray_compiler_known::RepresentationRole::ScalarBool)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         let value = values
             .intern_constant_value(ConstantValueData::new(
                 boolean,
                 ConstantValueKind::Boolean(true),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let condition = values
             .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let reference = MirPredicateReference::condition(condition, []);
         let helper = MirHelperReference::Predicate(reference.clone());
@@ -504,7 +504,7 @@ mod tests {
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         builder.set_terminator(
             entry,
@@ -521,7 +521,7 @@ mod tests {
         let mir = builder.finish(entry);
 
         let instance =
-            CodegenInstance::try_new(CodegenInstanceKey::non_generic(&mir), mir, []).unwrap();
+            CodegenInstance::try_new(CodegenInstanceKey::non_generic(&mir), mir, []).expect("fixture codegen instance must be valid");
 
         for roots in [BTreeSet::new(), BTreeSet::from([instance.key().clone()])] {
             assert_eq!(

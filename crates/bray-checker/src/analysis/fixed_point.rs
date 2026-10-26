@@ -399,7 +399,7 @@ mod tests {
             .enumerate()
             .map(|(index, (source, target))| {
                 AnalysisEdge::new(
-                    AnalysisEdgeId::from_slot(unit, u32::try_from(index).unwrap()),
+                    AnalysisEdgeId::from_slot(unit, u32::try_from(index).expect("fixture value must fit the requested representation")),
                     block(*source),
                     block(*target),
                     AnalysisEdgeKind::Sequential,

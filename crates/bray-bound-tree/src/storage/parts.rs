@@ -262,7 +262,7 @@ mod tests {
 
         let length = store
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let array = StorageCleanupPart::new(
             [StorageCleanupProjection::new(

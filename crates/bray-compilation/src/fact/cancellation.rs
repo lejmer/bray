@@ -283,8 +283,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             shared.register(shared.token())
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -311,8 +310,7 @@ mod tests {
                     });
                 }
             }))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
             assert!(
                 bray_testing::panic_payload_text(panic.as_ref())
@@ -336,16 +334,14 @@ mod tests {
 
         let panic =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| first.token().check()))
-                .err()
-                .expect("compiler invariant must panic");
+                .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
         assert!(message.contains("RecursiveCancellationInterest"));
 
         let panic = catch_unwind(AssertUnwindSafe(|| first.token().is_cancelled()))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         assert!(
             bray_testing::panic_payload_text(panic.as_ref())

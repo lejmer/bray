@@ -73,24 +73,6 @@ fn copy_and_capture(
     Ok(captured)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use super::copy_and_capture;
-
-    #[test]
-    fn streamed_child_output_is_also_retained_for_failure_diagnostics() {
-        let mut streamed = Vec::new();
-
-        let captured = copy_and_capture(Cursor::new(b"compiler progress"), &mut streamed)
-            .unwrap_or_else(|error| panic!("test stream must copy: {error}"));
-
-        assert_eq!(streamed, b"compiler progress");
-        assert_eq!(captured, b"compiler progress");
-    }
-}
-
 pub(crate) fn failure(operation: &str, output: &Output) -> String {
     let mut details = Vec::new();
     let standard_output = String::from_utf8_lossy(&output.stdout);
@@ -133,5 +115,23 @@ pub fn run() -> std::process::ExitCode {
 
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+
+    use super::copy_and_capture;
+
+    #[test]
+    fn streamed_child_output_is_also_retained_for_failure_diagnostics() {
+        let mut streamed = Vec::new();
+
+        let captured = copy_and_capture(Cursor::new(b"compiler progress"), &mut streamed)
+            .unwrap_or_else(|error| panic!("test stream must copy: {error}"));
+
+        assert_eq!(streamed, b"compiler progress");
+        assert_eq!(captured, b"compiler progress");
     }
 }

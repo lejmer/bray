@@ -199,7 +199,7 @@ mod tests {
 
         assert_eq!(
             declaration.full_text(),
-            source.strip_prefix("module app; ").unwrap()
+            source.strip_prefix("module app; ").expect("fixture `strip_prefix` call must succeed")
         );
 
         assert_eq!(

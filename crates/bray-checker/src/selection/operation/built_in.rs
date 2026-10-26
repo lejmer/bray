@@ -26,17 +26,14 @@ where
         .semantic_values()
         .trait_application_data(application);
 
-    let Some(contract) = CompilerKnownOperationRole::ALL
+    let contract = CompilerKnownOperationRole::ALL
         .iter()
         .filter_map(|role| {
             request
                 .available_compiler_known_symbols()
                 .operation_contract(*role)
         })
-        .find(|contract| contract.trait_definition() == application.definition())
-    else {
-        return None;
-    };
+        .find(|contract| contract.trait_definition() == application.definition())?;
 
     let substitution = request
         .semantic_values()
@@ -98,17 +95,14 @@ where
         .semantic_values()
         .trait_application_data(application);
 
-    let Some(contract) = CompilerKnownOperationRole::ALL
+    let contract = CompilerKnownOperationRole::ALL
         .iter()
         .filter_map(|role| {
             request
                 .available_compiler_known_symbols()
                 .operation_contract(*role)
         })
-        .find(|contract| contract.trait_definition() == application_data.definition())
-    else {
-        return None;
-    };
+        .find(|contract| contract.trait_definition() == application_data.definition())?;
 
     if contract.result_type_member() != Some(member)
         || built_in_trait_constraint_outcome(request, subject, application)

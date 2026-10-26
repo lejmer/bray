@@ -126,7 +126,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         } else {
             // A fixed native result cannot carry abnormal completion. Consume the report
             // and terminate instead of returning a value or unwinding through its caller.
-            self.invoke_runtime(runtime, &[report.into()])?;
+            self.invoke_runtime(runtime, &[report])?;
             llvm(self.builder.build_unreachable())?;
         }
 

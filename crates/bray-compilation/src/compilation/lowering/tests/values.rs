@@ -64,7 +64,7 @@ fn negative_integer_literals_publish_representable_mir_constants() {
         compilation.check_diagnostics()
     );
 
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     for (name, sign, magnitude) in [
         ("minimum", bray_symbols::IntegerSign::Negative, vec![128]),
@@ -73,7 +73,7 @@ fn negative_integer_literals_publish_representable_mir_constants() {
     ] {
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         let mir = lowered_mir(&lowered);
 
@@ -244,7 +244,7 @@ fn construction_inputs_lower_nullable_values_before_aggregate_transfer() {
     for name in ["structure", "variant"] {
         let lowered = application
             .lowered_unit(source_function_body_key(&application, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         let mir = lowered_mir(&lowered);
 

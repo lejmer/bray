@@ -97,6 +97,21 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
     .flatten()
 }
 
+fn is_fallback(
+    kind: RuntimeArchiveKind,
+    symbol: &crate::native_symbols::DefinedExternalSymbol,
+) -> bool {
+    symbol.is_weak()
+        || symbol.is_coff_comdat()
+            && matches!(
+                kind,
+                RuntimeArchiveKind::Bootstrap | RuntimeArchiveKind::Observation
+            )
+            && !kind
+                .platform_services()
+                .any(|role| role.native_symbol() == symbol.name())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{support_exports, validate_exports};
@@ -188,7 +203,7 @@ mod tests {
                 if error.unexpected == [symbol]));
         }
 
-        let misplaced = support_exports(RuntimeArchiveKind::Host).next().unwrap();
+        let misplaced = support_exports(RuntimeArchiveKind::Host).next().expect("fixture iterator must provide its expected item");
 
         let mut callback = exports(RuntimeArchiveKind::Callback);
 
@@ -236,9 +251,9 @@ mod tests {
         let symbol = RuntimeArchiveKind::Host
             .runtime_roles()
             .next()
-            .unwrap()
+            .expect("fixture iterator must provide its expected item")
             .native_symbol()
-            .unwrap();
+            .expect("fixture runtime role must have a native symbol");
 
         host.retain(|candidate| candidate != symbol);
 
@@ -261,16 +276,16 @@ mod tests {
         let misplaced = RuntimeArchiveKind::Scheduler
             .runtime_roles()
             .next()
-            .unwrap()
+            .expect("fixture iterator must provide its expected item")
             .native_symbol()
-            .unwrap();
+            .expect("fixture runtime role must have a native symbol");
 
         let duplicate = RuntimeArchiveKind::Host
             .runtime_roles()
             .next()
-            .unwrap()
+            .expect("fixture iterator must provide its expected item")
             .native_symbol()
-            .unwrap();
+            .expect("fixture runtime role must have a native symbol");
 
         host.push(misplaced.to_owned());
         host.push(duplicate.to_owned());
@@ -295,19 +310,4 @@ mod tests {
             Err(CommandError::RuntimeRoleExports { error, .. })
             if error.unexpected == [fallback]));
     }
-}
-
-fn is_fallback(
-    kind: RuntimeArchiveKind,
-    symbol: &crate::native_symbols::DefinedExternalSymbol,
-) -> bool {
-    symbol.is_weak()
-        || symbol.is_coff_comdat()
-            && matches!(
-                kind,
-                RuntimeArchiveKind::Bootstrap | RuntimeArchiveKind::Observation
-            )
-            && !kind
-                .platform_services()
-                .any(|role| role.native_symbol() == symbol.name())
 }

@@ -58,13 +58,10 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                             continue;
                         }
 
-                        match binding.argument() {
-                            bray_symbols::GenericArgument::Type(ty) => {
-                                requirements.extend(super::cleanup::exact_predicate_requirements(request, ty)?);
-                            }
-                            // Cleanup presence is independent of constant arguments.
-                            // Type projections that need them remain exact above.
-                            _ => {}
+                        // Cleanup presence is independent of constant arguments.
+                        // Type projections that need them remain exact above.
+                        if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
+                            requirements.extend(super::cleanup::exact_predicate_requirements(request, ty)?);
                         }
                     }
                 }

@@ -189,14 +189,10 @@ pub fn reachable_blocks(
     )
     .into_iter()
     .enumerate()
-    .filter_map(|(index, retained)| {
-        retained.then(|| {
-            MirBlockId::from_slot(
+    .filter(|&(_index, retained)| retained).map(|(index, _retained)| MirBlockId::from_slot(
                 unit.unit(),
                 u32::try_from(index).expect("allocated block slot fits u32"),
-            )
-        })
-    })
+            ))
     .collect()
 }
 
@@ -1129,7 +1125,7 @@ mod tests {
 
         let retained_storage = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let place = crate::MirPlace::new(storage, [], ty);
 
@@ -1149,7 +1145,7 @@ mod tests {
                 },
                 None,
             )
-            .unwrap()
+            .expect("fixture operation must fit its identity space")
             .operation();
 
         let descriptor = MirFrameDescriptor::new(
@@ -1196,7 +1192,7 @@ mod tests {
             &BTreeSet::from([cleanup_operation]),
             &BTreeMap::new(),
         )
-        .unwrap();
+        .expect("fixture `reconstruct_with_edits` call must succeed");
 
         assert_eq!(mappings.block(retained_broadcast), None);
         assert_eq!(mappings.storage(retained_storage), None);

@@ -228,7 +228,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 parameter_attributes.push((
                     parameter,
-                    type_attribute("elementtype", target, &mut self.types)?,
+                    type_attribute("elementtype", target, self.types)?,
                 ));
             }
 

@@ -602,7 +602,7 @@ impl ExecutionState {
         let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
 
         self.assumptions
-            .retain(|(condition, _)| !condition.observes_borrowed_where(&observes));
+            .retain(|(condition, _)| !condition.observes_borrowed_where(observes));
 
         let mut retired_conditions = BTreeSet::new();
 
@@ -855,12 +855,12 @@ mod tests {
 
         let root = storage
             .push_identity(StorageIdentity::Temporary(expressions[0]))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let source = bound
             .tree()
             .expression(expressions[0])
-            .unwrap()
+            .expect("fixture expression must exist in its bound unit")
             .origin()
             .source_anchor();
 
@@ -872,7 +872,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let mutation = |part| StorageMutation::Lifecycle {
             occurrence,

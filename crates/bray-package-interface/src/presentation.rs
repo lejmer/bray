@@ -271,8 +271,8 @@ pub(crate) fn diagnostic_failure(
         }
         InterfaceValidationError::ImplementationInterfaceIdentityMismatch { expected, actual } => {
             DiagnosticInterfaceValidationFailure::ImplementationInterfaceIdentityMismatch {
-                expected: Box::new(diagnostic_interface_identity(&expected)),
-                actual: Box::new(diagnostic_interface_identity(&actual)),
+                expected: Box::new(diagnostic_interface_identity(expected)),
+                actual: Box::new(diagnostic_interface_identity(actual)),
             }
         }
         InterfaceValidationError::ImplementationDependencyMismatch {

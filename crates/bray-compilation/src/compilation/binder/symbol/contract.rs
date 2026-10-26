@@ -665,8 +665,8 @@ fn bind_callable_contracts(
             .map(|behavior| behavior.result().value()),
     );
 
-    if owner.into_any().kind() == bray_symbols::SymbolKind::Destructor {
-        if let Some(key) = &body_key {
+    if owner.into_any().kind() == bray_symbols::SymbolKind::Destructor
+        && let Some(key) = &body_key {
             let body = context
                 .compilation()
                 .body_semantics_with_cancellation(key.clone(), context.cancellation())
@@ -681,7 +681,6 @@ fn bind_callable_contracts(
                     .copied(),
             );
         }
-    }
 
     let may_unwind = if let Some(key) = body_key {
         let unwind = context
@@ -826,6 +825,10 @@ impl DeclaredTrustedCapability {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "callable phase normalization joins ABI, execution properties, declared requirements, dependencies, and body behavior"
+)]
 fn callable_phase_behaviors(
     execution: CallableExecution,
     abi: bray_symbols::CallableAbi,
@@ -1064,6 +1067,10 @@ pub(in crate::compilation) enum ContractClauseSyntax {
     Uses(UsesClauseSyntax),
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "predicate binding retains source ownership, clause kind, semantic requirements, and diagnostics"
+)]
 fn bind_callable_predicates(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
@@ -1473,11 +1480,11 @@ mod tests {
         assert_eq!(predicates.len(), 1);
 
         let condition = bray_checker::execution_condition_from_type_term(
-            compilation.semantic_value_store().unwrap(),
-            predicates[0].condition().unwrap(),
+            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
+            predicates[0].condition().expect("fixture `condition` call must succeed"),
             2,
         )
-        .unwrap();
+        .expect("fixture `bray_checker::execution_condition_from_type_term` call must succeed");
 
         let bray_checker::ExecutionCondition::Operation(
             bray_bound_tree::BoundOperator::LogicalAnd,
@@ -1993,7 +2000,7 @@ mod tests {
                 assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
             } else {
                 assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     DiagnosticKind::BindingWrongNameKind,
                 );
             }

@@ -386,7 +386,9 @@ mod tests {
         let host = Arc::new(RecordingExternalToolHost::default());
         let identity = driver_identity(LinkerDriverKind::Archiver);
 
-        let cases: [(fn(&mut LinkPlanBuilder), crate::UnsupportedLinkRequirement); 6] = [
+        type UnsupportedCase = (fn(&mut LinkPlanBuilder), crate::UnsupportedLinkRequirement);
+
+        let cases: [UnsupportedCase; 6] = [
             (
                 |builder| builder.push_exported_symbol(binary_symbol_name("exported")),
                 crate::UnsupportedLinkRequirement::Symbol(

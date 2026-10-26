@@ -368,7 +368,7 @@ fn panic_report() -> PanicReport {
 extern "C-unwind" fn ignore_action(context: usize) {
     let mut lease = FRAMES
         .lock()
-        .unwrap()
+        .expect("fixture mutex must not be poisoned")
         .remove(&context)
         .expect("frame releases exactly once");
 
@@ -456,7 +456,7 @@ fn admit(descriptor: &ActivationDescriptor) -> InactiveFrame {
 
     let token = InactiveFrame { lease, descriptor };
 
-    assert!(FRAMES.lock().unwrap().insert(address, lease).is_none());
+    assert!(FRAMES.lock().expect("fixture mutex must not be poisoned").insert(address, lease).is_none());
     bray_runtime_activation_initialization(&token, address, &mut records);
     assert_eq!(bray_runtime_activation_publication(&token), 0);
 
@@ -609,7 +609,7 @@ fn main() {
     assert!(bray_runtime_task_destruction(task) == Status::SUCCESS);
     assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
-    assert!(FRAMES.lock().unwrap().is_empty());
+    assert!(FRAMES.lock().expect("fixture mutex must not be poisoned").is_empty());
 }
 
 static REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);
@@ -667,8 +667,8 @@ fn admitted_reports_survive_failed_reservation() {
         outcome.report
     });
 
-    let mut primary = reports.next().unwrap();
-    let mut incident = reports.next().unwrap();
+    let mut primary = reports.next().expect("fixture iterator must provide its expected item");
+    let mut incident = reports.next().expect("fixture iterator must provide its expected item");
 
     bray_runtime_outgoing_discharge(&CleanupBundle {
         records: 2,

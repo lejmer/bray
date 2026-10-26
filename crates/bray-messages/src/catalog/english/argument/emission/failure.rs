@@ -250,32 +250,10 @@ fn format_english_package_interface_store_create() -> String {
 fn format_english_package_interface_semantic_value(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
 ) -> String {
-    String::from(format!(
+    format!(
         "package-interface preparation failed because {}",
         super::super::native::format_english_semantic_value_failure_detail(failure),
-    ))
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
-        DiagnosticPackageInterfaceFailure,
-    };
-
-    #[test]
-    fn package_evaluation_reports_the_declaration_and_capacity_cause() {
-        let message = super::format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
-                declaration: DiagnosticInterfaceSymbolIdentity::Package("example.run".to_owned()),
-                cause: DiagnosticEmissionEvaluationFailure::MirCapacity,
-            },
-        );
-
-        assert!(message.contains("example.run"));
-        assert!(message.contains("identity limit"));
-        assert!(!message.contains("internal compiler error"));
-    }
+    )
 }
 
 fn format_english_emission_codegen_failure(
@@ -486,5 +464,27 @@ fn format_english_emission_link_plan_failure(
         Failure::InvalidOutputPath(path) => {
             format!("linked output path {} is invalid", path.display())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticPackageInterfaceFailure,
+    };
+
+    #[test]
+    fn package_evaluation_reports_the_declaration_and_capacity_cause() {
+        let message = super::format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                declaration: DiagnosticInterfaceSymbolIdentity::Package("example.run".to_owned()),
+                cause: DiagnosticEmissionEvaluationFailure::MirCapacity,
+            },
+        );
+
+        assert!(message.contains("example.run"));
+        assert!(message.contains("identity limit"));
+        assert!(!message.contains("internal compiler error"));
     }
 }

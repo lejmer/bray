@@ -99,9 +99,7 @@ pub(super) fn filesystem_artifact_plan_with_product_and_identity(
         )
     });
 
-    let plan = EmissionPlan::new(request, None, None, planned, [], package_interface);
-
-    plan
+    EmissionPlan::new(request, None, None, planned, [], package_interface)
 }
 
 pub(super) fn publication_plan(
@@ -136,9 +134,7 @@ pub(super) fn publication_plan(
         PlannedArtifactDestination::Publish(sink),
     );
 
-    let plan = EmissionPlan::new(request, None, None, [artifact], [], None);
-
-    plan
+    EmissionPlan::new(request, None, None, [artifact], [], None)
 }
 
 pub(super) fn memory_artifact_plan(
@@ -185,9 +181,7 @@ pub(super) fn memory_artifact_plan(
         )
     });
 
-    let plan = EmissionPlan::new(request, None, None, planned, [], package_interface);
-
-    plan
+    EmissionPlan::new(request, None, None, planned, [], package_interface)
 }
 
 pub(super) fn package_interface_spec() -> TestArtifactSpec {

@@ -1238,9 +1238,9 @@ fn stored_borrow_preservation_excludes_replacement_and_carrier_escape() {
                             };
                             application
                                 .symbol_graph()
-                                .unwrap()
+                                .expect("fixture compilation must build its symbol graph")
                                 .member_name((*field).into())
-                                .unwrap()
+                                .expect("fixture `member_name` call must succeed")
                                 .as_str()
                                 == "reference"
                         })),
@@ -1387,7 +1387,7 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
 
         let context = application
             .binding_context(&application.state.cancellation)
-            .unwrap();
+            .expect("fixture compilation must provide a binding context");
 
         let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
             &context,
@@ -1395,11 +1395,11 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
                 callable.into(),
             ),
         )
-        .unwrap();
+        .expect("fixture symbol query must resolve");
 
         let template = application
             .semantic_value_store()
-            .unwrap()
+            .expect("fixture compilation must provide its semantic value store")
             .dependency_contract_template_data(*dependencies.value());
 
         assert_eq!(
@@ -1413,7 +1413,7 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
 
         let producer = application
             .storage_flow(source_function_body_key(&application, "select_value"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert_eq!(
             producer
@@ -1428,7 +1428,7 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
         );
 
         let key = source_function_body_key(&application, "caller");
-        let selections = application.semantic_selections(key.clone()).unwrap();
+        let selections = application.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
 
         let call = selections
             .value()
@@ -1440,12 +1440,12 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
                     bray_bound_tree::SemanticSelection::Call(_)
                 )
             })
-            .unwrap()
+            .expect("fixture lookup must find its expected value")
             .expression();
 
-        let flow = application.storage_flow(key.clone()).unwrap();
-        let refinements = application.refinements(key.clone()).unwrap();
-        let storage = application.storage_plan(key).unwrap();
+        let flow = application.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+        let refinements = application.refinements(key.clone()).expect("fixture callable must have checked refinements");
+        let storage = application.storage_plan(key).expect("fixture callable must have a storage plan");
 
         assert!(
             !flow.diagnostics().has_errors(),
@@ -1642,7 +1642,7 @@ fn normal_exit_references_follow_constructed_fields_and_nullable_conversion() {
 
         let flow = application
             .storage_flow(source_function_body_key(&application, "returned"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
 
@@ -1688,7 +1688,7 @@ fn normal_exit_references_keep_original_stored_inputs() {
 
         let flow = application
             .storage_flow(source_function_body_key(&application, "returned"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(
             !flow.diagnostics().has_errors(),
@@ -1732,7 +1732,7 @@ fn absent_return_payload_does_not_invent_a_conflicting_reference() {
 
     let flow = application
         .storage_flow(source_function_body_key(&application, "returned"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
@@ -1822,8 +1822,8 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
     );
 
     let key = source_function_body_key(&application, "caller");
-    let storage = application.storage_plan(key.clone()).unwrap();
-    let refinements = application.refinements(key).unwrap();
+    let storage = application.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+    let refinements = application.refinements(key).expect("fixture callable must have checked refinements");
     let storage = storage.value();
 
     let mutation = refinements.value().invalidations().values().find(|invalidation| {
@@ -1852,14 +1852,14 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
             continue;
         };
 
-        let graph = application.symbol_graph().unwrap();
-        let parameter = graph.callable_parameter(parameter).unwrap();
+        let graph = application.symbol_graph().expect("fixture compilation must build its symbol graph");
+        let parameter = graph.callable_parameter(parameter).expect("fixture `callable_parameter` call must succeed");
 
         let bray_bound_tree::StorageProjection::ProductField(field) = path.projections[0] else {
             continue;
         };
 
-        if graph.member_name(field.into()).unwrap().as_str() != "second" {
+        if graph.member_name(field.into()).expect("fixture `member_name` call must succeed").as_str() != "second" {
             continue;
         }
 
@@ -2002,7 +2002,7 @@ fn protected_payload_values_preserve_reference_origins_and_reject_local_escape()
 
     let checked = application
         .storage_flow(source_function_body_key(&application, "identity"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(checked.diagnostics().is_empty(), "{checked:#?}");
 
@@ -2025,7 +2025,7 @@ fn protected_payload_values_preserve_reference_origins_and_reject_local_escape()
 
     let flow = application
         .storage_flow(source_function_body_key(&application, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -2060,7 +2060,7 @@ fn call_summary_reference_fields_follow_replacement_and_require_path_agreement()
 
         let flow = application
             .storage_flow(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(flow.diagnostics().is_empty(), "{body}: {flow:#?}");
 
@@ -2343,7 +2343,7 @@ fn anonymous_results_retain_only_the_inputs_used_by_their_bodies() {
 
         if !valid {
             assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingConflictingBorrow,
             );
         }
@@ -2371,7 +2371,7 @@ fn anonymous_returned_borrows_reject_local_storage() {
     let diagnostics = application.check_diagnostics();
 
     assert_goal_state_diagnostic_kind(
-        &diagnostics,
+        diagnostics,
         DiagnosticKind::CheckingEscapingStorageDependency,
     );
 }
@@ -2417,7 +2417,7 @@ fn anonymous_and_declared_recursive_results_share_the_checked_component() {
 
     application
         .storage_flow(source_function_body_key(&application, "select"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_eq!(
         application
@@ -2453,7 +2453,7 @@ fn mutable_callable_values_do_not_reuse_the_initial_anonymous_body() {
     let diagnostics = application.check_diagnostics();
 
     assert_goal_state_diagnostic_kind(
-        &diagnostics,
+        diagnostics,
         DiagnosticKind::CheckingEscapingStorageDependency,
     );
 }
@@ -2473,7 +2473,7 @@ fn construction_inputs_preserve_exact_nullable_reference_origins() {
 
         let flow = application
             .storage_flow(source_function_body_key(&application, "returned"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(!flow.diagnostics().has_errors(), "{source}\n{flow:#?}");
 

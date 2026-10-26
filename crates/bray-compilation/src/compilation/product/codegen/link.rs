@@ -48,6 +48,10 @@ fn runtime_platform_symbols(
 }
 
 impl Compilation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "link planning joins host, runtime, codegen and host mappings, target, and build configuration"
+    )]
     pub(super) fn product_link_inputs(
         &self,
         product: LinkedProductKind,
@@ -250,8 +254,8 @@ impl Compilation {
             preservation_roots.insert(host.native_entry().clone());
         }
 
-        if configuration.uses_thin_lto() {
-            if let Some(profile) = self.state.fact_runtime.profile() {
+        if configuration.uses_thin_lto()
+            && let Some(profile) = self.state.fact_runtime.profile() {
                 use crate::profile::ProfileMetricKind as Metric;
 
                 for (metric, value) in [
@@ -269,7 +273,6 @@ impl Compilation {
                     profile.record_metric(metric, value);
                 }
             }
-        }
 
         inputs = inputs.with_retained_symbols(preservation_roots);
 
@@ -278,14 +281,13 @@ impl Compilation {
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        if product == LinkedProductKind::SharedLibrary {
-            if let Some(host) = product_host {
+        if product == LinkedProductKind::SharedLibrary
+            && let Some(host) = product_host {
                 native_exports.extend([
                     host.descriptor_symbol().clone(),
                     host.control_symbol().clone(),
                 ]);
             }
-        }
 
         inputs = inputs.with_exported_symbols(native_exports);
 
@@ -325,7 +327,7 @@ impl Compilation {
 
         let demands = imported_symbols
             .iter()
-            .map(|name| required_native_symbol(&target, name.as_ref()));
+            .map(|name| required_native_symbol(&target, name));
 
         let provided = provided_symbols.iter().map(|(name, &binding)| {
             (

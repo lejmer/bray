@@ -451,11 +451,11 @@ mod tests {
         ));
 
         for index in 0..4_100 {
-            writeln!(source, "func item{index}() {{}}").unwrap();
+            writeln!(source, "func item{index}() {{}}").expect("fixture source must be constructed");
         }
 
         let compilation = compilation(&source);
-        let symbols = compilation.symbol_graph().unwrap();
+        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
         let functions = symbols
             .functions()
@@ -464,7 +464,7 @@ mod tests {
             .map(|symbol| {
                 (
                     symbol.id(),
-                    compilation.foreign_callable_contract(symbol.id()).unwrap(),
+                    compilation.foreign_callable_contract(symbol.id()).expect("fixture `foreign_callable_contract` call must succeed"),
                 )
             })
             .collect::<Vec<_>>();
@@ -476,7 +476,7 @@ mod tests {
             .map(|symbol| {
                 (
                     symbol.id(),
-                    compilation.foreign_static_contract(symbol.id()).unwrap(),
+                    compilation.foreign_static_contract(symbol.id()).expect("fixture `foreign_static_contract` call must succeed"),
                 )
             })
             .collect::<Vec<_>>();
@@ -502,7 +502,7 @@ mod tests {
         assert!(
             compilation
                 .foreign_callable_diagnostics(&cancellation)
-                .unwrap()
+                .expect("fixture `foreign_callable_diagnostics` call must succeed")
                 .has_errors()
         );
 
@@ -521,18 +521,18 @@ mod tests {
                     observed.fetch_add(1, Ordering::SeqCst);
                 }
             }))
-            .unwrap();
+            .expect("fixture task observer must be installed");
 
         for (function, expected) in &functions {
             assert_eq!(
-                &compilation.foreign_callable_contract(*function).unwrap(),
+                &compilation.foreign_callable_contract(*function).expect("fixture foreign callable contract must resolve"),
                 expected
             );
         }
 
         for (declaration, expected) in &statics {
             assert_eq!(
-                &compilation.foreign_static_contract(*declaration).unwrap(),
+                &compilation.foreign_static_contract(*declaration).expect("fixture foreign static contract must resolve"),
                 expected
             );
         }
@@ -579,7 +579,7 @@ mod tests {
         assert!(
             original
                 .foreign_callable_contract(source_function(&original, "value"))
-                .unwrap()
+                .expect("fixture `foreign_callable_contract` call must succeed")
                 .value()
                 .is_none()
         );
@@ -592,19 +592,19 @@ mod tests {
                 ),
                 1,
             )])
-            .unwrap();
+            .expect("fixture `updated_sources` call must succeed");
 
         assert!(updated.check_diagnostics().is_empty());
 
         let contract = updated
             .foreign_callable_contract(source_function(&updated, "value"))
-            .unwrap();
+            .expect("fixture `foreign_callable_contract` call must succeed");
 
         assert_eq!(
             contract
                 .value()
                 .as_ref()
-                .unwrap()
+                .expect("fixture optional value must be present")
                 .symbol()
                 .identity()
                 .name(),
@@ -614,7 +614,7 @@ mod tests {
         assert!(
             original
                 .foreign_callable_contract(source_function(&original, "value"))
-                .unwrap()
+                .expect("fixture `foreign_callable_contract` call must succeed")
                 .value()
                 .is_none()
         );
@@ -1499,7 +1499,7 @@ func third()
         }
 
         assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             DiagnosticKind::CheckingDuplicateNativeSymbol,
         );
     }

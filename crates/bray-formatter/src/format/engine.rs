@@ -505,9 +505,9 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             }
 
             self.writer.set_newlines(1);
-        } else if kind == SyntaxKind::OpenBraceToken && compact_empty_block {
-            self.writer.request_optional_break(true);
-        } else if kind == SyntaxKind::OpenBraceToken && compact_match_arm_body.is_some() {
+        } else if kind == SyntaxKind::OpenBraceToken
+            && (compact_empty_block || compact_match_arm_body.is_some())
+        {
             self.writer.request_optional_break(true);
         } else if block_braces_enabled
             && (kind == SyntaxKind::OpenBraceToken

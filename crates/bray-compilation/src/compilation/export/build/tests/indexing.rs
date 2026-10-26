@@ -42,14 +42,14 @@ fn indexed_constant_templates_evaluate_after_import() {
         let body = format!("const result: i32 = selected([19, 37], {start}, {end});");
         let source = compilation(&format!("module api;\n{declaration}\n{body}"));
         let bundle = export(&provider);
-        let interface = encode_package_interface(bundle).unwrap();
+        let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
 
         let implementation = PackageImplementationArtifact::try_from_export_bundle(
             &interface,
             bundle,
             InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture from export bundle must succeed");
 
         let dependency = execution_dependency(&provider)
             .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
@@ -67,7 +67,7 @@ fn indexed_constant_templates_evaluate_after_import() {
 
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingConstantCallRequirementNotProven,
                 );
 
@@ -153,7 +153,7 @@ fn custom_index_templates_preserve_selected_calls_and_capabilities() {
                 _ => None,
             })
             .next()
-            .unwrap();
+            .expect("fixture iterator must provide its expected item");
 
         assert!(matches!(
             call.dispatch,
@@ -294,7 +294,7 @@ fn custom_indexing_does_not_supply_a_const_contract() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &source.check_diagnostics(),
+        source.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
     );
 }

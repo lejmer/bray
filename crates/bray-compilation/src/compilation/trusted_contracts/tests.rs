@@ -385,7 +385,7 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
 
         let options = crate::CompilationOptions::default().with_native_link_inputs([
             bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+                bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
                 bray_symbols::NativeLinkKind::Dynamic,
             ),
         ]);
@@ -394,7 +394,7 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
         let diagnostics = compilation.check_diagnostics();
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             DiagnosticKind::CheckingTrustedObligationNotProven,
         );
     }
@@ -1217,7 +1217,7 @@ fn whole_owner_guarantees_retain_the_result_dependencies() {
                 &compilation,
                 "caller",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3561,7 +3561,7 @@ fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacemen
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).unwrap();
+        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3600,7 +3600,7 @@ fn slice_contents_calls_are_not_reused_after_element_mutation() {
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).unwrap();
+        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3650,7 +3650,7 @@ fn nested_slice_bounds_require_descriptor_storage_separation() {
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).unwrap();
+        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3809,7 +3809,7 @@ fn opaque_calls_preserve_whole_unexposed_values_only_without_indirect_storage() 
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
@@ -3871,7 +3871,7 @@ fn established_observation_free_predicates_survive_opaque_execution() {
 
             if !established {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
             }
@@ -4280,7 +4280,7 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
             assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }

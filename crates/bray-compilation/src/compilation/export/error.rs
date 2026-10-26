@@ -178,6 +178,53 @@ where
     fact_query_export_error(crate::compilation::binder::binding_query_error(error))
 }
 
+#[track_caller]
+pub(in crate::compilation::export) fn commit_error(
+    cause: InterfaceSemanticCommitError,
+) -> PackageInterfaceExportError {
+    match cause {
+        InterfaceSemanticCommitError::IdentityOverflow(table) => {
+            capacity_export_error(table.as_str(), u64::from(u32::MAX) + 1)
+        }
+        _ => panic!("compiler-assembled semantic fragment commit failed: {cause:?}"),
+    }
+}
+
+#[track_caller]
+pub(in crate::compilation::export) fn surface_error(
+    cause: PackageInterfaceExportSurfaceError,
+) -> PackageInterfaceExportError {
+    match cause {
+        PackageInterfaceExportSurfaceError::SymbolCountOverflow
+        | PackageInterfaceExportSurfaceError::Surface(
+            bray_package_interface::PackageInterfaceSurfaceBuildError::Identity(
+                bray_symbols::ImportedIdentitySurfaceError::SymbolCountOverflow,
+            ),
+        ) => capacity_export_error("declarations", u64::from(u32::MAX) + 1),
+        PackageInterfaceExportSurfaceError::Surface(
+            bray_package_interface::PackageInterfaceSurfaceBuildError::DependencyCountOverflow,
+        ) => capacity_export_error("dependencies", u64::from(u32::MAX) + 1),
+        _ => panic!("compiler-assembled interface surface failed: {cause:?}"),
+    }
+}
+
+#[track_caller]
+pub(in crate::compilation::export) fn bundle_error(
+    cause: PackageInterfaceExportBuildError,
+) -> PackageInterfaceExportError {
+    match cause {
+        PackageInterfaceExportBuildError::Validation(
+            cause @ (bray_package_interface::InterfaceValidationError::ResourceLimitExceeded {
+                ..
+            }
+            | bray_package_interface::InterfaceValidationError::AllocationUnavailable {
+                ..
+            }),
+        ) => fact_query_export_error(cause.into()),
+        _ => panic!("compiler-assembled interface bundle failed: {cause:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -200,8 +247,7 @@ mod tests {
                 },
             )
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -314,7 +360,7 @@ mod tests {
         let expected = diagnostics
             .iter()
             .find(|diagnostic| diagnostic.severity() == bray_diagnostics::SeverityKind::Error)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         assert_eq!(
             super::source_diagnostic_export_error(diagnostics),
@@ -327,52 +373,5 @@ mod tests {
             super::source_diagnostic_export_error(&bray_diagnostics::DiagnosticBag::new()),
             None
         );
-    }
-}
-
-#[track_caller]
-pub(in crate::compilation::export) fn commit_error(
-    cause: InterfaceSemanticCommitError,
-) -> PackageInterfaceExportError {
-    match cause {
-        InterfaceSemanticCommitError::IdentityOverflow(table) => {
-            capacity_export_error(table.as_str(), u64::from(u32::MAX) + 1)
-        }
-        _ => panic!("compiler-assembled semantic fragment commit failed: {cause:?}"),
-    }
-}
-
-#[track_caller]
-pub(in crate::compilation::export) fn surface_error(
-    cause: PackageInterfaceExportSurfaceError,
-) -> PackageInterfaceExportError {
-    match cause {
-        PackageInterfaceExportSurfaceError::SymbolCountOverflow
-        | PackageInterfaceExportSurfaceError::Surface(
-            bray_package_interface::PackageInterfaceSurfaceBuildError::Identity(
-                bray_symbols::ImportedIdentitySurfaceError::SymbolCountOverflow,
-            ),
-        ) => capacity_export_error("declarations", u64::from(u32::MAX) + 1),
-        PackageInterfaceExportSurfaceError::Surface(
-            bray_package_interface::PackageInterfaceSurfaceBuildError::DependencyCountOverflow,
-        ) => capacity_export_error("dependencies", u64::from(u32::MAX) + 1),
-        _ => panic!("compiler-assembled interface surface failed: {cause:?}"),
-    }
-}
-
-#[track_caller]
-pub(in crate::compilation::export) fn bundle_error(
-    cause: PackageInterfaceExportBuildError,
-) -> PackageInterfaceExportError {
-    match cause {
-        PackageInterfaceExportBuildError::Validation(
-            cause @ (bray_package_interface::InterfaceValidationError::ResourceLimitExceeded {
-                ..
-            }
-            | bray_package_interface::InterfaceValidationError::AllocationUnavailable {
-                ..
-            }),
-        ) => fact_query_export_error(cause.into()),
-        _ => panic!("compiler-assembled interface bundle failed: {cause:?}"),
     }
 }

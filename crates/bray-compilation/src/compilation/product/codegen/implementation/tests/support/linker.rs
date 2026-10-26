@@ -49,7 +49,7 @@ pub(in super::super) fn run_native_caller(
     plan: &crate::compilation::product::codegen::NativeProductPlan,
     caller: &str,
 ) {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let mut objects = Vec::new();
 
     for (index, bytes) in super::artifacts::generated_artifacts(backend, plan)
@@ -58,16 +58,16 @@ pub(in super::super) fn run_native_caller(
     {
         let path = directory.path().join(format!("unit-{index}.obj"));
 
-        std::fs::write(&path, bytes).unwrap();
+        std::fs::write(&path, bytes).expect("fixture contents must be written");
         objects.push(path);
     }
 
     let source = directory.path().join("caller.c");
     let executable = directory.path().join("caller.exe");
 
-    std::fs::write(&source, caller).unwrap();
+    std::fs::write(&source, caller).expect("fixture contents must be written");
 
-    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap())
+    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.expect("native fixture requires the configured LLVM toolchain prefix"))
         .join("bin/clang.exe");
 
     let linked = std::process::Command::new(compiler)
@@ -77,7 +77,7 @@ pub(in super::super) fn run_native_caller(
         .arg("-o")
         .arg(&executable)
         .output()
-        .unwrap();
+        .expect("fixture command must execute");
 
     assert!(
         linked.status.success(),
@@ -88,7 +88,7 @@ pub(in super::super) fn run_native_caller(
     assert_eq!(
         std::process::Command::new(executable)
             .status()
-            .unwrap()
+            .expect("fixture command must execute")
             .code(),
         Some(0)
     );

@@ -240,7 +240,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
     for source in [CONCRETE_GENERIC_SOURCE, storage_source, predicate_source] {
         let native_links = if source == storage_source {
             vec![NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("native").unwrap(),
+                NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
                 NativeLinkKind::Dynamic,
             )]
         } else {
@@ -303,7 +303,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
                 .flat_map(|unit| {
                     unit.instances().iter().map(|instance| {
                         unit.compatibility(instance.key())
-                            .unwrap()
+                            .expect("fixture `compatibility` call must succeed")
                             .native_storage_dependencies_identity()
                     })
                 })

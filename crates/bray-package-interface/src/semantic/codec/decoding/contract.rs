@@ -704,6 +704,50 @@ pub(super) fn decode_dependency_requirement_kind(
     }
 }
 
+fn decode_predicate_summary(
+    reader: &mut WireReader<'_>,
+) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
+    let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+
+    let domain = match read_u32(reader)? {
+        0 => bray_symbols::PredicateDomain::Value,
+        1 => bray_symbols::PredicateDomain::Trusted,
+        2 => bray_symbols::PredicateDomain::Execution,
+        raw => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Reference,
+                raw,
+            ));
+        }
+    };
+
+    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, domain))
+}
+
+fn decode_mutation(
+    reader: &mut WireReader<'_>,
+) -> Result<bray_symbols::DependencyMutationKind<crate::InterfaceTypeId>, InterfaceValidationError>
+{
+    use bray_symbols::DependencyMutationKind;
+
+    Ok(match read_u32(reader)? {
+        1 => DependencyMutationKind::Write,
+        2 => DependencyMutationKind::Consume,
+        3 => DependencyMutationKind::Retire,
+        4 => DependencyMutationKind::Atomic,
+        5 => DependencyMutationKind::Replace(crate::InterfaceTypeId::new(read_u32(reader)?)),
+        6 => DependencyMutationKind::Clear,
+        7 => DependencyMutationKind::Escape,
+        raw => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Dependency,
+                raw,
+            ));
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SemanticDecodeContext, WireReader, decode_dependency_contract, map_wire_error};
@@ -724,7 +768,7 @@ mod tests {
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
         let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
-        let contract = decode_words(&words, limits).unwrap();
+        let contract = decode_words(&words, limits).expect("fixture encoded words must decode");
 
         assert_eq!(contract.borrows.len(), 1);
         assert!(contract.borrows[0].entry().is_none());
@@ -756,11 +800,11 @@ mod tests {
             let mut reader = WireReader::new(&bytes);
 
             assert_eq!(
-                super::decode_predicate_summary(&mut reader).unwrap(),
+                super::decode_predicate_summary(&mut reader).expect("fixture `super::decode_predicate_summary` call must succeed"),
                 predicate
             );
 
-            reader.finish().unwrap();
+            reader.finish().expect("fixture operation must finish successfully");
 
             let end = bytes.len();
 
@@ -790,7 +834,7 @@ mod tests {
     #[test]
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).unwrap();
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).expect("fixture encoded words must decode");
 
         assert_eq!(
             decoded,
@@ -816,7 +860,7 @@ mod tests {
             &[0, 1, 0, 0, 1, 0, 1, 1, 1, 2, 3, 0, 7, 0, 0, 0, 0, 2, 0, 5],
             InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture encoded words must decode");
 
         assert_eq!(
             decoded,
@@ -848,7 +892,7 @@ mod tests {
             5, // No reference relations, returned input, result observation or carriers. Unknown effects and input escapes.
         ];
 
-        let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
+        let decoded = decode_words(&words, InterfaceValidationLimits::default()).expect("fixture encoded words must decode");
 
         let expected =
             InterfaceDependencyContract::new([InterfaceDependencyRequirement::result_call(
@@ -955,48 +999,4 @@ mod tests {
             })
         ));
     }
-}
-
-fn decode_predicate_summary(
-    reader: &mut WireReader<'_>,
-) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
-    let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
-    let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
-
-    let domain = match read_u32(reader)? {
-        0 => bray_symbols::PredicateDomain::Value,
-        1 => bray_symbols::PredicateDomain::Trusted,
-        2 => bray_symbols::PredicateDomain::Execution,
-        raw => {
-            return Err(crate::semantic::codec::invalid_discriminant(
-                crate::InterfaceValidationField::Reference,
-                raw,
-            ));
-        }
-    };
-
-    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition, domain))
-}
-
-fn decode_mutation(
-    reader: &mut WireReader<'_>,
-) -> Result<bray_symbols::DependencyMutationKind<crate::InterfaceTypeId>, InterfaceValidationError>
-{
-    use bray_symbols::DependencyMutationKind;
-
-    Ok(match read_u32(reader)? {
-        1 => DependencyMutationKind::Write,
-        2 => DependencyMutationKind::Consume,
-        3 => DependencyMutationKind::Retire,
-        4 => DependencyMutationKind::Atomic,
-        5 => DependencyMutationKind::Replace(crate::InterfaceTypeId::new(read_u32(reader)?)),
-        6 => DependencyMutationKind::Clear,
-        7 => DependencyMutationKind::Escape,
-        raw => {
-            return Err(crate::semantic::codec::invalid_discriminant(
-                crate::InterfaceValidationField::Dependency,
-                raw,
-            ));
-        }
-    })
 }

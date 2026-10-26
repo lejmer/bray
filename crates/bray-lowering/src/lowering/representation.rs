@@ -34,7 +34,7 @@ impl Lowerer<'_> {
     pub(super) fn type_representation(&self, ty: TypeId) -> Option<RepresentationRole> {
         let data = self.input.semantic_values().type_data(ty);
 
-        let role = match data.as_ref() {
+        match data.as_ref() {
             TypeData::Named { definition, .. } => match definition {
                 NamedTypeSymbolId::Struct(symbol) => self
                     .input
@@ -46,9 +46,7 @@ impl Lowerer<'_> {
                     .symbol_representation(*symbol),
             },
             _ => None,
-        };
-
-        role
+        }
     }
 
     pub(super) fn named_type_arguments(&self, ty: TypeId) -> Vec<TypeId> {

@@ -538,13 +538,13 @@ mod tests {
         assert_eq!(hash(&memory), hash(&spooled));
 
         assert_eq!(
-            memory.read_shared().unwrap(),
-            spooled.read_shared().unwrap()
+            memory.read_shared().expect("fixture shared artifact bytes must be readable"),
+            spooled.read_shared().expect("fixture shared artifact bytes must be readable")
         );
 
         assert!(std::sync::Arc::ptr_eq(
-            &memory.read_shared().unwrap(),
-            &memory.read_shared().unwrap()
+            &memory.read_shared().expect("fixture artifact bytes must be readable"),
+            &memory.read_shared().expect("fixture artifact bytes must be readable")
         ));
     }
 

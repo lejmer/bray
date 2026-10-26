@@ -770,7 +770,7 @@ mod tests {
         let subject_type = fixture
             .semantic_values
             .intern_type(bray_symbols::TypeData::tuple([]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let bound = match binder.bind_case_pattern(
             context,

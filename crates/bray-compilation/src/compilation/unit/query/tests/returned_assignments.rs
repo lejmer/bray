@@ -121,7 +121,7 @@ fn returned_assignments_through_calls_reject_local_storage() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -365,7 +365,7 @@ fn returned_assignments_follow_parameter_array_and_alias_storage() {
 
         let flow = compilation
             .storage_flow(source_function_body_key(&compilation, "bad"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(
             flow.diagnostics()
@@ -455,7 +455,7 @@ fn returned_iteration_values_reject_local_storage() {
 
     let compilation = compilation(source);
     let key = source_function_body_key(&compilation, "bad");
-    let flow = compilation.storage_flow(key).unwrap();
+    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -530,7 +530,7 @@ fn returned_propagation_respects_yield_regions_and_independent_errors() {
         } else {
             let flow = compilation
                 .storage_flow(source_function_body_key(&compilation, "caller"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             bray_testing::assert_goal_state_diagnostic_kind(
                 flow.diagnostics(),
@@ -562,7 +562,7 @@ fn returned_propagated_errors_reject_local_storage() {
 
     let compilation = compilation(source);
     let key = source_function_body_key(&compilation, "bad");
-    let flow = compilation.storage_flow(key).unwrap();
+    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         flow.diagnostics(),

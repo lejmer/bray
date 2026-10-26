@@ -436,8 +436,8 @@ mod tests {
         let package = AnySymbolId::from(graph.packages()[0].id());
         let first = SharedCancellation::new();
         let second = SharedCancellation::new();
-        let _first = first.register(second.token()).unwrap();
-        let _second = second.register(first.token()).unwrap();
+        let _first = first.register(second.token()).expect("fixture `register` call must succeed");
+        let _second = second.register(first.token()).expect("fixture `register` call must succeed");
         let evaluator = |_request: SymbolCompletionQuery| Ok::<_, ()>(DiagnosticBag::new());
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -450,8 +450,7 @@ mod tests {
                 &evaluator,
             )
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         assert!(
             bray_testing::panic_payload_text(panic.as_ref())

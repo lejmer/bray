@@ -211,6 +211,10 @@ native_export! {
         unsafe_code,
         reason = "the factory copies the compiler-owned layout during this call"
     )]
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "native callers provide a valid compiler-owned layout for this call"
+    )]
     pub extern "C-unwind" fn bray_runtime_task_observation_creation(
         task: NativeTaskHandle,
         request_cancellation: u8,
@@ -239,6 +243,10 @@ native_export! {
     #[expect(
         unsafe_code,
         reason = "the resolver borrows the compiler-owned layout only for this call"
+    )]
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "native callers provide a valid compiler-owned layout while the task is resolved"
     )]
     pub extern "C" fn bray_runtime_task_resolution(
         task: NativeTaskHandle,
@@ -843,7 +851,7 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -942,7 +950,7 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1016,7 +1024,7 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1199,21 +1207,21 @@ mod tests {
             assert_eq!(report.suppressed_count(), 2 * usize::from(!fail_completion));
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
                 0
             );
 
             assert!(bray_runtime_root_completion_resolution(root).is_success());
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
                 1
             );
 
             assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).unwrap(),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
                 0
             );
 
@@ -1448,7 +1456,7 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1547,14 +1555,14 @@ mod tests {
 
         assert_eq!(
             super::with_runtime(|runtime| runtime.resolve_task(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .state(),
             NativeRunState::COMPLETED
         );
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1604,8 +1612,8 @@ mod tests {
         );
 
         super::super::state::with_runtime(|runtime| {
-            let task = runtime.retained_task(task, true).unwrap();
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+            let task = runtime.retained_task(task, true).expect("fixture `retained_task` call must succeed");
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
             let primary = bray_runtime_abi::NativePanicPrimary::new(
                 bray_runtime_abi::NativePanicCause::ASSERTION,
@@ -1623,11 +1631,11 @@ mod tests {
                 report,
             );
         })
-        .unwrap();
+        .expect("fixture runtime must be active");
 
         assert!(
             super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1635,7 +1643,7 @@ mod tests {
 
         assert!(
             super::super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1659,12 +1667,12 @@ mod tests {
                 .is_success()
         );
 
-        let task = bray_runtime_task_allocation().task().unwrap();
+        let task = bray_runtime_task_allocation().task().expect("fixture `task` call must succeed");
         let frame = protected_frame(8, resume_frame, ignore_completion_move, started_destroy);
-        let missing = NativeTaskHandle::new(task.raw() + 1).unwrap();
+        let missing = NativeTaskHandle::new(task.raw() + 1).expect("fixture native task handle must be valid");
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(missing, &frame)).unwrap(),
+            super::with_runtime(|runtime| runtime.start(missing, &frame)).expect("fixture runtime must be active"),
             NativeRuntimeStatus::UNKNOWN_TASK
         );
 
@@ -1672,12 +1680,12 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.start(task, &frame))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(task, &frame)).unwrap(),
+            super::with_runtime(|runtime| runtime.start(task, &frame)).expect("fixture runtime must be active"),
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
@@ -1692,7 +1700,7 @@ mod tests {
 
         assert!(
             super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1728,7 +1736,7 @@ mod tests {
         let root =
             bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration)
                 .root()
-                .unwrap();
+                .expect("fixture `root` call must succeed");
 
         assert_eq!(
             bray_runtime_root_terminal_observation(root).state(),
@@ -1768,7 +1776,7 @@ mod tests {
 
         drop(failure);
 
-        let task = bray_runtime_task_allocation().task().unwrap();
+        let task = bray_runtime_task_allocation().task().expect("fixture `task` call must succeed");
 
         assert!(bray_runtime_task_start(task, inactive).is_success());
         assert!(bray_runtime_main_thread_lane_drive().is_success());
@@ -1781,7 +1789,7 @@ mod tests {
 
         assert!(
             super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -1826,7 +1834,7 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -2170,7 +2178,7 @@ mod tests {
 
         let child = REJECTED_COMPUTE_CHILD
             .lock()
-            .unwrap()
+            .expect("fixture mutex must not be poisoned")
             .take()
             .expect("rejection retains the exact child");
 
@@ -2418,13 +2426,13 @@ mod tests {
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(root))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
         assert!(
             super::with_runtime(|runtime| runtime.resolve_task_retirement(competitor))
-                .unwrap()
+                .expect("fixture runtime must be active")
                 .is_success()
         );
 
@@ -2480,13 +2488,13 @@ mod tests {
                 completion_bytes: 8,
                 completion_align: 8,
                 states: 2,
-                state: state,
-                resume: resume,
+                state,
+                resume,
                 cancel: cancel_frame,
                 broadcast: ignore_broadcast,
                 resolve: ignore_resolution,
-                move_completion: move_completion,
-                destroy: destroy,
+                move_completion,
+                destroy,
             },
         )
     }
@@ -2542,7 +2550,7 @@ mod tests {
                 bray_runtime_abi::NativeFrameComposition::Completion,
             )
         })
-        .unwrap();
+        .expect("fixture runtime must be active");
 
         assert_eq!(status, NativeRuntimeStatus::INVALID_ARGUMENT);
         assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
@@ -2550,7 +2558,7 @@ mod tests {
         assert!(
             REJECTED_COMPUTE_CHILD
                 .lock()
-                .unwrap()
+                .expect("fixture mutex must not be poisoned")
                 .replace(child)
                 .is_none()
         );
@@ -2612,7 +2620,7 @@ mod tests {
                 bray_runtime_abi::NativeFrameComposition::Completion,
             )
         })
-        .unwrap();
+        .expect("fixture runtime must be active");
 
         assert_eq!(rejected, NativeRuntimeStatus::INVALID_ARGUMENT);
         assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 1);
@@ -2626,7 +2634,7 @@ mod tests {
                 bray_runtime_abi::NativeFrameComposition::Completion,
             )
         })
-        .unwrap();
+        .expect("fixture runtime must be active");
 
         assert_eq!(accepted, NativeRuntimeStatus::SUCCESS);
         drop(rejection);
@@ -2666,11 +2674,11 @@ mod tests {
                 completion_align: 8,
                 states: 2,
                 state: frame_state,
-                resume: resume,
+                resume,
                 cancel: resume,
                 broadcast: ignore_broadcast,
                 resolve: ignore_resolution,
-                move_completion: move_completion,
+                move_completion,
                 destroy: ignore_action,
             },
         )

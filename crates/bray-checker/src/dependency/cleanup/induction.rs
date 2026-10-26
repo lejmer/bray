@@ -119,10 +119,10 @@ where
 
         let basis = selected.with_substitution(substitution);
 
-        if !proofs.contains_key(&basis) {
+        if let std::collections::btree_map::Entry::Vacant(e) = proofs.entry(basis) {
             let result = prove(request, basis, maximum_depth, completed)?;
 
-            proofs.insert(basis, result);
+            e.insert(result);
         }
 
         if let Some(proven) = proofs
@@ -146,10 +146,10 @@ where
             .map_or(selected, |scheme| scheme.basis)
             .with_contextual_self(Some((context, subject)));
 
-        if !proofs.contains_key(&basis) {
+        if let std::collections::btree_map::Entry::Vacant(e) = proofs.entry(basis) {
             let result = prove(request, basis, maximum_depth, completed)?;
 
-            proofs.insert(basis, result);
+            e.insert(result);
         }
 
         if let Some(proven) = proofs

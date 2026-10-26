@@ -176,7 +176,7 @@ mod tests {
 
         assert_eq!(
             DependencyStorageEffect::normalize([write.clone(), write.clone()]).as_ref(),
-            &[write.clone()]
+            std::slice::from_ref(&write)
         );
 
         assert_eq!(

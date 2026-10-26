@@ -18,11 +18,10 @@ pub fn llvm_tool_path(tool: DiagnosticLlvmToolRole) -> Result<PathBuf, LlvmToolP
         .or_else(|| bray_codegen_llvm::COMPILED_LLVM_PREFIX.map(PathBuf::from))
         .map(|prefix| prefix.join("bin").join(&executable_name));
 
-    if let Some(path) = configured.as_deref() {
-        if probe_tool_candidate(tool, path)? {
+    if let Some(path) = configured.as_deref()
+        && probe_tool_candidate(tool, path)? {
             return Ok(path.to_path_buf());
         }
-    }
 
     let executable = env::current_exe().map_err(|error| LlvmToolPathError::CurrentExecutable {
         tool,
@@ -44,7 +43,7 @@ pub fn llvm_tool_path(tool: DiagnosticLlvmToolRole) -> Result<PathBuf, LlvmToolP
             Ok(false) => None,
             Err(error) => Some(Err(error)),
         })
-        .unwrap_or_else(|| Err(LlvmToolPathError::Unavailable { tool, configured }))
+        .unwrap_or(Err(LlvmToolPathError::Unavailable { tool, configured }))
 }
 
 /// Exact failure while resolving one executable from the LLVM installation.

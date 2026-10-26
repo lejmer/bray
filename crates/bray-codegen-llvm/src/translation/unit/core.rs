@@ -149,6 +149,10 @@ fn instance_function<'context, 'request>(
     (symbol, function)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "instance translation joins checked codegen identity, native functions, type mappings, and debug information"
+)]
 fn translate_instance<'context, 'request>(
     context: &'context Context,
     module: &Module<'context>,

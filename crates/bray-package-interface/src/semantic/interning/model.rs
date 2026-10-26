@@ -405,9 +405,7 @@ impl ImportedSemantics {
                 .collect(),
             InterfaceSemanticRecordKind::PredicateDefinition => self
                 .predicate_definitions
-                .iter()
-                .cloned()
-                .filter(|record| record.owner().into_any() == owner)
+                .iter().filter(|&record| record.owner().into_any() == owner).cloned()
                 .map(ImportedSemanticRecord::PredicateDefinition)
                 .collect(),
             InterfaceSemanticRecordKind::DeclaredType => self

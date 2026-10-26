@@ -490,7 +490,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = lower_unit(fixture.input());
         }))
-        .unwrap_err();
+        .expect_err("lowering an incomplete checked fixture must expose the missing phase contract");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -508,32 +508,32 @@ mod tests {
         let fixture = lowering_fixture(95, BoundOperator::Add);
         let mut lowerer = super::Lowerer::new(fixture.input());
         let source = MirSourceAnchor::from(fixture.unit.key().source());
-        let ty = fixture.values.intern_type(TypeData::tuple([])).unwrap();
+        let ty = fixture.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let entry = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let consumed = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let retained = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let storage = lowerer
             .builder
             .push_storage(source.clone(), MirStorageKind::Local, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let flag = lowerer
             .builder
             .push_storage(source.clone(), MirStorageKind::Local, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         lowerer.initialization_guards.insert(
             storage,
@@ -546,7 +546,7 @@ mod tests {
         let parameter = lowerer
             .builder
             .push_block_parameter(consumed, source.clone(), ty)
-            .unwrap();
+            .expect("fixture block parameter must fit its identity space");
 
         lowerer
             .set_terminator(
@@ -564,7 +564,7 @@ mod tests {
                     else_edge: MirEdge::new(retained, []),
                 },
             )
-            .unwrap();
+            .expect("fixture `set_terminator` call must succeed");
 
         lowerer
             .set_terminator(
@@ -575,7 +575,7 @@ mod tests {
                     report: None,
                 },
             )
-            .unwrap();
+            .expect("fixture `set_terminator` call must succeed");
 
         lowerer
             .set_terminator(
@@ -586,7 +586,7 @@ mod tests {
                     report: None,
                 },
             )
-            .unwrap();
+            .expect("fixture `set_terminator` call must succeed");
 
         let mir = lowerer.builder.finish(entry);
 
@@ -594,22 +594,22 @@ mod tests {
             then_edge,
             else_edge,
             ..
-        } = mir.block(entry).unwrap().terminator().kind()
+        } = mir.block(entry).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("expected branch")
         };
 
         assert_ne!(then_edge.target(), consumed);
         assert_eq!(else_edge.target(), retained);
-        assert!(mir.block(entry).unwrap().operations().is_empty());
-        assert!(mir.block(retained).unwrap().operations().is_empty());
+        assert!(mir.block(entry).expect("fixture MIR block must exist").operations().is_empty());
+        assert!(mir.block(retained).expect("fixture MIR block must exist").operations().is_empty());
 
-        let bridge = mir.block(then_edge.target()).unwrap();
+        let bridge = mir.block(then_edge.target()).expect("fixture MIR block must exist");
 
         assert_eq!(bridge.operations().len(), 1);
 
         assert!(
-            matches!(mir.operation(bridge.operations()[0]).unwrap().kind(), MirOperationKind::Store {
+            matches!(mir.operation(bridge.operations()[0]).expect("fixture MIR operation must exist").kind(), MirOperationKind::Store {
             destination, value: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), .. }, ..
         } if destination.storage() == flag)
         );
@@ -630,17 +630,17 @@ mod tests {
         let first = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let second = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let different = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let different_source =
             MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::synthesized(
@@ -652,36 +652,36 @@ mod tests {
         let different_occurrence = lowerer
             .builder
             .push_block(different_source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let panicking = lowerer
             .builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
-        let ty = fixture.values.intern_type(TypeData::tuple([])).unwrap();
+        let ty = fixture.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let shared_storage = lowerer
             .builder
             .push_storage(source.clone(), MirStorageKind::Temporary, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let different_storage = lowerer
             .builder
             .push_storage(source.clone(), MirStorageKind::Temporary, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let shared_place = MirPlace::new(shared_storage, [], ty);
         let different_place = MirPlace::new(different_storage, [], ty);
 
         let report_type = lowerer
             .representation_type(bray_compiler_known::RepresentationRole::PanicReport)
-            .unwrap();
+            .expect("fixture `representation_type` call must succeed");
 
         let report_storage = lowerer
             .builder
             .push_storage(source.clone(), MirStorageKind::Temporary, report_type)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let report = MirPlace::new(report_storage, [], report_type);
 
@@ -695,7 +695,7 @@ mod tests {
                 &[],
                 Some(&shared_place),
             )
-            .unwrap();
+            .expect("fixture abnormal cleanup must finish");
 
         lowerer
             .finish_abnormal_cleanup(
@@ -707,7 +707,7 @@ mod tests {
                 &[],
                 Some(&different_place),
             )
-            .unwrap();
+            .expect("fixture abnormal cleanup must finish");
 
         lowerer
             .finish_abnormal_cleanup(
@@ -719,7 +719,7 @@ mod tests {
                 &[],
                 Some(&shared_place),
             )
-            .unwrap();
+            .expect("fixture abnormal cleanup must finish");
 
         lowerer
             .finish_abnormal_cleanup(
@@ -731,7 +731,7 @@ mod tests {
                 &[],
                 Some(&shared_place),
             )
-            .unwrap();
+            .expect("fixture abnormal cleanup must finish");
 
         lowerer
             .finish_abnormal_cleanup(
@@ -743,38 +743,38 @@ mod tests {
                 &[],
                 Some(&shared_place),
             )
-            .unwrap();
+            .expect("fixture abnormal cleanup must finish");
 
         lowerer
             .finish_abnormal_cleanup_dispatchers(&source)
-            .unwrap();
+            .expect("fixture `finish_abnormal_cleanup_dispatchers` call must succeed");
 
         let mir = lowerer.builder.finish(first);
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: first_edge,
-        } = mir.block(first).unwrap().terminator().kind()
+        } = mir.block(first).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("first abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: second_edge,
-        } = mir.block(second).unwrap().terminator().kind()
+        } = mir.block(second).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("second abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: different_edge,
-        } = mir.block(different).unwrap().terminator().kind()
+        } = mir.block(different).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("different abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: different_occurrence_edge,
-        } = mir.block(different_occurrence).unwrap().terminator().kind()
+        } = mir.block(different_occurrence).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("different source occurrence must begin cancellation cleanup")
         };
@@ -782,7 +782,7 @@ mod tests {
         let MirTerminatorKind::Panic {
             cleanup: panic_edge,
             ..
-        } = mir.block(panicking).unwrap().terminator().kind()
+        } = mir.block(panicking).expect("fixture MIR block must exist").terminator().kind()
         else {
             panic!("panic exit must begin panic cleanup")
         };
@@ -805,7 +805,7 @@ mod tests {
                     if cases.len() == 2
                         && cases.iter().any(|case| {
                             matches!(
-                                mir.block(case.edge().target()).unwrap().terminator().kind(),
+                                mir.block(case.edge().target()).expect("fixture `iter` call must succeed").terminator().kind(),
                                 MirTerminatorKind::Return { value: Some(_), .. }
                             )
                         }) =>
@@ -820,7 +820,7 @@ mod tests {
             .iter()
             .map(|route| {
                 mir.block(route.edge().target())
-                    .unwrap()
+                    .expect("fixture MIR block must exist")
                     .terminator()
                     .kind()
             })
@@ -1262,7 +1262,7 @@ mod tests {
             let operations = CheckedMemoryOperations::try_new(
                 fixture.unit.unit(),
                 fixture.unit.key().kind(),
-                [CheckedMemoryOperation::new(expression, kind, arguments)],
+                [CheckedMemoryOperation::new(expression, kind.clone(), arguments)],
                 false,
             )
             .unwrap_or_else(|error| panic!("checked memory operation must validate: {error:?}"));
@@ -1340,14 +1340,14 @@ mod tests {
             inputs: ty,
             output: Some(ty),
             labels: None,
-            contract,
+            contract: contract.into(),
         };
 
         let branching = CheckedMemoryOperationKind::InlineAssembly {
             inputs: ty,
             output: Some(ty),
             labels: Some(ty),
-            contract,
+            contract: contract.into(),
         };
 
         let volatile = CheckedMemoryOperationKind::VolatileRead {

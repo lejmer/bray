@@ -221,7 +221,7 @@ fn terminal_destructor_rejects_protected_payload_initialization() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingDestructorOwnershipIntroduction,
     );
 }
@@ -255,7 +255,7 @@ fn terminal_destructor_rejects_unknown_foreign_writes_through_receiver() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingUnprovedDestructorEffects,
     );
 }
@@ -310,7 +310,7 @@ fn terminal_destructor_distinguishes_local_address_formation_from_escape() {
             assert!(diagnostics.is_empty(), "{diagnostics:?}");
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingUnprovedDestructorEffects,
             );
         }
@@ -349,7 +349,7 @@ fn terminal_destructor_checks_unnamed_retained_dependency() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingUnprovedDestructorEffects,
     );
 }

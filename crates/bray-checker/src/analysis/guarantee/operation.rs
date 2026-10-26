@@ -50,7 +50,7 @@ pub(super) fn collect_preservation_dependencies(
             .execution_properties()
             .contains(&ExecutionProperty::Pure)
             && !memory.operation(expression).is_some_and(|operation| {
-                crate::memory::execution::guarantees(operation.kind(), ExecutionProperty::Pure)
+                crate::memory::execution::guarantees(&operation.kind(), ExecutionProperty::Pure)
             })
         {
             dependencies.push(ExecutionDependency {
@@ -68,6 +68,7 @@ pub(super) enum ExecutionGoal {
     NoUnwind,
 }
 
+#[expect(clippy::too_many_arguments, reason = "execution checks consume independently computed selection, storage, flow and memory facts")]
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
@@ -117,7 +118,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
             return true;
         }
 
-        return crate::memory::execution::guarantees(operation.kind(), property);
+        return crate::memory::execution::guarantees(&operation.kind(), property);
     }
 
     match selections.expression(expression) {

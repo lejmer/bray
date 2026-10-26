@@ -350,8 +350,7 @@ mod tests {
                 SemanticQueryViolation::Missing(SemanticDataKind::Type),
             )
         })
-        .err()
-        .expect("missing semantic relationship must panic");
+        .expect_err("missing semantic relationship must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

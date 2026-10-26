@@ -44,9 +44,7 @@ pub(super) fn inferred_byte_array_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(length) = inferred_byte_array_length(request, initializer) else {
-        return None;
-    };
+    let length = inferred_byte_array_length(request, initializer)?;
 
     let element = representation_type(request, RepresentationRole::ScalarU8);
     let length = array_length(request, length);
@@ -72,9 +70,7 @@ where
     match array.kind() {
         BoundStructuredExpressionKind::Array => Some(array.operands().len()),
         BoundStructuredExpressionKind::RepeatedArray => {
-            let Some(count) = array.operands().get(1).copied() else {
-                return None;
-            };
+            let count = array.operands().get(1).copied()?;
 
             let Some(BoundExpression::Literal(literal)) = request.view().expression(count) else {
                 return None;

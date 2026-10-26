@@ -125,12 +125,11 @@ mod tests {
     #[test]
     fn checked_import_relationship_failures_panic_at_binding_boundary() {
         let cause = bray_binder::BindingError::<FactQueryError>::ImportedPackageUnavailable(
-            PackageIdentity::try_new("dependency.package").unwrap(),
+            PackageIdentity::try_new("dependency.package").expect("fixture package identity must be valid"),
         );
 
         let panic = std::panic::catch_unwind(|| binding_error(cause))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -150,8 +149,7 @@ mod tests {
                 SemanticQueryViolation::Missing(SemanticDataKind::CallableSignature),
             )
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

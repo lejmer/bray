@@ -1,7 +1,7 @@
 use super::super::instantiation::{CallInstantiationContext, expression_access};
 use super::inputs::{OperationInput, operation_inputs};
 use super::templates::operation_result_dependencies;
-use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{
     BoundCallDependencyContracts, BoundDependencyContract, BoundExpressionId, SelectedOperation,
     StoragePlan,
@@ -14,9 +14,9 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
     expression: BoundExpressionId,
     operation: &SelectedOperation,
     values: &crate::dependency::ValueInputs,
-) -> Result<
+) -> super::super::contract::ContractInstantiationResult<
     Option<(BoundCallDependencyContracts, Vec<DependencySubjectRoot>)>,
-    bray_bound_tree::DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+    C::UpstreamError,
 > {
     if let SelectedOperation::TraitView {
         methods,

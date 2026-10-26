@@ -187,7 +187,7 @@ mod tests {
         let diagnostic = diagnostics
             .by_kind(DiagnosticKind::CheckingIgnoredExpressionResult)
             .next()
-            .unwrap();
+            .expect("fixture iterator must provide its expected item");
 
         let rendered = DiagnosticRenderer::english().render(diagnostic);
 
@@ -213,7 +213,7 @@ mod tests {
         let mut fixed = text.to_owned();
 
         fixed.insert_str(
-            usize::try_from(edit.span().start().bytes()).unwrap(),
+            usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation"),
             edit.replacement(),
         );
 
@@ -249,13 +249,13 @@ mod tests {
                 .check_diagnostics()
                 .by_kind(DiagnosticKind::CheckingIgnoredExpressionResult)
                 .next()
-                .unwrap();
+                .expect("fixture iterator must provide its expected item");
 
             let edit = &diagnostic.suggestions()[0].edits()[0];
             let mut fixed = text.clone();
 
             fixed.insert_str(
-                usize::try_from(edit.span().start().bytes()).unwrap(),
+                usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation"),
                 edit.replacement(),
             );
 
@@ -303,8 +303,8 @@ mod tests {
             let mut fixed = text.clone();
 
             for edit in warnings[0].suggestions()[0].edits().iter().rev() {
-                let range = usize::try_from(edit.span().start().bytes()).unwrap()
-                    ..usize::try_from(edit.span().end().bytes()).unwrap();
+                let range = usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation")
+                    ..usize::try_from(edit.span().end().bytes()).expect("fixture value must fit the requested representation");
 
                 fixed.replace_range(range, edit.replacement());
             }

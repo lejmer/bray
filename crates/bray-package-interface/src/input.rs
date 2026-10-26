@@ -226,8 +226,8 @@ impl PackageArtifactInput {
             .clone()
     }
     fn validate_metadata_digest(&self, actual: [u8; 32]) -> Result<(), PackageArtifactLoadError> {
-        if let Some(expected) = self.metadata_digest {
-            if expected != actual {
+        if let Some(expected) = self.metadata_digest
+            && expected != actual {
                 return Err(PackageArtifactLoadError::Validation(
                     InterfaceValidationError::ArtifactHashMismatch {
                         expected: InterfaceArtifactHash::from_bytes(expected),
@@ -235,7 +235,6 @@ impl PackageArtifactInput {
                     },
                 ));
             }
-        }
 
         Ok(())
     }
@@ -332,20 +331,20 @@ mod tests {
     #[test]
     fn concurrent_acquisition_keeps_one_snapshot_through_path_replacement() {
         let bundle = crate::test_support::package_interface_export_bundle();
-        let interface = crate::encode_package_interface(&bundle).unwrap();
+        let interface = crate::encode_package_interface(&bundle).expect("fixture package interface must encode");
 
         let artifact = crate::PackageImplementationArtifact::try_from_export_bundle(
             &interface,
             &bundle,
             crate::InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture from export bundle must succeed");
 
-        let original = artifact.shared_bytes().unwrap();
+        let original = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
 
         let target =
             bray_target::NativeTarget::for_identity(artifact.identity().configuration().target())
-                .unwrap();
+                .expect("fixture `bray_target::NativeTarget::for_identity` call must succeed");
 
         let index = bray_native_artifact::NativeArtifactIndex::try_new(
             target,
@@ -353,26 +352,26 @@ mod tests {
             [],
             [],
         )
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
         let replacement = artifact
             .try_native_only_artifact(
                 &[(bray_native_artifact::NativeUnitKind::Object, &index)],
                 &[],
             )
-            .unwrap()
+            .expect("fixture native only artifact must succeed")
             .shared_bytes()
-            .unwrap();
+            .expect("fixture `shared_bytes` call must succeed");
 
         assert_ne!(original, replacement);
 
         for mode in 0..3 {
-            let directory = tempfile::tempdir().unwrap();
+            let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
             let path = directory.path().join("library.brayimpl");
 
-            std::fs::write(&path, &original).unwrap();
+            std::fs::write(&path, &original).expect("fixture contents must be written");
 
             let input = match mode {
                 0 => PackageArtifactInput::file(&path, None),
@@ -387,33 +386,33 @@ mod tests {
             let reader = input.clone();
 
             let reading = std::thread::spawn(move || {
-                let _initialization = reader.initialization.lock().unwrap();
+                let _initialization = reader.initialization.lock().expect("fixture mutex must not be poisoned");
 
                 // Pause the real bytes cell between acquisition and publication.
                 reader
                     .bytes
                     .get_or_init(|| {
-                        let bytes = std::fs::read(reader.path()).unwrap();
+                        let bytes = std::fs::read(reader.path()).expect("fixture contents must be readable");
 
-                        opened.send(()).unwrap();
-                        released.recv().unwrap();
+                        opened.send(()).expect("fixture channel must accept its message");
+                        released.recv().expect("fixture channel must provide its message");
 
                         Ok(std::sync::Arc::from(bytes))
                     })
                     .clone()
-                    .unwrap()
+                    .expect("fixture `clone` call must succeed")
             });
 
-            ready.recv().unwrap();
-            std::fs::rename(&path, directory.path().join("original.brayimpl")).unwrap();
-            std::fs::write(&path, &replacement).unwrap();
+            ready.recv().expect("fixture channel must provide its message");
+            std::fs::rename(&path, directory.path().join("original.brayimpl")).expect("fixture path must be renamed");
+            std::fs::write(&path, &replacement).expect("fixture contents must be written");
 
             let loader = input.clone();
 
             let (completed, completion) = std::sync::mpsc::channel();
 
             let loading = std::thread::spawn(move || {
-                completed.send(loader.load_implementation()).unwrap();
+                completed.send(loader.load_implementation()).expect("fixture channel must accept its message");
             });
 
             assert!(matches!(
@@ -421,15 +420,15 @@ mod tests {
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout)
             ));
 
-            resume.send(()).unwrap();
+            resume.send(()).expect("fixture channel must accept its message");
 
-            let bytes = reading.join().unwrap();
-            let loaded = completion.recv().unwrap().unwrap();
+            let bytes = reading.join().expect("fixture worker must join successfully");
+            let loaded = completion.recv().expect("fixture channel must provide its message").expect("successful fixture query must contain its expected result");
 
-            loading.join().unwrap();
+            loading.join().expect("fixture worker must join successfully");
             assert_eq!(bytes, original);
             assert_eq!(loaded.artifact_hash(), artifact.artifact_hash());
-            assert_eq!(input.read().unwrap(), original);
+            assert_eq!(input.read().expect("fixture contents must be readable"), original);
         }
     }
 }

@@ -1418,8 +1418,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             compilation.trait_implementation_conformance(implementation)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -1604,7 +1603,7 @@ mod tests {
 
             let result = compilation
                 .trait_implementation_conformance(source_implementation(&compilation))
-                .unwrap();
+                .expect("fixture `trait_implementation_conformance` call must succeed");
 
             assert!(!result.value().is_valid());
 

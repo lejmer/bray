@@ -78,8 +78,7 @@ where
             if !schemes
                 .iter()
                 .any(|scheme| super::induction::matches_basis(request, scheme.basis, selected))
-            {
-                if let Some(scheme) = super::induction::generalize(
+                && let Some(scheme) = super::induction::generalize(
                     request,
                     selected,
                     maximum_depth,
@@ -88,7 +87,6 @@ where
                 )? {
                     schemes.push(scheme);
                 }
-            }
 
             let scheme = schemes
                 .iter()

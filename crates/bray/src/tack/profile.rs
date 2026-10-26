@@ -42,7 +42,7 @@ pub(super) fn run_profile_command(
                 Err(error) => {
                     return failure(
                         operation_diagnostics(DiagnosticProjectCommandFailure::ProfileComparison(
-                            match error {
+                            Box::new(match error {
                                 CompilationProfileComparisonError::Context { before, after } => {
                                     DiagnosticProfileComparisonProblem::Context {
                                         before: diagnostic_profile_context(*before),
@@ -55,7 +55,7 @@ pub(super) fn run_profile_command(
                                         id,
                                     }
                                 }
-                            },
+                            }),
                         )),
                         output_format,
                     );

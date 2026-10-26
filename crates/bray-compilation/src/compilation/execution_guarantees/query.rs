@@ -162,12 +162,12 @@ impl Compilation {
         let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
         let flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
-        let context = self.checker_context_for(&key, cancellation)?;
+        let context = self.checker_context_for(key, cancellation)?;
 
         let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
         let trusted = self.trusted_contract_inputs(
-            &key,
+            key,
             bound.result().value(),
             expressions.result().value(),
             cancellation,
@@ -196,10 +196,10 @@ impl Compilation {
             trusted.diagnostics(),
         ]);
 
-        let declaration = self.execution_unit_declaration(&key)?;
+        let declaration = self.execution_unit_declaration(key)?;
 
         let requirements = self.execution_condition_inputs(
-            &key,
+            key,
             declaration.value().requirements(),
             cancellation,
         )?;
@@ -214,7 +214,7 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         if key.kind() == bray_bound_tree::BoundUnitKind::ContractClause {
-            let entry = self.clause_entry_conditions(&key, cancellation)?;
+            let entry = self.clause_entry_conditions(key, cancellation)?;
 
             diagnostics.add_range(entry.diagnostics().iter().cloned());
             requirements.extend(entry.into_parts().0);
@@ -294,15 +294,15 @@ impl Compilation {
         }
 
         for domain in declaration.value().domains() {
-            let guards = self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
+            let guards = self.execution_condition_inputs(key, &domain.guards, cancellation)?;
 
             let posts =
-                self.predicate_condition_inputs(&key, &domain.postconditions, cancellation)?;
+                self.predicate_condition_inputs(key, &domain.postconditions, cancellation)?;
 
             diagnostics.add_range(guards.diagnostics().iter().cloned());
             diagnostics.add_range(posts.diagnostics().iter().cloned());
 
-            let trusted_producer = self.trusted_predicate_producer(&key)?;
+            let trusted_producer = self.trusted_predicate_producer(key)?;
 
             // Trusted predicate guarantees are declared sources of authority. Execution
             // properties and ordinary postconditions still require their independent proofs.
@@ -451,9 +451,9 @@ mod tests {
 
             let proof = compilation
                 .execution_properties(source_function_body_key(&compilation, "root"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
-            let values = compilation.semantic_value_store().unwrap();
+            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
             assert!(
                 proof
@@ -506,7 +506,7 @@ mod tests {
         for name in ["identity", "trusted_identity"] {
             let proof = compilation
                 .execution_properties(source_function_body_key(&compilation, name))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 &proof.value().properties,
@@ -590,7 +590,7 @@ mod tests {
 
         let proof = compilation
             .execution_properties(source_function_body_key(&compilation, "first"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             &proof.value().properties,
@@ -837,7 +837,7 @@ mod tests {
 
                 let proof = compilation
                     .execution_properties(source_function_body_key(&compilation, "relay"))
-                    .unwrap();
+                    .expect("fixture callable must resolve its execution properties");
 
                 assert_eq!(
                     proof.value().properties.contains(&Pure),
@@ -949,7 +949,7 @@ mod tests {
             if compilation.syntax_tree_result().diagnostics().is_empty() {
                 let proof = compilation
                     .execution_properties(source_function_body_key(&compilation, "bad"))
-                    .unwrap();
+                    .expect("fixture callable must resolve its execution properties");
 
                 assert!(proof.value().properties.is_empty(), "{source}: {proof:?}");
             }
@@ -969,7 +969,7 @@ mod tests {
                 crate::SelectedTarget::baseline(),
             )
             .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new("c").unwrap(),
+                bray_base::NonEmptySharedStr::try_new("c").expect("fixture non empty shared str must be valid"),
                 bray_symbols::NativeLinkKind::Dynamic,
             )]);
 
@@ -1009,7 +1009,7 @@ mod tests {
 
             let evidence = compilation
                 .execution_properties(source_function_body_key(&compilation, "wrapper"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 evidence.value().properties,
@@ -1052,15 +1052,15 @@ mod tests {
         );
 
         let key = source_function_body_key(&original, "identity");
-        let first = original.execution_properties(key.clone()).unwrap();
+        let first = original.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
 
         std::thread::scope(|scope| {
             let requests = (0..4)
-                .map(|_| scope.spawn(|| original.execution_properties(key.clone()).unwrap()))
+                .map(|_| scope.spawn(|| original.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties")))
                 .collect::<Vec<_>>();
 
             for request in requests {
-                assert!(std::sync::Arc::ptr_eq(&first, &request.join().unwrap()));
+                assert!(std::sync::Arc::ptr_eq(&first, &request.join().expect("fixture query worker must join successfully")));
             }
         });
 
@@ -1077,11 +1077,11 @@ mod tests {
                 "#,
                 1,
             )])
-            .unwrap();
+            .expect("fixture `updated_sources` call must succeed");
 
         let proof = updated
             .execution_properties(source_function_body_key(&updated, "identity"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(proof.value().properties.is_empty());
 
@@ -1115,7 +1115,7 @@ mod tests {
 
         let proof = compilation
             .execution_properties(source_function_body_key(&compilation, "guarded"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             proof.value().properties,
@@ -1170,7 +1170,7 @@ mod tests {
 
             let evidence = application
                 .execution_properties(source_function_body_key(&application, "root"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 !evidence.diagnostics().has_errors(),
@@ -1213,7 +1213,7 @@ mod tests {
 
             let evidence = application
                 .execution_properties(source_function_body_key(&application, "root"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 !evidence.diagnostics().has_errors(),
@@ -1339,7 +1339,7 @@ mod tests {
                 &compilation,
                 "read",
             ))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(proof.value().properties.is_empty());
     }

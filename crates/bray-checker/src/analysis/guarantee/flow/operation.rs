@@ -25,11 +25,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         ) && let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) =
             (self.checked_body, operation.occurrence())
-        {
-            if !self.assume_patterns(state, body.refinements().refinements_before(node).iter()) {
+            && !self.assume_patterns(state, body.refinements().refinements_before(node).iter()) {
                 return false;
             }
-        }
 
         self.transition_cleanup(state, operation, observe);
 
@@ -360,11 +358,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
             phase: super::super::super::model::AnalysisCallPhase::Completion,
         } = operation
-        {
-            if let Some(value) = state.pending_results.remove(&expression) {
+            && let Some(value) = state.pending_results.remove(&expression) {
                 state.expressions.insert(expression, value);
             }
-        }
 
         let input = matches!(
             operation.occurrence(),
@@ -510,8 +506,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         match self.request.view().expression(expression) {
             Some(BoundExpression::Assignment(assignment)) => {
-                if let [target, source] = assignment.operands() {
-                    if let Some(place) = crate::execution_guarantees::expression_place(
+                if let [target, source] = assignment.operands()
+                    && let Some(place) = crate::execution_guarantees::expression_place(
                         self.request.unit(),
                         self.semantics,
                         self.request.semantic_values(),
@@ -555,7 +551,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                         state.assign(place, value);
                     }
-                }
             }
             Some(BoundExpression::ControlTransfer(transfer))
                 if transfer.kind() == BoundControlTransferKind::Return =>

@@ -129,6 +129,10 @@ impl Compilation {
             || self.is_constant_callable(callable, cancellation)?)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "execution target selection retains proof entry, required obligation, premises, graph, assertions, and diagnostics"
+    )]
     pub(super) fn selected_execution_target(
         &self,
         target: CheckedExecutionTarget,

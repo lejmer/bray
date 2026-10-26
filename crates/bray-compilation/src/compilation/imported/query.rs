@@ -1381,11 +1381,11 @@ mod tests {
 
     #[test]
     fn explicit_dependency_owns_its_interface_and_native_representations() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
         let root = write_standard_library_fixture(
             directory.path(),
-            TargetIdentity::try_new("x86_64-unknown-linux-gnu").unwrap(),
+            TargetIdentity::try_new("x86_64-unknown-linux-gnu").expect("fixture target identity must be valid"),
             b"discovered interface",
             b"discovered interface",
         );
@@ -1404,7 +1404,7 @@ mod tests {
         .with_dependency_interfaces([explicit.clone()])
         .with_standard_library_root(root);
 
-        let compilation = Compilation::load(request).unwrap();
+        let compilation = Compilation::load(request).expect("fixture input must load");
 
         assert_eq!(compilation.dependency_interfaces(), &[explicit]);
         assert!(compilation.native_implementation_inputs().is_empty());

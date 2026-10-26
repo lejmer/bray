@@ -233,6 +233,7 @@ where
 }
 
 /// Evaluates one source-independent static initializer.
+#[expect(clippy::too_many_arguments, reason = "initializer evaluation preserves its checked template identity, substitution, result and limits")]
 pub fn evaluate_static_initializer_template<C>(
     context: &C,
     template: &CheckedTemplate,
@@ -1138,27 +1139,27 @@ mod tests {
     #[test]
     fn imported_definition_template_rejects_discarded_nested_static_borrow() {
         let values = semantic_values();
-        let unit = values.intern_type(TypeData::tuple([])).unwrap();
+        let unit = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let borrowed = values
             .intern_type(TypeData::Borrow {
                 kind: bray_symbols::BorrowKind::Shared,
                 target: unit,
             })
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let tuple = values
             .intern_type(TypeData::tuple([borrowed, unit]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let static_symbol = StaticSymbolId::from_symbol_id(SymbolId::new(998));
-        let owner = GenericOwnerId::try_new(static_symbol.into()).unwrap();
+        let owner = GenericOwnerId::try_new(static_symbol.into()).expect("fixture generic owner id must be valid");
 
         let substitution = values
-            .intern_generic_substitution(GenericSubstitutionData::try_new(owner, [], []).unwrap())
-            .unwrap();
+            .intern_generic_substitution(GenericSubstitutionData::try_new(owner, [], []).expect("fixture generic substitution data must be valid"))
+            .expect("fixture generic substitution must be interned");
 
-        let target = bray_target::TargetIdentity::try_new("test").unwrap();
+        let target = bray_target::TargetIdentity::try_new("test").expect("fixture target identity must be valid");
 
         let instance = StaticInstanceKey::new(
             StaticInstanceTemplateId::new(static_symbol),
@@ -1172,40 +1173,40 @@ mod tests {
                 borrowed,
                 ConstantValueKind::StaticAddress(StaticReferenceSelection::Closed(instance)),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let unit_value = values
             .intern_constant_value(ConstantValueData::new(
                 unit,
                 ConstantValueKind::Tuple(Arc::from([])),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let tuple_value = values
             .intern_constant_value(ConstantValueData::new(
                 tuple,
                 ConstantValueKind::Tuple(Arc::from([borrowed_value, unit_value])),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let term = values
             .intern_constant_term(ConstantTermData::Value(tuple_value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let term = values
             .intern_constant_term(ConstantTermData::typed(term, tuple))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let term = values
             .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
                 term,
                 ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)),
             )))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let dependency_contract = values
             .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
-            .unwrap();
+            .expect("fixture dependency contract must be interned");
 
         let behavior = CheckedTemplateBehavior::new(
             [],
@@ -1229,11 +1230,11 @@ mod tests {
                 },
                 unit,
             ))
-            .unwrap();
+            .expect("fixture node must fit its identity space");
 
         let template = builder
             .finish(result, CheckedTemplateCompletion::Complete)
-            .unwrap();
+            .expect("fixture operation must finish successfully");
 
         let span = SourceSpan::new(
             SourceId::new(0),
@@ -1250,7 +1251,7 @@ mod tests {
             ConstantEvaluationLimits::default(),
         )
         .into_result()
-        .unwrap();
+        .expect("fixture `into_result` call must succeed");
 
         assert!(outcome.value().is_none());
 
@@ -1263,7 +1264,7 @@ mod tests {
             .diagnostics()
             .by_kind(bray_diagnostics::DiagnosticKind::CheckingNonMaterializableConstant)
             .next()
-            .unwrap();
+            .expect("fixture iterator must provide its expected item");
 
         assert_eq!(diagnostic.primary_span(), Some(span));
     }

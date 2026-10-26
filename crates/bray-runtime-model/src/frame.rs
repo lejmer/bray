@@ -147,10 +147,6 @@ pub struct ProtectedFrameOperations {
 
 impl ProtectedFrameOperations {
     /// Creates the complete protected-frame operation table.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "each protected-frame operation has one required typed symbol"
-    )]
     pub const fn new(
         state_description: BinarySymbolName,
         resume: BinarySymbolName,

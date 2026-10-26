@@ -156,11 +156,11 @@ fn panic_report_semantic_layout_matches_the_native_report() {
 fn sized_boxes_preserve_the_storage_policy_representation() {
     let compilation = compilation("module app;");
     let target = baseline_codegen_target();
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let scalar = compilation
         .compiler_known_type(RepresentationRole::ScalarI64)
-        .unwrap();
+        .expect("fixture compiler-known type must resolve");
 
     let policy = intern_type(values, TypeData::tuple([scalar, scalar, scalar]));
 
@@ -434,8 +434,8 @@ fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
     );
 
     let target = baseline_codegen_target();
-    let symbols = compilation.symbol_graph().unwrap();
-    let values = compilation.semantic_value_store().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let source_type = |name: &str| {
         let symbol = symbols
@@ -449,16 +449,16 @@ fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
             })
             .expect("fixture declares named type");
 
-        named_type(values, NamedTypeSymbolId::Struct(symbol.id())).unwrap()
+        named_type(values, NamedTypeSymbolId::Struct(symbol.id())).expect("fixture `named_type` call must succeed")
     };
 
     let permit = source_type("Permit");
     let baseline = source_type("Baseline");
     let guard = source_type("Guard");
     let mappings = realized_types(&compilation, &target, [permit, baseline, guard]);
-    let permit_layout = mappings[&permit].layout().unwrap();
-    let baseline_layout = mappings[&baseline].layout().unwrap();
-    let guard_layout = mappings[&guard].layout().unwrap();
+    let permit_layout = mappings[&permit].layout().expect("fixture `layout` call must succeed");
+    let baseline_layout = mappings[&baseline].layout().expect("fixture `layout` call must succeed");
+    let guard_layout = mappings[&guard].layout().expect("fixture `layout` call must succeed");
 
     assert_eq!(permit_layout.size(), 0);
     assert_eq!(permit_layout.alignment().get(), 1);
@@ -468,7 +468,7 @@ fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
 #[test]
 fn exact_integer_storage_layout_excludes_allocation_padding() {
     let compilation = compilation("module app;");
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     for native in bray_target::NativeTarget::ALL {
         let target = bray_codegen::CodegenTarget::for_native(native);
@@ -484,12 +484,12 @@ fn exact_integer_storage_layout_excludes_allocation_padding() {
             (257, 33),
         ] {
             for signed in [false, true] {
-                let bits = std::num::NonZeroU16::new(width).unwrap();
+                let bits = std::num::NonZeroU16::new(width).expect("fixture non zero u16 must be valid");
                 let ty = intern_type(values, TypeData::ExactInteger { bits, signed });
                 let mappings = realized_types(&compilation, &target, [ty]);
 
                 assert_eq!(
-                    mappings[&ty].layout().unwrap().size(),
+                    mappings[&ty].layout().expect("fixture `layout` call must succeed").size(),
                     bytes,
                     "{native:?}, {width}, {signed}"
                 );

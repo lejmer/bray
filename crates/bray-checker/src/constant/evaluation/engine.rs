@@ -1861,11 +1861,11 @@ mod tests {
 
         let recovery_type = semantic_values()
             .intern_type(bray_symbols::TypeData::Error)
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let recovery = semantic_values()
             .intern_error_constant_value(recovery_type)
-            .unwrap();
+            .expect("fixture error constant value must be interned");
 
         let recovered = evaluate_reference(
             &unit,

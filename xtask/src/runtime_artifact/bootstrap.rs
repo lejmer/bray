@@ -267,7 +267,7 @@ fn build_component(
     let sources = product
         .sources()
         .iter()
-        .map(|source| source.beneath(&workspace))
+        .map(|source| source.beneath(workspace))
         .collect::<Vec<_>>();
 
     let selected = bray_compilation::SelectedTarget::for_native(target);
@@ -291,7 +291,7 @@ fn build_component(
     )
     .with_runtime_roles(runtime_bindings(component));
 
-    let standard_library = StandardLibraryRoot::try_new(&standard_library)
+    let standard_library = StandardLibraryRoot::try_new(standard_library)
         .ok_or_else(|| "runtime standard-library root is invalid".to_owned())?;
 
     let options = DriverOptions::new(

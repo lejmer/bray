@@ -4,16 +4,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::decode::DecodeBudget;
 use crate::{InterfaceSectionTag, InterfaceSemanticRecord, InterfaceValidationError};
 
+type RecordTable = Arc<OnceLock<Result<RecordTableFrame, InterfaceValidationError>>>;
+
 #[derive(Debug, Default)]
 pub(crate) struct SemanticRecordIndex {
     pub(super) directory: OnceLock<Result<SemanticDirectory, InterfaceValidationError>>,
     pub(super) declaration_templates: OnceLock<Result<(), InterfaceValidationError>>,
-    tables: Mutex<
-        BTreeMap<
-            (InterfaceSectionTag, usize),
-            Arc<OnceLock<Result<RecordTableFrame, InterfaceValidationError>>>,
-        >,
-    >,
+    tables: Mutex<BTreeMap<(InterfaceSectionTag, usize), RecordTable>>,
 }
 
 #[derive(Debug)]

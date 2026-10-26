@@ -890,6 +890,10 @@ fn test_batch_request(
         .map_err(|error| BuildError::conformance("native test batch", format!("{error:?}")))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native test batches retain toolchain and target, product and request, profiling, and build-reuse policy"
+)]
 fn run_test_batch(
     root: &Path,
     workspace: &Path,

@@ -243,12 +243,9 @@ fn built_in_operand_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(result) = types
+    let result = types
         .expression(expression)
-        .filter(|result| !result.is_recovered())
-    else {
-        return None;
-    };
+        .filter(|result| !result.is_recovered())?;
 
     let ty = observed_type(request, result.ty());
 
@@ -281,12 +278,9 @@ where
 
     if is_logical_operator(operation.operator) {
         for operand in &operands {
-            let Some(result) = types
+            let result = types
                 .expression(*operand)
-                .filter(|result| !result.is_recovered())
-            else {
-                return None;
-            };
+                .filter(|result| !result.is_recovered())?;
 
             let role = type_representation(request, observed_type(request, result.ty()));
 
@@ -301,20 +295,14 @@ where
         return Some(representation_type(request, RepresentationRole::ScalarBool));
     }
 
-    let Some(first) = types
+    let first = types
         .expression(operands[0])
-        .filter(|result| !result.is_recovered())
-    else {
-        return None;
-    };
+        .filter(|result| !result.is_recovered())?;
 
     if let Some(second) = operands.get(1) {
-        let Some(second) = types
+        let second = types
             .expression(*second)
-            .filter(|result| !result.is_recovered())
-        else {
-            return None;
-        };
+            .filter(|result| !result.is_recovered())?;
 
         if observed_type(request, first.ty()) != observed_type(request, second.ty()) {
             return None;
@@ -323,9 +311,7 @@ where
 
     let operand = observed_type(request, first.ty());
 
-    let Some(role) = type_representation(request, operand) else {
-        return None;
-    };
+    let role = type_representation(request, operand)?;
 
     if !representation_supports_operator(role, operation.operator) {
         return None;

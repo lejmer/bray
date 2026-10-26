@@ -167,7 +167,7 @@ mod tests {
         assert!(RuntimeThread::from_native_identity(0).is_none());
 
         assert_eq!(
-            RuntimeThread::from_native_identity(42).unwrap().id().raw(),
+            RuntimeThread::from_native_identity(42).expect("nonzero fixture identity must name a native thread").id().raw(),
             42
         );
     }

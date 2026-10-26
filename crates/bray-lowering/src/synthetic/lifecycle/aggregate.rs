@@ -3,6 +3,10 @@ use bray_ir::{MirPlace, MirProjectionKind};
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "array lifecycle emission joins element and length identities with the MIR lifecycle context"
+    )]
     pub(super) fn push_array_lifecycle(
         &mut self,
         builder: &mut bray_ir::MirUnitBuilder,
@@ -34,6 +38,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         self.push_sequence_lifecycle(builder, block, source, role, place, element, length, None)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "sequence lifecycle emission needs element, runtime length, and initialized progress with the MIR context"
+    )]
     pub(super) fn push_sequence_lifecycle(
         &mut self,
         builder: &mut bray_ir::MirUnitBuilder,

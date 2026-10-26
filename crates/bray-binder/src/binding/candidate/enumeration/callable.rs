@@ -306,6 +306,10 @@ where
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "source candidates join declaration identity, template state, generic scopes, and diagnostic output"
+)]
 fn bind_source_overload_arm<C>(
     context: &C,
     overload: CallableOverloadSymbolId,

@@ -237,7 +237,7 @@ mod tests {
 
         let declarations = block
             .block_items()
-            .map(|item| item.local_binding_declaration().unwrap())
+            .map(|item| item.local_binding_declaration().expect("fixture `local_binding_declaration` call must succeed"))
             .collect::<Vec<_>>();
 
         assert_eq!(declarations.len(), 3);
@@ -271,7 +271,7 @@ mod tests {
             assert!(
                 items[1]
                     .local_binding_declaration()
-                    .unwrap()
+                    .expect("fixture `local_binding_declaration` call must succeed")
                     .let_keyword()
                     .is_none()
             );
@@ -279,7 +279,7 @@ mod tests {
             assert!(
                 items[2]
                     .local_binding_declaration()
-                    .unwrap()
+                    .expect("fixture `local_binding_declaration` call must succeed")
                     .let_keyword()
                     .is_some()
             );

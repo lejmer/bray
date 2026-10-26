@@ -313,12 +313,12 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 
     let artifact = dependency
         .shared_implementation_artifact()
-        .unwrap()
-        .unwrap();
+        .expect("fixture implementation artifact must have shared storage")
+        .expect("successful fixture query must contain its expected result");
 
     let duplicate = bray_package_interface::PackageArtifactInput::memory(
         "copy.brayimpl",
-        artifact.shared_bytes().unwrap(),
+        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
     );
 
     let payloads = native_fixture_payloads(
@@ -338,12 +338,12 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 
     let artifact = conflicting
         .shared_implementation_artifact()
-        .unwrap()
-        .unwrap();
+        .expect("fixture implementation artifact must have shared storage")
+        .expect("successful fixture query must contain its expected result");
 
     let companion = bray_package_interface::PackageArtifactInput::memory(
         "conflict.brayimpl",
-        artifact.shared_bytes().unwrap(),
+        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
     );
 
     let error = native_fixture_payloads(
@@ -378,12 +378,12 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 
     let artifact = different_interface
         .shared_implementation_artifact()
-        .unwrap()
-        .unwrap();
+        .expect("fixture implementation artifact must have shared storage")
+        .expect("successful fixture query must contain its expected result");
 
     let companion = bray_package_interface::PackageArtifactInput::memory(
         "wrong-interface.brayimpl",
-        artifact.shared_bytes().unwrap(),
+        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
     );
 
     let error = native_fixture_payloads(
@@ -425,8 +425,7 @@ fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
     );
 
     let error = native_fixture_payloads(dependency, ProductKind::Executable)
-        .err()
-        .expect("corrupt selected unit must fail planning");
+        .expect_err("corrupt selected unit must fail planning");
 
     let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) =
         error
@@ -588,13 +587,13 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let reachability = compilation
         .codegen_reachability(
@@ -605,24 +604,24 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let key = reachability
         .graph()
         .external_instances()
         .iter()
         .find(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let selected = reachability
         .selected_native(key)
         .expect("exact C body uses its native artifact");
 
-    let realization = reachability.instance(key).unwrap();
+    let realization = reachability.instance(key).expect("fixture `instance` call must succeed");
 
     let (name, linkage, entry) = compilation
         .codegen_selected_native_boundary(selected, realization, &cancellation)
-        .unwrap();
+        .expect("fixture `codegen_selected_native_boundary` call must succeed");
 
     let entry =
         entry.expect("native callable address must not expose the body's hidden outcome argument");
@@ -635,7 +634,7 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
     assert!(
         compilation
             .codegen_instance_signature(realization, &cancellation)
-            .unwrap()
+            .expect("fixture `codegen_instance_signature` call must succeed")
             .has_panic_report_context()
     );
 
@@ -694,13 +693,13 @@ fn imported_async_companions_keep_the_selected_native_constructor_identity() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let reachability = compilation
         .codegen_reachability(
@@ -711,21 +710,21 @@ fn imported_async_companions_keep_the_selected_native_constructor_identity() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let key = reachability
         .graph()
         .external_instances()
         .iter()
         .find(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let selected = reachability
         .selected_native(key)
         .expect("native async constructor must be reused");
 
     let constructor =
-        bray_runtime_interface::BinarySymbolName::try_new(selected.symbol.as_str()).unwrap();
+        bray_runtime_interface::BinarySymbolName::try_new(selected.symbol.as_str()).expect("fixture binary symbol name must be valid");
 
     let mappings = super::support::mappings::realize_codegen_mappings(
         &compilation,
@@ -750,7 +749,7 @@ fn imported_async_companions_keep_the_selected_native_constructor_identity() {
             category,
             &constructor,
         )
-        .unwrap();
+        .expect("fixture `crate::compilation::product::generated_symbol_name` call must succeed");
 
         let imported = mappings
             .iter()

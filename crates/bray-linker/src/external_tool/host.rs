@@ -342,8 +342,7 @@ mod tests {
                 super::join_output(reader)
             })
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         assert_eq!(panic.downcast_ref::<u64>(), Some(&21));
     }

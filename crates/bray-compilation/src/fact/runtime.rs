@@ -900,8 +900,8 @@ mod tests {
 
         impl Hash for PausedValue {
             fn hash<H: Hasher>(&self, state: &mut H) {
-                self.entered.send(()).unwrap();
-                self.resume.lock().unwrap().recv().unwrap();
+                self.entered.send(()).expect("fixture channel must accept its message");
+                self.resume.lock().expect("fixture mutex must not be poisoned").recv().expect("fixture channel must provide its message");
                 1_u8.hash(state);
             }
         }
@@ -931,10 +931,10 @@ mod tests {
                             })
                         },
                     )
-                    .unwrap();
+                    .expect("fixture query must complete successfully");
             });
 
-            hashing.recv_timeout(Duration::from_secs(5)).unwrap();
+            hashing.recv_timeout(Duration::from_secs(5)).expect("fixture channel must provide its message before the deadline");
 
             let second_request = scope.spawn(|| {
                 let result = second
@@ -944,18 +944,18 @@ mod tests {
                         &cancellation,
                         || Ok(7_u8),
                     )
-                    .unwrap();
+                    .expect("fixture query must complete successfully");
 
-                published.send(*result).unwrap();
+                published.send(*result).expect("fixture channel must accept its message");
             });
 
             let independent = publication.recv_timeout(Duration::from_secs(5));
 
-            resume.send(()).unwrap();
-            first_request.join().unwrap();
-            second_request.join().unwrap();
+            resume.send(()).expect("fixture channel must accept its message");
+            first_request.join().expect("fixture worker must join successfully");
+            second_request.join().expect("fixture worker must join successfully");
 
-            assert_eq!(independent.unwrap(), 7);
+            assert_eq!(independent.expect("fixture `independent` call must succeed"), 7);
         });
     }
 
@@ -1001,7 +1001,7 @@ mod tests {
                     panic_on_hash: false,
                 })
             })
-            .unwrap();
+            .expect("fixture query must complete successfully");
 
         assert!(!retried.panic_on_hash);
     }
@@ -1239,8 +1239,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             runtime.record_frozen_fact(&CompilationFactKey::DeclarationTable)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -1263,8 +1262,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             runtime.dependencies(&CompilationFactKey::SyntaxTree)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

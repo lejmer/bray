@@ -49,9 +49,9 @@ pub(super) fn check_source(source: &str) -> Vec<Diagnostic> {
 pub(super) fn check_syntax(source: &str, syntax: &SyntaxNode) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
 
-    check_whitespace(&syntax, &mut diagnostics);
-    check_comments(&syntax, &mut diagnostics);
-    check_statement_lists(source, &syntax, &mut diagnostics);
+    check_whitespace(syntax, &mut diagnostics);
+    check_comments(syntax, &mut diagnostics);
+    check_statement_lists(source, syntax, &mut diagnostics);
 
     diagnostics.sort_by_key(|diagnostic| (diagnostic.offset, diagnostic.rule));
     diagnostics.dedup();

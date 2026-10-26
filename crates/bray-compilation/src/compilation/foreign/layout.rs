@@ -534,8 +534,7 @@ struct SharedState
                 &CancellationToken::new(),
             )
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

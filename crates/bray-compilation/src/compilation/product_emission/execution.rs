@@ -526,6 +526,10 @@ impl Compilation {
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "product publication combines independent backend, package, catalog, link, native, resolver, and validation inputs"
+    )]
     fn publish_product(
         &self,
         plan: &EmissionPlan,
@@ -629,11 +633,10 @@ impl Compilation {
             .chain(test_catalog)
             .collect::<Vec<_>>();
 
-        if let Some((link, outcome)) = &linked {
-            if !matches!(outcome.status(), bray_linker::LinkStatus::Complete(_)) {
+        if let Some((link, outcome)) = &linked
+            && !matches!(outcome.status(), bray_linker::LinkStatus::Complete(_)) {
                 return Ok(publisher.publish_linked(plan, contributions, link, outcome));
             }
-        }
 
         if let Some((interface, bundle)) = package_implementation {
             let artifacts = match (native, staging.as_ref(), backend.as_ref()) {
@@ -771,10 +774,10 @@ mod tests {
                 }}
             "#
             )
-            .unwrap();
+            .expect("fixture source must be constructed");
         }
 
-        let compilation = Arc::new(compilation(&source, WorkerBudget::new(4).unwrap()));
+        let compilation = Arc::new(compilation(&source, WorkerBudget::new(4).expect("fixture worker budget must be valid")));
         let checked_compilation = Arc::downgrade(&compilation);
         let contracts = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&contracts);
@@ -786,7 +789,7 @@ mod tests {
             .fact_runtime
             .set_test_observer(FactEvaluationTestObserver::new(move |key| {
                 if *key == CompilationFactKey::SemanticDiagnostics {
-                    let compilation = checked_compilation.upgrade().unwrap();
+                    let compilation = checked_compilation.upgrade().expect("fixture `upgrade` call must succeed");
 
                     assert!(
                         compilation
@@ -807,9 +810,9 @@ mod tests {
                     observed_bodies.fetch_add(1, Ordering::SeqCst);
                 }
             }))
-            .unwrap();
+            .expect("fixture task observer must be installed");
 
-        let destination = tempfile::tempdir().unwrap();
+        let destination = tempfile::tempdir().expect("temporary fixture directory must be created");
         let target_outputs = target_outputs();
 
         let outcome = compilation
@@ -817,7 +820,7 @@ mod tests {
                 emission_request(destination.path()),
                 ProductEmissionInputs::new(&target_outputs),
             )
-            .unwrap();
+            .expect("fixture `emit_product` call must succeed");
 
         assert!(matches!(outcome.status(), EmissionStatus::Complete));
         assert_eq!(contracts.load(Ordering::SeqCst), count);

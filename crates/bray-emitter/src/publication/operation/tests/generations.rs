@@ -97,17 +97,17 @@ fn managed_generation_retention_keeps_current_and_preceding_unpinned_products() 
 
 #[test]
 fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let first = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"first", None)]);
 
-    let pin = first.generation().unwrap().clone();
+    let pin = first.generation().expect("fixture `generation` call must succeed").clone();
 
     let first_path = pin
         .artifact_path(first.artifacts().artifacts()[0].id())
-        .unwrap();
+        .expect("fixture `artifact_path` call must succeed");
 
     drop(first);
 
@@ -116,9 +116,9 @@ fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
 
     let second_path = second
         .generation()
-        .unwrap()
+        .expect("fixture `generation` call must succeed")
         .artifact_path(second.artifacts().artifacts()[0].id())
-        .unwrap();
+        .expect("fixture `artifact_path` call must succeed");
 
     drop(second);
 
@@ -143,11 +143,11 @@ fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
 
 #[test]
 fn products_share_immutable_content_until_the_last_retained_reference_is_removed() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let second_product =
         bray_symbols::ProductIdentity::try_new(product_identity().package().clone(), "second")
-            .unwrap();
+            .expect("fixture product identity must be valid");
 
     let first_plan = filesystem_artifact_plan([(
         required_dependency_metadata_spec(),
@@ -175,24 +175,24 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
 
     let first_path = first
         .generation()
-        .unwrap()
+        .expect("fixture `generation` call must succeed")
         .artifact_path(first.artifacts().artifacts()[0].id())
-        .unwrap();
+        .expect("fixture `artifact_path` call must succeed");
 
     let second_path = second
         .generation()
-        .unwrap()
+        .expect("fixture `generation` call must succeed")
         .artifact_path(second.artifacts().artifacts()[0].id())
-        .unwrap();
+        .expect("fixture `artifact_path` call must succeed");
 
     assert_eq!(
-        file_id::get_file_id(&first_path).unwrap(),
-        file_id::get_file_id(&second_path).unwrap()
+        file_id::get_file_id(&first_path).expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     assert_ne!(
-        file_id::get_file_id(&second_path).unwrap(),
-        file_id::get_file_id(output.path().join("second.brayd")).unwrap()
+        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(output.path().join("second.brayd")).expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     drop(first);
@@ -203,7 +203,7 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
     };
 
     let clean =
-        crate::clean_storage(output.path(), &first_selection, false, &never_cancelled).unwrap();
+        crate::clean_storage(output.path(), &first_selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(clean.iter().all(|row| row.removed));
     assert!(!first_path.exists());
@@ -215,8 +215,8 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
     assert_complete_artifact(&first, bytes);
 
     assert_eq!(
-        file_id::get_file_id(&first_path).unwrap(),
-        file_id::get_file_id(&second_path).unwrap()
+        file_id::get_file_id(&first_path).expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     drop(first);
@@ -228,11 +228,11 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
         crate::StoragePolicy::default(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
     assert_eq!(
         rows.iter().filter_map(|row| row.shared_bytes).sum::<u64>(),
-        u64::try_from(bytes.len()).unwrap()
+        u64::try_from(bytes.len()).expect("fixture value must fit the requested representation")
     );
 
     crate::clean_storage(
@@ -241,21 +241,21 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
         false,
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage cleanup must succeed");
 
     assert!(!first_path.exists());
     assert!(!second_path.exists());
 
     let index: serde_json::Value =
         serde_json::from_slice(&file_bytes(&output.path().join(".bray/storage-index.json")))
-            .unwrap();
+            .expect("fixture data must deserialize");
 
-    assert!(index["content"].as_object().unwrap().is_empty());
+    assert!(index["content"].as_object().expect("fixture `as_object` call must succeed").is_empty());
 }
 
 #[test]
 fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let first_plan = filesystem_artifact_plan([
         (
@@ -281,7 +281,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         first_plan.request().product(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture `crate::retain_published_generation` call must succeed");
 
     let paths: Vec<_> = retained
         .artifacts()
@@ -289,7 +289,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         .collect();
 
     assert_eq!(paths.len(), 2);
-    assert_eq!(retained.identity(), first.generation().unwrap().identity());
+    assert_eq!(retained.identity(), first.generation().expect("fixture `generation` call must succeed").identity());
     drop(first);
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
@@ -308,7 +308,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         false,
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage cleanup must succeed");
 
     assert!(rows.iter().all(|row| row.active && !row.removed));
 
@@ -316,7 +316,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         file_bytes(
             retained
                 .artifact_path(ArtifactKind::DependencyMetadata, 0)
-                .unwrap()
+                .expect("fixture `artifact_path` call must succeed")
         ),
         b"first"
     );
@@ -329,7 +329,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         false,
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage cleanup must succeed");
 
     assert!(paths.iter().all(|path| !path.exists()));
 
@@ -338,7 +338,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         plan.request().product(),
         &never_cancelled,
     )
-    .unwrap_err()
+    .expect_err("cleaned generation must be unavailable")
     .into_storage_error(output.path());
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
@@ -346,7 +346,7 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
 
 #[test]
 fn retained_generations_expose_the_atomic_build_identity() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let identity =
         crate::ProductBuildIdentity::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 6, 7);
@@ -374,7 +374,7 @@ fn retained_generations_expose_the_atomic_build_identity() {
         plan.request().product(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture `crate::retain_published_generation` call must succeed");
 
     assert_eq!(retained.build_identity(), Some(&identity));
 
@@ -401,7 +401,7 @@ fn retained_generations_expose_the_atomic_build_identity() {
         replacement.request().product(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture `crate::retain_published_generation` call must succeed");
 
     assert_ne!(retained.identity(), first_generation);
     assert_eq!(retained.build_identity(), Some(&replacement_identity));

@@ -781,6 +781,10 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "compound assignment lowering retains checked operator selection and source and destination identities"
+    )]
     fn lower_compound_assignment_value(
         &mut self,
         id: BoundExpressionId,

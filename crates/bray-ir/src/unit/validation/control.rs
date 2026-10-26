@@ -92,9 +92,7 @@ pub(super) fn validate_terminator(
             validate_frame_state(unit, *resume_state)?;
             validate_local_edge(unit, block_id, resume)?;
 
-            let Some(descriptor) = unit.frame_descriptor() else {
-                return None;
-            };
+            let descriptor = unit.frame_descriptor()?;
 
             let expected = descriptor
                 .states()
@@ -244,9 +242,7 @@ fn validate_inline_assembly(
     let mut successors = BTreeSet::from([assembly.normal()]);
 
     for alternate in assembly.alternates() {
-        let Some(block) = unit.block(*alternate) else {
-            return None;
-        };
+        let block = unit.block(*alternate)?;
 
         if !successors.insert(*alternate)
             || block.kind() != MirBlockKind::Ordinary
@@ -256,17 +252,13 @@ fn validate_inline_assembly(
         }
     }
 
-    let Some(normal) = unit.block(assembly.normal()) else {
-        return None;
-    };
+    let normal = unit.block(assembly.normal())?;
 
     let [parameter] = normal.parameters() else {
         return None;
     };
 
-    let Some(parameter) = unit.value(*parameter) else {
-        return None;
-    };
+    let parameter = unit.value(*parameter)?;
 
     if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
         return None;
@@ -297,17 +289,13 @@ fn validate_iteration_item(
     item: MirBlockId,
     element_type: bray_symbols::TypeId,
 ) -> Option<()> {
-    let Some(block) = unit.block(item) else {
-        return None;
-    };
+    let block = unit.block(item)?;
 
     let [parameter] = block.parameters() else {
         return None;
     };
 
-    let Some(parameter) = unit.value(*parameter) else {
-        return None;
-    };
+    let parameter = unit.value(*parameter)?;
 
     if block.kind() != MirBlockKind::Ordinary || parameter.ty() != element_type {
         return None;
@@ -321,9 +309,7 @@ fn validate_call_failure_edge(
     source: MirBlockId,
     edge: &crate::MirCallFailureEdge,
 ) -> Option<()> {
-    let Some(block) = unit.block(edge.target()) else {
-        return None;
-    };
+    let block = unit.block(edge.target())?;
 
     if unit.block(source).map(MirBlock::kind) != Some(block.kind())
         || !block.parameters().is_empty()
@@ -441,9 +427,7 @@ fn validate_cleanup_edge(
 
     let target = cleanup.edge().target();
 
-    let Some(block) = unit.block(target) else {
-        return None;
-    };
+    let block = unit.block(target)?;
 
     let expected = match cleanup.phase() {
         MirCleanupPhase::TaskCancellation => MirBlockKind::CleanupBroadcast,
@@ -457,9 +441,7 @@ fn validate_cleanup_edge(
     Some(())
 }
 fn validate_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<()> {
-    let Some(target) = unit.block(edge.target()) else {
-        return None;
-    };
+    let target = unit.block(edge.target())?;
 
     if edge.arguments().len() != target.parameters().len() {
         return None;
@@ -470,9 +452,7 @@ fn validate_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<(
 
         let argument_type = unit.operand_type(argument)?;
 
-        let Some(parameter) = unit.value(*parameter) else {
-            return None;
-        };
+        let parameter = unit.value(*parameter)?;
 
         if argument_type != parameter.ty() {
             return None;

@@ -58,17 +58,17 @@ fn string_release_collects_deallocation_failure_before_returning() {
 fn inactive_frame_broadcast_and_destruction_keep_valid_outcome_checks() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .compiler_known_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture compiler-known type must resolve");
 
     let future = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Future, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
     for reference in [
         MirHelperReference::Cleanup {
@@ -97,13 +97,13 @@ fn nullable_cancellation_branches_within_the_cleanup_phase() {
 
     let unit = compilation
         .compiler_known_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture compiler-known type must resolve");
 
     let payload = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Future, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
     let nullable = values
         .intern_type(TypeData::Nullable(payload))
@@ -226,17 +226,17 @@ fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
 fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
     let compilation = compilation("module app;");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .compiler_known_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture compiler-known type must resolve");
 
     let task = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Task, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
     let generated = generated_lifecycle(
         &compilation,
@@ -645,17 +645,17 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
 fn cancellation_and_quiescence_retain_terminal_task_ownership() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture type must have a code-generation representation");
 
     let task = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Task, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
     for reference in [
         MirHelperReference::Quiesce(task),
@@ -703,30 +703,30 @@ fn cancellation_and_quiescence_retain_terminal_task_ownership() {
 fn incident_quiescence_visits_children_without_parent_finalization_or_destruction() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture type must have a code-generation representation");
 
     let task = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Task, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
-    let nullable = values.intern_type(TypeData::Nullable(task)).unwrap();
+    let nullable = values.intern_type(TypeData::Nullable(task)).expect("fixture type must be interned");
 
     let pair = values
         .intern_type(TypeData::tuple([task, nullable]))
-        .unwrap();
+        .expect("fixture type must be interned");
 
     let generated =
         generated_lifecycle(&compilation, &target, MirHelperReference::Quiesce(pair), 93);
 
     let report = compilation
         .codegen_representation_type(RepresentationRole::PanicReport)
-        .unwrap();
+        .expect("fixture type must have a code-generation representation");
 
     assert!(
         generated
@@ -760,7 +760,7 @@ fn incident_quiescence_visits_children_without_parent_finalization_or_destructio
                 &MirHelperReference::Quiesce(pair),
                 &crate::CancellationToken::new()
             )
-            .unwrap()
+            .expect("fixture lifecycle triviality must resolve")
     );
 
     assert!(generated.is_valid());
@@ -780,19 +780,19 @@ fn incident_quiescence_does_not_select_declared_graceful_or_destructive_calls() 
 
     assert!(!compilation.check_diagnostics().has_errors());
 
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let definition = symbols
         .structures()
         .iter()
         .find(|value| value.origin() == bray_symbols::SymbolOrigin::Source)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let ty = crate::compilation::substitution::named_type(
-        compilation.semantic_value_store().unwrap(),
+        compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
         bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
     )
-    .unwrap();
+    .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
 
     let target = codegen_target(&compilation);
     let generated = generated_lifecycle(&compilation, &target, MirHelperReference::Quiesce(ty), 94);
@@ -804,23 +804,23 @@ fn incident_quiescence_does_not_select_declared_graceful_or_destructive_calls() 
 #[test]
 fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
     let compilation = compilation("module app; func main() {}");
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
-        .unwrap();
+        .expect("fixture type must have a code-generation representation");
 
     let future = compilation
         .available_compiler_known_symbols()
         .unary_representation_type(values, RepresentationRole::Future, unit)
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
-    let nullable = values.intern_type(TypeData::Nullable(future)).unwrap();
+    let nullable = values.intern_type(TypeData::Nullable(future)).expect("fixture type must be interned");
 
     let pair = values
         .intern_type(TypeData::tuple([future, nullable]))
-        .unwrap();
+        .expect("fixture type must be interned");
 
     for ty in [future, nullable, pair] {
         assert!(
@@ -829,7 +829,7 @@ fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
                     &MirHelperReference::Quiesce(ty),
                     &crate::CancellationToken::new()
                 )
-                .unwrap()
+                .expect("fixture lifecycle triviality must resolve")
         );
     }
 }
@@ -858,7 +858,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
     .with_dependency_interfaces([super::lifecycle_fixtures::standard_memory_dependency()]);
 
     let source_authority = CompilationRequest::new(
-        bray_symbols::PackageIdentity::try_new("std").unwrap(),
+        bray_symbols::PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
         crate::test_support::source_inputs(&[
             include_str!("../../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
@@ -873,11 +873,11 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
     .with_standard_library_source_authority();
 
     for request in [source_authority, imported] {
-        let compilation = Compilation::load(request).unwrap();
+        let compilation = Compilation::load(request).expect("fixture input must load");
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "inspect"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !lowered.diagnostics().has_errors(),
@@ -885,19 +885,19 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             lowered.diagnostics()
         );
 
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         let parameter = mir
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         let buffer = parameter.ty();
 
         let disposed = compilation
             .lowered_unit(source_function_body_key(&compilation, "dispose"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !disposed.diagnostics().has_errors(),
@@ -905,7 +905,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             disposed.diagnostics()
         );
 
-        assert!(disposed.value().as_ref().unwrap().mir().unwrap().operations().iter().any(|operation| matches!(operation.kind(),
+        assert!(disposed.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR").operations().iter().any(|operation| matches!(operation.kind(),
             MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place.ty() == buffer)),
             "scope broadcast must include task obligations stored in the buffer");
 
@@ -922,7 +922,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             assert!(
                 !compilation
                     .codegen_lifecycle_is_trivial(&reference, &cancellation)
-                    .unwrap(),
+                    .expect("fixture lifecycle triviality must resolve"),
                 "{reference:?}"
             );
 
@@ -977,7 +977,7 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             );
 
             assert!(matches!(
-                children[0].projections().last().unwrap().kind(),
+                children[0].projections().last().expect("fixture sequence must contain its last item").kind(),
                 MirProjectionKind::Index(_)
             ));
 

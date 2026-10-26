@@ -24,10 +24,10 @@ use super::support::{artifact_fixture, native_digest};
 #[test]
 fn primary_native_selection_preserves_opaque_bitcode_provenance() {
     let fixture = artifact_fixture();
-    let encoded = encode_package_interface(&fixture.bundle).unwrap();
+    let encoded = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
     let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let payload: Arc<[u8]> = Arc::from(b"native".as_slice());
     let digest = native_digest(&payload);
@@ -49,7 +49,7 @@ fn primary_native_selection_preserves_opaque_bitcode_provenance() {
                 )],
                 [],
             )
-            .unwrap();
+            .expect("fixture native artifact index must be valid");
 
             let index = if stamped {
                 index.with_bitcode_toolchain("llvm-test")
@@ -60,12 +60,12 @@ fn primary_native_selection_preserves_opaque_bitcode_provenance() {
             let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
                 &encoded,
                 &fixture.bundle,
-                &index.encode().unwrap(),
+                &index.encode().expect("fixture artifact must encode"),
                 &[(digest.bytes(), Arc::clone(&payload))],
                 &[],
                 InterfaceValidationLimits::default(),
             )
-            .unwrap();
+            .expect("fixture from export bundle with native must succeed");
 
             for requested in [None, Some("llvm-test"), Some("other-llvm")] {
                 let expected = if stamped {
@@ -77,7 +77,7 @@ fn primary_native_selection_preserves_opaque_bitcode_provenance() {
                 assert_eq!(
                     artifact
                         .native_representation(requested)
-                        .unwrap()
+                        .expect("fixture `native_representation` call must succeed")
                         .map(|(kind, _)| kind),
                     expected
                 );
@@ -91,17 +91,17 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
     use crate::PackageNativeArtifactError;
 
     let fixture = artifact_fixture();
-    let encoded = encode_package_interface(&fixture.bundle).unwrap();
+    let encoded = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
     let artifact = PackageImplementationArtifact::try_from_export_bundle(
         &encoded,
         &fixture.bundle,
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from export bundle must succeed");
 
     let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let bytes: Arc<[u8]> = Arc::from(b"bitcode".as_slice());
     let digest = native_digest(&bytes);
@@ -117,16 +117,16 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
         )],
         [],
     )
-    .unwrap()
+    .expect("fixture native artifact index must be valid")
     .with_bitcode_toolchain("llvm-test-revision");
 
-    let encoded_index = index.encode().unwrap();
+    let encoded_index = index.encode().expect("fixture artifact must encode");
     let variants = [(NativeUnitKind::Bitcode, encoded_index.as_slice())];
     let payloads = [(digest.bytes(), bytes)];
 
     let native = artifact
         .try_native_only_artifact(&variants, &payloads)
-        .unwrap();
+        .expect("fixture native only artifact must succeed");
 
     assert_eq!(native.native_artifact(), Ok(None));
     assert_eq!(native.native_variant(NativeUnitKind::Object), Ok(None));
@@ -144,14 +144,14 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
         Ok(Some(index))
     );
 
-    let missing = artifact.try_native_only_artifact(&variants, &[]).unwrap();
+    let missing = artifact.try_native_only_artifact(&variants, &[]).expect("fixture native only artifact must succeed");
 
     assert_eq!(
         missing.verify_all(),
         Err(PackageNativeArtifactError::MissingUnit(digest))
     );
 
-    let orphan = artifact.try_native_only_artifact(&[], &payloads).unwrap();
+    let orphan = artifact.try_native_only_artifact(&[], &payloads).expect("fixture native only artifact must succeed");
 
     assert_eq!(
         orphan.verify_all(),
@@ -159,13 +159,13 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
     );
 
     let empty_index = NativeArtifactIndex::try_new(target, native_digest(b"producer"), [], [])
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
     let orphan = artifact
         .try_native_only_artifact(&[(NativeUnitKind::Object, &empty_index)], &payloads)
-        .unwrap();
+        .expect("fixture native only artifact must succeed");
 
     assert_eq!(
         orphan.verify_all(),
@@ -176,27 +176,27 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
 #[test]
 fn native_representations_in_one_package_must_share_their_producer() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).unwrap();
+    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
     let artifact = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
         &fixture.bundle,
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from export bundle must succeed");
 
     let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let object = NativeArtifactIndex::try_new(target, native_digest(b"first"), [], [])
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
     let bitcode = NativeArtifactIndex::try_new(target, native_digest(b"second"), [], [])
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
     let mismatched = artifact
         .try_native_only_artifact(
@@ -206,7 +206,7 @@ fn native_representations_in_one_package_must_share_their_producer() {
             ],
             &[],
         )
-        .unwrap();
+        .expect("fixture native only artifact must succeed");
 
     assert_eq!(
         mismatched.verify_all(),
@@ -317,13 +317,13 @@ fn native_package_units_round_trip_with_exact_source_binding() {
         &fixture.bundle,
         &index_bytes,
         &payloads,
-        &[binding.clone()],
+        std::slice::from_ref(&binding),
         InterfaceValidationLimits::default(),
     )
     .unwrap_or_else(|error| panic!("native package must encode: {error:?}"));
 
     let imported = PackageImplementationArtifact::try_from_bytes(
-        artifact.shared_bytes().unwrap().to_vec(),
+        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed").to_vec(),
         InterfaceValidationLimits::default(),
     )
     .unwrap_or_else(|error| panic!("native package must import: {error:?}"));
@@ -362,7 +362,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     );
 
     assert_eq!(
-        imported.native_unit_bytes(first_digest.bytes()).unwrap(),
+        imported.native_unit_bytes(first_digest.bytes()).expect("fixture `native_unit_bytes` call must succeed"),
         Some(Arc::from(first.as_slice()))
     );
 
@@ -424,7 +424,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
         &fixture.bundle,
         &index_bytes,
         &payloads,
-        &[opaque_binding.clone()],
+        std::slice::from_ref(&opaque_binding),
         InterfaceValidationLimits::default(),
     )
     .unwrap_or_else(|error| {

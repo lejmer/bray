@@ -100,8 +100,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if matches!(invalidation, StorageInvalidation::All { .. }) {
-            if let Some(contract) = self
+        if matches!(invalidation, StorageInvalidation::All { .. })
+            && let Some(contract) = self
                 .request
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&occurrence))
@@ -118,7 +118,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             {
                 return;
             }
-        }
 
         let transfers = !changes_contents
             && !self.storage.occurrence_plans(occurrence).any(|plan| {
@@ -136,7 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .flatten()
             .is_some_and(|operation| {
-                crate::memory::execution::storage_effect(operation.kind())
+                crate::memory::execution::storage_effect(&operation.kind())
                     == crate::memory::execution::StorageEffect::Contents
             });
 
@@ -482,7 +481,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let value = target
                     .value_in(&state.current)
-                    .unwrap_or_else(|| ExecutionCondition::Input(target));
+                    .unwrap_or(ExecutionCondition::Input(target));
 
                 let value = if matches!(
                     place.value_in(&state.current),

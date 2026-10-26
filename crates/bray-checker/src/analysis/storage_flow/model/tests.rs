@@ -187,12 +187,12 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
         .map(|expression| {
             let identity = builder
                 .push_identity(StorageIdentity::Allocation(*expression))
-                .unwrap();
+                .expect("fixture identity must fit its identity space");
 
             let origin = unit
                 .tree()
                 .expression(*expression)
-                .unwrap()
+                .expect("fixture expression must exist in its bound unit")
                 .origin()
                 .source_anchor();
 
@@ -204,7 +204,7 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
                     origin,
                     false,
                 ))
-                .unwrap()
+                .expect("fixture access must fit its identity space")
         })
         .collect::<Vec<_>>();
 
@@ -215,8 +215,8 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
     let (moved, observed) = (*moved, *observed);
 
     let storage = builder.finish();
-    let moved = storage.logical_path(moved).cloned().unwrap();
-    let observed = storage.logical_path(observed).cloned().unwrap();
+    let moved = storage.logical_path(moved).cloned().expect("fixture cloned selection must contain its expected value");
+    let observed = storage.logical_path(observed).cloned().expect("fixture cloned selection must contain its expected value");
     let mut state = reachable_state();
 
     state.definitely_absent.extend([
@@ -232,7 +232,7 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
 
     assert_eq!(
         state.definitely_absent.keys().cloned().collect::<Vec<_>>(),
-        [moved.clone()]
+        std::slice::from_ref(&moved)
     );
 
     let mut incoming = reachable_state();
@@ -345,7 +345,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
     let source = unit
         .tree()
         .expression(expressions[0])
-        .unwrap()
+        .expect("fixture expression must exist in its bound unit")
         .origin()
         .source_anchor();
 
@@ -353,7 +353,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
 
     let root = builder
         .push_identity(StorageIdentity::Temporary(expressions[0]))
-        .unwrap();
+        .expect("fixture identity must fit its identity space");
 
     let access = builder
         .push_access(StorageAccess::new(
@@ -363,7 +363,7 @@ fn payload_absence_survives_contents_changes_but_not_discriminant_replacement() 
             source,
             false,
         ))
-        .unwrap();
+        .expect("fixture access must fit its identity space");
 
     let storage = builder.finish();
     let parent = StoragePath::root(root);

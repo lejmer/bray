@@ -115,7 +115,7 @@ fn abstract_trait_results_resolve_local_inputs_with_the_selected_witness() {
 
             let generic = compilation
                 .storage_flow(source_function_body_key(&compilation, "forward"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             assert!(
                 !generic.diagnostics().has_errors(),
@@ -129,7 +129,7 @@ fn abstract_trait_results_resolve_local_inputs_with_the_selected_witness() {
                 assert!(!diagnostics.has_errors(), "{source}: {:?}", diagnostics);
             } else {
                 assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     DiagnosticKind::CheckingEscapingStorageDependency,
                 );
             }
@@ -220,7 +220,7 @@ fn abstract_trait_results_preserve_mutable_and_aggregate_dependencies() {
 
         let flow = compilation
             .storage_flow(source_function_body_key(&compilation, "bad"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert_goal_state_diagnostic_kind(
             flow.diagnostics(),
@@ -229,7 +229,7 @@ fn abstract_trait_results_preserve_mutable_and_aggregate_dependencies() {
 
         let flow = compilation
             .storage_flow(source_function_body_key(&compilation, "good"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(
             !flow.diagnostics().has_errors(),
@@ -295,7 +295,7 @@ fn abstract_trait_results_preserve_reborrowed_fields() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -304,7 +304,7 @@ fn abstract_trait_results_preserve_reborrowed_fields() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -384,7 +384,7 @@ fn abstract_trait_results_substitute_generic_members() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -393,7 +393,7 @@ fn abstract_trait_results_substitute_generic_members() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -480,7 +480,7 @@ fn abstract_trait_results_converge_through_recursive_generic_composition() {
                 }
             });
 
-            let context = compilation.binding_context(&cancellation).unwrap();
+            let context = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
 
             let result =
                     bray_binder::SymbolQueryProvider::resolve_symbol_query(
@@ -495,7 +495,7 @@ fn abstract_trait_results_converge_through_recursive_generic_composition() {
                 "recursive generic result must converge: {result:?}"
             );
 
-            let result = result.unwrap();
+            let result = result.expect("fixture `result` call must succeed");
 
             assert!(
                 !result.diagnostics().has_errors(),
@@ -505,14 +505,14 @@ fn abstract_trait_results_converge_through_recursive_generic_composition() {
 
             let contract = compilation
                 .semantic_value_store()
-                .unwrap()
+                .expect("fixture compilation must provide its semantic value store")
                 .dependency_contract_template_data(*result.value());
 
             assert!(!contract.requirements().is_empty());
 
             let bad = compilation
                 .storage_flow(source_function_body_key(&compilation, "bad"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             assert_goal_state_diagnostic_kind(
                 bad.diagnostics(),
@@ -521,7 +521,7 @@ fn abstract_trait_results_converge_through_recursive_generic_composition() {
 
             let good = compilation
                 .storage_flow(source_function_body_key(&compilation, "good"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             assert!(!good.diagnostics().has_errors(), "{:?}", good.diagnostics());
 

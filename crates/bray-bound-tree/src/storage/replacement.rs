@@ -174,9 +174,9 @@ mod tests {
 
         let flow =
             StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
-                .unwrap()
+                .expect("fixture storage flow must be valid")
                 .with_replacements([decision.clone()])
-                .unwrap();
+                .expect("fixture `with_replacements` call must succeed");
 
         assert!(decision.root_initialized());
         assert_eq!(decision.definitely_absent(), &[moved]);
@@ -201,7 +201,7 @@ mod tests {
 
         let flow = || {
             StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
-                .unwrap()
+                .expect("fixture storage flow must be valid")
         };
 
         assert_eq!(

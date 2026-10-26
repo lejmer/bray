@@ -259,8 +259,8 @@ impl MirMemoryOperation {
     }
 
     /// Returns the checked memory behavior.
-    pub const fn kind(&self) -> CheckedMemoryOperationKind {
-        self.kind
+    pub fn kind(&self) -> CheckedMemoryOperationKind {
+        self.kind.clone()
     }
 
     /// Returns evaluated operands in declaration order.

@@ -207,7 +207,7 @@ mod tests {
         let artifact = contribution(fixture.required_artifact().clone()).with_native_unit(
             bray_native_artifact::NativeUnit::new(
                 bray_native_artifact::NativeContentDigest::new(
-                    bray_base::sha256_reader([1_u8, 2, 3].as_slice()).unwrap(),
+                    bray_base::sha256_reader([1_u8, 2, 3].as_slice()).expect("fixture contents must have a complete SHA-256 digest"),
                 ),
                 bray_native_artifact::NativeUnitKind::Object,
                 bray_native_artifact::NativeUnitSummary::opaque([]),

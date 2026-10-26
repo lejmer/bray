@@ -13,34 +13,6 @@ use crate::compilation::{
 };
 use crate::fact::CancellationToken;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn construction_defaults_use_declaration_specialization_across_callers() {
-        for source in [
-            "module app; struct Value { digit: i32 = 0; } func first() -> Value { return Value {}; } func second() -> Value { return Value {}; } func main() { _ = first(); _ = second(); }",
-            "module app; struct Value { digit: i32 = 0; } func first<T>(pos input: T) -> Value { return Value {}; } func second<T>(pos input: T) -> Value { return Value {}; } func main() { _ = first<i32>(1); _ = second<i32>(2); _ = first<bool>(true); }",
-            "module app; struct Value<T> { marker: bool; data: T? = none; } func first<U>() -> Value<U> { return { marker = true }; } func second<U>() -> Value<U> { return { marker = true }; } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
-            "module app; struct Value<const count: i32> { marker: bool; digit: i32 = count; } func first<T>(pos input: T) -> Value<7> { return { marker = true }; } func second<T>(pos input: T) -> Value<7> { return { marker = true }; } func main() { _ = first<i32>(1); _ = second<i32>(2); }",
-            "module app; union Value<T> { Item(data: T? = none); } func first<U>() -> Value<U> { return Item(); } func second<U>() -> Value<U> { return Item(); } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
-        ] {
-            let compilation = crate::test_support::compilation(source);
-
-            assert!(
-                compilation.check_diagnostics().is_empty(),
-                "{source}: {:?}",
-                compilation.check_diagnostics()
-            );
-
-            let result = compilation.codegen_instance_count_for_test(|key| {
-                matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
-            });
-
-            assert!(result.is_ok(), "{source}: {result:?}");
-        }
-    }
-}
-
 impl Compilation {
     pub(super) fn concrete_codegen_default_value(
         &self,
@@ -247,5 +219,33 @@ impl Compilation {
         }
 
         Ok(defaults)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn construction_defaults_use_declaration_specialization_across_callers() {
+        for source in [
+            "module app; struct Value { digit: i32 = 0; } func first() -> Value { return Value {}; } func second() -> Value { return Value {}; } func main() { _ = first(); _ = second(); }",
+            "module app; struct Value { digit: i32 = 0; } func first<T>(pos input: T) -> Value { return Value {}; } func second<T>(pos input: T) -> Value { return Value {}; } func main() { _ = first<i32>(1); _ = second<i32>(2); _ = first<bool>(true); }",
+            "module app; struct Value<T> { marker: bool; data: T? = none; } func first<U>() -> Value<U> { return { marker = true }; } func second<U>() -> Value<U> { return { marker = true }; } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
+            "module app; struct Value<const count: i32> { marker: bool; digit: i32 = count; } func first<T>(pos input: T) -> Value<7> { return { marker = true }; } func second<T>(pos input: T) -> Value<7> { return { marker = true }; } func main() { _ = first<i32>(1); _ = second<i32>(2); }",
+            "module app; union Value<T> { Item(data: T? = none); } func first<U>() -> Value<U> { return Item(); } func second<U>() -> Value<U> { return Item(); } func main() { _ = first<i32>(); _ = second<i32>(); _ = first<bool>(); }",
+        ] {
+            let compilation = crate::test_support::compilation(source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let result = compilation.codegen_instance_count_for_test(|key| {
+                matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
+            });
+
+            assert!(result.is_ok(), "{source}: {result:?}");
+        }
     }
 }

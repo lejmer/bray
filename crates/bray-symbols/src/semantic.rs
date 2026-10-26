@@ -72,7 +72,7 @@ pub use execution::{
 pub use execution::{
     CallableExecutionContract, CallableExecutionDomain, CallableExecutionEvidence,
     CallableExecutionObligation, CallableExecutionOrigin, CallableExecutionTarget,
-    EXECUTION_CONDITION_WORK_LIMIT, ExecutionProofFailure, ExecutionProperty,
+    EXECUTION_CONDITION_WORK_LIMIT, ExecutionProofFailure, ExecutionProofKey, ExecutionProperty,
     ResolvedCallableExecutionContract, check_execution_proof_dependencies,
 };
 pub use foreign::{

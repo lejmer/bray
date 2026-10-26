@@ -135,8 +135,7 @@ mod tests {
 
         let panic =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| identities.unit_id(&key)))
-                .err()
-                .expect("compiler invariant must panic");
+                .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -183,8 +182,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             identities.unit_id(&requested)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -211,8 +209,7 @@ mod tests {
 
         let panic =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| identities.unit_id(&key)))
-                .err()
-                .expect("compiler invariant must panic");
+                .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

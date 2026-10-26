@@ -125,7 +125,7 @@ fn custom_operator_output_does_not_constrain_its_operand_to_a_scalar() {
     );
 
     let key = crate::test_support::source_function_body_key(&compilation, "selected");
-    let lowered = compilation.lowered_unit(key).unwrap();
+    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
     assert!(
         !lowered.diagnostics().has_errors(),
@@ -133,7 +133,7 @@ fn custom_operator_output_does_not_constrain_its_operand_to_a_scalar() {
         lowered.diagnostics()
     );
 
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
     assert!(mir.is_valid());
 

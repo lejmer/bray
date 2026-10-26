@@ -388,6 +388,10 @@ impl Lowerer<'_> {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "typed call completion retains execution identity, result type, accepted owner, and outcome"
+    )]
     pub(in crate::lowering) fn finish_typed_call_panic_check(
         &mut self,
         occurrence: impl Into<bray_bound_tree::BoundExecutionSite>,

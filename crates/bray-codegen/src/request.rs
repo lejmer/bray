@@ -22,6 +22,10 @@ pub struct CodegenRequest<'request> {
 
 impl<'request> CodegenRequest<'request> {
     /// Creates a request from authoritative immutable inputs.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "backend requests borrow independent checked codegen inputs and execution controls"
+    )]
     pub const fn new(
         unit: &'request CodegenUnit,
         backend: &'request BackendIdentity,

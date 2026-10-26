@@ -1379,7 +1379,7 @@ mod tests {
 
             let result = compilation
                 .constant_call_with_cancellation(&request, &compilation.state.cancellation)
-                .unwrap();
+                .expect("fixture `constant_call_with_cancellation` call must succeed");
 
             assert!(
                 result.diagnostics().is_empty(),
@@ -1388,7 +1388,7 @@ mod tests {
             );
 
             assert_eq!(
-                integer_value(&compilation, result.value().as_ref().unwrap().value()),
+                integer_value(&compilation, result.value().as_ref().expect("fixture optional value must be present").value()),
                 expected
             );
         }
@@ -1935,7 +1935,7 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             panic!("test source has one constant");
         };
 
-        let result = compilation.constant_definition(*definition).unwrap();
+        let result = compilation.constant_definition(*definition).expect("fixture `constant_definition` call must succeed");
 
         assert!(
             !result.diagnostics().has_errors(),
@@ -1945,7 +1945,7 @@ const RESULT: Holder<i32> = Holder<i32>.make();
 
         let result = compilation
             .constant_instance(instance_key(&compilation, *definition))
-            .unwrap();
+            .expect("fixture `constant_instance` call must succeed");
 
         assert!(
             !result.diagnostics().has_errors(),
@@ -2163,11 +2163,9 @@ const RESULT: Holder<i32> = Holder<i32>.make();
         )
         .unwrap_or_else(|error| panic!("generic substitution must be valid: {error:?}"));
 
-        let substitution = values
+        values
             .intern_generic_substitution(data)
-            .unwrap_or_else(|error| panic!("generic substitution must be interned: {error:?}"));
-
-        substitution
+            .unwrap_or_else(|error| panic!("generic substitution must be interned: {error:?}"))
     }
 
     fn source_constant_call_request(

@@ -425,20 +425,20 @@ mod tests {
     fn symbolic_key(padding: bool, ordinal: u32, upper: bool) -> std::sync::Arc<[u8]> {
         let compilation = crate::test_support::compilation("module app;");
         let cancellation = CancellationToken::new();
-        let context = compilation.binding_context(&cancellation).unwrap();
-        let values = compilation.semantic_value_store().unwrap();
+        let context = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
         if padding {
             values
                 .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(99)))
-                .unwrap();
+                .expect("fixture constant term must be interned");
         }
 
         let argument = values
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(
                 ordinal,
             )))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let sum = values
             .intern_constant_term(ConstantTermData::Binary {
@@ -446,7 +446,7 @@ mod tests {
                 left: argument,
                 right: argument,
             })
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let projection = values
             .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
@@ -456,14 +456,14 @@ mod tests {
                     upper: upper.then_some(sum),
                 },
             )))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         OrderEncoder {
             compilation: &compilation,
             context: &context,
         }
         .constant(projection)
-        .unwrap()
+        .expect("fixture `constant` call must succeed")
         .into_bytes()
     }
 

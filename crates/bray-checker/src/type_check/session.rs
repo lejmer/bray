@@ -242,15 +242,12 @@ where
     }
 
     pub(crate) fn add_expectation(&mut self, expression: BoundExpressionId, ty: TypeId) {
-        match add_expectations(
+        if let Some(()) = add_expectations(
             self.request,
             [ExpressionTypeExpectation::new(expression, ty)],
             &self.variables,
             &mut self.inference,
-        ) {
-            Some(()) => (),
-            None => (),
-        }
+        ) {  }
     }
 
     pub(crate) fn expression_type(
@@ -267,9 +264,7 @@ where
         expression: BoundExpressionId,
         is_match: impl FnMut(TypeId) -> bool,
     ) -> Option<TypeId> {
-        let Some(variable) = self.variables.get(&expression).copied() else {
-            return None;
-        };
+        let variable = self.variables.get(&expression).copied()?;
 
         self.inference
             .unique_matching_expectation(variable, is_match)

@@ -33,8 +33,7 @@ fn compiler_known_symbol_failures_retain_expected_and_actual_ids() {
             },
         ))
     })
-    .err()
-    .expect("compiler invariant must panic");
+    .expect_err("compiler invariant must panic");
 
     let message = bray_testing::panic_payload_text(panic.as_ref());
 

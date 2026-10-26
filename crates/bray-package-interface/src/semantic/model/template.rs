@@ -148,6 +148,10 @@ pub struct InterfaceCheckedTemplateBehavior {
 
 impl InterfaceCheckedTemplateBehavior {
     /// Creates checked behavior in the caller's canonical semantic-set order.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "template behavior retains independent effect, capability, lifecycle, dependency, and witness contracts"
+    )]
     pub fn new(
         effects: impl IntoIterator<Item = InterfaceSymbolReference>,
         capabilities: impl IntoIterator<Item = InterfaceSymbolReference>,

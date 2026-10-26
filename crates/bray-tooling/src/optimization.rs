@@ -98,11 +98,11 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
             Ok(output) => {
                 return Err(CodegenFailure::BackendToolExited {
                     program: self.program.clone(),
-                    exit: bray_diagnostics::DiagnosticExternalToolExit::new(
+                    exit: Box::new(bray_diagnostics::DiagnosticExternalToolExit::new(
                         output.exit_code(),
                         output.standard_output(),
                         output.standard_error(),
-                    ),
+                    )),
                 });
             }
             Err(error) => {

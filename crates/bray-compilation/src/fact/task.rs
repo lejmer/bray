@@ -474,7 +474,7 @@ mod tests {
                 CompilationFactKey::DeclarationTable,
             );
 
-            context.finish().unwrap();
+            context.finish().expect("fixture operation must finish successfully");
 
             let panic =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match operation {
@@ -482,8 +482,7 @@ mod tests {
                     TaskOperation::RecordFrozenFact => context.record_frozen_fact(1),
                     _ => unreachable!(),
                 }))
-                .err()
-                .expect("compiler invariant must panic");
+                .expect_err("compiler invariant must panic");
 
             let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -507,8 +506,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.run(|| current_context(RuntimeIdentity(5)).map(|_| ()))
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -530,8 +528,8 @@ mod tests {
         let first = crate::fact::fact_fingerprint(&fact, &1_u8);
         let changed = crate::fact::fact_fingerprint(&fact, &2_u8);
 
-        context.record_input(&input, first).unwrap();
-        context.record_input(&input, first).unwrap();
+        context.record_input(&input, first).expect("fixture `record_input` call must succeed");
+        context.record_input(&input, first).expect("fixture `record_input` call must succeed");
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

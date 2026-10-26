@@ -672,10 +672,10 @@ mod tests {
 
         let mut bytes = Vec::new();
 
-        super::write_host_result(&mut bytes, &result).unwrap();
+        super::write_host_result(&mut bytes, &result).expect("fixture `super::write_host_result` call must succeed");
 
         assert_eq!(
-            super::read_host_result(&mut Cursor::new(bytes)).unwrap(),
+            super::read_host_result(&mut Cursor::new(bytes)).expect("fixture `super::read_host_result` call must succeed"),
             result
         );
     }

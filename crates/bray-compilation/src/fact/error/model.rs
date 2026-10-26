@@ -190,8 +190,7 @@ mod tests {
                 ProductDataKind::DeclarationChunk,
             )
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(missing.as_ref());
 
@@ -206,8 +205,7 @@ mod tests {
                 2,
             )
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(mismatch.as_ref());
 
@@ -224,8 +222,7 @@ mod tests {
                 },
             })
         })
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         assert!(
             bray_testing::panic_payload_text(invalid_substitution.as_ref())

@@ -465,7 +465,7 @@ mod truncation_tests {
                 minimum,
                 minimum_inclusive,
                 maximum,
-            } = NumericTruncation::for_roles(RepresentationRole::ScalarR16, target, 64).unwrap()
+            } = NumericTruncation::for_roles(RepresentationRole::ScalarR16, target, 64).expect("fixture `NumericTruncation::for_roles` call must succeed")
             else {
                 unreachable!()
             };
@@ -489,7 +489,7 @@ mod truncation_tests {
                 );
 
                 let compare =
-                    |operator, bound| match fold_real_binary(operator, value, bound).unwrap() {
+                    |operator, bound| match fold_real_binary(operator, value, bound).expect("fixture `fold_real_binary` call must succeed") {
                         ConstantValueKind::Boolean(value) => value,
                         _ => unreachable!(),
                     };
@@ -511,7 +511,7 @@ mod truncation_tests {
 
                 if valid {
                     assert!(
-                        truncate_real(value, integer, std::num::NonZeroU16::new(64).unwrap())
+                        truncate_real(value, integer, std::num::NonZeroU16::new(64).expect("fixture non zero u16 must be valid"))
                             .is_ok()
                     );
                 }
@@ -537,7 +537,7 @@ mod truncation_tests {
                 minimum,
                 minimum_inclusive,
                 maximum,
-            } = NumericTruncation::for_roles(RepresentationRole::ScalarR64, target, 64).unwrap()
+            } = NumericTruncation::for_roles(RepresentationRole::ScalarR64, target, 64).expect("fixture `NumericTruncation::for_roles` call must succeed")
             else {
                 unreachable!()
             };
@@ -567,7 +567,7 @@ mod truncation_tests {
             for bits in cases {
                 let value = RealConstantBits::Binary64(bits);
                 let real = Double::from_bits(u128::from(bits));
-                let representation = target.integer_representation().unwrap();
+                let representation = target.integer_representation().expect("fixture `integer_representation` call must succeed");
 
                 let expected = match representation {
                     bray_compiler_known::IntegerRepresentation::Signed(width) => {
@@ -580,7 +580,7 @@ mod truncation_tests {
                 };
 
                 let compare =
-                    |operator, bound| match fold_real_binary(operator, value, bound).unwrap() {
+                    |operator, bound| match fold_real_binary(operator, value, bound).expect("fixture `fold_real_binary` call must succeed") {
                         ConstantValueKind::Boolean(value) => value,
                         _ => unreachable!(),
                     };
@@ -602,7 +602,7 @@ mod truncation_tests {
 
                 if valid {
                     assert!(
-                        truncate_real(value, integer, std::num::NonZeroU16::new(64).unwrap())
+                        truncate_real(value, integer, std::num::NonZeroU16::new(64).expect("fixture non zero u16 must be valid"))
                             .is_ok()
                     );
                 }

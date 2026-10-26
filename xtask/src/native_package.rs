@@ -141,13 +141,15 @@ pub(crate) fn publish(
         .map_err(|error| format!("foreign native package {name} encoding failed: {error:?}"))
 }
 
+type NativeDependencyInputs = (Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>);
+
 /// Loads the standard-library closure used by foreign hosts of Bray package archives.
 pub(crate) fn standard_library_inputs(
     owned: &[PackageImplementationArtifact],
     target: NativeTarget,
     standard_library: &Path,
     output: &Path,
-) -> Result<(Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>), String> {
+) -> Result<NativeDependencyInputs, String> {
     let selected = bray_compilation::SelectedTarget::for_native(target);
 
     let resolver = bray_standard_library::StandardLibraryResolver::new(
@@ -186,7 +188,7 @@ pub(crate) fn dependency_inputs(
     owned: &[PackageImplementationArtifact],
     dependencies: &[PackageImplementationArtifact],
     output: &Path,
-) -> Result<(Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>), String> {
+) -> Result<NativeDependencyInputs, String> {
     let (artifacts, indexes): (Vec<_>, Vec<_>) = owned
         .iter()
         .chain(dependencies)
@@ -314,13 +316,13 @@ mod tests {
             Some(b"!<arch>\n"),
             &[],
         )
-        .unwrap();
+        .expect("fixture `publish` call must succeed");
 
         let artifact = PackageImplementationArtifact::try_from_bytes(
             bytes,
             InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture from bytes must succeed");
 
         assert_eq!(
             artifact.identity().interface().package().as_str(),
@@ -329,22 +331,22 @@ mod tests {
 
         let index = artifact
             .native_variant(NativeUnitKind::Object)
-            .unwrap()
-            .unwrap();
+            .expect("fixture `native_variant` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert_eq!(index.units().len(), 1);
 
         let payload = artifact
             .native_unit_bytes(index.units()[0].digest().bytes())
-            .unwrap()
-            .unwrap();
+            .expect("fixture `native_unit_bytes` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert_eq!(payload.as_ref(), b"!<arch>\n");
 
         let optimized = artifact
             .native_variant(NativeUnitKind::Bitcode)
-            .unwrap()
-            .unwrap();
+            .expect("fixture `native_variant` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert_eq!(optimized.units().len(), 1);
         assert_eq!(optimized.units()[0].kind(), NativeUnitKind::OpaqueArchive);
@@ -353,15 +355,15 @@ mod tests {
         assert_eq!(optimized.bitcode_toolchain(), Some("llvm-test-revision"));
 
         assert_eq!(
-            artifact.native_representation(None).unwrap().unwrap().0,
+            artifact.native_representation(None).expect("fixture `native_representation` call must succeed").expect("successful fixture query must contain its expected result").0,
             NativeUnitKind::Object
         );
 
         assert_eq!(
             artifact
                 .native_representation(Some("llvm-test-revision"))
-                .unwrap()
-                .unwrap()
+                .expect("fixture `native_representation` call must succeed")
+                .expect("successful fixture query must contain its expected result")
                 .0,
             NativeUnitKind::Bitcode
         );
@@ -369,8 +371,8 @@ mod tests {
         assert_eq!(
             artifact
                 .native_representation(Some("other-llvm"))
-                .unwrap()
-                .unwrap()
+                .expect("fixture `native_representation` call must succeed")
+                .expect("successful fixture query must contain its expected result")
                 .0,
             NativeUnitKind::Object
         );

@@ -135,7 +135,7 @@ fn independently_started_tasks_emit_native_units() {
         &options,
     )
     .into_iter()
-    .map(|bytes| String::from_utf8(bytes).unwrap())
+    .map(|bytes| String::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
     .collect::<String>();
 
     assert!(
@@ -158,9 +158,9 @@ fn independently_started_tasks_emit_native_units() {
     );
 
     for callback in callbacks {
-        assert_eq!(callback.lines().next().unwrap().matches("ptr ").count(), 2);
+        assert_eq!(callback.lines().next().expect("fixture iterator must provide its expected item").matches("ptr ").count(), 2);
 
-        let body = callback.split("\n}").next().unwrap();
+        let body = callback.split("\n}").next().expect("fixture iterator must provide its expected item");
 
         assert!(!body.contains("@bray_runtime_panic_propagation("));
         assert!(body.contains("@bray_runtime_cleanup_shield_enter("));
@@ -169,7 +169,7 @@ fn independently_started_tasks_emit_native_units() {
         let invocation = body
             .lines()
             .find(|line| line.contains("call void @bray_lifecycle_"))
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         assert_eq!(invocation.matches("ptr ").count(), 3);
     }
@@ -333,7 +333,7 @@ fn direct_checked_calls_forward_outcomes_without_copying_reports() {
 
     let ir = artifacts
         .iter()
-        .map(|artifact| std::str::from_utf8(artifact).unwrap())
+        .map(|artifact| std::str::from_utf8(artifact).expect("fixture text must be valid UTF-8"))
         .collect::<String>();
 
     assert!(
@@ -357,7 +357,7 @@ fn direct_checked_calls_forward_outcomes_without_copying_reports() {
 
     let ir = artifacts
         .iter()
-        .map(|artifact| std::str::from_utf8(artifact).unwrap())
+        .map(|artifact| std::str::from_utf8(artifact).expect("fixture text must be valid UTF-8"))
         .collect::<String>();
 
     assert!(
@@ -479,7 +479,7 @@ fn frame_constructors_claim_admitted_aligned_backing() {
 
     let ir = artifacts
         .iter()
-        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .map(|bytes| std::str::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -512,7 +512,7 @@ fn erased_async_factories_preserve_constructor_backing() {
 
     let ir = artifacts
         .iter()
-        .map(|bytes| std::str::from_utf8(bytes).unwrap())
+        .map(|bytes| std::str::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -550,7 +550,7 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
     let mut specializations = std::collections::BTreeMap::new();
 
     for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
-        let ir = std::str::from_utf8(artifact).unwrap();
+        let ir = std::str::from_utf8(artifact).expect("fixture text must be valid UTF-8");
 
         for instance in unit.instances() {
             let Some(identity) = instance.protected_frame_identity() else {
@@ -582,12 +582,12 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
                 .symbol(&bray_codegen::CodegenSymbolKey::CleanupStorage(
                     instance.key().clone(),
                 ))
-                .unwrap();
+                .expect("fixture `symbol` call must succeed");
 
             let declaration = ir
                 .lines()
                 .find(|line| line.starts_with(&format!("@{} =", backing.name().as_str())))
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             assert!(
                 declaration.contains(&encoded),
@@ -599,7 +599,7 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
                 .find(|line| {
                     line.starts_with(&format!("@{}.activation =", backing.name().as_str()))
                 })
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             assert!(
                 descriptor.contains(&encoded),
@@ -611,7 +611,7 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
     let siblings = specializations
         .values()
         .find(|identities| identities.len() == 2)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     assert_ne!(
         siblings[0], siblings[1],
@@ -634,7 +634,7 @@ fn failed_frame_resolution_selects_cancellation_before_source_entry() {
     let mut checked = 0;
 
     for ((unit, mappings), artifact) in plan.units().iter().zip(plan.mappings()).zip(&artifacts) {
-        let ir = std::str::from_utf8(artifact).unwrap();
+        let ir = std::str::from_utf8(artifact).expect("fixture text must be valid UTF-8");
 
         for instance in unit.instances() {
             let Some(frame) = instance.protected_frame_identity() else {
@@ -644,7 +644,7 @@ fn failed_frame_resolution_selects_cancellation_before_source_entry() {
             let symbol = |operation| {
                 mappings
                     .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
-                    .unwrap()
+                    .expect("fixture `symbol` call must succeed")
                     .name()
                     .as_str()
             };
@@ -658,10 +658,10 @@ fn failed_frame_resolution_selects_cancellation_before_source_entry() {
                         .next()
                         .is_some_and(|line| line.contains(&resolution))
                 })
-                .unwrap()
+                .expect("fixture lookup must find its expected value")
                 .split("\n}")
                 .next()
-                .unwrap();
+                .expect("fixture iterator must provide its expected item");
 
             let cancellation = format!("@{}(", symbol(ProtectedFrameOperation::CancellationEntry));
 
@@ -774,7 +774,7 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
                         .states()
                         .iter()
                         .find(|state| state.state() == completion)
-                        .unwrap()
+                        .expect("fixture lookup must find its expected value")
                 })
             })
             .collect::<Vec<_>>();
@@ -791,7 +791,7 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
         );
 
         assert_eq!(
-            completions[0].retention().operation_requirements()[1].as_ref(),
+            completions[0].retention().operation_requirements()[1],
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
         );
 
@@ -803,10 +803,10 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
             .flat_map(|unit| unit.instances())
             .filter_map(|instance| instance.mir().frame_descriptor())
             .find(|frame| frame.completion_state().is_some())
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         assert_eq!(
-            frame.states()[0].retention().operation_requirements()[1].as_ref(),
+            frame.states()[0].retention().operation_requirements()[1],
             [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
             "abandoning the generic capture runs its concrete destructor before body entry"
         );

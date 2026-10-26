@@ -267,6 +267,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "reachability extension joins prior closure, new roots and host, target, options, and native route"
+    )]
     pub(super) fn extend_codegen_reachability(
         &self,
         previous: ConcreteCodegenReachability,
@@ -288,6 +292,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "reachability construction joins roots, optional host and prior closure, target, options, and native route"
+    )]
     fn codegen_reachability_from(
         &self,
         roots: impl IntoIterator<Item = ConcreteCodegenRoot>,
@@ -360,14 +368,14 @@ impl Compilation {
                             host_mir.clone()
                         } else if matches!(key.template(), MirUnitKey::Predicate(_)) {
                             self.codegen_predicate_mir(
-                                &realization,
+                                realization,
                                 MirUnitId::new(0),
                                 cancellation,
                             )?
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
                             self.codegen_compiler_provided_mir(
-                                &realization,
+                                realization,
                                 MirUnitId::new(0),
                                 cancellation,
                             )?
@@ -389,7 +397,7 @@ impl Compilation {
                         };
 
                         let mir = self.optimized_mir_for_plan(
-                            &realization,
+                            realization,
                             &mir,
                             options,
                             target,
@@ -398,7 +406,7 @@ impl Compilation {
 
                         let mut concrete_dependencies = self
                             .concrete_codegen_dependencies_for_mir(
-                                &realization,
+                                realization,
                                 &mir,
                                 target,
                                 cancellation,
@@ -484,14 +492,13 @@ impl Compilation {
             self.frame_execution_requirements(current.chain(retained), target, cancellation)?;
 
         for (_, evaluation) in &mut completed {
-            if let ReachabilityEvaluation::Instance { instance, .. } = evaluation {
-                if let Some(requirements) = requirements.get(instance.key()) {
+            if let ReachabilityEvaluation::Instance { instance, .. } = evaluation
+                && let Some(requirements) = requirements.get(instance.key()) {
                     // The graph publishes the realized immutable descriptor to all downstream consumers.
                     *instance = instance
                         .clone()
                         .with_frame_execution_requirements(requirements);
                 }
-            }
         }
 
         finish_codegen_reachability(builder, previous, &roots, completed, helper_requirements)

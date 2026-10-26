@@ -71,7 +71,7 @@ pub(super) fn product_emission_failure_diagnostics(
                     DiagnosticBag::single(error.clone().into_diagnostic(DiagnosticId::new(0)))
                 }
                 None => package_interface_failure_diagnostics(kind, product, target)
-                    .unwrap_or_else(DiagnosticBag::new),
+                    .unwrap_or_default(),
             }
         }
         ProductEmissionErrorKind::NativeIndexSizeLimitExceeded => emission_failure_diagnostics(

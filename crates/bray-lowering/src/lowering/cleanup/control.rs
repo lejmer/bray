@@ -367,6 +367,10 @@ impl Lowerer<'_> {
         self.input.scope_cleanup_status(scope, exit)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup emission joins checked scope plans, temporaries, pending values, and failure continuations"
+    )]
     pub(super) fn push_cleanup_operations(
         &mut self,
         mut block: MirBlockId,
@@ -546,6 +550,10 @@ impl Lowerer<'_> {
         self.source(bray_bound_tree::BoundNodeOrigin::source(source))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "guarded cleanup retains the independent guard, release protocol, completion state, and result"
+    )]
     pub(in crate::lowering) fn push_guarded_cleanup(
         &mut self,
         block: MirBlockId,

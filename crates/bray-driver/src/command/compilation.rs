@@ -93,6 +93,10 @@ pub struct DriverCompilationConfiguration {
 
 impl DriverCompilationConfiguration {
     /// Creates an exact compiler-facing product context.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "compilation options retain product and package identity, target, dependencies, services, and native inputs"
+    )]
     pub fn new(
         product: ProductIdentity,
         source_package: PackageIdentity,

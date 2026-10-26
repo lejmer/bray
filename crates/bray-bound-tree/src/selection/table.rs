@@ -559,7 +559,7 @@ fn construction_matches(
     construction: &crate::SelectedConstruction,
     expression: &BoundExpression,
 ) -> bool {
-    let target_matches = match (construction.target(), expression) {
+    let target_matches = matches!((construction.target(), expression),
         (ConstructionTarget::Struct(_), BoundExpression::StructConstruction(_))
         | (
             ConstructionTarget::UnionVariant(_),
@@ -567,10 +567,9 @@ fn construction_matches(
             | BoundExpression::UnqualifiedVariant(_)
             | BoundExpression::MemberAccess(_)
             | BoundExpression::Call(_),
-        ) => true,
-        (ConstructionTarget::TypeForm { .. }, BoundExpression::BoxConstruction(_)) => true,
-        _ => false,
-    };
+        )
+        | (ConstructionTarget::TypeForm { .. }, BoundExpression::BoxConstruction(_))
+    );
 
     if !target_matches || !construction_inputs_are_valid(construction) {
         return false;

@@ -39,6 +39,10 @@ pub struct PublishedProductGeneration {
 }
 
 impl PublishedProductGeneration {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "published generations retain their managed paths, artifacts, and independent generation and entry leases"
+    )]
     pub(crate) fn new(
         identity: ProductGenerationIdentity,
         root: PathBuf,

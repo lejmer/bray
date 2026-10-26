@@ -454,14 +454,14 @@ where
 
         // A staged borrow is a checked value, not the original source loan.
         // Retaining its dependencies follows the loans of its current contents.
-        if staged.is_some()
+        if let Some(staged) = staged
             && matches!(
                 requirement,
                 DependencyRequirementKind::BorrowCapabilityActive(_)
             )
         {
             return Ok(BoundDependencySubject::StorageAccess(
-                staged.expect("staged input exists"),
+                staged,
             ));
         }
 

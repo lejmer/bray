@@ -409,6 +409,10 @@ impl Compilation {
         Ok((NamedTypeSymbolId::Struct(definition), substitution))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "trait member selection retains raw and normalized receiver types, source identities, name, and diagnostics"
+    )]
     fn resolve_participating_trait_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,
@@ -702,6 +706,10 @@ impl Compilation {
         )))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "default member selection retains trait and receiver identities, source expression, name, and diagnostics"
+    )]
     fn resolve_trait_default_body_member_operation(
         &self,
         binding_context: &CompilationBindingContext<'_>,

@@ -82,11 +82,9 @@ impl Compilation {
 
             if let Decision::Known(edge) =
                 analysis.decision(self, realization, block.terminator().kind(), &local)?
-            {
-                if !matches!(block.terminator().kind(), MirTerminatorKind::Goto(_)) {
+                && !matches!(block.terminator().kind(), MirTerminatorKind::Goto(_)) {
                     terminators.insert(block_id, MirTerminatorKind::Goto(edge));
                 }
-            }
         }
 
         let aliases = analysis.local_value_aliases(self, realization, cancellation)?;

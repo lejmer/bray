@@ -873,12 +873,12 @@ mod tests {
             let variable =
                 InterfaceDependencyRequirement::variable(depth, SymbolOrdinal::new(ordinal));
 
-            let mut semantics = InterfaceSemantics::default();
-
-            semantics.dependency_contracts = vec![InterfaceDependencyContract::new([
-                InterfaceDependencyRequirement::fixed_point([vec![variable.clone()]], [variable]),
-            ])]
-            .into();
+            let semantics = InterfaceSemantics {
+                dependency_contracts: vec![InterfaceDependencyContract::new([
+                    InterfaceDependencyRequirement::fixed_point([vec![variable.clone()]], [variable]),
+                ])].into(),
+                ..InterfaceSemantics::default()
+            };
 
             let result = semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default());
 
@@ -894,12 +894,12 @@ mod tests {
             }
         }
 
-        let mut semantics = InterfaceSemantics::default();
-
-        semantics.dependency_contracts = vec![InterfaceDependencyContract::new([
-            InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0)),
-        ])]
-        .into();
+        let semantics = InterfaceSemantics {
+            dependency_contracts: vec![InterfaceDependencyContract::new([
+                InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0)),
+            ])].into(),
+            ..InterfaceSemantics::default()
+        };
 
         assert!(
             semantics

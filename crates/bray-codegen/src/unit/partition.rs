@@ -80,7 +80,7 @@ pub fn partition_codegen_units(
                     policy,
                     // The unit owns Arc-backed payloads after the reachability graph is released.
                     group.instances.into_iter().cloned(),
-                    &compatibility,
+                    compatibility,
                     true,
                     &mir_content_identity,
                 )
@@ -723,7 +723,7 @@ mod tests {
 
                 let block = builder
                     .push_block(source.clone(), bray_ir::MirBlockKind::Ordinary)
-                    .unwrap();
+                    .expect("fixture block must fit its identity space");
 
                 let ty = bray_testing::test_mir_type();
 
@@ -750,7 +750,7 @@ mod tests {
 
                 builder
                     .push_operation(block, source.clone(), operation, None)
-                    .unwrap();
+                    .expect("fixture operation must fit its identity space");
 
                 builder.set_terminator(
                     block,
@@ -787,7 +787,7 @@ mod tests {
                     instances[1 - index].key().clone(),
                 )],
             )
-            .unwrap()
+            .expect("fixture codegen instance must be valid")
         });
 
         let units = partitions(

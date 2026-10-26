@@ -616,7 +616,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         result: &ExecutionCondition,
         contract: &crate::TrustedCallContract,
     ) -> Option<crate::ExecutionCallEvidence> {
-        let Some(mut entry) = state
+        let mut entry = state
             .entries
             .get(&invocation)
             .filter(|entry| {
@@ -625,10 +625,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 entry.trusted_boundary
                     || self.trusted_requirements_proven(entry, &contract.requirements)
             })
-            .cloned()
-        else {
-            return None;
-        };
+            .cloned()?;
 
         if entry.pending_execution
             || !contract.completes
@@ -637,9 +634,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        let Some(preconditions) = assume_normal_entry(&mut entry, &contract.preconditions) else {
-            return None;
-        };
+        let preconditions = assume_normal_entry(&mut entry, &contract.preconditions)?;
 
         for (condition, domain) in preconditions {
             // A completed runtime check establishes its captured value, not a new

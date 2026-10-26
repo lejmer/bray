@@ -55,6 +55,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "linked emission retains distinct link and emission plans, contributions, resolver, validator, and cancellation"
+    )]
     pub(in crate::compilation) fn emit_linked_product_with_publication_validation(
         &self,
         linker: &Linker,

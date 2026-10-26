@@ -250,7 +250,7 @@ pub(crate) fn format_english_project_command_failure(
             format_english_project_operation(*operation),
             format_english_tool_stream(*stream)
         ),
-        Failure::ProfileComparison(problem) => match problem {
+        Failure::ProfileComparison(problem) => match problem.as_ref() {
             bray_diagnostics::DiagnosticProfileComparisonProblem::Context { before, after } => {
                 format!(
                     "profile reports describe different compilation contexts ({} versus {})",

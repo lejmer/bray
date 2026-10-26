@@ -14,15 +14,18 @@ use crate::{
     CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
+pub(super) type ContractInstantiationResult<T, Upstream> =
+    Result<T, DependencyContractInstantiationError<CheckerQueryError<Upstream>>>;
+
 pub(crate) fn selected_call_contracts<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     expression: BoundExpressionId,
     selection: &bray_bound_tree::SemanticSelection,
     values: &crate::dependency::ValueInputs,
-) -> Result<
+) -> ContractInstantiationResult<
     (BoundCallDependencyContracts, Vec<DependencySubjectRoot>),
-    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+    C::UpstreamError,
 >
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,

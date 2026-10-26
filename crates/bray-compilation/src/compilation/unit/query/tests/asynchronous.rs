@@ -326,9 +326,9 @@ fn suspension_retains_unused_cleanup_owners_and_their_dependencies() {
         ));
 
         let key = crate::test_support::source_function_body_key(&application, "main");
-        let storage = application.storage_plan(key.clone()).unwrap();
-        let flow = application.storage_flow(key.clone()).unwrap();
-        let analysis = application.async_analysis(key).unwrap();
+        let storage = application.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+        let flow = application.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+        let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
         assert!(
             !analysis.diagnostics().has_errors(),
@@ -342,7 +342,7 @@ fn suspension_retains_unused_cleanup_owners_and_their_dependencies() {
             .last()
             .expect("pause suspends after any explicit consumption");
 
-        let snapshot = flow.value().suspension(suspension.occurrence()).unwrap();
+        let snapshot = flow.value().suspension(suspension.occurrence()).expect("fixture `suspension` call must succeed");
 
         let cleanup_owners = analysis
             .value()
@@ -422,9 +422,9 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
         ));
 
         let key = crate::test_support::source_function_body_key(&application, "main");
-        let storage = application.storage_plan(key.clone()).unwrap();
-        let flow = application.storage_flow(key.clone()).unwrap();
-        let analysis = application.async_analysis(key).unwrap();
+        let storage = application.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+        let flow = application.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+        let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
         assert!(
             !analysis.diagnostics().has_errors(),
@@ -458,7 +458,7 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
             assert_eq!(point.deferred_calls().len(), 1);
             assert!(!point.is_recovered());
 
-            let state = flow.value().suspension(point.occurrence()).unwrap();
+            let state = flow.value().suspension(point.occurrence()).expect("fixture `suspension` call must succeed");
 
             assert!(!state.cleanup_retention().is_empty());
 
@@ -471,7 +471,7 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
                 assert!(
                     state
                         .live()
-                        .contains(&storage.value().root_identity(*access).unwrap())
+                        .contains(&storage.value().root_identity(*access).expect("fixture storage access must retain its root identity"))
                 );
             }
 
@@ -504,8 +504,8 @@ fn implicit_cleanup_retains_the_pending_return_dependency() {
     );
 
     let key = crate::test_support::source_function_body_key(&application, "main");
-    let liveness = application.liveness(key.clone()).unwrap();
-    let analysis = application.async_analysis(key).unwrap();
+    let liveness = application.liveness(key.clone()).expect("fixture `liveness` call must succeed");
+    let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
     assert!(
         !analysis.diagnostics().has_errors(),
@@ -561,7 +561,7 @@ fn moving_the_finalizer_owner_out_does_not_schedule_cleanup() {
     );
 
     let key = crate::test_support::source_function_body_key(&application, "main");
-    let analysis = application.async_analysis(key).unwrap();
+    let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
     assert!(
         !analysis.diagnostics().has_errors(),
@@ -603,9 +603,9 @@ fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
     );
 
     let key = crate::test_support::source_function_body_key(&application, "main");
-    let storage = application.storage_plan(key.clone()).unwrap();
-    let flow = application.storage_flow(key.clone()).unwrap();
-    let analysis = application.async_analysis(key).unwrap();
+    let storage = application.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+    let flow = application.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+    let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
     let replacement = analysis
         .value()
@@ -620,14 +620,14 @@ fn replacement_cleanup_retains_the_old_and_incoming_dependencies() {
         .suspensions()
         .iter()
         .find(|point| point.occurrence() == occurrence)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
-    let state = flow.value().suspension(occurrence).unwrap();
+    let state = flow.value().suspension(occurrence).expect("fixture `suspension` call must succeed");
 
     assert!(
         state
             .initialized()
-            .contains(&storage.value().root_identity(replacement.access()).unwrap())
+            .contains(&storage.value().root_identity(replacement.access()).expect("fixture storage access must retain its root identity"))
     );
 
     // The old value is still in storage. The evaluated incoming value has moved
@@ -685,7 +685,7 @@ fn input_cleanup_retains_borrowed_dependencies_before_acceptance() {
         );
 
         let key = crate::test_support::source_function_body_key(&application, "main");
-        let analysis = application.async_analysis(key).unwrap();
+        let analysis = application.async_analysis(key).expect("fixture callable must complete async analysis");
 
         assert!(
             analysis.value().suspensions().iter().any(|point| {

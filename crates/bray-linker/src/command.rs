@@ -1122,18 +1122,18 @@ mod tests {
         let output = TestOutput::new("application");
         let mut builder = link_plan_builder();
 
-        builder.push_input(link_input(0, objects[0].path().to_str().unwrap()));
+        builder.push_input(link_input(0, objects[0].path().to_str().expect("fixture path must contain UTF-8")));
 
         for (index, archive) in [&first, &second].into_iter().enumerate() {
             builder.push_input(
                 LinkInput::try_new(
-                    LinkInputId::new(u32::try_from(index + 1).unwrap()),
+                    LinkInputId::new(u32::try_from(index + 1).expect("fixture value must fit the requested representation")),
                     LinkInputKind::Archive,
                     LinkInputSource::file(archive.path()),
                     LinkInputProvenance::HostConfiguration,
                     LinkInputMode::Ordinary,
                 )
-                .unwrap(),
+                .expect("fixture link input must be valid"),
             );
         }
 
@@ -1141,13 +1141,13 @@ mod tests {
             0,
             LinkedArtifactKind::Executable,
             LinkedArtifactRequirement::Required,
-            output.path().to_str().unwrap(),
+            output.path().to_str().expect("fixture path must contain UTF-8"),
         ));
 
         builder.set_entry_point(symbol("main"));
 
-        let plan = builder.finish().unwrap();
-        let arguments = system_arguments_for(&plan, SystemLinkerFamily::GnuCompiler, None).unwrap();
+        let plan = builder.finish().expect("fixture operation must finish successfully");
+        let arguments = system_arguments_for(&plan, SystemLinkerFamily::GnuCompiler, None).expect("fixture `system_arguments_for` call must succeed");
 
         let linked = Command::new("cc")
             .arg("-fuse-ld=bfd")
@@ -1173,7 +1173,7 @@ mod tests {
 
         assert!(
             !String::from_utf8(symbols.stdout)
-                .unwrap()
+                .expect("fixture symbol listing must be valid UTF-8")
                 .contains("bray_unused_archive_member")
         );
     }

@@ -155,6 +155,8 @@ fn load_targets(
     Ok(targets.into())
 }
 
+type LoadedPackages = (Arc<[ProjectPackage]>, Arc<[ProjectTargetBuildPlan]>);
+
 fn load_packages(
     workspace_root: &Path,
     mut selections: Vec<WorkspacePackageManifest>,
@@ -163,7 +165,7 @@ fn load_packages(
     workspace_manifest_path: &Path,
     workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
-) -> Result<(Arc<[ProjectPackage]>, Arc<[ProjectTargetBuildPlan]>), ProjectLoadError> {
+) -> Result<LoadedPackages, ProjectLoadError> {
     if selections.is_empty() {
         return Err(ProjectLoadError::missing_selection(
             workspace_manifest_path.to_path_buf(),

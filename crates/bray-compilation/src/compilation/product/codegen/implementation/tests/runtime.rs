@@ -168,7 +168,7 @@ fn runtime_source_imports_share_generated_runtime_calls() {
         mappings
             .symbols()
             .iter()
-            .filter(|symbol| symbol.name().as_str() == role.native_symbol().unwrap())
+            .filter(|symbol| symbol.name().as_str() == role.native_symbol().expect("fixture runtime role must have a native symbol"))
             .count()
             <= 1
     }));
@@ -248,7 +248,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
 
             let binding =
                 bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.register")
-                    .unwrap();
+                    .expect("fixture runtime role source binding must be valid");
 
             let (backend, plan) = runtime_native_plan_with_source_roles(
                 &[&source],
@@ -257,7 +257,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
                 [binding],
             );
 
-            let symbol = role.native_symbol().unwrap();
+            let symbol = role.native_symbol().expect("fixture runtime role must have a native symbol");
 
             let mapping = plan
                 .mappings()
@@ -271,7 +271,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
                 .expect("bootstrap status operation has a native containment boundary");
 
             assert_eq!(
-                mapping.native_entry().unwrap().kind(),
+                mapping.native_entry().expect("fixture `native_entry` call must succeed").kind(),
                 bray_runtime_interface::NativeEntryKind::RuntimeStatus
             );
 
@@ -294,7 +294,7 @@ fn bootstrap_status_entries_contain_body_failures_without_attaching() {
                 !ir.contains(
                     RuntimeAbiRole::ForeignCallbackExecution
                         .native_symbol()
-                        .unwrap()
+                        .expect("fixture runtime role must have a native symbol")
                 )
             );
 
@@ -324,7 +324,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
     let role = RuntimeAbiRole::ThreadAttachmentCleanup;
 
     let binding =
-        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.register").unwrap();
+        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.register").expect("fixture runtime role source binding must be valid");
 
     let (backend, plan) = runtime_native_plan_with_source_roles(
         &[source],
@@ -354,8 +354,8 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
             return status == {failure} && reports == 0 ? 0 : 1;
         }}
         "#,
-        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
-        entry = role.native_symbol().unwrap(),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().expect("fixture runtime role must have a native symbol"),
+        entry = role.native_symbol().expect("fixture runtime role must have a native symbol"),
         failure = bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code(),
     );
 
@@ -557,7 +557,7 @@ fn native_atomic_word_calls_survive_generic_specialization() {
         RuntimeAbiRole::AtomicWordNotifyOne,
         RuntimeAbiRole::AtomicWordNotifyAll,
     ] {
-        let symbol = role.native_symbol().unwrap();
+        let symbol = role.native_symbol().expect("fixture runtime role must have a native symbol");
 
         let calls = ir
             .lines()
@@ -628,21 +628,21 @@ fn native_atomic_word_production_source_bindings_export() {
     ];
 
     for target in bray_target::NativeTarget::ALL {
-        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
 
         let registry =
             CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
-                .unwrap();
+                .expect("fixture code generator registry must be valid");
 
-        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).expect("fixture codegen configuration must be valid");
 
         let request = CompilationRequest::with_options(
-            PackageIdentity::try_new("std").unwrap(),
+            PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
             sources
                 .iter()
                 .chain(&native_apis)
                 .enumerate()
-                .map(|(index, source)| source_input(source, u32::try_from(index).unwrap()))
+                .map(|(index, source)| source_input(source, u32::try_from(index).expect("fixture value must fit the requested representation")))
                 .collect(),
             CompilationOptions::new(
                 WorkerBudget::serial(),
@@ -663,19 +663,19 @@ fn native_atomic_word_production_source_bindings_export() {
                 ]
                 .map(|(name, kind)| {
                     NativeLinkRequirement::new(
-                        bray_base::NonEmptySharedStr::try_new(name).unwrap(),
+                        bray_base::NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
                         kind,
                     )
                 }),
             ),
         )
         .with_standard_library_source_authority()
-        .with_runtime_roles(roles.into_iter().map(|role| role.source_binding().unwrap()));
+        .with_runtime_roles(roles.into_iter().map(|role| role.source_binding().expect("fixture `source_binding` call must succeed")));
 
-        let compilation = Compilation::load_with_codegen(request, codegen).unwrap();
+        let compilation = Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
 
         let product =
-            ProductIdentity::try_new(PackageIdentity::try_new("std").unwrap(), "atomic").unwrap();
+            ProductIdentity::try_new(PackageIdentity::try_new("std").expect("fixture package identity must be valid"), "atomic").expect("fixture product identity must be valid");
 
         let plan = compilation
             .native_product_plan(
@@ -695,7 +695,7 @@ fn native_atomic_word_production_source_bindings_export() {
                     .iter()
                     .flat_map(bray_codegen::CodegenMappings::symbols)
                     .any(
-                        |mapping| mapping.name().as_str() == role.native_symbol().unwrap()
+                        |mapping| mapping.name().as_str() == role.native_symbol().expect("fixture runtime role must have a native symbol")
                             && mapping.linkage() == CodegenLinkage::Export
                     ),
                 "{target:?}: {role:?}"
@@ -1094,15 +1094,15 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         }}
 
     "#,
-        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
-        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
-        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().expect("fixture runtime role must have a native symbol"),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().expect("fixture runtime role must have a native symbol"),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().expect("fixture runtime role must have a native symbol"),
         construction = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
-            .unwrap(),
+            .expect("fixture runtime role must have a native symbol"),
         suppress = RuntimeAbiRole::PanicReportSuppression
             .native_symbol()
-            .unwrap(),
+            .expect("fixture runtime role must have a native symbol"),
         acquire = bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY.code(),
         closed = bray_runtime_abi::NativeProductHostStatus::CLOSED.code(),
         represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
@@ -1111,11 +1111,11 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
         source_size = std::mem::size_of::<bray_runtime_abi::NativeSourceAnchor>(),
         boundary = RuntimeAbiRole::ForeignCallbackExecution
             .native_symbol()
-            .unwrap(),
+            .expect("fixture runtime role must have a native symbol"),
         cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),
-        control = RuntimeAbiRole::ProductHostControl.native_symbol().unwrap(),
-        consumer = RuntimeAbiRole::ReportConsumer.native_symbol().unwrap(),
-        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+        control = RuntimeAbiRole::ProductHostControl.native_symbol().expect("fixture runtime role must have a native symbol"),
+        consumer = RuntimeAbiRole::ReportConsumer.native_symbol().expect("fixture runtime role must have a native symbol"),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().expect("fixture runtime role must have a native symbol"),
     );
 
     use super::support::dependencies::{
@@ -1124,14 +1124,14 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
 
     use bray_codegen::{CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration};
 
-    let backend = std::sync::Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+    let backend = std::sync::Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
 
     let registry = CodeGeneratorRegistry::try_new([
         std::sync::Arc::clone(&backend) as std::sync::Arc<dyn CodeGenerator>
     ])
-    .unwrap();
+    .expect("fixture code generator registry must be valid");
 
-    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).expect("fixture codegen configuration must be valid");
     let target = SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc);
 
     for imported in [false, true] {
@@ -1188,13 +1188,13 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
                 target.clone(),
             )
             .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+                bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
                 bray_symbols::NativeLinkKind::Static,
             )]),
         )
         .with_dependency_interfaces(dependencies);
 
-        let compilation = crate::Compilation::load_with_codegen(request, codegen.clone()).unwrap();
+        let compilation = crate::Compilation::load_with_codegen(request, codegen.clone()).expect("fixture compilation must load for code generation");
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1216,7 +1216,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
                     super::support::linker::test_linked_product(ProductKind::Library),
                 )),
             )
-            .unwrap();
+            .expect("fixture product must reach native planning");
 
         super::support::linker::run_native_caller(&backend, &plan, &caller);
     }
@@ -1243,7 +1243,7 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
     let role = RuntimeAbiRole::EntryContinuation;
 
     let binding =
-        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.invoke").unwrap();
+        bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.invoke").expect("fixture runtime role source binding must be valid");
 
     let (backend, plan) = runtime_native_plan_with_source_roles(
         &[source],
@@ -1384,19 +1384,19 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
         }}
 
     "#,
-        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().unwrap(),
-        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().unwrap(),
-        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().unwrap(),
+        shield_enter = RuntimeAbiRole::CleanupShieldEnter.native_symbol().expect("fixture runtime role must have a native symbol"),
+        shield_leave = RuntimeAbiRole::CleanupShieldLeave.native_symbol().expect("fixture runtime role must have a native symbol"),
+        propagate_panic = RuntimeAbiRole::PanicPropagation.native_symbol().expect("fixture runtime role must have a native symbol"),
         align = std::mem::align_of::<bray_runtime_abi::NativePanicReport>(),
         source_size = std::mem::size_of::<bray_runtime_abi::NativeSourceAnchor>(),
         construct = RuntimeAbiRole::PanicReportConstruction
             .native_symbol()
-            .unwrap(),
-        report = RuntimeAbiRole::PanicReporting.native_symbol().unwrap(),
+            .expect("fixture runtime role must have a native symbol"),
+        report = RuntimeAbiRole::PanicReporting.native_symbol().expect("fixture runtime role must have a native symbol"),
         suppress = RuntimeAbiRole::PanicReportSuppression
             .native_symbol()
-            .unwrap(),
-        entry = role.native_symbol().unwrap(),
+            .expect("fixture runtime role must have a native symbol"),
+        entry = role.native_symbol().expect("fixture runtime role must have a native symbol"),
         represented = bray_runtime_abi::NativeRuntimeStatus::PANICKED.code(),
         panicked = bray_runtime_abi::NativeRunState::PANICKED.code(),
         cancelled = bray_runtime_abi::NativeRunState::CANCELLED.code(),

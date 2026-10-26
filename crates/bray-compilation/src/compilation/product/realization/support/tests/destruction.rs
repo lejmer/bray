@@ -37,19 +37,19 @@ fn known_abandoned_destruction_excludes_async_receiver_cleanup() {
         compilation.check_diagnostics()
     );
 
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let definition = symbols
         .structures()
         .iter()
         .find(|value| value.origin() == SymbolOrigin::Source)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let ty = named_type(
-        compilation.semantic_value_store().unwrap(),
+        compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
         NamedTypeSymbolId::Struct(definition.id()),
     )
-    .unwrap();
+    .expect("fixture `named_type` call must succeed");
 
     let target = codegen_target(&compilation);
 
@@ -92,7 +92,7 @@ fn known_abandoned_destruction_excludes_async_receiver_cleanup() {
         MirOperationKind::Destroy { place, abandoned: Some(bray_ir::MirOperand::Immediate {
             value: bray_ir::MirImmediateValue::Boolean(true), .. }), .. }
             if compilation.available_compiler_known_symbols().unary_representation_argument(
-                compilation.semantic_value_store().unwrap(), RepresentationRole::Future, place.ty()).is_some())));
+                compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"), RepresentationRole::Future, place.ty()).is_some())));
 }
 
 #[test]
@@ -386,7 +386,7 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
     assert_eq!(*operation_element, element);
 
     assert!(matches!(abandoned, bray_ir::MirOperand::Copy(place)
-        if matches!(generated.storage(place.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(1))));
+        if matches!(generated.storage(place.storage()).expect("fixture `storage` call must succeed").kind(), bray_ir::MirStorageKind::Parameter(1))));
 
     assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorDestruction);
 
@@ -493,7 +493,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     let instance = compilation
         .concrete_codegen_lifecycle(reference.clone(), &target)
-        .unwrap();
+        .expect("fixture `concrete_codegen_lifecycle` call must succeed");
 
     let cancellation = crate::CancellationToken::new();
 
@@ -504,7 +504,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
             bray_ir::MirUnitId::new(0),
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture `codegen_generated_lifecycle` call must succeed");
 
     let calls = expanded
         .operations()
@@ -530,7 +530,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
         calls,
         compilation
             .codegen_lifecycle_action(&reference, &cancellation)
-            .unwrap()
+            .expect("fixture `codegen_lifecycle_action` call must succeed")
             .local_calls()
             .map(|call| (call.callable, call.result))
             .collect::<Vec<_>>()
@@ -544,7 +544,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
     compilation
         .owner_outgoing_capacity(owned, &cancellation)
-        .unwrap();
+        .expect("fixture `owner_outgoing_capacity` call must succeed");
 
     let reused = compilation
         .codegen_generated_lifecycle(
@@ -553,7 +553,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
             bray_ir::MirUnitId::new(0),
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture `codegen_generated_lifecycle` call must succeed");
 
     assert!(
         std::sync::Arc::ptr_eq(&expanded, &reused),
@@ -579,7 +579,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
                 },
                 &cancellation
             )
-            .unwrap(),
+            .expect("fixture `codegen_lifecycle_is_trivial` call must succeed"),
         "task-free stored targets do not need a projection for broadcast"
     );
 
@@ -590,17 +590,17 @@ fn owned_indirection_uses_storage_policy_teardown() {
             bray_compiler_known::RepresentationRole::Future,
             compilation
                 .compiler_known_type(bray_compiler_known::RepresentationRole::Unit)
-                .unwrap(),
+                .expect("fixture compiler-known type must resolve"),
         )
-        .unwrap()
-        .unwrap();
+        .expect("fixture unary representation must resolve")
+        .expect("successful fixture query must contain its expected result");
 
     let cancellable = values
         .intern_type(TypeData::OwnedIndirection {
             storage,
             target: future,
         })
-        .unwrap();
+        .expect("fixture type must be interned");
 
     let broadcast = generated_lifecycle(
         &compilation,
@@ -630,7 +630,7 @@ fn owned_indirection_uses_storage_policy_teardown() {
 
         broadcast
             .block(*id)
-            .unwrap()
+            .expect("fixture MIR block must exist")
             .terminator()
             .kind()
             .for_each_successor(|next| successors.push(next));
@@ -638,15 +638,15 @@ fn owned_indirection_uses_storage_policy_teardown() {
         successors
     });
 
-    assert!(reachable.iter().any(|id| broadcast.block(*id).unwrap().operations().iter().any(|id|
-        matches!(broadcast.operation(*id).unwrap().kind(),
+    assert!(reachable.iter().any(|id| broadcast.block(*id).expect("fixture broadcast must retain its selected MIR block").operations().iter().any(|id|
+        matches!(broadcast.operation(*id).expect("fixture MIR operation must exist").kind(),
             MirOperationKind::Store { destination, .. }
-                if matches!(broadcast.storage(destination.storage()).unwrap().kind(), bray_ir::MirStorageKind::Parameter(2)))
+                if matches!(broadcast.storage(destination.storage()).expect("fixture `storage` call must succeed").kind(), bray_ir::MirStorageKind::Parameter(2)))
     )), "storage projection failures write the enclosing report");
 
     assert!(
         reachable.iter().any(|id| matches!(
-            broadcast.block(*id).unwrap().terminator().kind(),
+            broadcast.block(*id).expect("fixture MIR block must exist").terminator().kind(),
             MirTerminatorKind::Return {
                 value: None,
                 report: None
@@ -716,19 +716,19 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
 
         assert!(!compilation.check_diagnostics().has_errors());
 
-        let symbols = compilation.symbol_graph().unwrap();
+        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
         let definition = symbols
             .structures()
             .iter()
             .find(|value| value.origin() == SymbolOrigin::Source)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         let ty = named_type(
-            compilation.semantic_value_store().unwrap(),
+            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
             NamedTypeSymbolId::Struct(definition.id()),
         )
-        .unwrap();
+        .expect("fixture `named_type` call must succeed");
 
         let target = codegen_target(&compilation);
 
@@ -792,22 +792,22 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
     let heap = compilation
         .available_compiler_known_symbols()
         .declaration_symbol::<bray_symbols::StructSymbolId>(
-            &CompilerKnownDeclarationKey::try_new("Heap").unwrap(),
+            &CompilerKnownDeclarationKey::try_new("Heap").expect("fixture compiler known declaration key must be valid"),
         )
-        .unwrap();
+        .expect("fixture `declaration_symbol` call must succeed");
 
     let storage = named_type(
-        compilation.semantic_value_store().unwrap(),
+        compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
         NamedTypeSymbolId::Struct(heap),
     )
-    .unwrap();
+    .expect("fixture `named_type` call must succeed");
 
     let reference =
         MirHelperReference::Destroy(storage, bray_ir::MirDestructionDisposition::Dynamic);
 
     let instance = compilation
         .concrete_codegen_lifecycle(reference.clone(), &target)
-        .unwrap();
+        .expect("fixture `concrete_codegen_lifecycle` call must succeed");
 
     let unit = MirUnitId::new(0);
 
@@ -815,7 +815,7 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
         .state
         .generated_lifecycle
         .cell((instance.key().clone(), unit))
-        .unwrap();
+        .expect("fixture `cell` call must succeed");
 
     let (started_tx, started_rx) = mpsc::channel();
 
@@ -827,20 +827,20 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
 
     cell.set_test_observer(FactCellTestObserver::new(move |event| match event {
         FactCellTestEvent::Computing => {
-            started_tx.send(()).unwrap();
+            started_tx.send(()).expect("fixture channel must accept its message");
 
             release_rx
                 .lock()
-                .unwrap()
+                .expect("fixture mutex must not be poisoned")
                 .recv_timeout(Duration::from_secs(10))
-                .unwrap();
+                .expect("fixture channel must provide its message before the deadline");
         }
         FactCellTestEvent::Waiting => {
             let _ = waiting_tx.try_send(());
         }
         FactCellTestEvent::Computed => {}
     }))
-    .unwrap();
+    .expect("fixture task observer must be installed");
 
     let owner_token = CancellationToken::new();
     let waiter_token = CancellationToken::new();
@@ -852,15 +852,15 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
     let (owner, waiter) = std::thread::scope(|scope| {
         let owner = scope.spawn(|| query(&owner_token));
 
-        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        started_rx.recv_timeout(Duration::from_secs(10)).expect("fixture channel must provide its message before the deadline");
 
         let waiter = scope.spawn(|| query(&waiter_token));
 
-        waiting_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        waiting_rx.recv_timeout(Duration::from_secs(10)).expect("fixture channel must provide its message before the deadline");
         owner_token.cancel();
-        release_tx.send(()).unwrap();
+        release_tx.send(()).expect("fixture channel must accept its message");
 
-        (owner.join().unwrap(), waiter.join().unwrap())
+        (owner.join().expect("fixture worker must join successfully"), waiter.join().expect("fixture worker must join successfully"))
     });
 
     assert!(matches!(
@@ -899,19 +899,19 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     assert!(!compilation.check_diagnostics().has_errors());
 
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let definition = symbols
         .structures()
         .iter()
         .find(|value| value.origin() == SymbolOrigin::Source && !value.finalizers().is_empty())
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let ty = named_type(
-        compilation.semantic_value_store().unwrap(),
+        compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
         NamedTypeSymbolId::Struct(definition.id()),
     )
-    .unwrap();
+    .expect("fixture `named_type` call must succeed");
 
     let target = codegen_target(&compilation);
 
@@ -944,26 +944,26 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     let (call_block, call) = generated.blocks_with_ids().find_map(|(id, block)| {
         block.operations().iter().find_map(|operation| {
-            let operation = generated.operation(*operation).unwrap();
+            let operation = generated.operation(*operation).expect("fixture MIR operation must exist");
 
             matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))
-                .then(|| (id, operation.result().unwrap()))
+                .then(|| (id, operation.result().expect("fixture `result` call must succeed")))
         })
-    }).unwrap();
+    }).expect("fixture selection must find its expected value");
 
     let MirTerminatorKind::CheckCallOutcome {
         completed,
         panicked,
         cancelled,
         completed_report: None,
-    } = generated.block(call_block).unwrap().terminator().kind()
+    } = generated.block(call_block).expect("fixture MIR block must exist").terminator().kind()
     else {
         panic!("the finalizer outcome must be checked before inspecting its Result");
     };
 
     assert_eq!(completed.arguments(), &[bray_ir::MirOperand::Value(call)]);
 
-    let completed = generated.block(completed.target()).unwrap();
+    let completed = generated.block(completed.target()).expect("fixture MIR block must exist");
 
     let MirTerminatorKind::PatternBranch {
         subject,
@@ -980,14 +980,14 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         &bray_ir::MirOperand::Value(completed.parameters()[0])
     );
 
-    let success = generated.block(matched.target()).unwrap();
-    let error = generated.block(unmatched.target()).unwrap();
+    let success = generated.block(matched.target()).expect("fixture MIR block must exist");
+    let error = generated.block(unmatched.target()).expect("fixture MIR block must exist");
 
     let (transfer_block, incident, producer) = generated
         .blocks_with_ids()
         .find_map(|(id, block)| {
             block.operations().iter().find_map(|operation| {
-                match generated.operation(*operation).unwrap().kind() {
+                match generated.operation(*operation).expect("fixture MIR operation must exist").kind() {
                     MirOperationKind::Async(
                         bray_ir::MirAsyncOperation::TransferCleanupIncident {
                             incident,
@@ -1004,7 +1004,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     let payload = incident;
 
     assert!(error.operations().iter().any(|id| matches!(
-        generated.operation(*id).unwrap().kind(),
+        generated.operation(*id).expect("fixture MIR operation must exist").kind(),
         MirOperationKind::Store { kind: bray_ir::MirStoreKind::Initialize, destination, .. } if destination == payload
     )));
 
@@ -1013,17 +1013,17 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     };
 
     let mut broadcast_id = broadcast.edge().target();
-    let broadcast = generated.block(broadcast_id).unwrap();
+    let broadcast = generated.block(broadcast_id).expect("fixture MIR block must exist");
 
     assert!(broadcast.operations().iter().any(|id| matches!(
-        generated.operation(*id).unwrap().kind(),
+        generated.operation(*id).expect("fixture MIR operation must exist").kind(),
         MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. } if place == payload
     )));
 
     let mut seen = std::collections::BTreeSet::new();
 
     while let MirTerminatorKind::Goto(next) =
-        generated.block(broadcast_id).unwrap().terminator().kind()
+        generated.block(broadcast_id).expect("fixture MIR block must exist").terminator().kind()
     {
         assert!(
             seen.insert(broadcast_id),
@@ -1033,13 +1033,13 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         broadcast_id = next.target();
 
         assert_eq!(
-            generated.block(broadcast_id).unwrap().kind(),
+            generated.block(broadcast_id).expect("fixture MIR block must exist").kind(),
             bray_ir::MirBlockKind::CleanupBroadcast
         );
     }
 
     let MirTerminatorKind::ContinueCleanup(broadcast_complete) =
-        generated.block(broadcast_id).unwrap().terminator().kind()
+        generated.block(broadcast_id).expect("fixture MIR block must exist").terminator().kind()
     else {
         panic!("shared broadcast collection proceeds directly to child resolution");
     };
@@ -1049,7 +1049,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         .find(|(_, block)| {
             block.operations().iter().any(|id| {
                 matches!(
-                    generated.operation(*id).unwrap().kind(),
+                    generated.operation(*id).expect("fixture `iter` call must succeed").kind(),
                     MirOperationKind::Quiesce { place, .. } if place == payload
                 )
             })
@@ -1057,7 +1057,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         .expect("retained error has a quiescence operation");
 
     assert!(resolution.operations().iter().any(|id| matches!(
-        generated.operation(*id).unwrap().kind(),
+        generated.operation(*id).expect("fixture MIR operation must exist").kind(),
         MirOperationKind::Quiesce { place, .. } if place == payload
     )));
 
@@ -1073,7 +1073,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
             },
             &target,
         )
-        .unwrap();
+        .expect("fixture `concrete_codegen_lifecycle` call must succeed");
 
     let cancellation = CancellationToken::new();
     let mut requirements = Vec::new();
@@ -1094,8 +1094,8 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                         &target,
                         &cancellation,
                     )
-                    .unwrap()
-                    .unwrap(),
+                    .expect("fixture `operation_outgoing_requirements` call must succeed")
+                    .expect("successful fixture query must contain its expected result"),
             );
         }
     }
@@ -1115,7 +1115,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
             generated
                 .block(*id)
-                .unwrap()
+                .expect("fixture MIR block must exist")
                 .terminator()
                 .kind()
                 .for_each_successor(|next| successors.push(next));
@@ -1170,7 +1170,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
         .blocks_with_ids()
         .find_map(|(id, block)| {
             block.operations().iter().find_map(|operation| {
-                match generated.operation(*operation).unwrap().kind() {
+                match generated.operation(*operation).expect("fixture MIR operation must exist").kind() {
                     MirOperationKind::Destroy {
                         place,
                         abandoned: Some(abandoned),
@@ -1202,7 +1202,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
 
     assert_eq!(
         abandoned,
-        &bray_ir::MirOperand::Value(generated.block(destroy_id).unwrap().parameters()[0]),
+        &bray_ir::MirOperand::Value(generated.block(destroy_id).expect("fixture MIR block must exist").parameters()[0]),
         "each outcome passes its disposition into destruction"
     );
 
@@ -1213,7 +1213,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
                 .operations()
                 .iter()
                 .any(|operation| {
-                    matches!(generated.operation(*operation).unwrap().kind(),
+                    matches!(generated.operation(*operation).expect("fixture `iter` call must succeed").kind(),
             MirOperationKind::Quiesce { place, .. } if place == destroyed)
                 })
                 .then_some(id)
@@ -1225,7 +1225,7 @@ fn generated_finalizer_transfers_only_a_completed_error_payload() {
     assert!(!reachable(ordinary).contains(&quiescence));
 
     assert!(success.operations().iter().all(|id| !matches!(
-        generated.operation(*id).unwrap().kind(),
+        generated.operation(*id).expect("fixture MIR operation must exist").kind(),
         MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident { .. })
     )));
 

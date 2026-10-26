@@ -499,10 +499,6 @@ fn declare_static_prepare<'context>(
     Ok(prepare)
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one lifecycle phase keeps its selected native function and storage explicit"
-)]
 fn declare_static_lifecycle_phase<'context>(
     module: &Module<'context>,
     mappings: &CodegenMappings,
@@ -680,10 +676,10 @@ mod tests {
 
         exported.set_initializer(&context.i64_type().const_int(9, false));
 
-        assert_eq!(exported.get_name().to_str().unwrap(), "counter.unresolved");
+        assert_eq!(exported.get_name().to_str().expect("fixture path must contain UTF-8"), "counter.unresolved");
 
         assert_eq!(
-            reference.get_initializer().unwrap().into_pointer_value(),
+            reference.get_initializer().expect("fixture `get_initializer` call must succeed").into_pointer_value(),
             physical.as_pointer_value()
         );
 

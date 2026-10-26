@@ -636,7 +636,7 @@ impl MirUnitBuilder {
             })
             .collect::<Vec<_>>();
 
-        let unit = MirUnit {
+        MirUnit {
             key: self.key,
             unit: self.unit,
             source: self.source,
@@ -649,9 +649,7 @@ impl MirUnitBuilder {
             operations: self.operations.into(),
             storages: self.storages.into(),
             values: self.values.into(),
-        };
-
-        unit
+        }
     }
 
     fn compact_removed_effects(&mut self) {
@@ -770,7 +768,7 @@ mod tests {
                 ))
                 .into(),
             )
-            .unwrap()
+            .expect("fixture callable definition id must be valid")
         };
 
         let owner = definition(3);
@@ -798,7 +796,7 @@ mod tests {
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         builder.set_terminator(
             entry,
@@ -893,9 +891,9 @@ mod tests {
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
-        let value = builder.push_block_parameter(entry, source, ty).unwrap();
+        let value = builder.push_block_parameter(entry, source, ty).expect("fixture block parameter must fit its identity space");
 
         assert_eq!(builder.block_kind(entry), MirBlockKind::Ordinary);
         assert_eq!(builder.operand_type(&MirOperand::Value(value)), ty);
@@ -1476,7 +1474,7 @@ mod tests {
 
             builder
                 .push_operation(entry, source.clone(), operation, None)
-                .unwrap();
+                .expect("fixture operation must fit its identity space");
 
             set_terminator(
                 &mut builder,
@@ -1504,15 +1502,13 @@ mod tests {
 
             let unit = builder.finish(entry);
 
-            if !fallible {
-                assert!(!unit.is_valid());
-            } else if cancellation_kind != MirBlockKind::Ordinary {
+            if !fallible || cancellation_kind != MirBlockKind::Ordinary {
                 assert!(!unit.is_valid());
             } else {
                 let mut successors = Vec::new();
 
                 unit.block(entry)
-                    .unwrap()
+                    .expect("fixture MIR block must exist")
                     .terminator()
                     .kind()
                     .for_each_successor(|block| successors.push(block));

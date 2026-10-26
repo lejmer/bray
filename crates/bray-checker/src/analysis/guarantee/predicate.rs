@@ -402,7 +402,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        let domain = match (operator, operands) {
+        match (operator, operands) {
             (
                 BoundOperator::ShiftLeft | BoundOperator::ShiftRight | BoundOperator::Exponentiate,
                 _,
@@ -437,9 +437,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     true
                 }),
             _ => true,
-        };
-
-        domain
+        }
     }
 
     fn machine_operation_is_valid(

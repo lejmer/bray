@@ -27,7 +27,7 @@ fn borrowed_nullable_patterns_test_the_payload_discriminant() {
 
             let lowered = compilation
                 .lowered_unit(source_function_body_key(&compilation, "inspect"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert!(
                 !lowered.diagnostics().has_errors(),
@@ -50,7 +50,7 @@ fn borrowed_nullable_patterns_test_the_payload_discriminant() {
                         matches!(
                             compilation
                                 .semantic_value_store()
-                                .unwrap()
+                                .expect("fixture compilation must provide its semantic value store")
                                 .type_data(place.ty())
                                 .as_ref(),
                             bray_symbols::TypeData::Nullable(_)
@@ -403,8 +403,8 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
         .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
 
     let mir = lowered_mir(&result);
-    let bound = compilation.bound_unit(key).unwrap();
-    let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).unwrap();
+    let bound = compilation.bound_unit(key).expect("fixture callable must bind successfully");
+    let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).expect("fixture `bray_bound_tree::StorageScopeOwners::collect` call must succeed");
     let mut iteration_bodies = 0;
 
     for (expression, node) in bound.value().tree().expressions() {
@@ -429,7 +429,7 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
 
     assert!(iteration_bodies > 0);
 
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
     let mut checked_next_calls = 0;
 
     for block in mir.blocks() {
@@ -698,7 +698,7 @@ fn established_assertions_do_not_lower_failure_messages_or_reports() {
         let source = format!("module app; func main() {{ {body} }}");
         let compilation = compilation(&source);
         let key = source_callable_body_key(&compilation);
-        let result = compilation.lowered_unit(key).unwrap();
+        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
         let mir = lowered_mir(&result);
 
         assert!(
@@ -770,7 +770,7 @@ fn contextual_constructions_in_yielded_values_retain_checked_selections() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "make"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !lowered.diagnostics().has_errors(),

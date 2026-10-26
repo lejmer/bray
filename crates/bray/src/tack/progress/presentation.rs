@@ -24,10 +24,6 @@ pub(in crate::tack) fn terminal_heading(progress: &MultiProgress, message: Strin
     heading
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "localized progress lines carry formatters for each dynamic field"
-)]
 pub(in crate::tack) fn terminal_line_style<Count, DurationText, Percentage>(
     fields: &[ProgressField],
     state: ProgressVisualState,

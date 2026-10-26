@@ -172,7 +172,7 @@ where
         let data = self.request.semantic_values().constant_term_data(term);
 
         match data.as_ref() {
-            ConstantTermData::Typed { term, .. } => return self.term_value(*term),
+            ConstantTermData::Typed { term, .. } => self.term_value(*term),
             ConstantTermData::Value(value) => Some(*value),
             ConstantTermData::IntegerLiteral { .. }
             | ConstantTermData::CallableArgument(_)

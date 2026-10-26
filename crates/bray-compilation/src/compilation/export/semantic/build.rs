@@ -21,21 +21,20 @@ use super::executable::{executable_templates, prepare_executable_outputs};
 use super::fragment::SemanticFragment;
 use super::implementation::implementation_semantics;
 
+type ExportedSemantics = (
+    InterfaceSemantics,
+    Vec<InterfaceConstantCallableBody>,
+    Vec<InterfaceExecutableTemplate>,
+    Vec<InterfaceNativeBoundary>,
+);
+
 pub(in crate::compilation::export) fn build_semantics(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     surface: &PackageInterfaceSurface,
     selected: &BTreeSet<AnySymbolId>,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
-) -> Result<
-    (
-        InterfaceSemantics,
-        Vec<InterfaceConstantCallableBody>,
-        Vec<InterfaceExecutableTemplate>,
-        Vec<InterfaceNativeBoundary>,
-    ),
-    PackageInterfaceExportError,
-> {
+) -> Result<ExportedSemantics, PackageInterfaceExportError> {
     let values = compilation
         .semantic_value_store()
         .map_err(super::super::fact_query_export_error)?;

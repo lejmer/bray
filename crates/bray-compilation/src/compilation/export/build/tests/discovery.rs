@@ -37,7 +37,7 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
             }}
             "#,
         )
-        .unwrap();
+        .expect("fixture source must be constructed");
     }
 
     let unchecked = compilation(&source);
@@ -55,7 +55,7 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
                 observed.fetch_add(1, Ordering::SeqCst);
             }
         }))
-        .unwrap();
+        .expect("fixture task observer must be installed");
 
     let bundle = export(&unchecked);
 
@@ -66,8 +66,8 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
         .state
         .fact_runtime
         .dependencies(&CompilationFactKey::PackageInterfaceExportBundle)
-        .unwrap()
-        .unwrap();
+        .expect("fixture `dependencies` call must succeed")
+        .expect("successful fixture query must contain its expected result");
 
     assert_eq!(
         dependencies
@@ -93,7 +93,7 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
                 observed.fetch_add(1, Ordering::SeqCst);
             }
         }))
-        .unwrap();
+        .expect("fixture task observer must be installed");
 
     assert!(checked.check_diagnostics().is_empty());
     assert_eq!(checked_evaluations.load(Ordering::SeqCst), count);
@@ -104,16 +104,16 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
     assert_eq!(bundle, checked_bundle);
 
     assert_eq!(
-        encode_package_interface(bundle).unwrap().bytes(),
-        encode_package_interface(checked_bundle).unwrap().bytes()
+        encode_package_interface(bundle).expect("fixture package interface must encode").bytes(),
+        encode_package_interface(checked_bundle).expect("fixture package interface must encode").bytes()
     );
 
     let dependencies = checked
         .state
         .fact_runtime
         .dependencies(&CompilationFactKey::PackageInterfaceExportBundle)
-        .unwrap()
-        .unwrap();
+        .expect("fixture `dependencies` call must succeed")
+        .expect("successful fixture query must contain its expected result");
 
     assert_eq!(
         dependencies

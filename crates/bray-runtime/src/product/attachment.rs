@@ -40,9 +40,7 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
         let mut attachments = attachments.borrow_mut();
 
         if let Some(depth) = attachments.products.get_mut(&product) {
-            let Some(next) = depth.checked_add(1) else {
-                return None;
-            };
+            let next = depth.checked_add(1)?;
 
             *depth = next;
 
@@ -100,9 +98,7 @@ pub(super) fn detach_current_thread(product: usize) -> NativeProductHostObservat
     let detached = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 
-        let Some(depth) = attachments.products.get_mut(&product) else {
-            return None;
-        };
+        let depth = attachments.products.get_mut(&product)?;
 
         *depth = depth.checked_sub(1)?;
 

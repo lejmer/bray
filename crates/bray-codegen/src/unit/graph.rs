@@ -231,7 +231,7 @@ mod tests {
 
         assert_eq!(
             source_builder.take_frontier().as_ref(),
-            &[source_key.clone()]
+            std::slice::from_ref(&source_key)
         );
 
         source_builder
@@ -244,7 +244,7 @@ mod tests {
             CodegenReachabilityBuilder::try_extend(&source_graph, [host_key.clone()])
                 .expect("host root must validate");
 
-        assert_eq!(host_builder.take_frontier().as_ref(), &[host_key.clone()]);
+        assert_eq!(host_builder.take_frontier().as_ref(), std::slice::from_ref(&host_key));
         host_builder.push_instance(host).expect("host is demanded");
         assert!(host_builder.take_frontier().is_empty());
 

@@ -151,7 +151,7 @@ pub enum DriverCommand {
     /// Builds one selected package product.
     Build {
         /// Typed product configuration.
-        configuration: DriverProductConfiguration,
+        configuration: Box<DriverProductConfiguration>,
         /// Source files in the product source graph.
         files: Vec<PathBuf>,
     },
@@ -233,7 +233,7 @@ impl DriverCommand {
     /// Creates a product build command.
     pub fn build(configuration: DriverProductConfiguration, files: Vec<PathBuf>) -> Self {
         Self::Build {
-            configuration,
+            configuration: Box::new(configuration),
             files,
         }
     }

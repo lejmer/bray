@@ -30,6 +30,7 @@ pub(crate) fn initialize_thread_context() {
     CURRENT_RUN_CANCELLATION.with(|_| {});
     NATIVE_THREAD_CANCELLATION.with(|_| {});
 
+    #[cfg(feature = "test-output")]
     let _ = current_task_output();
 }
 
@@ -58,11 +59,11 @@ pub struct TaskExecutionContext {
 
 impl TaskExecutionContext {
     /// Creates the context for one task resume.
-    pub(crate) const fn new(
+    pub(crate) fn new(
         task: TaskId,
         state: ProtectedFrameStateId,
         cancellation: CancellationContext,
-        output: TaskOutput,
+        output: &TaskOutput,
         lane: ExecutionLane,
         wake: TaskWakeHandle,
     ) -> Self {
@@ -70,7 +71,10 @@ impl TaskExecutionContext {
             task,
             state,
             cancellation,
-            output,
+            #[cfg(feature = "test-output")]
+            output: output.clone(),
+            #[cfg(not(feature = "test-output"))]
+            output: *output,
             lane,
             wake,
         }
@@ -196,7 +200,13 @@ pub(crate) fn with_task_execution_context<T>(
     callback: impl FnOnce() -> T,
 ) -> T {
     let cancellation = context.cancellation.clone();
+
+    #[cfg(feature = "test-output")]
     let output = context.output.clone();
+
+    #[cfg(not(feature = "test-output"))]
+    let () = context.output;
+
     let previous = CURRENT_CONTEXT.replace(Some(context));
 
     let previous_cancellation = CURRENT_RUN_CANCELLATION.replace(Some(cancellation));
@@ -206,7 +216,15 @@ pub(crate) fn with_task_execution_context<T>(
         cancellation: previous_cancellation,
     };
 
-    with_task_output(output, callback)
+    #[cfg(feature = "test-output")]
+    {
+        with_task_output(output, callback)
+    }
+
+    #[cfg(not(feature = "test-output"))]
+    {
+        callback()
+    }
 }
 
 #[cfg(feature = "test-output")]
@@ -222,7 +240,7 @@ pub(crate) fn with_task_output<T>(output: TaskOutput, callback: impl FnOnce() ->
     with_optional_run_output_context(output, callback)
 }
 
-#[cfg(not(feature = "test-output"))]
+#[cfg(all(test, not(feature = "test-output")))]
 pub(crate) fn with_task_output<T>(_output: TaskOutput, callback: impl FnOnce() -> T) -> T {
     callback()
 }
@@ -378,7 +396,7 @@ mod tests {
             task.id(),
             ProtectedFrameStateId::new(0),
             cancellation,
-            task.output_context().clone(),
+            task.output_context(),
             lane,
             registration.wake_handle(),
         );
@@ -442,7 +460,7 @@ mod tests {
             task.id(),
             ProtectedFrameStateId::new(0),
             cancellation,
-            task.output_context().clone(),
+            task.output_context(),
             ExecutionLane::new(
                 ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
                 ExecutionWorkload::Cooperative,
@@ -495,7 +513,7 @@ mod tests {
             super::enter_current_run_cleanup_shield();
 
             super::CURRENT_RUN_CANCELLATION.with_borrow(|context| {
-                assert!(context.as_ref().unwrap().request());
+                assert!(context.as_ref().expect("task cancellation context must remain installed while cleanup is shielded").request());
             });
 
             assert!(current_run_cancellation_requested());

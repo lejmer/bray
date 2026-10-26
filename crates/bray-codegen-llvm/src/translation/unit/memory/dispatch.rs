@@ -180,7 +180,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CheckedMemoryOperationKind::InlineAssembly {
                 output, contract, ..
-            } => self.translate_inline_assembly(id, operation, memory, contract, output.is_none()),
+            } => self.translate_inline_assembly(id, operation, memory, *contract, output.is_none()),
             CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::AtomicLoad { .. }
             | CheckedMemoryOperationKind::AtomicStore { .. }
@@ -1466,16 +1466,14 @@ mod tests {
     ) -> MirOperationCommit {
         let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type);
 
-        let committed = builder
+        builder
             .push_operation(
                 block,
                 source.clone(),
                 MirOperationKind::Memory(Box::new(operation)),
                 result_type,
             )
-            .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"));
-
-        committed
+            .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"))
     }
 
     fn push_borrow(
@@ -2587,7 +2585,7 @@ mod tests {
                         role.native_symbol()
                             .expect("atomic word role has a native symbol"),
                     )
-                    .unwrap(),
+                    .expect("fixture binary symbol name must be valid"),
                     CodegenLinkage::Import,
                     CodegenCallableSignature::new(
                         parameters,

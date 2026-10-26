@@ -233,7 +233,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 (ranges, constant_extent_lower_bounds(&ordinary))
             });
 
-            let proven = ranges
+            ranges
                 .get(&(predicate, substitution, pointer))
                 .is_some_and(|extents| {
                     extents.iter().any(|extent| {
@@ -241,17 +241,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             self.unsigned_value(value)
                         })
                     })
-                });
-
-            proven
+                })
         };
 
         requirements.iter().all(|condition| {
-            let proven = requirement_follows(condition, &known, &mut prove_leaf, &mut {
-                ExecutionCondition::WORK_LIMIT
-            });
 
-            proven
+            requirement_follows(condition, &known, &mut prove_leaf, &mut {
+                ExecutionCondition::WORK_LIMIT
+            })
         })
     }
 }

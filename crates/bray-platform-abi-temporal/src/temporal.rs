@@ -61,6 +61,10 @@ unsafe extern "C" {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_date_validate(
         year: i32,
         month: u32,
@@ -80,6 +84,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_date_add(
         value: NativePlatformDateTime,
         years: i32,
@@ -118,6 +126,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_zone_load(
         name: NativePlatformText,
         handle: *mut u64,
@@ -157,6 +169,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_zone_local(
         handle: *mut u64,
         outcome: *mut u32,
@@ -195,6 +211,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_zone_name(
         handle: u64,
         destination: *mut u8,
@@ -226,6 +246,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_observe(
         zone: u64,
         fixed_offset_seconds: i32,
@@ -275,6 +299,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_resolve(
         zone: u64,
         fixed_offset_seconds: i32,
@@ -309,6 +337,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_parse(
         kind: u32,
         text: NativePlatformText,
@@ -357,6 +389,10 @@ native_platform_export! {
 }
 
 native_platform_export! {
+    #[expect(
+        clippy::not_unsafe_ptr_arg_deref,
+        reason = "the native ABI supplies caller-owned storage whose address ranges are checked before access"
+    )]
     pub extern "C" fn bray_platform_time_format(
         kind: u32,
         value: NativePlatformTemporalValue,

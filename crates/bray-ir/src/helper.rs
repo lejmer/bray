@@ -89,7 +89,7 @@ mod tests {
         ]
         .map(|disposition| {
             let reference = MirHelperReference::Destroy(ty, disposition);
-            let role = MirGeneratedLifecycleRole::from_reference(&reference).unwrap();
+            let role = MirGeneratedLifecycleRole::from_reference(&reference).expect("fixture reference must form a valid value");
 
             MirGeneratedLifecycleKey::new(role, [7; 32])
         });

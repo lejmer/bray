@@ -186,9 +186,7 @@ fn dependency_subject_has_exclusive_access(
     let (access, authorizing_borrow) = match subject {
         BoundDependencySubject::StorageAccess(access) => {
             let authorizing_borrow = storage.access(access).and_then(|access| {
-                let Some(capability) = access.root().borrow_capability() else {
-                    return None;
-                };
+                let capability = access.root().borrow_capability()?;
 
                 Some(capability)
             });
@@ -442,7 +440,7 @@ mod tests {
             expression,
             [identity],
             [identity],
-            [storage.logical_path(access).cloned().unwrap()],
+            [storage.logical_path(access).cloned().expect("fixture cloned selection must contain its expected value")],
             [mutable],
             [],
         );
@@ -451,7 +449,7 @@ mod tests {
             expression,
             [identity],
             [identity],
-            [storage.logical_path(access).cloned().unwrap()],
+            [storage.logical_path(access).cloned().expect("fixture cloned selection must contain its expected value")],
             [mutable, reborrow],
             [],
         );

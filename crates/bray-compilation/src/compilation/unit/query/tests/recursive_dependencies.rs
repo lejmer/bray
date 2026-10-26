@@ -60,7 +60,7 @@ fn abstract_trait_results_converge_through_recursive_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -69,7 +69,7 @@ fn abstract_trait_results_converge_through_recursive_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -132,7 +132,7 @@ fn abstract_trait_results_converge_through_generic_recursive_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -141,7 +141,7 @@ fn abstract_trait_results_converge_through_generic_recursive_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -194,7 +194,7 @@ fn abstract_trait_results_instantiate_parameter_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -203,7 +203,7 @@ fn abstract_trait_results_instantiate_parameter_defaults() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -254,7 +254,7 @@ fn returned_dependencies_do_not_expand_unneeded_recursive_type_arguments() {
             "ordinary returned dependencies must not expand recursive type arguments: {result:?}"
         );
 
-        let result = result.unwrap();
+        let result = result.expect("fixture `result` call must succeed");
 
         assert!(
             !result.diagnostics().has_errors(),
@@ -386,7 +386,7 @@ fn abstract_dependencies_do_not_expand_unneeded_recursive_arguments() {
 
                 let result = compilation
                     .storage_flow(source_function_body_key(&compilation, "bad"))
-                    .unwrap();
+                    .expect("fixture callable must complete storage-flow analysis");
 
                 assert_goal_state_diagnostic_kind(
                     result.diagnostics(),
@@ -469,7 +469,7 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -478,7 +478,7 @@ fn recursive_dependencies_retain_transitive_witness_arguments() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 }
@@ -568,13 +568,13 @@ fn recursive_witness_parameters_follow_the_selected_implementation() {
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "good"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
     let flow = compilation
         .storage_flow(source_function_body_key(&compilation, "bad"))
-        .unwrap();
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -727,7 +727,7 @@ fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
     );
 
     let key = crate::test_support::source_function_body_key(&valid, "caller");
-    let analysis = valid.async_analysis(key).unwrap();
+    let analysis = valid.async_analysis(key).expect("fixture callable must complete async analysis");
 
     assert!(
         analysis
@@ -780,7 +780,7 @@ fn deferred_and_scoped_calls_without_normal_returns_do_not_create_result_origins
 
         let lowered = application
             .lowered_unit(source_function_body_key(&application, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(lowered.value().is_some(), "{name}: {lowered:#?}");
     }

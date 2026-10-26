@@ -89,8 +89,8 @@ fn chained_nullable_receiver_evaluates_its_producer_once() {
     );
 
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "remove");
-    let lowered = compilation.lowered_unit(key).unwrap();
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
     let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
 
     assert_eq!(calls.len(), 1, "{calls:#?}");
@@ -136,8 +136,8 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         .lowered_unit(key)
         .expect("chained returned slice must lower");
 
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
-    let values = compilation.semantic_value_store().unwrap();
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
     let length = mir
         .operations()
@@ -160,7 +160,7 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         .operations()
         .iter()
         .find(|operation| operation.result() == Some(*receiver))
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
         panic!("slice receiver must be reborrowed");

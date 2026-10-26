@@ -23,7 +23,7 @@ pub(super) fn verify(mut arguments: impl Iterator<Item = String>) -> Result<(), 
 
     crate::progress::run(
         "Checking standard library source for every native target",
-        || verify_source_targets(),
+        verify_source_targets,
     )?;
 
     let directory = tempfile::Builder::new()

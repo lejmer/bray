@@ -324,10 +324,7 @@ fn build_lookups(
     inputs: &[ImportedSymbolSkeletonInput],
     local_index: &LocalSymbolIndex,
     external_index: &BTreeMap<crate::ExternalSymbolKey, AnySymbolId>,
-) -> Result<
-    BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, (AnySymbolId, crate::MemberVisibility)>>,
-    ImportedSymbolSkeletonBuildError,
-> {
+) -> Result<super::snapshot::ImportedLookups, ImportedSymbolSkeletonBuildError> {
     let mut lookups = BTreeMap::<_, BTreeMap<_, _>>::new();
 
     for input in inputs {

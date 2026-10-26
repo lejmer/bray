@@ -10,6 +10,10 @@ use bray_symbols::TypeId;
 use super::core::{PredicateLowerer, PredicateLoweringContext, capacity};
 
 impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "conditional predicate lowering joins checked branch nodes, merge state, and result type"
+    )]
     pub(super) fn conditional(
         &mut self,
         block: MirBlockId,

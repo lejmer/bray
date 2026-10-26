@@ -818,7 +818,7 @@ mod tests {
 
             let checked = compilation
                 .execution_properties(source_function_body_key(&compilation, "root"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 !checked.diagnostics().has_errors(),
@@ -887,7 +887,7 @@ mod tests {
 
             let checked = compilation
                 .execution_properties(source_function_body_key(&compilation, "root"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 !checked.diagnostics().has_errors(),
@@ -942,7 +942,7 @@ mod tests {
             let mir = assert_cleanup_selection(&source, completed);
 
             if completed {
-                let entry = mir.block(mir.entry()).unwrap();
+                let entry = mir.block(mir.entry()).expect("fixture MIR block must exist");
 
                 let bray_ir::MirTerminatorKind::Branch { else_edge, .. } =
                     entry.terminator().kind()
@@ -960,11 +960,11 @@ mod tests {
                         continue;
                     }
 
-                    let block = mir.block(id).unwrap();
+                    let block = mir.block(id).expect("fixture MIR block must exist");
 
                     assert!(
                         block.operations().iter().all(|id| !matches!(
-                            mir.operation(*id).unwrap().kind(),
+                            mir.operation(*id).expect("fixture MIR operation must exist").kind(),
                             MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
                         )),
                         "discharged finalizer must not construct a future on the executing path: {source}"
@@ -1205,19 +1205,19 @@ mod tests {
 
             let first = compilation
                 .completed_unit_cleanup(&key, &cancellation)
-                .unwrap();
+                .expect("fixture completed unit must resolve cleanup");
 
             let second = compilation
                 .completed_unit_cleanup(&key, &cancellation)
-                .unwrap();
+                .expect("fixture completed unit must resolve cleanup");
 
             assert!(std::sync::Arc::ptr_eq(&first, &second));
-            assert!(compilation.lowered_unit(key).unwrap().value().is_none());
+            assert!(compilation.lowered_unit(key).expect("fixture callable must lower successfully").value().is_none());
 
             let diagnostic = diagnostics
                 .iter()
                 .find(|item| item.kind() == expected)
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             let rendered = bray_messages::DiagnosticRenderer::english().render(diagnostic);
 
@@ -1473,11 +1473,11 @@ mod tests {
 
         let body = compilation
             .body_semantics_with_cancellation(key.clone(), &cancellation)
-            .unwrap();
+            .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
         let selected = compilation
             .completed_unit_cleanup(&key, &cancellation)
-            .unwrap();
+            .expect("fixture completed unit must resolve cleanup");
 
         assert_eq!(
             !selected.result().value().is_empty(),
@@ -1486,22 +1486,22 @@ mod tests {
             body.result().value().refinements().invalidations(),
         );
 
-        let symbols = compilation.symbol_graph().unwrap();
+        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
         let definition = symbols
             .structures()
             .iter()
             .find(|value| value.origin() == bray_symbols::SymbolOrigin::Source)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         let ty = crate::compilation::substitution::named_type(
-            compilation.semantic_value_store().unwrap(),
+            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
             bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
         )
-        .unwrap();
+        .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
 
-        let lowered = compilation.lowered_unit(key).unwrap();
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         let destroys_owner = mir.operations().iter().any(|operation| {
             matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == ty)

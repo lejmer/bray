@@ -505,8 +505,8 @@ impl<'a> SemanticExporter<'a> {
             constness: callable.constness(),
             trust: callable.trust(),
             abi: callable.abi(),
-            invocation_behavior,
-            deferred_execution_behavior,
+            invocation_behavior: invocation_behavior.into(),
+            deferred_execution_behavior: deferred_execution_behavior.map(Into::into),
         })
     }
 

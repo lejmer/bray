@@ -58,14 +58,14 @@ impl Lowerer<'_> {
                 matches!(kind, CheckedMemoryOperationKind::InlineAssembly { .. }) && ordinal == 5;
 
             let lowered = if assembly_inputs {
-                let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
+                let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = &kind else {
                     panic!(
                         "lowering contract violation: MissingSemanticSelection {value:?}",
                         value = id
                     );
                 };
 
-                self.lower_inline_assembly_inputs(*expression, current, contract)?
+                self.lower_inline_assembly_inputs(*expression, current, **contract)?
             } else {
                 self.lower_call_argument(*expression, *reborrow, current)?
             };
@@ -95,14 +95,14 @@ impl Lowerer<'_> {
             current = continuation;
 
             let operand_type = if assembly_inputs {
-                let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
+                let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = &kind else {
                     panic!(
                         "lowering contract violation: MissingSemanticSelection {value:?}",
                         value = id
                     );
                 };
 
-                self.inline_assembly_runtime_input_type(contract)?
+                self.inline_assembly_runtime_input_type(**contract)?
             } else {
                 conversion.target_type()
             };
@@ -112,7 +112,7 @@ impl Lowerer<'_> {
                     .iter()
                     .filter_map(|(ordinal, expression, _, _)| {
                         usize::try_from(*ordinal)
-                            .is_ok_and(|ordinal| is_runtime_expression(kind, ordinal))
+                            .is_ok_and(|ordinal| is_runtime_expression(&kind, ordinal))
                             .then_some(*expression)
                     });
 
@@ -172,7 +172,7 @@ impl Lowerer<'_> {
             id,
             current,
             &source,
-            kind,
+            &kind,
             &operands,
             inline_assembly_labels,
             &inline_assembly_symbols,
@@ -180,11 +180,25 @@ impl Lowerer<'_> {
             return Ok(lowered);
         }
 
-        let memory = MirMemoryOperation::new(kind, operands, operand_types, result)
-            .with_inline_assembly_symbols(inline_assembly_symbols);
+        let diverges = matches!(
+            kind,
+            CheckedMemoryOperationKind::CatastrophicAbort
+                | CheckedMemoryOperationKind::UnreachableTermination
+                | CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
+        );
 
         let admitted_owner =
             matches!(kind, CheckedMemoryOperationKind::RawBufferAllocate).then_some(result_type);
+
+        let check_outcome = kind.requires_checked_outcome()
+            && !matches!(
+                kind,
+                CheckedMemoryOperationKind::RawBufferRelease { .. }
+                    | CheckedMemoryOperationKind::RawBufferReplace { .. }
+            );
+
+        let memory = MirMemoryOperation::new(kind, operands, operand_types, result)
+            .with_inline_assembly_symbols(inline_assembly_symbols);
 
         if let Some(owner) = admitted_owner {
             current = self.admit_outgoing_owner(id, current, &source, owner)?;
@@ -194,12 +208,7 @@ impl Lowerer<'_> {
 
         current = completed;
 
-        if matches!(
-            kind,
-            CheckedMemoryOperationKind::CatastrophicAbort
-                | CheckedMemoryOperationKind::UnreachableTermination
-                | CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
-        ) {
+        if diverges {
             self.set_terminator(
                 current,
                 Self::retained_source(&source),
@@ -214,12 +223,7 @@ impl Lowerer<'_> {
             None => self.unit_operand(result_type),
         };
 
-        if kind.requires_checked_outcome()
-            && !matches!(
-                kind,
-                CheckedMemoryOperationKind::RawBufferRelease { .. }
-                    | CheckedMemoryOperationKind::RawBufferReplace { .. }
-            )
+        if check_outcome
         {
             let (completed, value) = self.finish_typed_call_panic_check(
                 id,
@@ -501,7 +505,7 @@ fn memory_argument_index(expression: BoundExpressionId, ordinal: u32) -> usize {
     })
 }
 
-const fn is_runtime_expression(kind: CheckedMemoryOperationKind, ordinal: usize) -> bool {
+const fn is_runtime_expression(kind: &CheckedMemoryOperationKind, ordinal: usize) -> bool {
     kind.runtime_argument_index(ordinal).is_some()
         || matches!(
             kind,

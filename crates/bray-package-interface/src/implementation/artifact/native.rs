@@ -125,15 +125,14 @@ impl PackageImplementationArtifact {
             Some(NativeUnitKind::Bitcode),
         ] {
             if let Some(index) = self.native_index(kind)? {
-                if let Some(expected) = producer {
-                    if index.producer() != expected {
+                if let Some(expected) = producer
+                    && index.producer() != expected {
                         return Err(NativeIndexError::WrongProducer {
                             expected,
                             actual: index.producer(),
                         }
                         .into());
                     }
-                }
 
                 producer = Some(index.producer());
                 seen.extend(index.units().iter().map(|unit| unit.digest().bytes()));

@@ -144,7 +144,7 @@ pub(in crate::analysis) fn call_preserves_storage(
     }
 
     if let Some(operation) = operation {
-        return crate::memory::execution::storage_effect(operation)
+        return crate::memory::execution::storage_effect(&operation)
             == crate::memory::execution::StorageEffect::None;
     }
 

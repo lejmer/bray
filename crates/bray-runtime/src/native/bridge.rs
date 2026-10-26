@@ -218,11 +218,11 @@ mod tests {
     #[test]
     fn last_scope_without_cleanup_does_not_leave_callbacks_in_a_reusable_row() {
         let _isolation = crate::native::test_runtime_isolation();
-        let scope = super::Scope::enter().unwrap();
+        let scope = super::Scope::enter().expect("fixture execution scope must admit entry");
 
         assert_eq!(scope.finish(), 0);
 
-        let thread = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+        let thread = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
         let mut previous = super::Callbacks::default();
 
         assert_eq!(
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn bridge_restores_context_and_keeps_body_result_separate_from_terminal_status() {
         let _isolation = super::super::state::test_runtime_isolation();
-        let task = bray_runtime_abi::NativeTaskHandle::new(9).unwrap();
+        let task = bray_runtime_abi::NativeTaskHandle::new(9).expect("fixture native task handle must be valid");
         let cancellation = crate::CancellationContext::root();
 
         assert!(cancellation.request());
@@ -287,10 +287,10 @@ mod tests {
 
     #[test]
     fn retirement_panic_follows_body_without_admitting_after_the_callback() {
-        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let body = crate::RuntimePanic::new(Release(1), &mut body_backing);
         let mut outcome = NativeRunOutcome::panicked(body.into_native());
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let _failure = crate::outgoing::tests::reject_admission();
 
         assert_eq!(
@@ -315,7 +315,7 @@ mod tests {
         let completed = Box::new(Release(2));
         let destination = std::ptr::from_ref(completed.as_ref()).addr();
         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let _failure = crate::outgoing::tests::reject_admission();
 
         assert_eq!(
@@ -339,7 +339,7 @@ mod tests {
             RELEASES.with_borrow_mut(|released| released.push(id));
         }
 
-        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let body = crate::RuntimePanic::new(Release(1), &mut body_backing);
         let mut outcome = NativeRunOutcome::panicked(body.into_native());
 
@@ -351,7 +351,7 @@ mod tests {
             ),
         ));
 
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let _failure = crate::outgoing::tests::reject_admission();
 
         assert_eq!(
@@ -411,7 +411,7 @@ mod tests {
                 assert!(primary.message().copy_to(0, &mut message).is_success());
 
                 MESSAGES
-                    .with_borrow_mut(|messages| messages.push(String::from_utf8(message).unwrap()));
+                    .with_borrow_mut(|messages| messages.push(String::from_utf8(message).expect("fixture text must be valid UTF-8")));
 
                 bray_runtime_abi::NativeRuntimeStatus::SUCCESS
             },
@@ -423,7 +423,7 @@ mod tests {
         assert!(super::super::host::register_host_callbacks(callbacks).is_success());
 
         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 73);
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut retirement = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
         let _failure = crate::outgoing::tests::reject_admission();
 
         assert_eq!(

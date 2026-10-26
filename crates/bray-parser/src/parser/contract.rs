@@ -198,16 +198,13 @@ impl Parser {
                     return true;
                 }
 
-                match parser.peek().kind() {
-                    kind @ (SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken) => {
-                        if kind == SyntaxKind::CloseBraceToken && depth.is_at_root() {
-                            return true;
-                        }
-
-                        depth.observe_grouping(kind);
-                        closed = kind == SyntaxKind::CloseBraceToken && depth.is_at_root();
+                if let kind @ (SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken) = parser.peek().kind() {
+                    if kind == SyntaxKind::CloseBraceToken && depth.is_at_root() {
+                        return true;
                     }
-                    _ => {}
+
+                    depth.observe_grouping(kind);
+                    closed = kind == SyntaxKind::CloseBraceToken && depth.is_at_root();
                 }
 
                 false
@@ -716,8 +713,8 @@ mod tests {
 
         let result = parse_compilation_unit(&source_store([source]));
         let unit = &result.syntax_tree().root().source_units()[0];
-        let declaration = unit.function_declarations().next().unwrap();
-        let group = declaration.when_clauses().next().unwrap();
+        let declaration = unit.function_declarations().next().expect("fixture iterator must provide its expected item");
+        let group = declaration.when_clauses().next().expect("fixture iterator must provide its expected item");
 
         assert!(
             result.diagnostics().is_empty(),
@@ -732,7 +729,7 @@ mod tests {
             group
                 .executes_clauses()
                 .next()
-                .unwrap()
+                .expect("fixture iterator must provide its expected item")
                 .properties()
                 .count(),
             2
@@ -825,7 +822,7 @@ mod tests {
             let result = parse_compilation_unit(&source_store([source.as_str()]));
             let unit = &result.syntax_tree().root().source_units()[0];
 
-            let diagnostic = result.diagnostics().iter().next().unwrap();
+            let diagnostic = result.diagnostics().iter().next().expect("fixture iterator must provide its expected item");
 
             assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxExpectedToken);
 
@@ -834,8 +831,8 @@ mod tests {
             ));
 
             assert_eq!(
-                diagnostic.primary_span().unwrap().range().start().bytes(),
-                u32::try_from(source.find(contents).unwrap()).unwrap()
+                diagnostic.primary_span().expect("fixture `primary_span` call must succeed").range().start().bytes(),
+                u32::try_from(source.find(contents).expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation")
             );
 
             assert_eq!(

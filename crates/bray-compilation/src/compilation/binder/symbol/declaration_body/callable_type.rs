@@ -109,7 +109,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         diagnostics.add_range(checked.result().diagnostics().iter().cloned());
 
         let mut inputs = compilation
-            .execution_constant_inputs(bound, &semantics, context.cancellation, &mut diagnostics)
+            .execution_constant_inputs(bound, semantics, context.cancellation, &mut diagnostics)
             .map_err(super::super::binding::binder_error)?;
 
         inputs.extend(references.iter().map(|reference| {
@@ -122,7 +122,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         }));
 
         let predicate_definitions = compilation
-            .execution_predicate_inputs(&semantics, context.cancellation, &mut diagnostics)
+            .execution_predicate_inputs(semantics, context.cancellation, &mut diagnostics)
             .map_err(super::super::binding::binder_error)?;
 
         let conditions = bray_checker::predicate_conditions_with_inputs(
@@ -183,8 +183,7 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             DiagnosticBag::merged_all([
                 computation.result().diagnostics(),
                 checked.result().diagnostics(),
-            ])
-            .into_iter(),
+            ]),
         );
     }
 
@@ -242,17 +241,16 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
     ))
 }
 
+type CallableTypeClause = (
+    bray_declarations::SyntaxAnchor,
+    Vec<bray_syntax::ExpressionSyntax>,
+    bool,
+    Vec<bray_syntax::ExpressionSyntax>,
+);
+
 fn callable_type_clauses(
     syntax: SyntaxNodeView<'_>,
-) -> (
-    bray_syntax::ParameterListSyntax,
-    Vec<(
-        bray_declarations::SyntaxAnchor,
-        Vec<bray_syntax::ExpressionSyntax>,
-        bool,
-        Vec<bray_syntax::ExpressionSyntax>,
-    )>,
-) {
+) -> (bray_syntax::ParameterListSyntax, Vec<CallableTypeClause>) {
     let mut parameter_list = None;
     let mut clauses = Vec::new();
 

@@ -256,20 +256,19 @@ fn validate_template(
 
         validate_index(input.ty().to_index(), semantics.types.len())?;
 
-        if let Some(output) = input.state_output() {
-            if template.kind() != bray_bound_tree::CheckedTemplateKind::ConstantCallableBody
+        if let Some(output) = input.state_output()
+            && (template.kind() != bray_bound_tree::CheckedTemplateKind::ConstantCallableBody
                 || !matches!(
                     input.kind(),
                     InterfaceCheckedTemplateInputKind::Receiver
                         | InterfaceCheckedTemplateInputKind::Parameter(_)
                 )
-                || node_type(template, output) != Some(input.ty())
+                || node_type(template, output) != Some(input.ty()))
             {
                 return Err(crate::semantic::codec::invalid_value(
                     crate::InterfaceValidationField::Template,
                 ));
             }
-        }
 
         match input.kind() {
             InterfaceCheckedTemplateInputKind::GenericType(parameter) => {

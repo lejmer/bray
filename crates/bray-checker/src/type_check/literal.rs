@@ -49,9 +49,7 @@ where
 {
     let before = inference.revision();
 
-    if adapt_contextual_complex_literals(request, expressions, variables, inference).is_none() {
-        return None;
-    }
+    adapt_contextual_complex_literals(request, expressions, variables, inference)?;
 
     for &expression in expressions {
         if request.is_cancelled() {
@@ -250,11 +248,7 @@ fn complex_component_type<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Opt
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(component) =
-        type_representation(request, ty).and_then(RepresentationRole::complex_component)
-    else {
-        return None;
-    };
+    let component = type_representation(request, ty).and_then(RepresentationRole::complex_component)?;
 
     Some(representation_type(request, component))
 }

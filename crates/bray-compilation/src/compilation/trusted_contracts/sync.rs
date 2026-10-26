@@ -139,7 +139,7 @@ fn production_spin_lock_rejects_fabricated_guard_authority() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -234,11 +234,11 @@ fn production_sync_compilation_for_target(
     ];
 
     let request = CompilationRequest::with_options(
-        PackageIdentity::try_new("std").unwrap(),
+        PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
         sources
             .iter()
             .enumerate()
-            .map(|(index, source)| source_input(source, u32::try_from(index).unwrap()))
+            .map(|(index, source)| source_input(source, u32::try_from(index).expect("fixture value must fit the requested representation")))
             .collect(),
         crate::CompilationOptions::new(
             crate::WorkerBudget::serial(),
@@ -247,7 +247,7 @@ fn production_sync_compilation_for_target(
         )
         .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
             bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new(name).unwrap(),
+                bray_base::NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
                 if name == "dl" {
                     bray_symbols::NativeLinkKind::Dynamic
                 } else {
@@ -258,7 +258,7 @@ fn production_sync_compilation_for_target(
     )
     .with_standard_library_source_authority();
 
-    let compilation = Compilation::load(request).unwrap();
+    let compilation = Compilation::load(request).expect("fixture input must load");
 
     assert!(
         !compilation.syntax_tree_result().diagnostics().has_errors(),
@@ -444,7 +444,7 @@ fn nullable_aggregate_elements_keep_their_outer_discriminant() {
 
             let checked = compilation
                 .execution_properties(source_function_body_key(&compilation, "caller"))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             let diagnostics = checked.diagnostics();
 
@@ -715,7 +715,7 @@ fn memory_evidence_uses_the_same_cleanup_state_as_authority() {
 
         let flow = application
             .storage_flow(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must complete storage-flow analysis");
 
         let decision = flow
             .value()
@@ -957,7 +957,7 @@ fn production_spin_lock_nullable_acquisition_retains_storage() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -997,7 +997,7 @@ fn production_mutex_requires_acquisition_authority() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -1048,7 +1048,7 @@ fn production_rw_lock_requires_distinct_acquisition_authority() {
 
             let checked = compilation
                 .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert_eq!(
                 !checked.diagnostics().has_errors(),
@@ -1073,7 +1073,7 @@ fn body_belongs_to(
     modules: &[&[&str]],
     types: &[&str],
 ) -> bool {
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let mut symbol = symbols
         .symbol_for_key(key.declared_owner())
@@ -1116,7 +1116,7 @@ using core.target;
 
     let mut failures = Vec::new();
 
-    for key in compilation.declared_unit_keys_for_test().unwrap() {
+    for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
             || !body_belongs_to(
                 &compilation,
@@ -1145,14 +1145,14 @@ using core.target;
                 key.clone(),
                 &compilation.state.cancellation,
             )
-            .unwrap();
+            .expect("fixture `semantic_unit_diagnostics_with_cancellation` call must succeed");
 
         if diagnostics.has_errors() {
             failures.push(format!("{key:?}: {diagnostics:?}"));
             continue;
         }
 
-        let checked = compilation.lowered_unit(key.clone()).unwrap();
+        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", checked.diagnostics()));
@@ -1165,11 +1165,11 @@ using core.target;
 #[test]
 fn consuming_guard_release_keeps_its_destructors_reference_effects() {
     let application = production_sync_compilation("module app;");
-    let symbols = application.symbol_graph().unwrap();
+    let symbols = application.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let context = application
         .binding_context(&application.state.cancellation)
-        .unwrap();
+        .expect("fixture compilation must provide a binding context");
 
     let callable = symbols
         .type_callable_members()
@@ -1192,11 +1192,11 @@ fn consuming_guard_release_keeps_its_destructors_reference_effects() {
             callable.into(),
         ),
     )
-    .unwrap();
+    .expect("fixture symbol query must resolve");
 
     let template = application
         .semantic_value_store()
-        .unwrap()
+        .expect("fixture compilation must provide its semantic value store")
         .dependency_contract_template_data(*dependencies.value());
 
     assert!(
@@ -1230,7 +1230,7 @@ fn independent_production_guards_keep_their_authority() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -1248,7 +1248,7 @@ using core.target;
 "#,
     );
 
-    for key in compilation.declared_unit_keys_for_test().unwrap() {
+    for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
             continue;
         }
@@ -1276,7 +1276,7 @@ using core.target;
             continue;
         }
 
-        let certified = compilation.execution_properties(key.clone()).unwrap();
+        let certified = compilation.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
 
         assert!(
             !certified.diagnostics().has_errors(),
@@ -1284,7 +1284,7 @@ using core.target;
             certified.diagnostics()
         );
 
-        let checked = compilation.lowered_unit(key.clone()).unwrap();
+        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -1311,7 +1311,7 @@ fn production_condition_variable_releases_and_reacquires_authority() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -1377,7 +1377,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "exact"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -1389,7 +1389,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 
     let context = application
         .binding_context(&application.state.cancellation)
-        .unwrap();
+        .expect("fixture compilation must provide a binding context");
 
     let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
         &context,
@@ -1397,11 +1397,11 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
             callable.into(),
         ),
     )
-    .unwrap();
+    .expect("fixture symbol query must resolve");
 
     let template = application
         .semantic_value_store()
-        .unwrap()
+        .expect("fixture compilation must provide its semantic value store")
         .dependency_contract_template_data(*dependencies.value());
 
     assert_eq!(
@@ -1419,7 +1419,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 #[test]
 fn production_guard_borrow_origin_reaches_the_protected_payload() {
     let application = production_sync_compilation("module app;");
-    let symbols = application.symbol_graph().unwrap();
+    let symbols = application.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let callable = symbols
         .type_callable_members()
@@ -1438,7 +1438,7 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
 
     let context = application
         .binding_context(&application.state.cancellation)
-        .unwrap();
+        .expect("fixture compilation must provide a binding context");
 
     let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
         &context,
@@ -1446,11 +1446,11 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
             callable.into(),
         ),
     )
-    .unwrap();
+    .expect("fixture symbol query must resolve");
 
     let template = application
         .semantic_value_store()
-        .unwrap()
+        .expect("fixture compilation must provide its semantic value store")
         .dependency_contract_template_data(*dependencies.value());
 
     let relation = template
@@ -1491,7 +1491,7 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         (value, "value"),
     ] {
         assert_eq!(
-            symbols.member_name((*field).into()).unwrap().as_str(),
+            symbols.member_name((*field).into()).expect("fixture `member_name` call must succeed").as_str(),
             expected
         );
     }
@@ -1934,7 +1934,7 @@ fn joined_mutated_values_do_not_inherit_their_entry_contents() {
 
         let checked = application
             .execution_properties(source_function_body_key(&application, "update"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2076,7 +2076,7 @@ fn production_spin_lock_rejects_detached_authority() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             checked.diagnostics().has_errors(),
@@ -2108,7 +2108,7 @@ fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(!checked.diagnostics().has_errors(), "{checked:?}");
 
@@ -2147,7 +2147,7 @@ fn native_atomic_word_declarations_check_for_every_target() {
 
         let mut checked_bodies = 0;
 
-        for key in compilation.declared_unit_keys_for_test().unwrap() {
+        for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
             if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
                 || !body_belongs_to(
                     &compilation,
@@ -2164,14 +2164,14 @@ fn native_atomic_word_declarations_check_for_every_target() {
                     key.clone(),
                     &compilation.state.cancellation,
                 )
-                .unwrap();
+                .expect("fixture `semantic_unit_diagnostics_with_cancellation` call must succeed");
 
             assert!(
                 !diagnostics.has_errors(),
                 "{target:?} {key:?}: {diagnostics:?}"
             );
 
-            let checked = compilation.lowered_unit(key).unwrap();
+            let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
             assert!(
                 !checked.diagnostics().has_errors(),
@@ -2221,7 +2221,7 @@ fn generic_cleanup_effects_specialize_through_forwarding() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2254,7 +2254,7 @@ fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2282,7 +2282,7 @@ fn production_guard_reacquisition_retains_original_lock_dependency() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2332,7 +2332,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2391,7 +2391,7 @@ fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2432,7 +2432,7 @@ fn unexposed_owned_marker_survives_opaque_callback_cleanup() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2485,7 +2485,7 @@ fn opaque_callback_preserves_only_unexposed_complete_marker_carriers() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2521,7 +2521,7 @@ fn opaque_callback_does_not_reuse_a_carriers_borrowed_payload_snapshot() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
@@ -2534,7 +2534,7 @@ fn production_once_declarations_check_their_own_bodies() {
     let application = production_sync_compilation("module app;");
     let mut failures = Vec::new();
 
-    for key in application.declared_unit_keys_for_test().unwrap() {
+    for key in application.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
             || !body_belongs_to(
                 &application,
@@ -2546,7 +2546,7 @@ fn production_once_declarations_check_their_own_bodies() {
             continue;
         }
 
-        let certified = application.execution_properties(key.clone()).unwrap();
+        let certified = application.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
 
         if certified.diagnostics().has_errors() {
             failures.push((
@@ -2556,7 +2556,7 @@ fn production_once_declarations_check_their_own_bodies() {
             ));
         }
 
-        let checked = application.lowered_unit(key.clone()).unwrap();
+        let checked = application.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push((
@@ -2591,7 +2591,7 @@ fn production_once_and_lazy_owners_keep_cleanup_authority() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -2621,7 +2621,7 @@ fn consuming_wrapper_transfers_a_forwarded_stored_borrow() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2661,7 +2661,7 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2701,7 +2701,7 @@ fn production_once_rejects_fabricated_instance_and_attempt_authority() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             checked.diagnostics(),
@@ -2728,7 +2728,7 @@ fn barrier_preserves_its_nested_mutex_authority() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2736,13 +2736,15 @@ fn barrier_preserves_its_nested_mutex_authority() {
         checked.diagnostics()
     );
 
-    for name in ["result_marker"] {
+    {
+        let name = "result_marker";
+
         let checked = compilation
             .execution_properties(crate::test_support::source_type_callable_member_body_key(
                 &compilation,
                 name,
             ))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -2778,7 +2780,7 @@ fn union_variant_contracts_share_checked_branch_evidence() {
     for name in ["unwrap", "caller"] {
         let checked = application
             .execution_properties(source_function_body_key(&application, name))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -2822,7 +2824,7 @@ fn union_variant_contracts_do_not_survive_replacement_or_prove_payload_tests() {
 
         let checked = application
             .execution_properties(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2849,7 +2851,7 @@ fn constructed_union_variants_establish_only_their_actual_tag() {
 
         let checked = application
             .execution_properties(source_function_body_key(&application, "create"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2919,7 +2921,7 @@ fn static_once_keeps_initializer_authority() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -2969,7 +2971,7 @@ fn static_initializers_preserve_only_established_owner_authority() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3019,7 +3021,7 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3040,7 +3042,7 @@ fn production_standard_input_keeps_buffer_authority() {
             &application,
             "read_standard_input",
         ))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3066,7 +3068,7 @@ fn trusted_implementation_does_not_export_undeclared_authority() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
@@ -3083,20 +3085,20 @@ fn production_channel_declarations_check_their_own_bodies() {
 
     let mut failures = Vec::new();
 
-    for key in application.declared_unit_keys_for_test().unwrap() {
+    for key in application.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
             continue;
         }
 
         let source = application
             .source(key.source().syntax().source_id())
-            .unwrap();
+            .expect("fixture `source` call must succeed");
 
         if !source.text().starts_with("trusted module std.channel") {
             continue;
         }
 
-        let checked = application.lowered_unit(key.clone()).unwrap();
+        let checked = application.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", checked.diagnostics()));
@@ -3150,7 +3152,7 @@ fn production_channel_rejects_fabrication_and_protocol_access() {
     ] {
         let checked = application
             .lowered_unit(source_function_body_key(&application, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         if valid {
             assert!(
@@ -3252,7 +3254,7 @@ fn opaque_execution_preserves_only_unexposed_shared_carrier_references() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3312,7 +3314,7 @@ fn shared_component_borrow_preserves_only_its_marker_observations() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3379,7 +3381,7 @@ fn fallible_pair_factory_keeps_each_complete_owner() {
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
@@ -3482,7 +3484,7 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -3535,7 +3537,7 @@ fn production_guard_cleanup_survives_loop_payload_transitions() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -3584,7 +3586,7 @@ fn opaque_calls_preserve_unexposed_scalar_values_only() {
 
         let checked = application
             .execution_properties(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3620,7 +3622,7 @@ fn opaque_returned_borrows_revoke_possible_inputs_but_not_unpassed_owners() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3665,7 +3667,7 @@ fn returned_tuple_owner_keeps_its_predicate_after_scalar_field_reads() {
 
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3840,7 +3842,7 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
     .filter_map(|name| {
         let checked = application
             .lowered_unit(source_function_body_key(&application, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         checked.diagnostics().has_errors().then(|| {
             format!(
@@ -3947,7 +3949,7 @@ fn static_marker_preservation_keeps_selected_instances_distinct() {
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         if valid {
             assert!(
@@ -4025,7 +4027,7 @@ fn production_synchronization_api_cleanup_checks() {
         .filter_map(|name| {
             let checked = application
                 .lowered_unit(source_function_body_key(&application, name))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             checked
                 .diagnostics()
@@ -4217,7 +4219,7 @@ fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication()
 
             let checked = application
                 .lowered_unit(source_function_body_key(&application, "production_probe"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             match expected {
                 Some(kind) => {

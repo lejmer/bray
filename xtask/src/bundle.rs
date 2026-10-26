@@ -176,8 +176,8 @@ impl DirectoryPublication {
         let replaces_existing = self.destination.exists();
 
         if replaces_existing {
-            rename_directory(&self.destination, &previous).map_err(|error| {
-                DirectoryPublicationError::publish(&self.destination, &previous, error)
+            rename_directory(&self.destination, previous).map_err(|error| {
+                DirectoryPublicationError::publish(&self.destination, previous, error)
             })?;
         }
 
@@ -185,10 +185,10 @@ impl DirectoryPublication {
             let publication =
                 DirectoryPublicationError::publish(&self.contents, &self.destination, error);
 
-            if replaces_existing && let Err(error) = rename_directory(&previous, &self.destination)
+            if replaces_existing && let Err(error) = rename_directory(previous, &self.destination)
             {
                 let rollback =
-                    DirectoryPublicationError::publish(&previous, &self.destination, error);
+                    DirectoryPublicationError::publish(previous, &self.destination, error);
 
                 return Err(DirectoryPublicationError::Rollback {
                     publication: Box::new(publication),

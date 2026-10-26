@@ -23,7 +23,7 @@ fn pattern_conditions_publish_both_nullable_outcomes_and_common_alternative_refi
 
         let analysis = compilation
             .refinements(source_callable_body_key(&compilation))
-            .unwrap();
+            .expect("fixture callable must have checked refinements");
 
         let present = analysis.value().occurrences().iter().any(|occurrence| {
             occurrence.refinements().iter().any(|refinement| {
@@ -100,16 +100,16 @@ fn pattern_conditions_refine_exact_paths_and_preserve_only_common_outcomes() {
         );
 
         let key = source_callable_body_key(&compilation);
-        let unit = compilation.bound_unit(key.clone()).unwrap();
-        let storage = compilation.storage_plan(key.clone()).unwrap();
-        let analysis = compilation.refinements(key).unwrap();
+        let unit = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
+        let analysis = compilation.refinements(key).expect("fixture callable must have checked refinements");
 
         for (marker, expected) in [("11;", present), ("22;", absent), ("33;", None)] {
-            let offset = u32::try_from(source.find(marker).unwrap()).unwrap();
+            let offset = u32::try_from(source.find(marker).expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation");
 
             let node = unit.value().tree().expressions().find_map(|(id, expression)| {
                     matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
-                }).unwrap();
+                }).expect("fixture selection must find its expected value");
 
             let actual = analysis
                 .value()
@@ -126,7 +126,7 @@ fn pattern_conditions_refine_exact_paths_and_preserve_only_common_outcomes() {
                         storage
                             .value()
                             .resolved_projections(access)
-                            .unwrap()
+                            .expect("fixture `resolved_projections` call must succeed")
                             .to_vec(),
                     )),
                     _ => None,
@@ -200,13 +200,13 @@ fn boolean_condition_refinements_respect_later_operand_mutation() {
         );
 
         let key = source_callable_body_key(&compilation);
-        let unit = compilation.bound_unit(key.clone()).unwrap();
-        let analysis = compilation.refinements(key).unwrap();
-        let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+        let unit = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let analysis = compilation.refinements(key).expect("fixture callable must have checked refinements");
+        let offset = u32::try_from(source.find("11;").expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation");
 
         let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
                 matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
-            }).unwrap();
+            }).expect("fixture selection must find its expected value");
 
         let actual = analysis
             .value()
@@ -266,13 +266,13 @@ fn calls_preserve_unexposed_scalar_refinements() {
         assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
 
         let key = source_function_body_key(&compilation, "main");
-        let unit = compilation.bound_unit(key.clone()).unwrap();
-        let analysis = compilation.refinements(key).unwrap();
-        let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+        let unit = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let analysis = compilation.refinements(key).expect("fixture callable must have checked refinements");
+        let offset = u32::try_from(source.find("11;").expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation");
 
         let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
                 matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
-            }).unwrap();
+            }).expect("fixture selection must find its expected value");
 
         let actual = analysis
             .value()
@@ -470,13 +470,13 @@ fn replacing_a_nullable_owner_invalidates_its_presence_condition() {
     );
 
     let key = source_function_body_key(&compilation, "run");
-    let unit = compilation.bound_unit(key.clone()).unwrap();
-    let analysis = compilation.refinements(key).unwrap();
-    let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+    let unit = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+    let analysis = compilation.refinements(key).expect("fixture callable must have checked refinements");
+    let offset = u32::try_from(source.find("11;").expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation");
 
     let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
         matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
-    }).unwrap();
+    }).expect("fixture selection must find its expected value");
 
     assert!(
         !analysis

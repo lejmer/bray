@@ -507,33 +507,33 @@ mod tests {
 
     #[test]
     fn type_replacement_preserves_predicate_domains_and_value_subjects() {
-        let store = SemanticValueStore::try_new().unwrap();
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
         let source_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
         let target_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let formal = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
 
         let source = store
             .intern_type(TypeData::TypeParameter(source_parameter))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let target = store
             .intern_type(TypeData::TypeParameter(target_parameter))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let definition = CallableDefinitionId::try_new(
             FunctionSymbolId::from_symbol_id(SymbolId::new(1)).into(),
         )
-        .unwrap();
+        .expect("fixture callable definition id must be valid");
 
-        let owner = GenericOwnerId::try_new(definition.symbol()).unwrap();
+        let owner = GenericOwnerId::try_new(definition.symbol()).expect("fixture generic owner id must be valid");
 
         let argument = store
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let other = store
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(1)))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let condition = |ty, argument| {
             let substitution = store
@@ -543,17 +543,17 @@ mod tests {
                         [GenericParameterSymbolId::Type(formal)],
                         [GenericArgument::Type(ty)],
                     )
-                    .unwrap(),
+                    .expect("fixture generic substitution data must be valid"),
                 )
-                .unwrap();
+                .expect("fixture generic substitution must be interned");
 
             let callable = store
                 .intern_callable_instance(CallableInstanceData::new(definition, substitution))
-                .unwrap();
+                .expect("fixture callable instance must be interned");
 
             store
                 .intern_constant_term(ConstantTermData::call(callable, None, [argument]))
-                .unwrap()
+                .expect("fixture constant term must be interned")
         };
 
         let dependency = store
@@ -565,7 +565,7 @@ mod tests {
                     DependencyRequirementKind::StorageAlive,
                 ),
             ]))
-            .unwrap();
+            .expect("fixture dependency contract must be interned");
 
         let replacements = BTreeMap::from([(source, target)]);
 
@@ -586,14 +586,14 @@ mod tests {
             assert_eq!(
                 store
                     .replace_predicate_types(original, &replacements)
-                    .unwrap(),
+                    .expect("fixture `replace_predicate_types` call must succeed"),
                 expected
             );
 
             assert_ne!(
                 store
                     .replace_predicate_types(original, &replacements)
-                    .unwrap(),
+                    .expect("fixture `replace_predicate_types` call must succeed"),
                 different
             );
 
@@ -610,7 +610,7 @@ mod tests {
                 .with_receiver_cleanup([target]);
 
             assert_eq!(
-                store.replace_phase_types(&phases, &replacements).unwrap(),
+                store.replace_phase_types(&phases, &replacements).expect("fixture `replace_phase_types` call must succeed"),
                 expected_phases
             );
         }

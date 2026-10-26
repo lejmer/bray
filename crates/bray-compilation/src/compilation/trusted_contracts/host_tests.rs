@@ -29,7 +29,7 @@ fn production_report_consumers_check_their_callback_protocol() {
         "retained_address",
     ];
 
-    let symbols = compilation.symbol_graph().unwrap();
+    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
     let sources = symbols
         .functions()
@@ -97,7 +97,7 @@ fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -133,7 +133,7 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
@@ -224,7 +224,7 @@ fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
@@ -319,7 +319,7 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
 
     let checked = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         checked.diagnostics(),
@@ -350,7 +350,7 @@ using core.target;
         "release_attachment_exit",
     ] {
         let key = source_function_body_key(&compilation, name);
-        let checked = compilation.execution_properties(key).unwrap();
+        let checked = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
         assert!(!checked.diagnostics().has_errors(), "{name}: {checked:#?}");
     }
@@ -519,7 +519,7 @@ using std.memory;
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -564,7 +564,7 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -614,7 +614,7 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -660,7 +660,9 @@ using core.target;
 "#,
     );
 
-    for name in ["host_value"] {
+    {
+        let name = "host_value";
+
         let checked = compilation
             .execution_properties(source_function_body_key(&compilation, name))
             .expect("production formation step must publish its execution proof");
@@ -937,7 +939,7 @@ fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             checked.diagnostics(),
@@ -983,14 +985,14 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
 
     for key in compilation
         .declared_unit_keys_for_test()
-        .unwrap()
+        .expect("fixture declarations must resolve their units")
         .into_iter()
         .filter(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
                 && key.source().syntax().source_id() == exit_source
         })
     {
-        let checked = compilation.lowered_unit(key.clone()).unwrap();
+        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         assert!(!checked.diagnostics().has_errors(), "{key:?}: {checked:#?}");
     }
@@ -1022,7 +1024,7 @@ fn production_lease_destructor_checks_and_remains_total() {
 
     let key = compilation
         .declared_unit_keys_for_test()
-        .unwrap()
+        .expect("fixture declarations must resolve their units")
         .into_iter()
         .find(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
@@ -1031,11 +1033,11 @@ fn production_lease_destructor_checks_and_remains_total() {
         })
         .expect("actual acquisition lease destructor must exist");
 
-    let checked = compilation.lowered_unit(key.clone()).unwrap();
+    let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
     assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
 
-    let proof = compilation.execution_properties(key).unwrap();
+    let proof = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
     assert!(!proof.diagnostics().has_errors(), "{proof:#?}");
 
@@ -1058,7 +1060,7 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
 
     let key = compilation
         .declared_unit_keys_for_test()
-        .unwrap()
+        .expect("fixture declarations must resolve their units")
         .into_iter()
         .find(|key| {
             key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
@@ -1067,7 +1069,7 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
         })
         .expect("actual selected exit destructor must exist");
 
-    let checked = compilation.lowered_unit(key).unwrap();
+    let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
     assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
 }
@@ -1104,7 +1106,7 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -1236,7 +1238,7 @@ fn production_shutdown_owner_uses_ordinary_completion_rules() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -1477,7 +1479,7 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -1519,7 +1521,7 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2012,7 +2014,7 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
                 &compilation,
                 "probe",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2084,7 +2086,7 @@ fn production_storage_lease_requires_admission_evidence() {
                 &compilation,
                 "probe",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2107,7 +2109,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
     let mut failures = Vec::new();
     let mut sources = std::collections::HashSet::new();
 
-    let mut pending = compilation.declared_unit_keys_for_test().unwrap();
+    let mut pending = compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units");
 
     while let Some(key) = pending.pop() {
         if !matches!(
@@ -2121,7 +2123,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         let source = compilation
             .source(key.source().syntax().source_id())
-            .unwrap()
+            .expect("fixture `source` call must succeed")
             .text();
 
         if !source.contains("module bray.runtime.bootstrap.storage;")
@@ -2135,7 +2137,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         sources.insert(key.source().syntax().source_id());
 
-        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
 
         if bound.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", bound.diagnostics()));
@@ -2148,7 +2150,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         pending.extend(bound.value().nested_units().iter().cloned());
 
-        let lowered = compilation.lowered_unit(key.clone()).unwrap();
+        let lowered = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
         if lowered.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", lowered.diagnostics()));
@@ -2205,7 +2207,7 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -2257,7 +2259,7 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2311,7 +2313,7 @@ fn activation_publication_requires_the_exact_producer_witness() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2366,7 +2368,7 @@ fn activation_dispatch_requires_exact_native_ownership() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2435,7 +2437,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2511,7 +2513,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2560,7 +2562,7 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2613,7 +2615,7 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 
     let lowered = compilation
         .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !lowered.diagnostics().has_errors(),
@@ -2772,7 +2774,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2852,7 +2854,7 @@ fn activation_retirement_requires_retained_native_destinations() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2915,7 +2917,7 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -2969,7 +2971,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -3033,7 +3035,7 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -3139,7 +3141,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -3203,7 +3205,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !lowered.diagnostics().has_errors(),
@@ -3259,7 +3261,7 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         if !checked.diagnostics().has_errors() != valid {
             failures.push(format!("{body}: {:?}", checked.diagnostics()));
@@ -3312,7 +3314,7 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3369,7 +3371,7 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
 
         let checked = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),

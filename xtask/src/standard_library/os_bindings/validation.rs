@@ -295,30 +295,6 @@ fn validate_links(target: &TargetDescription) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn header_validation_preserves_dependency_order_and_rejects_exact_duplicates() {
-        assert!(
-            super::validate_unique_names_preserving_order(
-                "x86_64-pc-windows-msvc",
-                "header",
-                ["windows.h", "bcrypt.h"].into_iter(),
-            )
-            .is_ok()
-        );
-
-        assert_eq!(
-            super::validate_unique_names_preserving_order(
-                "x86_64-pc-windows-msvc",
-                "header",
-                ["windows.h", "windows.h"].into_iter(),
-            ),
-            Err("x86_64-pc-windows-msvc header entry windows.h is repeated".to_owned(),)
-        );
-    }
-}
-
 fn validate_types(target: &TargetDescription) -> Result<(), String> {
     for ty in &target.types {
         match ty {
@@ -609,4 +585,28 @@ fn validate_symbol(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn header_validation_preserves_dependency_order_and_rejects_exact_duplicates() {
+        assert!(
+            super::validate_unique_names_preserving_order(
+                "x86_64-pc-windows-msvc",
+                "header",
+                ["windows.h", "bcrypt.h"].into_iter(),
+            )
+            .is_ok()
+        );
+
+        assert_eq!(
+            super::validate_unique_names_preserving_order(
+                "x86_64-pc-windows-msvc",
+                "header",
+                ["windows.h", "windows.h"].into_iter(),
+            ),
+            Err("x86_64-pc-windows-msvc header entry windows.h is repeated".to_owned(),)
+        );
+    }
 }

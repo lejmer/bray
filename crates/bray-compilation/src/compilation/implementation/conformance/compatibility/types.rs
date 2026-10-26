@@ -8,6 +8,10 @@ use bray_symbols::{
 
 use crate::fact::FactQueryError;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "type conformance joins subject, trait application, self context, substitution, paired templates, and member bindings"
+)]
 pub(super) fn type_templates_are_compatible(
     values: &SemanticValueStore,
     subject: TypeId,
@@ -206,6 +210,10 @@ pub(super) fn type_templates_are_compatible(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "nullable conformance joins subject, trait application, self context, substitution, paired templates, and member bindings"
+)]
 fn nullable_templates_are_compatible(
     values: &SemanticValueStore,
     subject: TypeId,

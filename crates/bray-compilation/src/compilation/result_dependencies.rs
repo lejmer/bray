@@ -7,7 +7,7 @@ pub(super) fn source_function_dependencies(
 
     let context = compilation
         .binding_context(&compilation.state.cancellation)
-        .unwrap();
+        .expect("fixture compilation must provide a binding context");
 
     let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
         &context,
@@ -15,10 +15,10 @@ pub(super) fn source_function_dependencies(
             callable.into(),
         ),
     )
-    .unwrap();
+    .expect("fixture symbol query must resolve");
 
     compilation
         .semantic_value_store()
-        .unwrap()
+        .expect("fixture compilation must provide its semantic value store")
         .dependency_contract_template_data(*dependencies.value())
 }

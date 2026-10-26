@@ -208,7 +208,7 @@ fn execute_loaded(
         },
     )?;
 
-    let locations = host_locations(&hosts);
+    let locations = host_locations(hosts);
 
     let mut progress = TestProgress::new(&plan, interactive, live_results);
     let started_at = Instant::now();
@@ -222,7 +222,7 @@ fn execute_loaded(
         }
     };
 
-    let products = product_reports(&hosts, results);
+    let products = product_reports(hosts, results);
 
     let mut report =
         TestCommandReport::new(TestSelectionSummary::new(discovered, selected), products);
@@ -651,7 +651,7 @@ fn prepare_command_cancellation() -> Result<(), DiagnosticBag> {
 
     installed
         .as_ref()
-        .map(|()| ())
+        .copied()
         .map_err(cancellation_handler_diagnostics)
 }
 

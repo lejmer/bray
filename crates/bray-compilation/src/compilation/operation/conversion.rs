@@ -74,6 +74,10 @@ impl Compilation {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "conversion selection joins checker view, binding context, owner, source and target types, and diagnostics"
+    )]
     fn resolve_conversion_plan(
         &self,
         key: &OperationSubject,

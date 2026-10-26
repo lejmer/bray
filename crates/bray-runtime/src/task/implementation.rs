@@ -753,7 +753,7 @@ mod tests {
             parent.id(),
             ProtectedFrameStateId::new(0),
             parent.cancellation_context().clone(),
-            parent.output_context().clone(),
+            parent.output_context(),
             ExecutionLane::new(
                 ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
                 ExecutionWorkload::Cooperative,
@@ -1179,7 +1179,7 @@ mod tests {
             let observed_task = Arc::clone(&task);
             let observed_callbacks = Arc::clone(&callbacks);
 
-            *callback.lock().unwrap() = Some(Box::new(move || {
+            *callback.lock().expect("fixture mutex must not be poisoned") = Some(Box::new(move || {
                 let data = observed_task
                     .data
                     .try_lock()
@@ -1200,7 +1200,7 @@ mod tests {
                 assert_eq!(callbacks.load(Ordering::Relaxed), 3);
 
                 assert_eq!(
-                    task.state().unwrap(),
+                    task.state().expect("fixture `state` call must succeed"),
                     TaskState::Failed(TaskFailureKind::ExecutionInfrastructure)
                 );
             } else {
@@ -1212,7 +1212,7 @@ mod tests {
             assert_eq!(releases.load(Ordering::Relaxed), 1);
 
             // Release the callback's task ownership after the frame has been destroyed.
-            callback.lock().unwrap().take();
+            callback.lock().expect("fixture mutex must not be poisoned").take();
         }
     }
 
@@ -1274,15 +1274,17 @@ mod tests {
         resolutions: Arc<AtomicUsize>,
     }
 
+    type LockCheck = Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>;
+
     struct LockCheckingFrame {
         inner: TestFrame,
-        callback: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+        callback: LockCheck,
         releases: Arc<AtomicUsize>,
     }
 
     impl LockCheckingFrame {
         fn check(&self) {
-            if let Some(callback) = self.callback.lock().unwrap().as_ref() {
+            if let Some(callback) = self.callback.lock().expect("fixture mutex must not be poisoned").as_ref() {
                 callback();
             }
         }

@@ -257,7 +257,7 @@ fn callable_results_render_source_context() {
         .check_diagnostics()
         .iter()
         .find(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingCallableResultRequired)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let rendered = bray_messages::DiagnosticRenderer::english().render(diagnostic);
 
@@ -284,7 +284,7 @@ fn callable_results_invalidate_execution_certificates() {
     );
 
     let key = crate::test_support::source_function_body_key(&compilation, "missing");
-    let proof = compilation.execution_properties(key).unwrap();
+    let proof = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
     assert!(proof.value().properties.is_empty());
 
@@ -587,8 +587,8 @@ fn callable_results_refine_cleanup_after_resolved_branches() {
 
     for name in ["literal", "exhaustive", "nested"] {
         let key = crate::test_support::source_function_body_key(&compilation, name);
-        let lowered = compilation.lowered_unit(key).unwrap();
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         assert!(
             mir.blocks().iter().all(|block| {
@@ -688,8 +688,8 @@ fn lowered_constant_paths_do_not_request_unreachable_cleanup() {
         );
 
         let key = crate::test_support::source_function_body_key(&compilation, "caller");
-        let lowered = compilation.lowered_unit(key).unwrap();
+        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
-        assert!(lowered.value().as_ref().unwrap().mir().is_some(), "{body}");
+        assert!(lowered.value().as_ref().expect("fixture optional value must be present").mir().is_some(), "{body}");
     }
 }

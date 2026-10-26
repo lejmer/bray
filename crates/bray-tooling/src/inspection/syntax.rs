@@ -297,7 +297,7 @@ fn syntax_tree_elements(
 fn finish_node(
     stack: &mut Vec<SyntaxInspectionElement>,
     root: &mut Option<SyntaxInspectionElement>,
-) -> () {
+) {
     let node = stack
         .pop()
         .expect("retained syntax.rs relationships must provide TreeStructure");
@@ -311,7 +311,6 @@ fn finish_node(
         None => panic!("syntax traversal must produce exactly one root"),
     }
 
-    ()
 }
 
 fn render_text_report(report: &SyntaxInspectionReport) -> String {

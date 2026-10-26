@@ -578,8 +578,7 @@ mod tests {
         let violation = SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression);
 
         let panic = std::panic::catch_unwind(|| operation_contract_failure(&key, violation))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -593,8 +592,7 @@ mod tests {
         let violation = SemanticQueryViolation::Missing(SemanticDataKind::OperationSelection);
 
         let panic = std::panic::catch_unwind(|| symbol_contract_failure(symbol, violation))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -612,8 +610,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             super::expression_type(&types, expression)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -638,8 +635,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             super::expression_type(&types, expression)
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

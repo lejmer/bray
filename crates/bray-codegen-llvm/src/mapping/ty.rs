@@ -675,19 +675,19 @@ mod tests {
     fn alignment_carriers_preserve_small_and_overaligned_aggregate_layouts() {
         let fixture = codegen_request();
         let request = fixture.request();
-        let machine = LlvmTargetMachine::create(request.target()).unwrap();
+        let machine = LlvmTargetMachine::create(request.target()).expect("fixture `LlvmTargetMachine::create` call must succeed");
         let target_data = machine.target_data();
         let context = Context::create();
 
         for alignment in [1, 2, 4, 8, 16, 32, 64, 128] {
             let mut types = mapped_type_fixture();
-            let alignment = NonZeroU64::new(alignment).unwrap();
+            let alignment = NonZeroU64::new(alignment).expect("fixture non zero u64 must be valid");
 
             let mapping = types
                 .mappings
                 .iter_mut()
                 .find(|mapping| mapping.ty() == types.aggregate)
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             *mapping = CodegenTypeMapping::new(
                 types.aggregate,
@@ -826,7 +826,7 @@ mod tests {
 
             let request = fixture.request();
             let mut types = mapped_type_fixture();
-            let store = SemanticValueStore::try_new().unwrap();
+            let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
             let mut exact = Vec::new();
 
             for (width, bytes, scalar) in [
@@ -837,7 +837,7 @@ mod tests {
                 (257, 33, bray_target::TargetScalarKind::I128),
             ] {
                 for signed in [false, true] {
-                    let bits = NonZeroU16::new(width).unwrap();
+                    let bits = NonZeroU16::new(width).expect("fixture non zero u16 must be valid");
                     let ty = intern_type(&store, TypeData::ExactInteger { bits, signed });
                     let alignment = native.profile().properties().scalars().alignment(scalar);
 
@@ -858,7 +858,7 @@ mod tests {
             }
 
             let mappings = combined_mappings(request, &types);
-            let machine = LlvmTargetMachine::create(request.target()).unwrap();
+            let machine = LlvmTargetMachine::create(request.target()).expect("fixture `LlvmTargetMachine::create` call must succeed");
             let target_data = machine.target_data();
             let context = Context::create();
 
@@ -866,7 +866,7 @@ mod tests {
                 LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
 
             for (ty, width, bytes) in exact {
-                let mapped = llvm.map(ty).unwrap();
+                let mapped = llvm.map(ty).expect("fixture `map` call must succeed");
 
                 assert_eq!(
                     mapped.into_int_type().get_bit_width(),

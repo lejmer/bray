@@ -30,7 +30,7 @@ impl Compilation {
                     let source_anchor = origin.source_anchor();
                     let syntax = source_anchor.syntax();
 
-                    if !sources.contains_key(&syntax.source_id()) {
+                    if let std::collections::btree_map::Entry::Vacant(e) = sources.entry(syntax.source_id()) {
                         let source = self.source(syntax.source_id());
                         let actual_version = source.as_ref().map(|source| source.version());
 
@@ -47,7 +47,7 @@ impl Compilation {
 
                         let file = codegen_source_file(source)?;
 
-                        sources.insert(syntax.source_id(), (index, file));
+                        e.insert((index, file));
                     }
 
                     let (index, file) = sources.get(&syntax.source_id()).ok_or_else(|| {

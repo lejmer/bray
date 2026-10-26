@@ -432,6 +432,10 @@ fn static_array<'context>(
     physical_aggregate(types, total, values)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "static union constants join selected payload, owner, storage, type mappings, and LLVM module"
+)]
 fn static_union<'context>(
     module: &Module<'context>,
     storage: &bray_codegen::CodegenStaticStorageMapping,

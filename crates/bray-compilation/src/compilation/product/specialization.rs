@@ -63,6 +63,9 @@ pub(super) enum ConcreteCodegenCallee {
     Intrinsic(IntrinsicCall),
 }
 
+type ConcreteReachabilityParts = (CodegenReachability, BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>, Arc<[super::codegen::NativeDemand]>, BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>);
+type ConcreteStaticSelection = (StaticInstanceKey, CodegenSpecialization, Vec<(CodegenImplementationWitness, ImplementationInstanceId)>);
+
 impl ConcreteCodegenReachability {
     pub(super) fn new(
         execution_requirements: BTreeMap<
@@ -138,12 +141,7 @@ impl ConcreteCodegenReachability {
 
     pub(super) fn into_parts(
         self,
-    ) -> (
-        CodegenReachability,
-        BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
-        Arc<[super::codegen::NativeDemand]>,
-        BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
-    ) {
+    ) -> ConcreteReachabilityParts {
         (
             self.graph,
             self.instances,
@@ -432,14 +430,7 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         reference: &StaticReferenceSelection,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            StaticInstanceKey,
-            CodegenSpecialization,
-            Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
-        ),
-        CodegenPreparationError,
-    > {
+    ) -> Result<ConcreteStaticSelection, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let (template, substitution, witnesses, target) = match reference {
@@ -722,7 +713,7 @@ impl Compilation {
         };
 
         let substitution =
-            substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
+            substitute_contextual_self_in_substitution(values, substitution, contextual_self)?;
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
         let callable = self.normalize_codegen_callable_arguments(callable, owner, cancellation)?;
@@ -780,10 +771,10 @@ impl Compilation {
             .substitute_trait_application(application, owner_substitution)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        let subject = substitute_contextual_self(&values, subject, contextual_self)?;
+        let subject = substitute_contextual_self(values, subject, contextual_self)?;
 
         let application =
-            substitute_contextual_self_in_application(&values, application, contextual_self)?;
+            substitute_contextual_self_in_application(values, application, contextual_self)?;
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
@@ -847,7 +838,7 @@ impl Compilation {
                         .substitute_type(target, owner_substitution)
                         .map_err(FactQueryError::SemanticValueStore)?;
 
-                    let target = substitute_contextual_self(&values, target, contextual_self)?;
+                    let target = substitute_contextual_self(values, target, contextual_self)?;
 
                     let conversion = bray_checker::built_in_conversion_plan_for_context(
                         &context, subject, target,
@@ -873,7 +864,7 @@ impl Compilation {
         witnesses.push(witness);
 
         let declaration = substitute_callable_instance(
-            &values,
+            values,
             demand.reference().instance(),
             Some(owner_substitution),
             contextual_self,
@@ -1141,7 +1132,7 @@ impl Compilation {
                     .map_err(FactQueryError::SemanticValueStore)?;
 
                 let substitution = substitute_contextual_self_in_substitution(
-                    &values,
+                    values,
                     substitution,
                     contextual_self,
                 )?;
@@ -1170,7 +1161,7 @@ impl Compilation {
         let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
         let callable = substitute_callable_instance(
-            &values,
+            values,
             *callable,
             owner.substitution(),
             contextual_self,

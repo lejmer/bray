@@ -82,7 +82,7 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
         matches!(key, bray_ir::MirUnitKey::ImportedExecutable(_))
     });
 
-    assert_eq!(result.unwrap(), 4);
+    assert_eq!(result.expect("fixture `result` call must succeed"), 4);
 }
 
 #[test]
@@ -225,7 +225,7 @@ fn runtime_defaults_cannot_consume_an_earlier_owned_argument() {
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         bray_diagnostics::DiagnosticKind::CheckingMissingStorageOwnership,
     );
 }

@@ -105,6 +105,10 @@ impl PackageImplementationArtifact {
     }
 
     /// Validates and encodes implementation payloads for one exact package interface.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "implementation artifacts join their semantic interface and distinct checked payload families under validation limits"
+    )]
     pub fn try_new(
         interface: &ValidatedPackageInterface,
         surface: &PackageInterfaceSurface,

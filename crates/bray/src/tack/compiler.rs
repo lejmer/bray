@@ -1024,22 +1024,6 @@ fn canonical_native_link_inputs(mut inputs: Vec<String>) -> Vec<String> {
     inputs
 }
 
-#[cfg(test)]
-mod tests {
-    use super::canonical_native_link_inputs;
-
-    #[test]
-    fn native_link_inputs_are_canonicalized_before_use() {
-        let inputs = canonical_native_link_inputs(vec![
-            "B=system".to_owned(),
-            "A=system".to_owned(),
-            "B=system".to_owned(),
-        ]);
-
-        assert_eq!(inputs, ["A=system", "B=system"]);
-    }
-}
-
 fn source_package(product: &ProjectProduct) -> PackageIdentity {
     if product.tested_library().is_none() {
         return product.identity().package().clone();
@@ -1267,4 +1251,20 @@ fn storage_diagnostics(error: bray_emitter::StorageError) -> DiagnosticBag {
         bray_diagnostics::DiagnosticId::new(0),
         bray_diagnostics::SeverityKind::Error,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_native_link_inputs;
+
+    #[test]
+    fn native_link_inputs_are_canonicalized_before_use() {
+        let inputs = canonical_native_link_inputs(vec![
+            "B=system".to_owned(),
+            "A=system".to_owned(),
+            "B=system".to_owned(),
+        ]);
+
+        assert_eq!(inputs, ["A=system", "B=system"]);
+    }
 }

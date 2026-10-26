@@ -23,6 +23,9 @@ type SourceProofs = BTreeMap<
     BTreeSet<(bray_checker::ExecutionDependencyTarget, ExecutionObligation)>,
 >;
 
+type CollectedExecutionProofs = (SourceProofs, BTreeMap<bray_declarations::SyntaxAnchor, CallableExecutionOrigin>, BTreeMap<bray_declarations::SyntaxAnchor, AnySymbolId>);
+type PortableExecutionContract = (Vec<CallableExecutionDomain<bray_symbols::ConstantTermId>>, BTreeMap<ExecutionObligation, PortableObligation>, Vec<(PortableObligation, PortableObligation)>, DiagnosticBag);
+
 impl Compilation {
     pub(in crate::compilation) fn export_execution_contracts(
         &self,
@@ -205,14 +208,7 @@ impl Compilation {
         selected: &BTreeSet<AnySymbolId>,
         diagnostics: &mut DiagnosticBag,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            SourceProofs,
-            BTreeMap<bray_declarations::SyntaxAnchor, CallableExecutionOrigin>,
-            BTreeMap<bray_declarations::SyntaxAnchor, AnySymbolId>,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<CollectedExecutionProofs, FactQueryError> {
         let graph = self.symbol_graph()?;
 
         let mut proofs = BTreeMap::<_, BTreeSet<_>>::new();
@@ -476,15 +472,7 @@ impl Compilation {
         symbol: AnySymbolId,
         demanded: &BTreeSet<ExecutionObligation>,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Vec<CallableExecutionDomain<bray_symbols::ConstantTermId>>,
-            BTreeMap<ExecutionObligation, PortableObligation>,
-            Vec<(PortableObligation, PortableObligation)>,
-            DiagnosticBag,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<PortableExecutionContract, FactQueryError> {
         let Some(owner) = self.execution_contract_owner(symbol)? else {
             return Ok((
                 Vec::new(),

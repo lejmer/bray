@@ -77,9 +77,7 @@ impl Policy {
 
         let mut segments = compact.rsplit("::");
 
-        let Some(variant_name) = segments.next() else {
-            return None;
-        };
+        let variant_name = segments.next()?;
 
         let qualifier = segments.next();
 

@@ -463,6 +463,7 @@ pub struct CheckedAsync {
 
 impl CheckedAsync {
     /// Validates and creates one immutable async analysis table.
+    #[expect(clippy::too_many_arguments, reason = "async analysis validates independent tables against one source unit identity")]
     pub fn try_new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -847,9 +848,9 @@ mod tests {
             plans.clone(),
             false,
         )
-        .unwrap()
+        .expect("fixture checked async must be valid")
         .with_replacements(replacements)
-        .unwrap();
+        .expect("fixture `with_replacements` call must succeed");
 
         assert_eq!(analysis.scope_exits(), &plans);
         assert_eq!(analysis.storage_requirements(), &requirements);
@@ -872,12 +873,12 @@ mod tests {
         );
 
         assert_eq!(
-            analysis.replacement(first_exit).unwrap().expression(),
+            analysis.replacement(first_exit).expect("fixture `replacement` call must succeed").expression(),
             first_exit
         );
 
         assert_eq!(
-            analysis.replacement(second_exit).unwrap().expression(),
+            analysis.replacement(second_exit).expect("fixture `replacement` call must succeed").expression(),
             second_exit
         );
 
@@ -921,11 +922,11 @@ mod tests {
     #[test]
     fn cleanup_type_components_reject_foreign_expression_identities() {
         let unit = BoundUnitId::new(7);
-        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+        let values = bray_symbols::SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         let ty = values
             .intern_type(bray_symbols::TypeData::tuple([]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         for component_unit in [unit, BoundUnitId::new(8)] {
             let projection = crate::StorageCleanupProjection::new(
@@ -952,7 +953,7 @@ mod tests {
 
             if component_unit == unit {
                 assert_eq!(
-                    result.unwrap().cleanup_types()[0].components(),
+                    result.expect("fixture `result` call must succeed").cleanup_types()[0].components(),
                     Some([projection].as_slice())
                 );
             } else {

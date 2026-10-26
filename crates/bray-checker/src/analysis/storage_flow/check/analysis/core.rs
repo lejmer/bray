@@ -87,9 +87,9 @@ where
     };
 
     let domain = StorageFlowDomain::new(
-        &graph,
+        graph,
         edge_lifetime_ends,
-        &reachability,
+        reachability,
         storage,
         liveness,
         refinements,
@@ -103,7 +103,7 @@ where
         patterns,
     );
 
-    let result = match solve_fixed_point(&graph, &domain, &request) {
+    let result = match solve_fixed_point(graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
         FixedPointOutcome::Cancelled => return CheckerOutcome::Cancelled,
         FixedPointOutcome::ConvergenceInvariantViolated => {
@@ -461,6 +461,7 @@ where
         }
     }
 
+    #[expect(clippy::too_many_arguments, reason = "the collector borrows separately owned checker tables for one analysis")]
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -525,6 +526,7 @@ where
         }
     }
 
+    #[expect(clippy::too_many_arguments, reason = "unpublished analysis borrows the same independent tables as published collection")]
     pub(in crate::analysis::storage_flow) fn without_publication(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -1772,9 +1774,7 @@ where
             .moved
             .keys()
             .filter_map(|access| {
-                match self.storage.access(access.access_id(self.storage)?)?.root() {
-                    root => root.borrow_capability(),
-                }
+                self.storage.access(access.access_id(self.storage)?)?.root().borrow_capability()
             })
             .collect::<BTreeSet<_>>();
 
@@ -2139,7 +2139,8 @@ where
         &self,
         identity: bray_bound_tree::StorageIdentityId,
     ) -> DiagnosticStorageRoot {
-        let root = match self.storage.identity(identity) {
+
+        match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
             Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => {
                 DiagnosticStorageRoot::Parameter
@@ -2180,9 +2181,7 @@ where
                     identity
                 );
             }
-        };
-
-        root
+        }
     }
 
     fn diagnostic_storage_projection(

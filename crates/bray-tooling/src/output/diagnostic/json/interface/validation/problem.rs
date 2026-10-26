@@ -624,7 +624,7 @@ mod tests {
             },
         );
 
-        let value = serde_json::to_value(value).unwrap();
+        let value = serde_json::to_value(value).expect("fixture JSON must serialize");
 
         assert_eq!(
             value,

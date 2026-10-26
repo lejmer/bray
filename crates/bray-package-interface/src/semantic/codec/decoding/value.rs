@@ -266,15 +266,21 @@ pub(super) fn decode_callable_type(
         constness: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
         abi: decode_tag(read_u32(reader)?)?,
-        invocation_behavior: super::contract::decode_callable_behavior(reader, limits, context)?,
+        invocation_behavior: {
+            context.charge_items::<crate::InterfaceCallablePhaseBehavior>(1)?;
+
+            super::contract::decode_callable_behavior(reader, limits, context)?.into()
+        },
         deferred_execution_behavior: {
             let raw = read_u32(reader)?;
 
             match raw {
                 0 => None,
-                1 => Some(super::contract::decode_callable_behavior(
-                    reader, limits, context,
-                )?),
+                1 => {
+                    context.charge_items::<crate::InterfaceCallablePhaseBehavior>(1)?;
+
+                    Some(super::contract::decode_callable_behavior(reader, limits, context)?.into())
+                },
                 _ => {
                     return Err(crate::semantic::codec::invalid_discriminant(
                         crate::InterfaceValidationField::Type,
@@ -654,7 +660,7 @@ mod tests {
 
             assert_eq!(
                 encode_semantics(&semantics, &surface, InterfaceValidationLimits::default())
-                    .unwrap_err(),
+                    .expect_err("invalid dependency contract must be rejected"),
                 crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Dependency),
             );
         }
@@ -681,14 +687,14 @@ mod tests {
         .into();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
 
         let decoded =
-            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).expect("fixture interface semantics must decode");
 
         assert_eq!(decoded, semantics);
 
-        let store = SemanticValueStore::try_new().unwrap();
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         assert!(matches!(decoded.intern(&store, &resolver(&surface)),
             Err(crate::InterfaceSemanticInternError::InvalidSymbolKind(reference)) if reference == provider));
@@ -781,15 +787,15 @@ mod tests {
         .into();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
 
         let decoded =
-            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).expect("fixture interface semantics must decode");
 
         assert_eq!(decoded, semantics);
 
-        let store = SemanticValueStore::try_new().unwrap();
-        let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let imported = decoded.intern(&store, &resolver(&surface)).expect("fixture `intern` call must succeed");
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 12);
@@ -863,7 +869,7 @@ mod tests {
             panic!("fixture retains its deferred callable phase");
         };
 
-        behavior.receiver_cleanup = vec![InterfaceTypeId::new(0), InterfaceTypeId::new(2)].into();
+        std::sync::Arc::make_mut(behavior).receiver_cleanup = vec![InterfaceTypeId::new(0), InterfaceTypeId::new(2)].into();
         semantics.types = types.into();
 
         let limits = InterfaceValidationLimits::default();
@@ -1431,7 +1437,7 @@ mod tests {
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
 
         assert_eq!(
             decode_semantics(&encoded_section_views(&sections), &surface, limits),
@@ -1510,7 +1516,7 @@ mod tests {
                         constness: CallableConstness::Runtime,
                         trust: CallableTrust::Safe,
                         abi: CallableAbi::Bray,
-                        invocation_behavior: crate::test_support::callable_phase_behavior(),
+                        invocation_behavior: crate::test_support::callable_phase_behavior().into(),
                         deferred_execution_behavior: Some(
                             crate::InterfaceCallablePhaseBehavior::new(
                                 [],
@@ -1520,7 +1526,7 @@ mod tests {
                                 [bray_symbols::LifecycleObligationKind::Finalization],
                                 InterfaceDependencyContractId::new(0),
                                 bray_symbols::CurrentRunCancellation::MayEnter,
-                            ),
+                            ).into(),
                         ),
                     },
                 ],

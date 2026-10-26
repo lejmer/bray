@@ -415,9 +415,9 @@ mod tests {
                 diagnostics
                     .iter()
                     .next()
-                    .unwrap()
+                    .expect("fixture iterator must provide its expected item")
                     .primary_span()
-                    .unwrap()
+                    .expect("fixture `primary_span` call must succeed")
                     .range()
                     .start()
                     .bytes(),
@@ -498,18 +498,18 @@ mod tests {
 
             for mutable in mutable_layers {
                 assert_eq!(
-                    layer.ampersand_token().unwrap().kind(),
+                    layer.ampersand_token().expect("fixture `ampersand_token` call must succeed").kind(),
                     SyntaxKind::AmpersandToken
                 );
 
                 assert_eq!(layer.mut_token().is_some(), mutable);
 
-                let inner = layer.type_expressions().next().unwrap();
+                let inner = layer.type_expressions().next().expect("fixture iterator must provide its expected item");
 
                 layer = inner;
             }
 
-            assert_eq!(layer.path().unwrap().full_text(), "T");
+            assert_eq!(layer.path().expect("fixture `path` call must succeed").full_text(), "T");
             assert_eq!(parser.peek().kind(), SyntaxKind::EndOfFileToken);
             assert!(parser.finish().is_empty(), "{text}");
         }

@@ -116,7 +116,7 @@ pub(in crate::native) fn active() -> bool {
 }
 
 pub(in crate::native) fn with_output<T>(callback: impl FnOnce() -> T) -> T {
-    let output = callbacks().map_or(None, |callbacks| (callbacks.output)());
+    let output = callbacks().and_then(|callbacks| (callbacks.output)());
 
     with_task_output(output, callback)
 }
@@ -314,7 +314,7 @@ mod tests {
             assert!(primary.message().copy_to(0, &mut bytes).is_success());
 
             OBSERVED.with_borrow_mut(|observed| {
-                observed.reports.push(String::from_utf8(bytes).unwrap())
+                observed.reports.push(String::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
             });
 
             NativeRuntimeStatus::SUCCESS
@@ -323,7 +323,7 @@ mod tests {
         extern "C" fn cleanup(_: u64) -> u32 {
             assert!(crate::bootstrap::current_runtime_thread().is_none());
 
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
             let mut panic =
                 crate::RuntimePanic::new("terminal cleanup \u{3b2}".repeat(4096), &mut admitted);
@@ -350,7 +350,7 @@ mod tests {
 
         assert!(super::register_host_callbacks(callbacks).is_success());
         assert!(crate::bootstrap::register_thread_cleanup(cleanup));
-        super::finish().unwrap();
+        super::finish().expect("fixture operation must finish successfully");
 
         OBSERVED.with_borrow(|observed| {
             assert_eq!(observed.reports, ["terminal cleanup \u{3b2}".repeat(4096)]);
@@ -363,7 +363,7 @@ mod tests {
             primary: &bray_runtime_abi::NativePanicPrimary,
             identity: Option<bray_runtime_abi::NativeTypeIdentity>,
         ) -> NativeRuntimeStatus {
-            assert_eq!(identity.unwrap().bytes(), [29; 32]);
+            assert_eq!(identity.expect("fixture `identity` call must succeed").bytes(), [29; 32]);
 
             assert_eq!(
                 primary.source(),
@@ -417,12 +417,12 @@ mod tests {
 
         assert!(
             crate::incident::OwnedCleanupIncident::native(incident)
-                .unwrap()
+                .expect("fixture `crate::incident::OwnedCleanupIncident::native` call must succeed")
                 .report()
                 .is_success()
         );
 
-        super::finish().unwrap();
+        super::finish().expect("fixture operation must finish successfully");
         OBSERVED.with_borrow(|observed| assert_eq!(observed.outcomes, 1));
     }
     #[test]
@@ -498,13 +498,13 @@ mod tests {
 
             assert_eq!(
                 crate::incident::OwnedCleanupIncident::native(incident)
-                    .unwrap()
+                    .expect("fixture `crate::incident::OwnedCleanupIncident::native` call must succeed")
                     .report(),
                 NativeRuntimeStatus::RUNTIME_FAILURE
             );
         }
 
-        super::finish().unwrap();
+        super::finish().expect("fixture operation must finish successfully");
 
         OBSERVED.with_borrow(|observed| {
             assert_eq!(observed.outcomes, 2);

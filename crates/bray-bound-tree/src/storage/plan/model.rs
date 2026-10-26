@@ -670,7 +670,7 @@ mod tests {
 
         let identity = builder
             .push_identity(crate::StorageIdentity::Temporary(expressions[0]))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let access = builder
             .push_access(crate::StorageAccess::new(
@@ -680,7 +680,7 @@ mod tests {
                 crate::test_support::source_anchor(),
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let targets = [pattern, crate::BoundPatternId::from_slot(unit, 1)]
             .map(crate::StorageBindingTarget::PatternSubject);
@@ -688,7 +688,7 @@ mod tests {
         for target in targets.into_iter().rev() {
             builder
                 .bind(target, crate::StorageBinding::Access(access))
-                .unwrap();
+                .expect("fixture `bind` call must succeed");
         }
 
         for (node, expression, purpose) in [
@@ -720,7 +720,7 @@ mod tests {
         ] {
             builder
                 .plan_access(node, expression, purpose, access)
-                .unwrap();
+                .expect("fixture `plan_access` call must succeed");
         }
 
         let plan = builder.finish();
@@ -884,13 +884,13 @@ mod tests {
 
         let owner = builder
             .push_identity(StorageIdentity::Temporary(expression))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let retained = builder
             .push_identity(StorageIdentity::Temporary(BoundExpressionId::from_slot(
                 unit, 1,
             )))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let owner_access = builder
             .push_access(StorageAccess::new(
@@ -900,7 +900,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let capability = builder
             .push_borrow_capability(crate::PlannedBorrowCapability::new(
@@ -911,7 +911,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture borrow capability must fit its identity space");
 
         let root = StorageAccessRoot::BorrowedStorage {
             capability,
@@ -920,7 +920,7 @@ mod tests {
 
         let retained_root = builder
             .push_access(StorageAccess::new(root, [], ty, source, false))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let first = builder
             .push_access(StorageAccess::new(
@@ -930,7 +930,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let second = builder
             .push_access(StorageAccess::new(
@@ -940,7 +940,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let child = builder
             .push_borrow_capability(crate::PlannedBorrowCapability::new(
@@ -953,7 +953,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture borrow capability must fit its identity space");
 
         let child_access = builder
             .push_access(StorageAccess::new(
@@ -963,7 +963,7 @@ mod tests {
                 source,
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let plan = builder.finish();
 

@@ -45,9 +45,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let memory = self.memory;
 
-        let Some(operation) = memory.operation(expression) else {
-            return None;
-        };
+        let operation = memory.operation(expression)?;
 
         let proven = self.memory_evidence;
         let mut write_target = None;
@@ -56,7 +54,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             MemoryOperationStatus::Unreachable
         } else if state.recovered {
             MemoryOperationStatus::Recovered
-        } else if crate::memory::execution::requires_trust(operation.kind())
+        } else if crate::memory::execution::requires_trust(&operation.kind())
             && proven.is_none()
             && !refinements
                 .clone()
@@ -94,8 +92,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let status = self.apply_valid_memory_operation(state, operation, proven);
 
-            if status == MemoryOperationStatus::Valid && proven != Some(true) {
-                if let Some((targets, element, purpose)) = targets {
+            if status == MemoryOperationStatus::Valid && proven != Some(true)
+                && let Some((targets, element, purpose)) = targets {
                     for (place, storage_type, definite) in targets {
                         let same_type = storage_type == Some(element);
 
@@ -111,7 +109,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     }
                 }
-            }
 
             status
         };

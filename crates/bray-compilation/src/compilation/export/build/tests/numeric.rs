@@ -222,7 +222,7 @@ fn numeric_truncation_preserves_callable_value_and_predicate_contracts() {
                     key,
                     bray_ir::MirUnitKey::CompilerProvidedCallable(_)
                 ))
-                .unwrap()
+                .expect("fixture `codegen_instance_count_for_test` call must succeed")
                 > 0
         );
     }
@@ -281,7 +281,7 @@ fn integer_truncation_has_no_runtime_requirement_helper_before_llvm() {
                     key,
                     bray_ir::MirUnitKey::Predicate(_)
                 ))
-                .unwrap(),
+                .expect("fixture `codegen_instance_count_for_test` call must succeed"),
             0
         );
     }
@@ -352,7 +352,7 @@ fn numeric_truncation_composes_with_open_generic_contracts() {
         assert!(
             compilation
                 .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Bound(_)))
-                .unwrap()
+                .expect("fixture `codegen_instance_count_for_test` call must succeed")
                 > 0
         );
     }
@@ -521,7 +521,7 @@ fn numeric_truncation_query_values_keep_their_static_domains() {
                             key,
                             bray_ir::MirUnitKey::CompilerProvidedCallable(_)
                         ))
-                        .unwrap()
+                        .expect("fixture `codegen_instance_count_for_test` call must succeed")
                         >= 2
                 );
             } else {
@@ -572,7 +572,7 @@ fn numeric_truncation_unsupported_support_queries_are_false_without_runtime_help
                     bray_ir::MirUnitKey::CompilerProvidedCallable(_)
                         | bray_ir::MirUnitKey::Predicate(_)
                 ))
-                .unwrap(),
+                .expect("fixture `codegen_instance_count_for_test` call must succeed"),
             0
         );
     }
@@ -621,7 +621,7 @@ fn numeric_truncation_inherits_predicates_through_type_equalities() {
         assert!(
             compilation
                 .codegen_instance_count_for_test(|key| matches!(key, bray_ir::MirUnitKey::Bound(_)))
-                .unwrap()
+                .expect("fixture `codegen_instance_count_for_test` call must succeed")
                 > 0
         );
     }

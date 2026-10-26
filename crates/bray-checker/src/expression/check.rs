@@ -25,7 +25,7 @@ use crate::type_check::{
 };
 use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider,
+    CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider,
     CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence, NestedCallableEvidence,
     PatternCheckInput,
 };
@@ -222,10 +222,7 @@ fn prepare_expression_check<'view, C>(
     supplemental_evidence: &[ExpressionTypeEvidence],
     supplemental_deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
     operation_input: &crate::ExpressionTypeInput,
-) -> Result<
-    SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
-    CheckerQueryError<C::UpstreamError>,
->
+) -> crate::CheckerQueryResult<SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>

@@ -1414,7 +1414,7 @@ pub(super) fn final_selections<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedExpressions,
-) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerQueryError<C::UpstreamError>>
+) -> crate::CheckerQueryResult<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>

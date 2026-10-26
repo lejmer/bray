@@ -377,6 +377,21 @@ impl DependencyInterfaceInput {
     }
 }
 
+type CompilationRequestParts = (
+    PackageIdentity,
+    PackageSourceAuthority,
+    Option<bray_standard_library::StandardLibraryRoot>,
+    Vec<bray_package_interface::PackageArtifactInput>,
+    CompilationOptions,
+    Vec<SourceInput>,
+    Vec<DependencyInterfaceInput>,
+    Vec<PlatformServiceBinding>,
+    Vec<RuntimeRoleSourceBinding>,
+    Option<PackageInterfaceExportRequest>,
+    Option<CompilationProfileConfiguration>,
+    Option<bray_symbols::ProductIdentity>,
+);
+
 impl CompilationRequest {
     /// Creates a compilation request for one source package with default options.
     pub fn new(package_identity: PackageIdentity, sources: Vec<SourceInput>) -> Self {
@@ -562,20 +577,7 @@ impl CompilationRequest {
     /// Consumes the request into its parts.
     pub fn into_parts(
         self,
-    ) -> (
-        PackageIdentity,
-        PackageSourceAuthority,
-        Option<bray_standard_library::StandardLibraryRoot>,
-        Vec<bray_package_interface::PackageArtifactInput>,
-        CompilationOptions,
-        Vec<SourceInput>,
-        Vec<DependencyInterfaceInput>,
-        Vec<PlatformServiceBinding>,
-        Vec<RuntimeRoleSourceBinding>,
-        Option<PackageInterfaceExportRequest>,
-        Option<CompilationProfileConfiguration>,
-        Option<bray_symbols::ProductIdentity>,
-    ) {
+    ) -> CompilationRequestParts {
         (
             self.package_identity,
             self.package_source_authority,

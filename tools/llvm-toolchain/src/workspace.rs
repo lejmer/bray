@@ -59,38 +59,38 @@ mod tests {
     fn workspace(parent: &Path, name: &str) -> PathBuf {
         let root = parent.join(name);
 
-        fs::create_dir_all(root.join("xtask/src")).unwrap();
-        fs::create_dir_all(root.join("toolchains")).unwrap();
+        fs::create_dir_all(root.join("xtask/src")).expect("fixture directories must be created");
+        fs::create_dir_all(root.join("toolchains")).expect("fixture directories must be created");
 
         fs::write(
             root.join("Cargo.toml"),
             "[workspace]\nmembers = [\"xtask\"]\n",
         )
-        .unwrap();
+        .expect("fixture contents must be written");
 
         fs::write(
             root.join("xtask/Cargo.toml"),
             "[package]\nname = \"xtask\"\nversion = \"0.0.0\"\n",
         )
-        .unwrap();
+        .expect("fixture contents must be written");
 
-        fs::write(root.join("xtask/src/main.rs"), "fn main() {}\n").unwrap();
-        fs::write(root.join("toolchains/llvm.json"), "{}\n").unwrap();
+        fs::write(root.join("xtask/src/main.rs"), "fn main() {}\n").expect("fixture contents must be written");
+        fs::write(root.join("toolchains/llvm.json"), "{}\n").expect("fixture contents must be written");
 
         root
     }
 
     #[test]
     fn alternating_workspaces_and_member_directories_select_the_callers_checkout() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let first = workspace(directory.path(), "first checkout");
         let second = workspace(directory.path(), "second checkout");
 
         for root in [&first, &second, &first] {
             for current in [root.clone(), root.join("xtask/src")] {
                 assert_eq!(
-                    root_from(&current).unwrap().canonicalize().unwrap(),
-                    root.canonicalize().unwrap()
+                    root_from(&current).expect("fixture workspace root must be discovered").canonicalize().expect("fixture path must have a canonical filesystem location"),
+                    root.canonicalize().expect("fixture path must have a canonical filesystem location")
                 );
             }
         }
@@ -98,11 +98,11 @@ mod tests {
 
     #[test]
     fn cargo_discovery_failures_preserve_the_manifest_error() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-        fs::write(directory.path().join("Cargo.toml"), "[workspace").unwrap();
+        fs::write(directory.path().join("Cargo.toml"), "[workspace").expect("fixture contents must be written");
 
-        let error = root_from(directory.path()).unwrap_err();
+        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(error.contains("Cargo.toml"), "{error}");
 
@@ -116,19 +116,19 @@ mod tests {
 
     #[test]
     fn unrelated_cargo_workspaces_are_rejected() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-        fs::write(directory.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        fs::write(directory.path().join("Cargo.toml"), "[workspace]\n").expect("fixture contents must be written");
 
-        let error = root_from(directory.path()).unwrap_err();
+        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(error.ends_with("is not a Bray workspace"), "{error}");
     }
 
     #[test]
     fn directories_without_a_cargo_workspace_are_rejected() {
-        let directory = tempfile::tempdir().unwrap();
-        let error = root_from(directory.path()).unwrap_err();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
+        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(
             error.contains("could not locate the Cargo workspace"),

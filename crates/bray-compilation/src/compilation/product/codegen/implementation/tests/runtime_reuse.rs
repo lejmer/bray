@@ -55,7 +55,7 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
     );
 
     let companion = bray_native_artifact::NativeStatic::new(
-        NonEmptySharedStr::try_new("second_provider_host").unwrap(),
+        NonEmptySharedStr::try_new("second_provider_host").expect("fixture non empty shared str must be valid"),
         [78; 32],
         Arc::from([1].as_slice()),
         StaticStorageDuration::Product,
@@ -211,15 +211,15 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
 
     let artifact = dependency
         .shared_implementation_artifact()
-        .unwrap()
-        .unwrap();
+        .expect("fixture implementation artifact must have shared storage")
+        .expect("successful fixture query must contain its expected result");
 
-    let original = artifact.native_artifact().unwrap().unwrap();
+    let original = artifact.native_artifact().expect("fixture `native_artifact` call must succeed").expect("successful fixture query must contain its expected result");
     let unit = &original.units()[0];
     let role = RuntimeAbiRole::PanicReportSuppression;
 
     let static_entry = bray_native_artifact::NativeStatic::new(
-        NonEmptySharedStr::try_new("bray_test_static_host").unwrap(),
+        NonEmptySharedStr::try_new("bray_test_static_host").expect("fixture non empty shared str must be valid"),
         [77; 32],
         Arc::from(b"native-static".as_slice()),
         StaticStorageDuration::Product,
@@ -237,7 +237,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         .cloned()
         .chain([NativeDefinition::new(
             NativeSymbolContract::required_name(
-                NonEmptySharedStr::try_new(static_entry.symbol()).unwrap(),
+                NonEmptySharedStr::try_new(static_entry.symbol()).expect("fixture non empty shared str must be valid"),
             ),
             NativeDefinitionSelection::Ordinary,
         )])
@@ -249,7 +249,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         NativeUnitSummary::Exact {
             definitions: definitions.into(),
             references: Arc::from([NativeSymbolContract::required_name(
-                NonEmptySharedStr::try_new(role.native_symbol().unwrap()).unwrap(),
+                NonEmptySharedStr::try_new(role.native_symbol().expect("fixture runtime role must have a native symbol")).expect("fixture non empty shared str must be valid"),
             )]),
             roots: Arc::from([]),
         },
@@ -259,9 +259,9 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
 
     let index =
         NativeArtifactIndex::try_new(original.target(), original.producer(), [replacement], [])
-            .unwrap();
+            .expect("fixture native artifact index must be valid");
 
-    let encoded = index.encode().unwrap();
+    let encoded = index.encode().expect("fixture artifact must encode");
 
     let artifact = artifact
         .try_native_only_artifact(
@@ -270,11 +270,11 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 unit.digest().bytes(),
                 artifact
                     .native_unit_bytes(unit.digest().bytes())
-                    .unwrap()
-                    .unwrap(),
+                    .expect("fixture `native_unit_bytes` call must succeed")
+                    .expect("successful fixture query must contain its expected result"),
             )],
         )
-        .unwrap();
+        .expect("fixture native only artifact must succeed");
 
     let dependency = dependency.with_implementation_artifact("native.brayimpl", Arc::new(artifact));
 
@@ -335,7 +335,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                     selected.clone(),
                 )
                 .with_native_link_inputs([NativeLinkRequirement::new(
-                    NonEmptySharedStr::try_new("native").unwrap(),
+                    NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
                     NativeLinkKind::Dynamic,
                 )]),
             )
@@ -344,7 +344,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 crate::test_support::runtime_standard_library_dependency(&selected),
             ]),
         )
-        .unwrap();
+        .expect("fixture input must load");
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -353,12 +353,12 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         );
 
         let cancellation = CancellationToken::new();
-        let target = compilation.requested_target().codegen_target().unwrap();
-        let semantic = compilation.product_semantics().unwrap();
+        let target = compilation.requested_target().codegen_target().expect("fixture target must support code generation");
+        let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
-            .unwrap();
+            .expect("fixture product roots must resolve");
 
         let reachability = compilation
             .codegen_reachability(
@@ -369,7 +369,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 false,
                 &cancellation,
             )
-            .unwrap();
+            .expect("fixture product must resolve code-generation reachability");
 
         assert!(reachability.selected_native_units().next().is_none());
 
@@ -383,7 +383,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                 &target,
                 &cancellation,
             )
-            .unwrap();
+            .expect("fixture `mapped_product_runtime_demands` call must succeed");
 
         assert_eq!(
             statics.statics(),
@@ -429,12 +429,12 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let archive = directory.path().join("runtime.lib");
 
-    fs::write(&archive, b"test runtime archive").unwrap();
+    fs::write(&archive, b"test runtime archive").expect("fixture contents must be written");
 
     let original = runtime_artifact(&compilation, &archive);
     let original_index = original.native_indexes()[0].index();
@@ -443,7 +443,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
         .units()
         .iter()
         .find(|unit| unit.kind() == NativeUnitKind::Object)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let NativeUnitSummary::Exact { definitions, .. } = original_unit.summary() else {
         panic!("runtime fixture must have exact role definitions");
@@ -462,7 +462,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
 
     for required in ["bray_test_precompiled", "missing_library_symbol"] {
         let symbol =
-            NativeSymbolContract::required_name(NonEmptySharedStr::try_new(required).unwrap());
+            NativeSymbolContract::required_name(NonEmptySharedStr::try_new(required).expect("fixture non empty shared str must be valid"));
 
         let unit = NativeUnit::new(
             original_unit.digest(),
@@ -481,11 +481,11 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
             [unit],
             [],
         )
-        .unwrap();
+        .expect("fixture native artifact index must be valid");
 
-        let bytes = index.encode().unwrap();
+        let bytes = index.encode().expect("fixture artifact must encode");
 
-        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).unwrap());
+        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
 
         let imported = NativeArtifactIndex::import(
             &bytes,
@@ -494,7 +494,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
             index.producer(),
             &directory.path().join("native"),
         )
-        .unwrap();
+        .expect("fixture `NativeArtifactIndex::import` call must succeed");
 
         let metadata = RuntimeArtifactMetadata::try_new(
             original.contract().clone(),
@@ -505,21 +505,21 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
                     format!("{}.json", purpose.as_str()),
                     digest,
                 )
-                .unwrap()
+                .expect("fixture runtime native index metadata must be valid")
             }),
         )
-        .unwrap();
+        .expect("fixture runtime artifact metadata must be valid");
 
         let runtime = RuntimeArtifact::try_new(
             metadata,
             directory.path().to_owned(),
             [imported.clone(), imported],
         )
-        .unwrap();
+        .expect("fixture runtime artifact must be valid");
 
         let runtime = runtime
             .plan(RuntimeArtifactPurpose::Product, &requirements)
-            .unwrap();
+            .expect("fixture `plan` call must succeed");
 
         let result = compilation.product_link_inputs(
             bray_linker::LinkedProductKind::Executable,

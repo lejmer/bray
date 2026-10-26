@@ -242,7 +242,7 @@ fn construction_inputs_retain_identity_and_one_nullable_insertion() {
 
     let selections = application
         .semantic_selections(source_callable_body_key(&application))
-        .unwrap();
+        .expect("fixture callable must have semantic selections");
 
     let conversions = selections
         .value()

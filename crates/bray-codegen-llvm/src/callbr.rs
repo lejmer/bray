@@ -33,6 +33,10 @@ pub(crate) enum CallBrError {
     unsafe_code,
     reason = "Inkwell 0.9.0 exposes neither callbr construction nor callbr as an attributed call site"
 )]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "LLVM callbr construction keeps its signature, destinations, operands, attributes, and instruction name explicit"
+)]
 pub(crate) fn build_callbr<'context>(
     builder: &Builder<'context>,
     function_type: FunctionType<'context>,

@@ -189,38 +189,38 @@ mod tests {
 
     #[test]
     fn source_replacement_preserves_permissions_and_cleans_failed_staging() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let path = directory.path().join("example.rs");
 
-        std::fs::write(&path, "original").unwrap();
+        std::fs::write(&path, "original").expect("fixture contents must be written");
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
 
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).expect("fixture permissions must be updated");
         }
 
-        let permissions = std::fs::metadata(&path).unwrap().permissions();
+        let permissions = std::fs::metadata(&path).expect("fixture metadata must be readable").permissions();
 
-        super::replace_source(&path, b"replacement").unwrap();
+        super::replace_source(&path, b"replacement").expect("fixture source replacement must succeed");
 
-        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), permissions);
+        assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"replacement");
+        assert_eq!(std::fs::metadata(&path).expect("fixture metadata must be readable").permissions(), permissions);
 
         let blocked = directory.path().join("directory.rs");
 
-        std::fs::create_dir(&blocked).unwrap();
-        std::fs::write(blocked.join("retained"), "original").unwrap();
+        std::fs::create_dir(&blocked).expect("fixture directory must be created");
+        std::fs::write(blocked.join("retained"), "original").expect("fixture contents must be written");
 
         assert!(super::replace_source(&blocked, b"replacement").is_err());
 
         assert_eq!(
-            std::fs::read(blocked.join("retained")).unwrap(),
+            std::fs::read(blocked.join("retained")).expect("fixture contents must be readable"),
             b"original"
         );
 
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+        assert_eq!(std::fs::read_dir(directory.path()).expect("fixture directory entries must be readable").count(), 2);
     }
 
     #[cfg(windows)]
@@ -231,41 +231,41 @@ mod tests {
 
         const FILE_SHARE_READ: u32 = 1;
 
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let path = directory.path().join("example.rs");
 
-        std::fs::write(&path, "original").unwrap();
+        std::fs::write(&path, "original").expect("fixture contents must be written");
 
-        let permissions = std::fs::metadata(&path).unwrap().permissions();
+        let permissions = std::fs::metadata(&path).expect("fixture metadata must be readable").permissions();
 
         let lock = OpenOptions::new()
             .read(true)
             .share_mode(FILE_SHARE_READ)
             .open(&path)
-            .unwrap();
+            .expect("fixture file must open");
 
         assert!(super::replace_source(&path, b"replacement").is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), b"original");
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), permissions);
-        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+        assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"original");
+        assert_eq!(std::fs::metadata(&path).expect("fixture metadata must be readable").permissions(), permissions);
+        assert_eq!(std::fs::read_dir(directory.path()).expect("fixture directory entries must be readable").count(), 1);
 
         drop(lock);
     }
 
     #[test]
     fn workspace_fixes_replace_source_and_are_idempotent() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let path = directory.path().join("example.rs");
         let source = "fn example() {\n    let value = 1;\n    return value;\n}\n";
 
-        std::fs::write(&path, source).unwrap();
+        std::fs::write(&path, source).expect("fixture contents must be written");
 
-        let (expected, fixes) = crate::blank_line::fix_source(source).unwrap();
+        let (expected, fixes) = crate::blank_line::fix_source(source).expect("fixture source fixes must converge");
 
         assert!(fixes > 0);
-        assert_eq!(super::fix_sources(&[path.clone()]).unwrap(), fixes);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
-        assert_eq!(super::fix_sources(&[path]).unwrap(), 0);
+        assert_eq!(super::fix_sources(std::slice::from_ref(&path)).expect("fixture workspace fixes must succeed"), fixes);
+        assert_eq!(std::fs::read_to_string(&path).expect("fixture text must be readable"), expected);
+        assert_eq!(super::fix_sources(&[path]).expect("fixture workspace fixes must succeed"), 0);
     }
 
     #[test]

@@ -463,24 +463,24 @@ mod tests {
             GenericOwnerId, GenericSubstitutionData, SemanticValueStore, TypeData,
         };
 
-        let values = SemanticValueStore::try_new().unwrap();
-        let ty = values.intern_type(TypeData::tuple([])).unwrap();
-        let other = values.intern_type(TypeData::Nullable(ty)).unwrap();
+        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let ty = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let other = values.intern_type(TypeData::Nullable(ty)).expect("fixture type must be interned");
         let function = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
 
         let substitution = values
             .intern_generic_substitution(
                 GenericSubstitutionData::try_new(
-                    GenericOwnerId::try_new(function.into()).unwrap(),
+                    GenericOwnerId::try_new(function.into()).expect("fixture generic owner id must be valid"),
                     [],
                     [],
                 )
-                .unwrap(),
+                .expect("fixture generic substitution data must be valid"),
             )
-            .unwrap();
+            .expect("fixture generic substitution must be interned");
 
         let callable = CallableInstanceData::new(
-            CallableDefinitionId::try_new(function.into()).unwrap(),
+            CallableDefinitionId::try_new(function.into()).expect("fixture callable definition id must be valid"),
             substitution,
         );
 

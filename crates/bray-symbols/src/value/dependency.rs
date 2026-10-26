@@ -809,7 +809,7 @@ mod tests {
             .try_map_requirements::<std::convert::Infallible>(|_, requirements| {
                 Ok(requirements.iter().chain(requirements).cloned().collect())
             })
-            .unwrap();
+            .expect("fixture map requirements must succeed");
 
         assert_eq!(mapped, template);
         assert_eq!(mapped.all_requirements().collect::<Vec<_>>(), [&input]);
@@ -822,7 +822,7 @@ mod tests {
         assert!(
             DependencyContractTemplateData::new([])
                 .try_map_requirements::<()>(|_, _| Ok(Vec::new()))
-                .unwrap()
+                .expect("fixture map requirements must succeed")
                 .completion_reports()
                 .is_none()
         );

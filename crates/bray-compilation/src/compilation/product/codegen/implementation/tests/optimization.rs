@@ -158,13 +158,13 @@ fn numeric_constant_branch_removes_its_native_dependency() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let none = compilation
         .codegen_reachability(
@@ -175,7 +175,7 @@ fn numeric_constant_branch_removes_its_native_dependency() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let basic = compilation
         .codegen_reachability(
@@ -186,7 +186,7 @@ fn numeric_constant_branch_removes_its_native_dependency() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let full = compilation
         .codegen_reachability(
@@ -197,7 +197,7 @@ fn numeric_constant_branch_removes_its_native_dependency() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     // Checking already establishes that this source branch is unreachable.
     assert_eq!(none.graph().instances().len(), 1);
@@ -230,13 +230,13 @@ fn repeated_scalar_expression_uses_one_dominating_result() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let none = compilation
         .codegen_reachability(
@@ -247,7 +247,7 @@ fn repeated_scalar_expression_uses_one_dominating_result() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let basic = compilation
         .codegen_reachability(
@@ -258,7 +258,7 @@ fn repeated_scalar_expression_uses_one_dominating_result() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let multiply_count = |graph: &bray_codegen::CodegenReachability| {
         graph
@@ -309,13 +309,13 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let start = std::time::Instant::now();
 
@@ -328,7 +328,7 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     eprintln!("256 repeated scalar expressions: {:?}", start.elapsed());
 
@@ -379,13 +379,13 @@ fn runtime_division_by_zero_remains_in_optimized_mir() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     for options in [
         CodegenOptions::default(),
@@ -393,7 +393,7 @@ fn runtime_division_by_zero_remains_in_optimized_mir() {
     ] {
         let reachability = compilation
             .codegen_reachability(roots.clone(), None, &target, options, false, &cancellation)
-            .unwrap();
+            .expect("fixture product must resolve code-generation reachability");
 
         assert!(
             reachability
@@ -444,13 +444,13 @@ fn unknown_join_and_loop_values_keep_reachable_calls() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let basic = compilation
         .codegen_reachability(
@@ -461,7 +461,7 @@ fn unknown_join_and_loop_values_keep_reachable_calls() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     assert_eq!(basic.graph().instances().len(), 3);
 
@@ -501,13 +501,13 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let none = compilation
         .codegen_reachability(
@@ -518,7 +518,7 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let basic = compilation
         .codegen_reachability(
@@ -529,7 +529,7 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     assert_eq!(none.graph().instances().len(), 4);
     assert_eq!(basic.graph().instances().len(), 4);
@@ -584,13 +584,13 @@ fn imported_generic_constant_prunes_its_transitive_native_dependency() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let none = compilation
         .codegen_reachability(
@@ -601,7 +601,7 @@ fn imported_generic_constant_prunes_its_transitive_native_dependency() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let basic = compilation
         .codegen_reachability(
@@ -612,7 +612,7 @@ fn imported_generic_constant_prunes_its_transitive_native_dependency() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     assert_eq!(none.graph().instances().len(), 4);
     assert_eq!(basic.graph().instances().len(), 4);
@@ -667,13 +667,13 @@ fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let none = compilation
         .codegen_reachability(
@@ -684,7 +684,7 @@ fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let basic = compilation
         .codegen_reachability(
@@ -695,7 +695,7 @@ fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     assert_eq!(none.graph().instances().len(), 4);
     assert_eq!(basic.graph().instances().len(), 4);
@@ -744,7 +744,7 @@ fn assert_boolean_specialization_dependencies(
     assert_eq!(generic[0].key().template(), generic[1].key().template());
     assert_ne!(generic[0].mir(), generic[1].mir());
 
-    let values = compilation.semantic_value_store().unwrap();
+    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
     let mut seen = BTreeSet::new();
 
     for instance in generic {

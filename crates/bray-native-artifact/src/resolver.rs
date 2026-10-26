@@ -13,6 +13,8 @@ use crate::{
 };
 
 type SymbolKey = (NativeSymbolIdentity, Option<String>);
+type StaticAccesses = BTreeMap<SymbolKey, Arc<[[u8; 32]]>>;
+type SelectionResult = Result<Arc<NativeUnitSelection>, NativeResolutionError>;
 
 fn symbol_key(symbol: &NativeSymbolContract) -> SymbolKey {
     (
@@ -58,7 +60,7 @@ pub struct NativeUnitSelection {
     units: Vec<NativeUnitLocation>,
     reasons: BTreeMap<NativeUnitLocation, BTreeSet<NativeUnitInclusion>>,
     statics: Vec<crate::NativeStatic>,
-    static_accesses: BTreeMap<SymbolKey, Arc<[[u8; 32]]>>,
+    static_accesses: StaticAccesses,
 }
 
 impl NativeUnitSelection {
@@ -114,7 +116,7 @@ pub struct NativeUnitResolver {
     selections: Mutex<
         BTreeMap<
             Vec<NativeSymbolContract>,
-            Result<Arc<NativeUnitSelection>, NativeResolutionError>,
+            SelectionResult,
         >,
     >,
 }
@@ -227,7 +229,7 @@ impl NativeUnitResolver {
     pub fn select(
         &self,
         demands: impl IntoIterator<Item = NativeSymbolContract>,
-    ) -> Result<Arc<NativeUnitSelection>, NativeResolutionError> {
+    ) -> SelectionResult {
         let demands = demands
             .into_iter()
             .collect::<BTreeSet<_>>()
@@ -336,7 +338,7 @@ impl NativeUnitResolver {
 
         for demand in demands {
             self.require(
-                &demand,
+                demand,
                 NativeUnitInclusion::Demand(demand.clone()),
                 None,
                 provided,
@@ -755,7 +757,7 @@ impl SelectionState {
         };
     }
 
-    fn close_dependencies(&self) -> (Vec<usize>, BTreeMap<SymbolKey, Arc<[[u8; 32]]>>) {
+    fn close_dependencies(&self) -> (Vec<usize>, StaticAccesses) {
         let components = bray_base::strongly_connected_components(
             self.reasons
                 .keys()
@@ -925,7 +927,7 @@ mod tests {
     fn provided_storage_keeps_transitive_static_metadata_without_its_native_payload() {
         let contribution = |id, name, dependencies: Vec<[u8; 32]>| {
             crate::NativeStatic::new(
-                NonEmptySharedStr::try_new(name).unwrap(),
+                NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
                 [id; 32],
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
@@ -982,14 +984,14 @@ mod tests {
 
         let provided = |name| {
             (
-                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).unwrap()),
+                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid")),
                 NativeSymbolBinding::Strong,
             )
         };
 
         let selected = resolver
             .select_with_provided([required("caller")], [provided("second.host")], [], &[])
-            .unwrap();
+            .expect("fixture selection must accept its provided inputs");
 
         assert_eq!(selected.units(), [location(1), location(3)]);
 
@@ -1011,7 +1013,7 @@ mod tests {
 
         let selected = resolver
             .select_with_provided([], [provided("second.host")], [[2; 32]], &[])
-            .unwrap();
+            .expect("fixture selection must accept its provided inputs");
 
         assert_eq!(selected.units(), [location(3)]);
 
@@ -1031,7 +1033,7 @@ mod tests {
                 [[2; 32]],
                 &[],
             )
-            .unwrap();
+            .expect("fixture selection must accept its provided inputs");
 
         assert!(selected.units().is_empty());
         assert_eq!(selected.statics().len(), 2);
@@ -1040,7 +1042,7 @@ mod tests {
     #[test]
     fn callable_static_dependencies_follow_resolved_providers_and_provided_host_entries() {
         let entry = crate::NativeStatic::new(
-            NonEmptySharedStr::try_new("state.host").unwrap(),
+            NonEmptySharedStr::try_new("state.host").expect("fixture non empty shared str must be valid"),
             [3; 32],
             vec![3].into(),
             bray_symbols::StaticStorageDuration::Product,
@@ -1098,14 +1100,14 @@ mod tests {
 
         let provided = |name| {
             (
-                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).unwrap()),
+                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid")),
                 NativeSymbolBinding::Strong,
             )
         };
 
         let selected = resolver
             .select([required("caller"), required("observer")])
-            .unwrap();
+            .expect("fixture selection must succeed");
 
         assert_eq!(
             selected.static_accesses(&required("caller")),
@@ -1124,7 +1126,7 @@ mod tests {
                 [],
                 &[],
             )
-            .unwrap();
+            .expect("fixture selection must accept its provided inputs");
 
         assert_eq!(
             selected.static_accesses(&required("caller")),
@@ -1149,7 +1151,7 @@ mod tests {
 
         let selected = resolver
             .select_with_provided([required("caller")], [provided("fallback")], [], &[])
-            .unwrap();
+            .expect("fixture selection must accept its provided inputs");
 
         assert_eq!(selected.units(), [location(1)]);
         assert!(selected.statics().is_empty());
@@ -1164,7 +1166,7 @@ mod tests {
     fn lifecycle_metadata_closes_providers_and_rejects_missing_or_conflicting_instances() {
         let contribution = |id, name, dependencies: Vec<[u8; 32]>| {
             crate::NativeStatic::new(
-                NonEmptySharedStr::try_new(name).unwrap(),
+                NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
                 [id; 32],
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
@@ -1199,7 +1201,7 @@ mod tests {
         .with_statics([contribution(2, "second", vec![])]);
 
         let resolver = NativeUnitResolver::new([index([first.clone()], []), index([second], [])]);
-        let selected = resolver.select([required("first")]).unwrap();
+        let selected = resolver.select([required("first")]).expect("fixture selection must succeed");
 
         assert_eq!(
             selected.static_accesses(&required("first")),
@@ -1509,7 +1511,7 @@ mod tests {
         assert!(
             selected
                 .reasons(location(1))
-                .unwrap()
+                .expect("fixture `reasons` call must succeed")
                 .contains(&NativeUnitInclusion::Seed)
         );
     }
@@ -1642,7 +1644,7 @@ mod tests {
         let resolver = NativeUnitResolver::new([index([provider], [])]);
 
         let links = [NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("external").unwrap(),
+            NonEmptySharedStr::try_new("external").expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )];
 
@@ -1826,16 +1828,16 @@ mod tests {
             vec![strong.clone(), fallback_only.clone(), mixed.clone()],
         ] {
             let original = index(units, []);
-            let bytes = original.encode().unwrap();
+            let bytes = original.encode().expect("fixture artifact must encode");
 
             let index_digest =
-                NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).unwrap());
+                NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
 
             let decoded =
-                NativeArtifactIndex::decode(&bytes, index_digest, original.target()).unwrap();
+                NativeArtifactIndex::decode(&bytes, index_digest, original.target()).expect("fixture `NativeArtifactIndex::decode` call must succeed");
 
             let resolver = NativeUnitResolver::new([decoded]);
-            let selected = resolver.select([required("live")]).unwrap();
+            let selected = resolver.select([required("live")]).expect("fixture selection must succeed");
 
             assert_eq!(
                 selected
@@ -1851,7 +1853,7 @@ mod tests {
 
         let selected = NativeUnitResolver::new([index([mixed, fallback_only], [])])
             .select([required("provider"), required("live")])
-            .unwrap();
+            .expect("fixture selection must succeed");
 
         assert_eq!(selected.units().len(), 2);
     }

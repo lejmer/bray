@@ -145,7 +145,7 @@ where
         let checks = self
             .request()
             .trusted_contracts()
-            .map_or(true, |contracts| {
+            .is_none_or(|contracts| {
                 contracts
                     .calls
                     .get(&invocation)

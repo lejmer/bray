@@ -427,10 +427,10 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
 
             *result = maps.type_id(*result)?;
 
-            remap_behavior(invocation_behavior, maps)?;
+            remap_behavior(Arc::make_mut(invocation_behavior), maps)?;
 
             if let Some(behavior) = deferred_execution_behavior {
-                remap_behavior(behavior, maps)?;
+                remap_behavior(Arc::make_mut(behavior), maps)?;
             }
         }
         InterfaceType::TypeParameter(_) | InterfaceType::ContextualSelf(_) => {}

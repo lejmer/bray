@@ -16,13 +16,10 @@ pub(crate) fn cleanup_scopes<C>(
     cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> Result<
-    (
+) -> crate::CheckerQueryResult<(
         BTreeSet<bray_bound_tree::BoundBlockId>,
         BTreeSet<bray_bound_tree::BoundExpressionId>,
-    ),
-    CheckerQueryError<C::UpstreamError>,
->
+    ), C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -129,6 +126,14 @@ where
     Ok((identities, std::mem::take(&mut resolver.diagnostics)))
 }
 
+type ScopeExitPlans = (
+    Vec<AsyncStorageRequirement>,
+    Vec<StorageCleanupType>,
+    Vec<AsyncScopeExitPlan>,
+    Vec<bray_bound_tree::StorageReplacementPlan>,
+    DiagnosticBag,
+);
+
 pub(in crate::asynchronous) fn scope_exit_plans<C>(
     cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
@@ -137,16 +142,7 @@ pub(in crate::asynchronous) fn scope_exit_plans<C>(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     selections: &bray_bound_tree::CheckedSemanticSelections,
     types: &bray_bound_tree::CheckedExpressionTypes,
-) -> Result<
-    (
-        Vec<AsyncStorageRequirement>,
-        Vec<StorageCleanupType>,
-        Vec<AsyncScopeExitPlan>,
-        Vec<bray_bound_tree::StorageReplacementPlan>,
-        DiagnosticBag,
-    ),
-    CheckerQueryError<C::UpstreamError>,
->
+) -> crate::CheckerQueryResult<ScopeExitPlans, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
