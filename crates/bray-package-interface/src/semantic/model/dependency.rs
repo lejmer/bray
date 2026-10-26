@@ -92,6 +92,17 @@ pub struct InterfaceDependencyRequirement {
 }
 
 impl InterfaceDependencyRequirement {
+    /// Retains report dependencies only for captures with cleanup work.
+    pub fn cleanup_dependencies(
+        ty: crate::InterfaceTypeId,
+        requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        Self { value: InterfaceDependencyRequirementValue::CleanupDependencies {
+            ty,
+            requirements: bray_base::sorted_unique_shared_slice(requirements),
+        } }
+    }
+
     /// Requires the selected type's remaining cleanup to execute synchronously.
     pub const fn synchronous_cleanup(ty: crate::InterfaceTypeId) -> Self {
         Self {
@@ -191,6 +202,13 @@ pub enum InterfaceDependencyRequirementValue {
     SynchronousCleanup(crate::InterfaceTypeId),
     /// A pending finalizer body must admit its synchronous callees.
     FinalizerBodyCleanup(crate::InterfaceTypeId),
+    /// Report dependencies conditional on the capture type's cleanup work.
+    CleanupDependencies {
+        /// Selected capture type.
+        ty: crate::InterfaceTypeId,
+        /// Nested report requirements.
+        requirements: Arc<[InterfaceDependencyRequirement]>,
+    },
     /// Cleanup performed by one selected runtime-default provider.
     DefaultCleanup {
         /// Exact parameter or field provider.

@@ -10,7 +10,7 @@ fn unproved_requirements_execute_before_declared_calls() {
         (
             r#"
             func selected(pos value: i32)
-                requires(value > 0)
+                requires(value > 0, value < 100)
                 executes(total)
             {
             }
@@ -24,7 +24,7 @@ fn unproved_requirements_execute_before_declared_calls() {
             @symbol(name = "selected")
             @abi(c)
             extern trusted func selected(pos value: i32)
-                requires(value > 0)
+                requires(value > 0, value < 100)
                 uses(foreign_call);
         "#,
             "trusted selected(input);",
@@ -318,7 +318,10 @@ fn constructors_and_receivers_check_requirements() {
 
 #[test]
 fn scoped_requirements_check_entry_and_exit() {
-    for requirements in [("requires(self.ready)", ""), ("", "requires(lease)")] {
+    for requirements in [
+        ("requires(self.ready, self.ready == true)", ""),
+        ("", "requires(lease, lease == true)"),
+    ] {
         let (entry, exit) = requirements;
 
         let compilation = compilation(&format!(

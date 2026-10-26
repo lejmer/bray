@@ -171,6 +171,14 @@
       }
     },
     {
+      "name": "ReleaseBuffer",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::ReleaseBuffer"
+      }
+    },
+    {
       "name": "Destroy",
       "disposition": "translated",
       "production": {
@@ -314,6 +322,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "MirAsyncOperation::BroadcastInactiveFrame"
+      }
+    },
+    {
+      "name": "ResolveInactiveFrame",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirAsyncOperation::ResolveInactiveFrame"
       }
     },
     {
@@ -628,7 +644,7 @@
     },
     {
       "name": "MirCallTarget",
-      "variants": ["Direct", "DefaultValue", "Indirect", "Predicate", "Runtime"],
+      "variants": ["Direct", "DefaultValue", "Indirect", "Predicate", "Lifecycle", "Runtime"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/call/translation.rs",
         "symbol": "call.target()"
@@ -647,7 +663,7 @@
       "variants": ["TaskCancellation", "LifecycleResolution"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
-        "symbol": "MirHelperReference::Cleanup"
+        "symbol": "MirOperationKind::Cleanup"
       }
     },
     {

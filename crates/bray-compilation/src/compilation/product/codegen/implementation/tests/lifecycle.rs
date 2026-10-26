@@ -982,7 +982,6 @@ fn admitted_synchronous_generic_cleanup_emits_native_units() {
 }
 
 #[test]
-#[ignore = "BRA-642: native inactive-frame cleanup loses the synchronous capture proof"]
 fn inactive_generic_scalar_future_emits_native_units() {
     assert_source_emits_valid_native_units(
         r#"
@@ -993,6 +992,108 @@ fn inactive_generic_scalar_future_emits_native_units() {
     "#,
         crate::BuildConfiguration::Development,
     );
+}
+
+#[test]
+fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports() {
+    const SOURCE: &str = r#"
+        module app;
+        struct Synchronous {
+            finalize() {}
+            destruct() {}
+        }
+        struct Completed<const Ready: bool> {
+            value: Synchronous;
+            async finalize() when(Ready) { executes(pure, total) } {}
+            destruct() {}
+        }
+        async func hold<T>(pos value: T) {}
+        func discard<T>(pos value: T) {
+            let pending = hold<T>(value);
+        }
+        public func root() {
+            discard<i32>(1);
+            discard<Synchronous>(Synchronous {});
+            let completed: Completed<true> = { value = Synchronous {} };
+            discard<Completed<true>>(completed);
+        }
+    "#;
+
+    let source = super::support::compilation::codegen_compilation_for_product(
+        SOURCE, ProductKind::Library,
+    );
+
+    let dependency = super::support::dependencies::generic_dependency_from_fixture(
+        true,
+        false,
+        super::support::dependencies::GenericDependencyFixture {
+            source: SOURCE,
+            runtime_frames: &[1, 1],
+            executable_templates: 7,
+            platform_service: None,
+        },
+    );
+
+    let (backend, codegen) = super::support::compilation::codegen_configuration();
+
+    let request = crate::CompilationRequest::with_options(
+        crate::test_support::package_identity(),
+        vec![crate::test_support::source_input(
+            r#"
+            module consumer;
+            using example.dependency.app.root;
+            public func forwarded() {
+                example.dependency.app.root();
+            }
+            "#,
+            0,
+        )],
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    )
+    .with_dependency_interfaces([dependency]);
+
+    let consumer = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+    for (backend, compilation) in [source, (backend, consumer)] {
+        for configuration in [crate::BuildConfiguration::Development, crate::BuildConfiguration::Release] {
+            assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+
+            let plan = compilation.native_product_plan(
+                super::support::compilation::test_product_identity(),
+                configuration,
+                None,
+                [],
+                None,
+            ).unwrap();
+
+            assert!(plan.units().iter().flat_map(|unit| unit.instances())
+                .flat_map(|instance| instance.mir().operations())
+                .any(|operation| matches!(operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }))));
+
+            for instance in plan.units().iter().flat_map(|unit| unit.instances()) {
+                let mir = instance.mir();
+
+                for block in mir.blocks() {
+                    if block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }))) {
+                        assert!(matches!(block.terminator().kind(),
+                            MirTerminatorKind::CheckCallOutcome { completed_report: Some(_), .. }));
+                    }
+                }
+            }
+
+            assert!(plan.mappings().iter().flat_map(|mapping| mapping.symbols())
+                .all(|symbol| !matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(runtime)
+                    if runtime.role().service_class() == Some(bray_runtime_interface::RuntimeServiceClass::Execution))));
+
+            assert!(generated_artifacts(&backend, &plan).iter().all(|artifact| !artifact.is_empty()));
+        }
+    }
 }
 
 #[test]

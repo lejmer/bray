@@ -195,26 +195,28 @@ impl Lowerer<'_> {
             .expression()
             .expect("source requirement retains its invocation expression");
 
-        let inputs = self.borrow_staged_inputs(
-            expression,
-            block,
-            source,
-            receiver,
-            arguments
-                .iter()
-                .enumerate()
-                .map(|(index, argument)| match argument {
-                    MirCallArgument::Receiver { value, .. } => (None, value),
-                    MirCallArgument::Explicit { value, .. } if receiver.is_some() && index == 0 => {
-                        (None, value)
-                    }
-                    MirCallArgument::Explicit { ordinal, value, .. } => (Some(*ordinal), value),
-                }),
-        )?;
-
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
         for reference in references {
+            // Checks branch independently. Observe the same staged owners through
+            // borrows defined in this clause's block rather than an earlier one.
+            let inputs = self.borrow_staged_inputs(
+                expression,
+                block,
+                source,
+                receiver,
+                arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| match argument {
+                        MirCallArgument::Receiver { value, .. } => (None, value),
+                        MirCallArgument::Explicit { value, .. } if receiver.is_some() && index == 0 => {
+                            (None, value)
+                        }
+                        MirCallArgument::Explicit { ordinal, value, .. } => (Some(*ordinal), value),
+                    }),
+            )?;
+
             let condition =
                 self.requirement_value(expression, block, source, reference, &inputs, witnesses)?;
 
@@ -293,10 +295,10 @@ impl Lowerer<'_> {
 
         let value = MirOperand::Move(Self::retained_place(place));
 
-        let inputs =
-            self.borrow_staged_inputs(expression, block, source, None, [(Some(0), &value)])?;
-
         for reference in references {
+            let inputs =
+                self.borrow_staged_inputs(expression, block, source, None, [(Some(0), &value)])?;
+
             let condition =
                 self.requirement_value(expression, block, source, &reference, &inputs, &[])?;
 

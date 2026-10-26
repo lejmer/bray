@@ -55,6 +55,9 @@ pub(super) fn validate_static_dependency_duration(
 
 fn requirement_reaches_exact_thread(requirement: &bray_symbols::DependencyRequirement) -> bool {
     match requirement {
+        bray_symbols::DependencyRequirement::CleanupDependencies { requirements, .. } => {
+            requirements.iter().any(requirement_reaches_exact_thread)
+        }
         bray_symbols::DependencyRequirement::FixedPoint {
             definitions,
             result,
@@ -160,6 +163,11 @@ fn collect_witness_requirements(
                 collect_witness_requirements(context, nested, requirements)?;
             }
         }
+        bray_symbols::DependencyRequirement::CleanupDependencies { requirements: nested, .. } => {
+            for requirement in nested.iter() {
+                collect_witness_requirements(context, requirement, requirements)?;
+            }
+        }
         bray_symbols::DependencyRequirement::Variable { .. }
         | bray_symbols::DependencyRequirement::SynchronousCleanup(_)
         | bray_symbols::DependencyRequirement::FinalizerBodyCleanup(_)
@@ -235,6 +243,11 @@ fn collect_static_requirement_dependencies(
                 .chain(result.iter())
             {
                 collect_static_requirement_dependencies(nested, dependencies);
+            }
+        }
+        bray_symbols::DependencyRequirement::CleanupDependencies { requirements, .. } => {
+            for requirement in requirements.iter() {
+                collect_static_requirement_dependencies(requirement, dependencies);
             }
         }
         bray_symbols::DependencyRequirement::Variable { .. }

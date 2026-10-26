@@ -53,7 +53,7 @@ trusted internal func invoke(
             pointer = cursor.pointer,
             address = argument
         )) || (operation == 5 && trusted retiring(pointer = cursor.pointer))),
-        operation != 3 || argument < 6,
+        operation != 3 || argument < 7,
     )
     ensures(
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
@@ -339,7 +339,7 @@ trusted internal func invoke_retaining(
             pointer = cursor.pointer,
             address = argument
         )),
-        operation != 3 || argument < 6,
+        operation != 3 || argument < 7,
     )
     ensures(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
@@ -392,7 +392,7 @@ trusted internal func execute(
 
     let admission = trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(ready);
 
-    if operation >= 6 || (operation == 3 && argument >= 6)
+    if operation >= 6 || (operation == 3 && argument >= 7)
     {
         return 3;
     }
@@ -422,7 +422,7 @@ trusted internal func execute(
             trusted bray.runtime.bootstrap.entry.native_entry(),
             trusted destinations(pointer = pointer, output = output, records = records, incidents = incidents),
             operation < 6,
-            operation != 3 || argument < 6,
+            operation != 3 || argument < 7,
         )
         ensures(
             trusted core.memory.valid_write<bray.runtime.bootstrap.activation.Progress>(pointer = output, count = 1),

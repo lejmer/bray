@@ -130,6 +130,19 @@ fn translate_failure_cleanup<'context>(
         )
         .map_err(CodegenFailure::backend_library)?;
 
+    let inactive = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            exit,
+            exit.get_type().const_int(6, false),
+            "frame.inactive.disposal",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let failed = builder
+        .build_or(failed, inactive, "frame.abandoned")
+        .map_err(CodegenFailure::backend_library)?;
+
     let context = integer_pointer(&builder, resolve, 1, types)?;
 
     let state = builder

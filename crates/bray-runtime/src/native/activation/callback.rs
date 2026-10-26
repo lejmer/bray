@@ -71,7 +71,10 @@ impl Operation {
     fn is_resumable(&self) -> bool {
         match self {
             Self::Resume | Self::Cancel => true,
-            Self::Resolve(exit) => *exit != NativeFrameExit::RETAINED_DESTRUCTION,
+            Self::Resolve(exit) => {
+                *exit != NativeFrameExit::RETAINED_DESTRUCTION
+                    && *exit != NativeFrameExit::SYNCHRONOUS_DISPOSAL
+            }
             Self::Broadcast | Self::Move(_) | Self::Destroy => false,
         }
     }
@@ -103,6 +106,7 @@ pub extern "C" fn bray_runtime_activation_callback(
             3 => NativeFrameExit::RUNTIME_FAILURE,
             4 => NativeFrameExit::QUIESCENCE,
             5 => NativeFrameExit::RETAINED_DESTRUCTION,
+            6 => NativeFrameExit::SYNCHRONOUS_DISPOSAL,
             _ => panic!("unknown activation lifecycle exit {argument}"),
         }),
         4 => Operation::Move(argument),
@@ -249,7 +253,9 @@ mod tests {
                 calls.push((3, context, usize::from(exit == NativeFrameExit::PANICKED)))
             });
 
-            if exit != NativeFrameExit::RETAINED_DESTRUCTION {
+            if exit != NativeFrameExit::RETAINED_DESTRUCTION
+                && exit != NativeFrameExit::SYNCHRONOUS_DISPOSAL
+            {
                 *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 9, 0);
             }
         }
@@ -411,7 +417,7 @@ mod tests {
 
         CALLS.with_borrow_mut(Vec::clear);
 
-        for (operation, argument) in [(2, 0), (3, 5), (4, 37), (5, 0)] {
+        for (operation, argument) in [(2, 0), (3, 5), (3, 6), (4, 37), (5, 0)] {
             let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
             super::bray_runtime_activation_callback(
@@ -431,7 +437,7 @@ mod tests {
         CALLS.with_borrow(|calls| {
             assert_eq!(
                 calls.as_slice(),
-                [(2, 17, 0), (3, 17, 0), (4, 17, 37), (5, 17, 0)]
+                [(2, 17, 0), (3, 17, 0), (3, 17, 0), (4, 17, 37), (5, 17, 0)]
             );
         });
 

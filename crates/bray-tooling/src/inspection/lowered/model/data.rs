@@ -1663,6 +1663,12 @@ fn async_operation(
 
             "broadcast_inactive_frame"
         }
+        MirAsyncOperation::ResolveInactiveFrame { frame, runtime } => {
+            parts.operand("frame", frame, context)?;
+            runtime_reference("runtime", *runtime, parts);
+
+            "resolve_inactive_frame"
+        }
         MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
             parts.operand("frame", frame, context)?;
             runtime_reference("runtime", *runtime, parts);

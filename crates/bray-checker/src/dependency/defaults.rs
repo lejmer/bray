@@ -32,7 +32,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
         defaults.insert(input.root(), provider);
     }
 
-    let mut expanded = expand(request, selection, template, &defaults)?;
+    let mut expanded = expand(request, selection, template, &defaults, false)?;
 
     for (completion, requirements) in [
         (true, template.completion_reports()),
@@ -44,6 +44,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
                 selection,
                 &DependencyContractTemplateData::new(requirements.iter().cloned()),
                 &defaults,
+                false,
             )?;
 
             expanded
@@ -75,6 +76,7 @@ fn expand<C: CheckerRequestContext + ?Sized>(
     selection: &SemanticSelection,
     template: &DependencyContractTemplateData,
     defaults: &Defaults,
+    from_default: bool,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut result = Vec::new();
     let mut escaping_evaluation_inputs = std::collections::BTreeSet::new();
@@ -83,12 +85,21 @@ fn expand<C: CheckerRequestContext + ?Sized>(
         .requirements()
         .iter()
         .cloned()
-        .map(|requirement| (requirement, false))
+        .map(|requirement| (requirement, from_default))
         .collect::<Vec<_>>();
 
     let mut visited = std::collections::BTreeSet::new();
 
     while let Some((requirement, from_default)) = pending.pop() {
+        if let DependencyRequirement::CleanupDependencies { ty, requirements } = requirement {
+            let nested = DependencyContractTemplateData::new(requirements.iter().cloned());
+            let expanded = expand(request, selection, &nested, defaults, from_default)?;
+
+            result.push(DependencyRequirement::cleanup_dependencies(ty, expanded.template.requirements().iter().cloned()));
+            escaping_evaluation_inputs.extend(expanded.escaping_evaluation_inputs);
+            continue;
+        }
+
         if let DependencyRequirement::FixedPoint {
             definitions,
             result: roots,
@@ -231,7 +242,7 @@ fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
     defaults: &Defaults,
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
     let template = DependencyContractTemplateData::new(requirements.iter().cloned());
-    let expanded = expand(request, selection, &template, defaults)?;
+    let expanded = expand(request, selection, &template, defaults, false)?;
 
     let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
         DependencyRequirement::direct(

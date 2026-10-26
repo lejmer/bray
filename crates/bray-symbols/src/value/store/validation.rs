@@ -414,6 +414,10 @@ pub(super) fn validate_dependency_template_data(
         );
 
         match requirement {
+            DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                tables.types.get(store, *ty);
+                pending.extend(requirements.iter().map(|item| (output, item)));
+            }
             DependencyRequirement::SynchronousCleanup(ty)
             | DependencyRequirement::FinalizerBodyCleanup(ty) => {
                 tables.types.get(store, *ty);
@@ -482,6 +486,9 @@ pub(super) fn validate_dependency_template_data(
 fn validate_dependency_variables(requirements: &[DependencyRequirement], scopes: &mut Vec<usize>) {
     for requirement in requirements {
         match requirement {
+            DependencyRequirement::CleanupDependencies { requirements, .. } => {
+                validate_dependency_variables(requirements, scopes);
+            }
             DependencyRequirement::Variable { depth, ordinal } => {
                 let count = usize::try_from(*depth)
                     .ok()

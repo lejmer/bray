@@ -128,7 +128,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .collection
             .as_ref()
             .expect("cleanup frame borrows its collection")
-            .check(builder, work, source)
+            .check(builder, work, source, false)
             .map_err(|cause| self.capacity_error(cause))?;
 
         let broadcast_end = if let Some(finished) = finished {
@@ -221,7 +221,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )?;
 
         let end = outcome
-            .check(builder, broadcast, source)
+            .check(builder, broadcast, source, false)
             .map_err(|cause| self.capacity_error(cause))?;
 
         builder.set_terminator(
@@ -365,7 +365,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             self.await_lifecycle_call(builder, block, source, value, unit, &outcome)?;
 
         outcome
-            .check(builder, block, source)
+            .check(builder, block, source, false)
             .map_err(|cause| self.capacity_error(cause))
     }
 

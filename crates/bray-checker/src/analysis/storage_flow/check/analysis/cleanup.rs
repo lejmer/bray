@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::Effect;
-use bray_bound_tree::{StorageAccessId, StorageInvalidation, StoragePath};
+use bray_bound_tree::{StorageAccessId, StorageInvalidation, StorageMutation, StoragePath};
 use bray_symbols::{DependencyMutationKind, DependencySubjectRoot};
 
 use super::core::StorageFlowCollector;
@@ -113,6 +113,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
+                let inactive_captures = match &mutation {
+                    CleanupMutation::Opaque { ty, .. } => task_path.and_then(|path|
+                        domain.inactive_future_captures(execution, *ty, path)),
+                    _ => None,
+                };
+
+                let inactive_broadcast = inactive_captures.is_some()
+                    && matches!(identity, StorageMutation::Cancellation { .. })
+                    && task_path.is_some_and(|path| memory
+                        .unexposed_storage(std::slice::from_ref(path), [])
+                        .next().is_some());
+
                 let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
@@ -133,6 +145,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let inherited_tail =
                     self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
+
+                if let Some(report) = self.inactive_cleanup_report(
+                    operation, &mutation, inactive_captures, inherited_tail,
+                ) {
+                    report_outputs.push(report);
+                }
 
                 if inherited_tail && matches!(operation, AnalysisOperationKind::ScopeExit {
                     phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
@@ -176,11 +194,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     }),
                 };
 
-                if task_source.is_some()
+                if (task_source.is_some() || inactive_broadcast)
                     && let Some(path) = task_path
                     && let Some(effects) = &effects
                 {
-                    preserve_task_descriptor(&memory, path, effects, &mut invalidation);
+                    preserve_run_descriptor(&memory, path, effects, inactive_broadcast, &mut invalidation);
                 }
 
                 self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
@@ -582,10 +600,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     }
 }
 
-fn preserve_task_descriptor(
+fn preserve_run_descriptor(
     memory: &State,
     path: &StoragePath,
     effects: &[Effect],
+    inactive: bool,
     invalidation: &mut StorageInvalidation,
 ) {
     let StorageInvalidation::All {
@@ -594,6 +613,13 @@ fn preserve_task_descriptor(
     else {
         return;
     };
+
+    if inactive {
+        // The owner token was unexposed before capture effects were applied.
+        // Broadcasting passes only captures to user code, never this token.
+        stable_descriptors.insert(path.clone());
+        return;
+    }
 
     if effects
         .iter()

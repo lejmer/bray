@@ -425,20 +425,32 @@ fn continuation_values(
     site: MirOperationId,
     continuation: &mut MirTerminatorKind,
 ) -> BTreeSet<MirValueId> {
+    // Expanded effects retain arena identities while inserting work before an old
+    // suffix. Only execution order establishes which values exist at this call.
+    let available = block
+        .parameters()
+        .iter()
+        .copied()
+        .chain(
+            block
+                .operations()
+                .iter()
+                .take_while(|operation| **operation != site)
+                .filter_map(|operation| {
+                    unit.operation(*operation)
+                        .expect("valid prefix operation")
+                        .result()
+                }),
+        )
+        .collect::<BTreeSet<_>>();
+
     let mut values = BTreeSet::new();
 
     let mut visit = |operand: &MirOperand| {
-        if let MirOperand::Value(value) = operand {
-            let origin = unit
-                .value(*value)
-                .expect("valid continuation operand")
-                .origin();
-
-            if matches!(origin, crate::MirValueOrigin::BlockParameter(_))
-                || matches!(origin, crate::MirValueOrigin::Operation(operation) if operation.slot() < site.slot())
-            {
-                values.insert(*value);
-            }
+        if let MirOperand::Value(value) = operand
+            && available.contains(value)
+        {
+            values.insert(*value);
         }
     };
 
@@ -534,5 +546,80 @@ fn copy_callee_terminators(
         };
 
         builder.set_terminator(ids.block(old), block.terminator().source().clone(), kind);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    use bray_testing::test_bound_unit;
+
+    use super::continuation_values;
+    use crate::{
+        MirBlock, MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind,
+        MirSourceAnchor, MirTerminatorKind, MirUnaryOperator, MirUnitBuilder, MirUnitKind,
+    };
+
+    #[test]
+    fn scalar_continuation_tracks_execution_order_after_effect_expansion() {
+        let bound = test_bound_unit(801);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            crate::test_support::test_target(),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let mut unary = |operand| {
+            builder
+                .push_operation(
+                    entry,
+                    source.clone(),
+                    MirOperationKind::Unary { operator: MirUnaryOperator::Not, operand },
+                    Some(ty),
+                )
+                .unwrap()
+        };
+
+        let prefix = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(false) });
+        let suffix = unary(MirOperand::Value(prefix.result().unwrap()));
+        let use_suffix = unary(MirOperand::Value(suffix.result().unwrap()));
+        let site = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(true) });
+
+        builder.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Return { value: Some(MirOperand::Value(site.result().unwrap())), report: None },
+        );
+
+        let mut unit = builder.finish(entry);
+        let block = unit.blocks()[0].clone();
+
+        // Effect expansion inserts newly allocated operations ahead of an existing suffix.
+        Arc::make_mut(&mut unit.blocks)[0] = MirBlock::new(
+            block.source().clone(),
+            block.kind(),
+            block.parameters().to_vec(),
+            vec![prefix.operation(), site.operation(), suffix.operation(), use_suffix.operation()],
+            block.terminator().clone(),
+        );
+
+        assert!(unit.is_valid());
+
+        let block = unit.block(entry).unwrap();
+        let mut continuation = block.terminator().kind().clone();
+
+        assert_eq!(
+            continuation_values(&unit, block, site.operation(), &mut continuation),
+            BTreeSet::from([prefix.result().unwrap()]),
+        );
     }
 }

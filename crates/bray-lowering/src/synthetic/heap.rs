@@ -409,7 +409,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
-        let broadcast = outcome.check(builder, broadcast, source).map_err(invalid)?;
+        let broadcast = outcome.check(builder, broadcast, source, false).map_err(invalid)?;
 
         builder.set_terminator(
             broadcast,
@@ -434,7 +434,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .map_err(invalid)?;
 
         let resolution = outcome
-            .check(builder, resolution, source)
+            .check(builder, resolution, source, false)
             .map_err(invalid)?;
 
         let completed =

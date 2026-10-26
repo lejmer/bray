@@ -105,7 +105,7 @@ impl Lowerer<'_> {
             };
 
             self.push_operation(block, Self::retained_source(source), operation, None)?;
-            block = outcome.check(&mut self.builder, block, source)?;
+            block = outcome.check(&mut self.builder, block, source, false)?;
         }
 
         let panicked = self.builder.push_block(

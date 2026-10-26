@@ -1044,6 +1044,13 @@ macro_rules! runtime_role_catalog {
                 owner: Host, availability: All, bootstrap: ("activation.inactive.broadcast"), host_control: false,
                 capabilities: [CooperativeExecution], effects: []
             }
+            InactiveFrameResolution {
+                "Resolve synchronously admitted inactive captures and consume their computation's backing.", "inactive_frame_resolution",
+                native: (INACTIVE_FRAME_RESOLUTION_SYMBOL = "bray_runtime_inactive_frame_resolution", [Pointer, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("activation.inactive.dispose"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
             InactiveFrameDestruction {
                 "Destroy quiescent captures and consume their inactive computation's backing.", "inactive_frame_destruction",
                 native: (INACTIVE_FRAME_DESTRUCTION_SYMBOL = "bray_runtime_inactive_frame_destruction", [Pointer, Pointer, Pointer, Pointer] -> Void),

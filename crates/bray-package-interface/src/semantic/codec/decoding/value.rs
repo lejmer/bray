@@ -745,7 +745,7 @@ mod tests {
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Indirect {
-                reference: subject,
+                reference: subject.clone(),
                 projections: [InterfaceDependencyProjection::Element(
                     crate::InterfaceConstantTermId::new(0),
                 )]
@@ -757,6 +757,15 @@ mod tests {
         semantics.dependency_contracts = vec![
             InterfaceDependencyContract::new([])
                 .with_effects(effects)
+                .with_completion_reports([
+                    crate::InterfaceDependencyRequirement::cleanup_dependencies(
+                        crate::InterfaceTypeId::new(0),
+                        [crate::InterfaceDependencyRequirement::new(
+                            subject.clone(),
+                            crate::InterfaceDependencyRequirementKind::ValueDependencies,
+                        )],
+                    ),
+                ])
                 .with_synchronous_cleanup([
                     crate::InterfaceDependencyRequirement::synchronous_cleanup(
                         crate::InterfaceTypeId::new(0),
