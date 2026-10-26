@@ -5,19 +5,43 @@ fn borrowed_trait_view_emits_async_runtime_dispatch() {
     let ir = unoptimized_library_ir(
         r#"
         module app;
-        public trait Value { async func read() -> i32; }
-        public struct Sink { marker: i32; }
-        public impl SinkValue = Sink(Value) {
-            async func read() -> i32 { return self.marker; }
+
+        using sink_value;
+
+        trait Value
+        {
+            async func read() -> i32;
         }
-        using SinkValue;
-        public async func read(pos selected: &view Value) -> i32 { return await selected.read(); }
-        public async func exercise() {
-            let sink = Sink { marker = 42 };
+
+        struct Sink
+        {
+            marker: i32;
+        }
+
+        impl sink_value = Sink(Value)
+        {
+            async func read() -> i32
+            {
+                return self.marker;
+            }
+        }
+
+        async func read(pos selected: &view Value) -> i32
+        {
+            return await selected.read();
+        }
+
+        async func exercise()
+        {
+            let sink = Sink
+            {
+                marker = 42,
+            };
+
             let selected: &view Value = &sink;
             let result = await selected.read();
         }
-    "#,
+        "#,
     );
 
     assert!(ir.contains("view.witness"), "{ir}");
@@ -32,36 +56,100 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
     let (backend, compilation) = codegen_compilation_for_product(
         r#"
         module app;
-        trait Value {
-            func seed() -> i32 executes(pure, total);
-            func read(pos fallback: i32 = self.seed(), adjusted: i32 = fallback) -> i32 executes(pure, total);
+
+        using first_value;
+        using second_value;
+
+        trait Value
+        {
+            func seed() -> i32
+                executes(pure, total);
+
+            func read(pos fallback: i32 = self.seed(), adjusted: i32 = fallback) -> i32
+                executes(pure, total);
         }
-        struct First { marker: i32; }
-        struct Second { marker: i32; }
-        impl FirstValue = First(Value) {
-            func seed() -> i32 executes(pure, total) { return self.marker; }
-            func read(pos fallback: i32 = 0, adjusted: i32 = 0) -> i32 executes(pure, total) { return adjusted; }
+
+        struct First
+        {
+            marker: i32;
         }
-        impl SecondValue = Second(Value) {
-            func seed() -> i32 executes(pure, total) { return 31; }
-            func read(pos fallback: i32 = 0, adjusted: i32 = 0) -> i32 executes(pure, total) {
-                if adjusted == 44 { return 45; }
+
+        struct Second
+        {
+            marker: i32;
+        }
+
+        impl first_value = First(Value)
+        {
+            func seed() -> i32
+                executes(pure, total)
+            {
+                return self.marker;
+            }
+
+            func read(pos fallback: i32 = 0, adjusted: i32 = 0) -> i32
+                executes(pure, total)
+            {
                 return adjusted;
             }
         }
-        using FirstValue;
-        using SecondValue;
-        func read(pos value: &view Value) -> i32 executes(pure, total) { return value.read(); }
-        func read_explicit(pos value: &view Value) -> i32 executes(pure, total) { return value.read(44); }
-        public func exercise() -> i32 executes(pure, total) {
-            let first = First { marker = 11 };
-            let second = Second { marker = 7 };
+
+        impl second_value = Second(Value)
+        {
+            func seed() -> i32
+                executes(pure, total)
+            {
+                return 31;
+            }
+
+            func read(pos fallback: i32 = 0, adjusted: i32 = 0) -> i32
+                executes(pure, total)
+            {
+                if adjusted == 44
+                {
+                    return 45;
+                }
+
+                return adjusted;
+            }
+        }
+
+        func read(pos value: &view Value) -> i32
+            executes(pure, total)
+        {
+            return value.read();
+        }
+
+        func read_explicit(pos value: &view Value) -> i32
+            executes(pure, total)
+        {
+            return value.read(44);
+        }
+
+        func exercise() -> i32
+            executes(pure, total)
+        {
+            let first = First
+            {
+                marker = 11,
+            };
+
+            let second = Second
+            {
+                marker = 7,
+            };
+
             let left: &view Value = &first;
             let right: &view Value = &second;
-            if read(left) == 11 && read(right) == 31 && read_explicit(left) == 44 && read_explicit(right) == 45 { return 0; }
+
+            if read(left) == 11 && read(right) == 31 && read_explicit(left) == 44 && read_explicit(right) == 45
+            {
+                return 0;
+            }
+
             return 1;
         }
-    "#,
+        "#,
         bray_symbols::ProductKind::Library,
     );
 
@@ -79,21 +167,54 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
         GenericDependencyFixture {
             source: r#"
             module app;
-            public trait Value<T> {
+
+            trait Value<T>
+            {
                 static func create() -> i32;
-                func zeta() -> T executes(pure, total);
-                func alpha(pos fallback: T = self.zeta()) -> i32 executes(pure, total);
+
+                func zeta() -> T
+                    executes(pure, total);
+
+                func alpha(pos fallback: T = self.zeta()) -> i32
+                    executes(pure, total);
             }
-            public struct Cell { public value: i32; }
-            public impl CellValue = Cell(Value<i32>) {
-                static func create() -> i32 { return 0; }
-                func zeta() -> i32 executes(pure, total) { return self.value; }
-                func alpha(pos fallback: i32 = 0) -> i32 executes(pure, total) { if fallback == 42 { return 7; } return 8; }
+
+            struct Cell
+            {
+                value: i32;
             }
-            public func erase<T>(pos value: &T) -> &view Value<i32> with(T: Value<i32>) {
+
+            impl cell_value = Cell(Value<i32>)
+            {
+                static func create() -> i32
+                {
+                    return 0;
+                }
+
+                func zeta() -> i32
+                    executes(pure, total)
+                {
+                    return self.value;
+                }
+
+                func alpha(pos fallback: i32 = 0) -> i32
+                    executes(pure, total)
+                {
+                    if fallback == 42
+                    {
+                        return 7;
+                    }
+
+                    return 8;
+                }
+            }
+
+            func erase<T>(pos value: &T) -> &view Value<i32>
+                with(T: Value<i32>)
+            {
                 return &value;
             }
-        "#,
+            "#,
             runtime_frames: &[],
             executable_templates: 6,
             platform_service: None,
@@ -105,16 +226,28 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
     let request = crate::CompilationRequest::with_options(
         crate::test_support::package_identity(),
         vec![crate::test_support::source_input(r#"
-            module consumer;
-            using example.dependency.app.Cell;
-            using example.dependency.app.CellValue;
-            using example.dependency.app.erase;
-            public func exercise() -> i32 {
-                let cell = example.dependency.app.Cell { value = 42 };
-                let selected = example.dependency.app.erase<example.dependency.app.Cell>(&cell);
-                if selected.zeta() == 42 && selected.alpha() == 7 && selected.alpha(1) == 8 { return 0; }
-                return 1;
+        module consumer;
+
+        using example.dependency.app.Cell;
+        using example.dependency.app.cell_value;
+        using example.dependency.app.erase;
+
+        func exercise() -> i32
+        {
+            let cell = example.dependency.app.Cell
+            {
+                value = 42,
+            };
+
+            let selected = example.dependency.app.erase<example.dependency.app.Cell>(&cell);
+
+            if selected.zeta() == 42 && selected.alpha() == 7 && selected.alpha(1) == 8
+            {
+                return 0;
             }
+
+            return 1;
+        }
         "#, 0)],
         crate::CompilationOptions::new(crate::WorkerBudget::serial(), bray_symbols::ProductKind::Library, crate::SelectedTarget::baseline()),
     ).with_dependency_interfaces([dependency]);

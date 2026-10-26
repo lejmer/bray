@@ -6,6 +6,8 @@ fn borrowed_trait_view_forms_and_dispatches() {
         r#"
         module app;
 
+        using sink_value;
+
         trait Value
         {
             func read() -> i32;
@@ -16,7 +18,7 @@ fn borrowed_trait_view_forms_and_dispatches() {
             marker: i32;
         }
 
-        impl SinkValue = Sink(Value)
+        impl sink_value = Sink(Value)
         {
             func read() -> i32
             {
@@ -24,11 +26,13 @@ fn borrowed_trait_view_forms_and_dispatches() {
             }
         }
 
-        using SinkValue;
-
         func main() -> i32
         {
-            let sink = Sink { marker = 1 };
+            let sink = Sink
+            {
+                marker = 1,
+            };
+
             let selected: &view Value = &sink;
 
             return selected.read();
@@ -54,22 +58,57 @@ fn borrowed_trait_view_preserves_mutability_and_reborrows() {
     let compilation = compilation(
         r#"
         module app;
-        trait Counter { func read() -> i32 executes(pure, total); mut func increment(); }
-        struct Cell { mut value: i32; }
-        impl CellCounter = Cell(Counter) {
-            func read() -> i32 executes(pure, total) { return self.value; }
-            mut func increment() { self.value += 1; }
+
+        using cell_counter;
+
+        trait Counter
+        {
+            func read() -> i32
+                executes(pure, total);
+
+            mut func increment();
         }
-        using CellCounter;
-        func read(pos counter: &view Counter) -> i32 { return counter.read(); }
-        func exercise() -> i32 {
-            let mut cell = Cell { value = 1 };
+
+        struct Cell
+        {
+            mut value: i32;
+        }
+
+        impl cell_counter = Cell(Counter)
+        {
+            func read() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+
+            mut func increment()
+            {
+                self.value += 1;
+            }
+        }
+
+        func read(pos counter: &view Counter) -> i32
+        {
+            return counter.read();
+        }
+
+        func exercise() -> i32
+        {
+            let mut cell = Cell
+            {
+                value = 1,
+            };
+
             let counter: &mut view Counter = &mut cell;
+
             counter.increment();
+
             let observed: &view Counter = &counter;
+
             return read(observed);
         }
-    "#,
+        "#,
     );
 
     assert!(
@@ -90,18 +129,52 @@ fn borrowed_trait_view_forms_at_argument_and_return_boundaries() {
     let compilation = compilation(
         r#"
         module app;
-        trait Value { func read() -> i32 executes(pure, total); }
-        struct Cell { value: i32; }
-        impl CellValue = Cell(Value) { func read() -> i32 executes(pure, total) { return self.value; } }
-        using CellValue;
-        func read(pos value: &view Value) -> i32 { return value.read(); }
-        func erase<T>(pos value: &T) -> &view Value with(T: Value) { return &value; }
-        func exercise() -> i32 {
-            let cell = Cell { value = 20 };
+
+        using cell_value;
+
+        trait Value
+        {
+            func read() -> i32
+                executes(pure, total);
+        }
+
+        struct Cell
+        {
+            value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            func read() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+        }
+
+        func read(pos value: &view Value) -> i32
+        {
+            return value.read();
+        }
+
+        func erase<T>(pos value: &T) -> &view Value
+            with(T: Value)
+        {
+            return &value;
+        }
+
+        func exercise() -> i32
+        {
+            let cell = Cell
+            {
+                value = 20,
+            };
+
             let selected = erase<Cell>(&cell);
+
             return read(&cell) + selected.read();
         }
-    "#,
+        "#,
     );
 
     assert!(
@@ -125,30 +198,56 @@ fn borrowed_trait_view_forms_at_argument_and_return_boundaries() {
 
 #[test]
 fn borrowed_trait_view_rejects_missing_and_mismatched_implementations() {
-    for (implementation, application, valid) in [
+    for (implemented, application, valid) in [
         (true, "Value<i32>", true),
         (true, "Value<bool>", false),
         (false, "Value<i32>", false),
     ] {
+        let implementation = if implemented {
+            r#"
+            impl cell_value = Cell(Value<i32>)
+            {
+                func read() -> i32
+                {
+                    return self.value;
+                }
+            }
+            "#
+        } else {
+            ""
+        };
+
+        let participation = if implemented { "using cell_value;" } else { "" };
+
         let source = format!(
             r#"
             module app;
-            trait Value<T> {{ func read() -> T; }}
-            struct Cell {{ value: i32; }}
-            impl CellValue = Cell(Value<i32>) {{ func read() -> i32 {{ return self.value; }} }}
-            using CellValue;
-            func exercise() {{
-                let cell = Cell {{ value = 1 }};
+
+            {participation}
+
+            trait Value<T>
+            {{
+                func read() -> T;
+            }}
+
+            struct Cell
+            {{
+                value: i32;
+            }}
+
+            {implementation}
+
+            func exercise()
+            {{
+                let cell = Cell
+                {{
+                    value = 1,
+                }};
+
                 let selected: &view {application} = &cell;
             }}
-        "#
+            "#
         );
-
-        let source = if implementation {
-            source
-        } else {
-            source.replace("impl CellValue = Cell(Value<i32>) { func read() -> i32 { return self.value; } }", "").replace("using CellValue;", "")
-        };
 
         let compilation = compilation(&source);
 
@@ -180,7 +279,7 @@ fn borrowed_trait_view_rejects_members_outside_its_surface() {
         "selected.mutate()",
         "selected.value",
         "selected.constrained()",
-        "let upgraded: &mut view Surface = &mut selected; upgraded.mutate()",
+        "let upgraded: &mut view Surface = &mut selected;\n                upgraded.mutate()",
     ] {
         let statement = if call.is_empty() {
             String::new()
@@ -191,39 +290,103 @@ fn borrowed_trait_view_rejects_members_outside_its_surface() {
         let source = format!(
             r#"
             module app;
-            trait Other {{}}
-            trait Surface {{
-                func constrained() -> i32 with(Self: Other) {{ return 1; }}
+
+            using cell_other;
+            using cell_surface;
+
+            trait Other
+            {{
+            }}
+
+            trait Surface
+            {{
+                func constrained() -> i32
+                    with(Self: Other)
+                {{
+                    return 1;
+                }}
+
                 type Item;
+
                 func item() -> Item;
+
                 static func create() -> i32;
+
                 func generic<T>() -> i32;
+
                 func same() -> Self;
+
                 func compare(pos other: &Self) -> bool;
+
                 consume func take();
+
                 mut func mutate();
             }}
-            struct Cell {{ mut value: i32; }}
-            impl CellSurface = Cell(Surface) {{
-                type Item = i32;
-                func item() -> i32 {{ return 1; }}
-                static func create() -> i32 {{ return 1; }}
-                func generic<T>() -> i32 {{ return 1; }}
-                func same() -> Self {{ return Cell {{ value = 1 }}; }}
-                func compare(pos other: &Self) -> bool {{ return true; }}
-                consume func take() {{}}
-                mut func mutate() {{ self.value += 1; }}
+
+            struct Cell
+            {{
+                mut value: i32;
             }}
-            impl CellOther = Cell(Other) {{}}
-            using CellOther;
-            using CellSurface;
-            func exercise() {{
-                let cell = Cell {{ value = 1 }};
+
+            impl cell_surface = Cell(Surface)
+            {{
+                type Item = i32;
+
+                func item() -> i32
+                {{
+                    return 1;
+                }}
+
+                static func create() -> i32
+                {{
+                    return 1;
+                }}
+
+                func generic<T>() -> i32
+                {{
+                    return 1;
+                }}
+
+                func same() -> Self
+                {{
+                    return Cell
+                    {{
+                        value = 1,
+                    }};
+                }}
+
+                func compare(pos other: &Self) -> bool
+                {{
+                    return true;
+                }}
+
+                consume func take()
+                {{
+                }}
+
+                mut func mutate()
+                {{
+                    self.value += 1;
+                }}
+            }}
+
+            impl cell_other = Cell(Other)
+            {{
+            }}
+
+            func exercise()
+            {{
+                let cell = Cell
+                {{
+                    value = 1,
+                }};
+
                 let concrete = cell.constrained();
                 let selected: &view Surface = &cell;
+
                 {statement}
             }}
-        "#
+            "#
         );
 
         let compilation = compilation(&source);
@@ -254,17 +417,48 @@ fn borrowed_trait_view_checks_cleanup_before_erasing_unused_members() {
     let compilation = compilation(
         r#"
         module app;
-        async func pause() {}
-        struct Owner { async finalize() { await pause(); } }
-        trait Dispose<T> { func dispose(pos value: T); }
-        struct Sink<T> { marker: i32; }
-        impl SinkDispose = Sink<T>(Dispose<T>) { func dispose(pos value: T) {} }
-        using SinkDispose;
-        async func main() {
-            let sink: Sink<Owner> = { marker = 0 };
+
+        using sink_dispose;
+
+        async func pause()
+        {
+        }
+
+        struct Owner
+        {
+            async finalize()
+            {
+                await pause();
+            }
+        }
+
+        trait Dispose<T>
+        {
+            func dispose(pos value: T);
+        }
+
+        struct Sink<T>
+        {
+            marker: i32;
+        }
+
+        impl sink_dispose = Sink<T>(Dispose<T>)
+        {
+            func dispose(pos value: T)
+            {
+            }
+        }
+
+        async func main()
+        {
+            let sink: Sink<Owner> =
+            {
+                marker = 0,
+            };
+
             let selected: &view Dispose<Owner> = &sink;
         }
-    "#,
+        "#,
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
@@ -277,15 +471,55 @@ fn borrowed_trait_view_checks_cleanup_before_erasing_unused_members() {
 fn borrowed_trait_view_preserves_stored_borrows() {
     let application = compilation(
         r#"
-module app;
-trait Value { func read() -> i32 executes(pure, total); }
-struct Cell { mut value: i32; }
-impl CellValue = Cell(Value) { func read() -> i32 executes(pure, total) { return self.value; } }
-using CellValue;
-struct Stored { selected: &view Value; }
-func forward(pos source: &Cell) -> Stored { return { selected = &source }; }
-func exercise() -> i32 { let cell = Cell { value = 2 }; let stored = forward(&cell); return stored.selected.read(); }
-"#,
+        module app;
+
+        using cell_value;
+
+        trait Value
+        {
+            func read() -> i32
+                executes(pure, total);
+        }
+
+        struct Cell
+        {
+            mut value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            func read() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+        }
+
+        struct Stored
+        {
+            selected: &view Value;
+        }
+
+        func forward(pos source: &Cell) -> Stored
+        {
+            return
+            {
+                selected = &source,
+            };
+        }
+
+        func exercise() -> i32
+        {
+            let cell = Cell
+            {
+                value = 2,
+            };
+
+            let stored = forward(&cell);
+
+            return stored.selected.read();
+        }
+        "#,
     );
 
     assert!(
@@ -305,13 +539,40 @@ func exercise() -> i32 { let cell = Cell { value = 2 }; let stored = forward(&ce
 fn borrowed_trait_view_rejects_local_storage_escape() {
     let application = compilation(
         r#"
-module app;
-trait Value { func read() -> i32 executes(pure, total); }
-struct Cell { mut value: i32; }
-impl CellValue = Cell(Value) { func read() -> i32 executes(pure, total) { return self.value; } }
-using CellValue;
-func bad() -> &view Value { let cell = Cell { value = 1 }; return &cell; }
-"#,
+        module app;
+
+        using cell_value;
+
+        trait Value
+        {
+            func read() -> i32
+                executes(pure, total);
+        }
+
+        struct Cell
+        {
+            mut value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            func read() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+        }
+
+        func bad() -> &view Value
+        {
+            let cell = Cell
+            {
+                value = 1,
+            };
+
+            return &cell;
+        }
+        "#,
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
@@ -324,13 +585,44 @@ func bad() -> &view Value { let cell = Cell { value = 1 }; return &cell; }
 fn borrowed_trait_view_rejects_mutation_while_shared() {
     let application = compilation(
         r#"
-module app;
-trait Value { func read() -> i32 executes(pure, total); }
-struct Cell { mut value: i32; }
-impl CellValue = Cell(Value) { func read() -> i32 executes(pure, total) { return self.value; } }
-using CellValue;
-func bad() -> i32 { let mut cell = Cell { value = 1 }; let selected: &view Value = &cell; cell.value = 2; return selected.read(); }
-"#,
+        module app;
+
+        using cell_value;
+
+        trait Value
+        {
+            func read() -> i32
+                executes(pure, total);
+        }
+
+        struct Cell
+        {
+            mut value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            func read() -> i32
+                executes(pure, total)
+            {
+                return self.value;
+            }
+        }
+
+        func bad() -> i32
+        {
+            let mut cell = Cell
+            {
+                value = 1,
+            };
+
+            let selected: &view Value = &cell;
+
+            cell.value = 2;
+
+            return selected.read();
+        }
+        "#,
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
@@ -343,15 +635,44 @@ func bad() -> i32 { let mut cell = Cell { value = 1 }; let selected: &view Value
 fn borrowed_trait_view_lowers_async_methods() {
     let application = compilation(
         r#"
-module app;
-trait Value { async func read() -> i32; }
-struct Cell { value: i32; }
-impl CellValue = Cell(Value) { async func read() -> i32 { return self.value; } }
-using CellValue;
-async func read(pos selected: &view Value) -> i32 { return await selected.read(); }
-async func exercise() { let cell = Cell { value = 2 }; let selected: &view Value = &cell; let result = await selected.read(); }
+        module app;
 
-"#,
+        using cell_value;
+
+        trait Value
+        {
+            async func read() -> i32;
+        }
+
+        struct Cell
+        {
+            value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            async func read() -> i32
+            {
+                return self.value;
+            }
+        }
+
+        async func read(pos selected: &view Value) -> i32
+        {
+            return await selected.read();
+        }
+
+        async func exercise()
+        {
+            let cell = Cell
+            {
+                value = 2,
+            };
+
+            let selected: &view Value = &cell;
+            let result = await selected.read();
+        }
+        "#,
     );
 
     assert!(
@@ -377,15 +698,49 @@ async func exercise() { let cell = Cell { value = 2 }; let selected: &view Value
 fn borrowed_trait_view_preserves_parameter_preconditions() {
     let application = compilation(
         r#"
-module app;
-trait Value { func read(pos value: i32) -> i32 requires(value > 0) executes(pure, total); }
-struct Cell { value: i32; }
-impl CellValue = Cell(Value) { func read(pos value: i32) -> i32 requires(value > 0) executes(pure, total) { return value; } }
-using CellValue;
-func read(pos selected: &view Value) -> i32 { return selected.read(1); }
-func exercise() -> i32 { let cell = Cell { value = 2 }; let selected: &view Value = &cell; return read(selected); }
+        module app;
 
-"#,
+        using cell_value;
+
+        trait Value
+        {
+            func read(pos value: i32) -> i32
+                requires(value > 0)
+                executes(pure, total);
+        }
+
+        struct Cell
+        {
+            value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+            func read(pos value: i32) -> i32
+                requires(value > 0)
+                executes(pure, total)
+            {
+                return value;
+            }
+        }
+
+        func read(pos selected: &view Value) -> i32
+        {
+            return selected.read(1);
+        }
+
+        func exercise() -> i32
+        {
+            let cell = Cell
+            {
+                value = 2,
+            };
+
+            let selected: &view Value = &cell;
+
+            return read(selected);
+        }
+        "#,
     );
 
     assert!(
@@ -407,19 +762,60 @@ fn borrowed_trait_view_checks_cleanup_of_unused_default_providers() {
         let application = compilation(&format!(
             r#"
             module app;
-            async func pause() {{}}
-            struct Owner {{ async finalize() {{ await pause(); }} }}
-            func discard<T>(pos value: T) {{}}
-            func demand<T>() -> i32 {{ let handler: func(pos value: T) = discard<T>; return 0; }}
-            trait Value<T> {{ func read(value: i32 = demand<T>()) -> i32; }}
-            struct Sink<T> {{ marker: i32; }}
-            impl SinkValue = Sink<T>(Value<T>) {{ func read(value: i32 = 0) -> i32 {{ return value; }} }}
-            using SinkValue;
-            async func exercise() {{
-                let sink: Sink<{argument}> = {{ marker = 1 }};
+
+            using sink_value;
+
+            async func pause()
+            {{
+            }}
+
+            struct Owner
+            {{
+                async finalize()
+                {{
+                    await pause();
+                }}
+            }}
+
+            func discard<T>(pos value: T)
+            {{
+            }}
+
+            func demand<T>() -> i32
+            {{
+                let handler: func(pos value: T) = discard<T>;
+
+                return 0;
+            }}
+
+            trait Value<T>
+            {{
+                func read(value: i32 = demand<T>()) -> i32;
+            }}
+
+            struct Sink<T>
+            {{
+                marker: i32;
+            }}
+
+            impl sink_value = Sink<T>(Value<T>)
+            {{
+                func read(value: i32 = 0) -> i32
+                {{
+                    return value;
+                }}
+            }}
+
+            async func exercise()
+            {{
+                let sink: Sink<{argument}> =
+                {{
+                    marker = 1,
+                }};
+
                 let selected: &view Value<{argument}> = &sink;
             }}
-        "#
+            "#
         ));
 
         if valid {
@@ -440,21 +836,47 @@ fn borrowed_trait_view_checks_cleanup_of_unused_default_providers() {
 #[test]
 fn borrowed_trait_view_requires_matching_trusted_evidence() {
     for valid in [true, false] {
-        let source = r#"
-trusted module app;
-trusted predicate live(value: i32);
-trait Value { func read(pos value: i32) -> i32 requires(trusted live(value)) executes(pure); }
-struct Cell { marker: i32; }
-impl CellValue = Cell(Value) { func read(pos value: i32) -> i32 requires(trusted live(value)) executes(pure) { return value; } }
-using CellValue;
-func forward(pos selected: &view Value, pos value: i32) -> i32 requires(trusted live(value)) { return selected.read(value); }
-"#;
-
-        let source = if valid {
-            source.to_owned()
+        let requirement = if valid {
+            "requires(trusted live(value))"
         } else {
-            source.replace("func forward(pos selected: &view Value, pos value: i32) -> i32 requires(trusted live(value))", "func forward(pos selected: &view Value, pos value: i32) -> i32")
+            ""
         };
+
+        let source = format!(r#"
+        trusted module app;
+
+        using cell_value;
+
+        trusted predicate live(value: i32);
+
+        trait Value
+        {{
+            func read(pos value: i32) -> i32
+                requires(trusted live(value))
+                executes(pure);
+        }}
+
+        struct Cell
+        {{
+            marker: i32;
+        }}
+
+        impl cell_value = Cell(Value)
+        {{
+            func read(pos value: i32) -> i32
+                requires(trusted live(value))
+                executes(pure)
+            {{
+                return value;
+            }}
+        }}
+
+        func forward(pos selected: &view Value, pos value: i32) -> i32
+            {requirement}
+        {{
+            return selected.read(value);
+        }}
+        "#);
 
         let application = compilation(&source);
 
@@ -483,12 +905,39 @@ fn borrowed_trait_view_forms_inside_contextual_containers() {
         let application = compilation(&format!(
             r#"
             module app;
-            trait Value {{ func read() -> i32 executes(pure, total); }}
-            struct Cell {{ value: i32; }}
-            impl CellValue = Cell(Value) {{ func read() -> i32 executes(pure, total) {{ return self.value; }} }}
-            using CellValue;
-            func exercise() {{ let cell = Cell {{ value = 1 }}; {statement} }}
-        "#
+
+            using cell_value;
+
+            trait Value
+            {{
+                func read() -> i32
+                    executes(pure, total);
+            }}
+
+            struct Cell
+            {{
+                value: i32;
+            }}
+
+            impl cell_value = Cell(Value)
+            {{
+                func read() -> i32
+                    executes(pure, total)
+                {{
+                    return self.value;
+                }}
+            }}
+
+            func exercise()
+            {{
+                let cell = Cell
+                {{
+                    value = 1,
+                }};
+
+                {statement}
+            }}
+            "#
         ));
 
         assert!(
@@ -514,12 +963,33 @@ fn borrowed_trait_view_reports_missing_fulfillment() {
     let application = compilation(
         r#"
         module app;
-        trait Value { func read() -> i32; }
-        struct Cell { value: i32; }
-        impl CellValue = Cell(Value) {}
-        using CellValue;
-        func exercise() { let cell = Cell { value = 1 }; let selected: &view Value = &cell; }
-    "#,
+
+        using cell_value;
+
+        trait Value
+        {
+            func read() -> i32;
+        }
+
+        struct Cell
+        {
+            value: i32;
+        }
+
+        impl cell_value = Cell(Value)
+        {
+        }
+
+        func exercise()
+        {
+            let cell = Cell
+            {
+                value = 1,
+            };
+
+            let selected: &view Value = &cell;
+        }
+        "#,
     );
 
     bray_testing::assert_goal_state_diagnostic_kind(
