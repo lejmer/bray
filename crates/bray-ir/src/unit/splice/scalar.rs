@@ -576,7 +576,7 @@ mod tests {
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap();
+            .expect("fixture block must fit its identity space");
 
         let mut unary = |operand| {
             builder
@@ -586,18 +586,18 @@ mod tests {
                     MirOperationKind::Unary { operator: MirUnaryOperator::Not, operand },
                     Some(ty),
                 )
-                .unwrap()
+                .expect("fixture operation must fit its identity space")
         };
 
         let prefix = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(false) });
-        let suffix = unary(MirOperand::Value(prefix.result().unwrap()));
-        let use_suffix = unary(MirOperand::Value(suffix.result().unwrap()));
+        let suffix = unary(MirOperand::Value(prefix.result().expect("fixture `result` call must succeed")));
+        let use_suffix = unary(MirOperand::Value(suffix.result().expect("fixture `result` call must succeed")));
         let site = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(true) });
 
         builder.set_terminator(
             entry,
             source,
-            MirTerminatorKind::Return { value: Some(MirOperand::Value(site.result().unwrap())), report: None },
+            MirTerminatorKind::Return { value: Some(MirOperand::Value(site.result().expect("fixture `result` call must succeed"))), report: None },
         );
 
         let mut unit = builder.finish(entry);
@@ -614,12 +614,12 @@ mod tests {
 
         assert!(unit.is_valid());
 
-        let block = unit.block(entry).unwrap();
+        let block = unit.block(entry).expect("fixture MIR block must exist");
         let mut continuation = block.terminator().kind().clone();
 
         assert_eq!(
             continuation_values(&unit, block, site.operation(), &mut continuation),
-            BTreeSet::from([prefix.result().unwrap()]),
+            BTreeSet::from([prefix.result().expect("fixture `result` call must succeed")]),
         );
     }
 }

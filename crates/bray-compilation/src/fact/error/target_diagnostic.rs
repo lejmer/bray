@@ -79,55 +79,55 @@ fn push_target_properties_with_names(
 
         push_boolean_property(
             context,
-            &names,
+            names,
             format!("scalar.{scalar_name}.available"),
             scalars.supports(scalar),
         );
 
         push_natural_property(
             context,
-            &names,
+            names,
             format!("scalar.{scalar_name}.alignment"),
             scalars.alignment(scalar).get(),
         );
     }
 
-    push_atomic_properties(context, &names, properties.atomics());
-    push_abi_properties(context, &names, "abi.c", properties.abis().c_contract());
+    push_atomic_properties(context, names, properties.atomics());
+    push_abi_properties(context, names, "abi.c", properties.abis().c_contract());
 
     push_abi_properties(
         context,
-        &names,
+        names,
         "abi.system",
         properties.abis().system_contract(),
     );
 
-    push_c_properties(context, &names, properties.c_abi());
+    push_c_properties(context, names, properties.c_abi());
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "address_space.host",
         properties.address_spaces().host(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "address_space.device",
         properties.address_spaces().device(),
     );
 
     push_natural_property(
         context,
-        &names,
+        names,
         "alignment.max_storage",
         properties.alignments().max_storage().get(),
     );
 
     push_natural_property(
         context,
-        &names,
+        names,
         "alignment.max_allocation",
         properties.alignments().max_allocation().get(),
     );
@@ -136,21 +136,21 @@ fn push_target_properties_with_names(
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "operation.raw_memory",
         operations.raw_memory(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "operation.allocation",
         operations.allocation(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "operation.callable_addresses",
         operations.callable_addresses(),
     );
@@ -159,42 +159,42 @@ fn push_target_properties_with_names(
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "native_symbol.ordinals",
         symbols.ordinals(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "native_symbol.versions",
         symbols.versions(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "native_symbol.weak_binding",
         symbols.weak_binding(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "native_symbol.optional_data",
         symbols.optional_data(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "platform.dynamic_loading",
         properties.dynamic_loading(),
     );
 
     push_boolean_property(
         context,
-        &names,
+        names,
         "platform.native_threads",
         properties.native_threads(),
     );

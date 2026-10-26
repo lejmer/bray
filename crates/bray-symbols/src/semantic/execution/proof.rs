@@ -11,15 +11,18 @@ pub enum ExecutionProofFailure<K> {
     CircularCompletion(K),
 }
 
+/// A callable and the exact execution obligation checked at that proof node.
+pub type ExecutionProofKey<K, C> = (K, CallableExecutionObligation<C>);
+
 /// Validates selected proof dependencies using the shared graph analysis.
 /// Pure recursion is allowed. Any cycle containing a total or completion obligation is rejected.
 /// Missing candidates invalidate all transitive consumers.
 pub fn check_execution_proof_dependencies<K: Copy + Ord, C: Copy + Ord>(
     graph: &BTreeMap<
-        (K, CallableExecutionObligation<C>),
-        BTreeSet<(K, CallableExecutionObligation<C>)>,
+        ExecutionProofKey<K, C>,
+        BTreeSet<ExecutionProofKey<K, C>>,
     >,
-) -> BTreeMap<(K, CallableExecutionObligation<C>), ExecutionProofFailure<K>> {
+) -> BTreeMap<ExecutionProofKey<K, C>, ExecutionProofFailure<K>> {
     let mut failures = BTreeMap::new();
     let mut reverse = BTreeMap::<_, BTreeSet<_>>::new();
 

@@ -373,7 +373,7 @@ fn structural_assembly_emits_valid_native_units() {
     };
 
     assert!(matches!(
-        mir.block(completed.target()).unwrap().terminator().kind(),
+        mir.block(completed.target()).expect("fixture MIR block must exist").terminator().kind(),
         MirTerminatorKind::Unreachable
     ));
 

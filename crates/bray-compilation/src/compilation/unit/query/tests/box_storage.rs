@@ -10,8 +10,8 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
     ));
 
     let key = source_function_body_key(&compilation, "main");
-    let bound = compilation.bound_unit(key.clone()).unwrap();
-    let flow = compilation.storage_flow(key).unwrap();
+    let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
 
     let operands = bound
         .value()
@@ -21,7 +21,7 @@ fn box_construction_transfers_its_noncopyable_input_storage() {
             BoundExpression::BoxConstruction(expression) => Some(expression.arguments()),
             _ => None,
         })
-        .unwrap();
+        .expect("fixture selection must find its expected value");
 
     let [operand, ..] = operands else {
         panic!("fixture must provide a boxed value")
@@ -49,11 +49,11 @@ fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits()
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
     );
 
-    let (declarations, _) = source.split_once("func main").unwrap();
+    let (declarations, _) = source.split_once("func main").expect("fixture `split_once` call must succeed");
 
     let compilation = compilation(declarations);
     let key = source_function_body_key(&compilation, "boxed");
-    let analysis = compilation.async_analysis(key.clone()).unwrap();
+    let analysis = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
 
     let release_instances = analysis
         .value()
@@ -66,8 +66,8 @@ fn partially_moved_box_projects_through_policy_and_releases_on_reachable_exits()
 
     assert_eq!(release_instances.len(), 1, "{analysis:?}");
 
-    let lowered = compilation.lowered_unit(key).unwrap();
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
     let reaches_release = |entry| {
         let mut pending = vec![entry];
@@ -144,7 +144,7 @@ fn box_patterns_select_borrows_independently_of_partial_cleanup() {
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
     );
 
-    let (declarations, _) = source.split_once("func main").unwrap();
+    let (declarations, _) = source.split_once("func main").expect("fixture `split_once` call must succeed");
 
     let compilation = compilation(declarations);
 
@@ -160,7 +160,7 @@ fn box_patterns_select_borrows_independently_of_partial_cleanup() {
         ("move_box_target", bray_symbols::BorrowKind::Mutable),
     ] {
         let key = source_function_body_key(&compilation, name);
-        let storage = compilation.storage_plan(key.clone()).unwrap();
+        let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
         let calls = storage.value().owned_borrows().collect::<Vec<_>>();
 
         assert_eq!(calls.len(), 2, "{name}: {storage:?}");
@@ -168,10 +168,10 @@ fn box_patterns_select_borrows_independently_of_partial_cleanup() {
         let (_, _, selected) = calls
             .iter()
             .find(|(_, candidate, _)| *candidate == kind)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
-        let lowered = compilation.lowered_unit(key.clone()).unwrap();
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let lowered = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
                 MirOperationKind::Call(call) if matches!(call.target(),
@@ -183,7 +183,7 @@ fn box_patterns_select_borrows_independently_of_partial_cleanup() {
                     MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
                 )), "observed aliases must not write back to source storage: {mir:?}");
 
-            let analysis = compilation.async_analysis(key).unwrap();
+            let analysis = compilation.async_analysis(key).expect("fixture callable must complete async analysis");
 
             assert!(
                 analysis
@@ -229,12 +229,12 @@ fn guarded_part_fixture_preserves_payload_and_nullable_cleanup() {
         "main",
     ] {
         let key = source_function_body_key(&compilation, name);
-        let lowered = compilation.lowered_unit(key).unwrap();
+        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
         assert!(lowered.value().is_some(), "{name}: {lowered:?}");
 
         if matches!(name, "payload" | "nullable") {
-            let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+            let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
             assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
                     bray_ir::MirOperationKind::Cleanup { place, .. } if !place.projections().is_empty()
@@ -249,7 +249,7 @@ fn borrowed_box_patterns_do_not_grant_target_ownership() {
         "../../../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
     );
 
-    let (declarations, _) = source.split_once("func main").unwrap();
+    let (declarations, _) = source.split_once("func main").expect("fixture `split_once` call must succeed");
 
     let source = format!(
         r#"{declarations}
@@ -275,5 +275,5 @@ fn borrowed_box_patterns_do_not_grant_target_ownership() {
 
     let key = source_function_body_key(&compilation, "invalid_borrow_move");
 
-    assert!(compilation.lowered_unit(key).unwrap().value().is_none());
+    assert!(compilation.lowered_unit(key).expect("fixture callable must lower successfully").value().is_none());
 }

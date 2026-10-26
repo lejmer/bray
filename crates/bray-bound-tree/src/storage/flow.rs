@@ -246,6 +246,7 @@ pub struct StorageExitDecision {
 
 impl StorageExitDecision {
     /// Creates one normalized scope-exit decision.
+    #[expect(clippy::too_many_arguments, reason = "scope exits retain each independent storage fact without combining their meanings")]
     pub fn new(
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
@@ -359,6 +360,7 @@ pub struct StorageFlow {
 
 impl StorageFlow {
     /// Validates and creates one durable storage-flow result.
+    #[expect(clippy::too_many_arguments, reason = "storage flow validates its independent tables against one source unit identity")]
     pub fn try_new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
@@ -969,9 +971,9 @@ mod tests {
             [],
             false,
         )
-        .unwrap();
+        .expect("fixture storage flow must be valid");
 
-        assert!(!flow.suspension(unreachable).unwrap().is_reachable());
+        assert!(!flow.suspension(unreachable).expect("fixture flow table must retain the unreachable suspension").is_reachable());
         assert!(flow.suspension(missing).is_none());
         assert!(!flow.is_recovered());
     }
@@ -1067,7 +1069,7 @@ mod tests {
 
         let flow =
             StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
-                .unwrap();
+                .expect("fixture storage flow must be valid");
 
         assert_eq!(
             flow.with_state_targets(
@@ -1101,7 +1103,7 @@ mod tests {
 
             let flow =
                 StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
-                    .unwrap();
+                    .expect("fixture storage flow must be valid");
 
             let published = flow.with_state_targets(
                 [(
@@ -1113,7 +1115,7 @@ mod tests {
 
             if selector_unit == unit {
                 assert_eq!(
-                    published.unwrap().assignment_target(expression),
+                    published.expect("fixture `published` call must succeed").assignment_target(expression),
                     Some(&target)
                 );
             } else {

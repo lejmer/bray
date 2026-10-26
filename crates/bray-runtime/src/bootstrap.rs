@@ -198,7 +198,7 @@ mod tests {
             0
         }
 
-        let attachment = RuntimeThreadScope::enter().unwrap();
+        let attachment = RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
 
         assert!(register_thread_cleanup(cleanup));
         assert_eq!(attachment.finish(), 0);
@@ -219,7 +219,7 @@ mod tests {
         assert!(matches!(nested, RuntimeThreadEntry::Current(_)));
         assert_eq!(nested.runtime().id(), identity);
         assert_eq!(nested.finish(), 0);
-        assert_eq!(current_runtime_thread().unwrap().id(), identity);
+        assert_eq!(current_runtime_thread().expect("fixture `current_runtime_thread` call must succeed").id(), identity);
         assert_eq!(attached.finish(), 0);
         assert!(current_runtime_thread().is_none());
     }
@@ -233,7 +233,7 @@ mod tests {
 
             let result = catch_unwind(|| {
                 with_thread_cleanup(identity, || {
-                    assert_eq!(current_runtime_thread().unwrap().id().raw(), identity);
+                    assert_eq!(current_runtime_thread().expect("fixture `current_runtime_thread` call must succeed").id().raw(), identity);
                     assert!(RuntimeThreadScope::enter().is_err());
                     panic!("exercise callback observation restoration");
                 });
@@ -246,17 +246,17 @@ mod tests {
         }
 
         std::thread::spawn(|| {
-            let scope = RuntimeThreadScope::enter().unwrap();
+            let scope = RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
 
             assert!(register_thread_cleanup(cleanup));
             assert_eq!(scope.finish(), 1);
             assert!(current_runtime_thread().is_none());
 
-            let next = RuntimeThreadScope::enter().unwrap();
+            let next = RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
 
             assert_eq!(next.finish(), 0);
         })
         .join()
-        .unwrap();
+        .expect("fixture worker must join successfully");
     }
 }

@@ -492,8 +492,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             binding_query_error(invalid_imported_record_set(address, kind, &[]))
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -507,8 +506,7 @@ mod tests {
                 InterfaceSemanticRecordKind::DeclarationTemplate,
             ))
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -520,7 +518,7 @@ mod tests {
                 address.symbol(),
                 kind,
             ))
-            .unwrap();
+            .expect("fixture `imported_semantics` call must succeed");
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             binding_query_error(invalid_imported_record_set(
@@ -529,8 +527,7 @@ mod tests {
                 records.value(),
             ))
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

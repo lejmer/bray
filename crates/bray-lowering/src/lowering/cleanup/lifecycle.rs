@@ -22,8 +22,7 @@ impl Lowerer<'_> {
             .receiver_cleanup
             .as_ref()
             .and_then(|receiver| receiver.mode)
-        {
-            if phase == MirCleanupPhase::LifecycleResolution && release.is_none() {
+            && phase == MirCleanupPhase::LifecycleResolution && release.is_none() {
                 let operation = if abandoned
                     || completed
                     || self.input.type_finalizer_is_complete(place.ty())
@@ -48,7 +47,6 @@ impl Lowerer<'_> {
 
                 return self.resolve_structural_cleanup(block, source, operation);
             }
-        }
 
         self.push_ordinary_cleanup_action(block, source, phase, place, release, completed)
     }

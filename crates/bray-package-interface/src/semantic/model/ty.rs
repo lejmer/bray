@@ -108,8 +108,18 @@ pub enum InterfaceType {
         /// Calling convention.
         abi: CallableAbi,
         /// Behavior incurred while invoking the callable.
-        invocation_behavior: InterfaceCallablePhaseBehavior,
+        invocation_behavior: Arc<InterfaceCallablePhaseBehavior>,
         /// Behavior retained by a lazy async body and transferred from future to task.
-        deferred_execution_behavior: Option<InterfaceCallablePhaseBehavior>,
+        deferred_execution_behavior: Option<Arc<InterfaceCallablePhaseBehavior>>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InterfaceType;
+
+    #[test]
+    fn type_records_do_not_inline_callable_behavior_tables() {
+        assert!(std::mem::size_of::<InterfaceType>() <= 64);
+    }
 }

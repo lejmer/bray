@@ -84,8 +84,7 @@ fn bray_abi_passes_large_composites_indirectly_and_rejects_unsized_values() {
             &mut pending,
         )
     }))
-    .err()
-    .expect("compiler invariant must panic");
+    .expect_err("compiler invariant must panic");
 
     let message = bray_testing::panic_payload_text(panic.as_ref());
 

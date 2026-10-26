@@ -556,9 +556,9 @@ mod tests {
         );
 
         let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("failing cleanup must propagate its retained panic");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 1);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -583,7 +583,7 @@ mod tests {
 
     extern "C" fn release_written(context: usize, _: usize, _: &mut NativeRunOutcome) {
         CLEANUP_EVENTS
-            .with_borrow_mut(|events| events.push(("release", u8::try_from(context).unwrap())));
+            .with_borrow_mut(|events| events.push(("release", u8::try_from(context).expect("fixture value must fit the requested representation"))));
     }
 
     extern "C-unwind" fn write_then_unwind(_: *mut u8, outcome: &mut NativeRunOutcome) {
@@ -612,9 +612,9 @@ mod tests {
         let _denied = crate::outgoing::tests::reject_admission();
 
         let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("cleanup unwind must preserve its written report");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 2);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -642,9 +642,9 @@ mod tests {
         let observation = observation(&completed, Some(cancel_cleanup), Some(failing_lifecycle));
 
         let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("failing lifecycle must propagate after cancelled cleanup");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 0);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -661,7 +661,7 @@ mod tests {
         lifecycle: Option<super::NativeValueCleanupCallback>,
     ) -> TaskObservation {
         let layout = result_layout();
-        let backing = crate::backing::Backing::admit(layout.size(), layout.alignment()).unwrap();
+        let backing = crate::backing::Backing::admit(layout.size(), layout.alignment()).expect("fixture outgoing records must admit the supplied values");
         let result = backing.address();
 
         transfer_outcome(
@@ -672,7 +672,7 @@ mod tests {
             result,
             layout,
         )
-        .unwrap();
+        .expect("fixture `transfer_outcome` call must succeed");
 
         // These cleanup tests begin after native task retirement. Native integration
         // tests separately exercise admission, dispatch and retirement ownership.
@@ -699,9 +699,9 @@ mod tests {
             },
             result,
             outgoing: Mutex::new(
-                crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS).unwrap(),
+                crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS).expect("fixture outgoing records must admit the supplied values"),
             ),
-            task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
+            task: bray_runtime_abi::NativeTaskHandle::new(1).expect("fixture native task handle must be valid"),
             layout,
             cancellation,
             lifecycle,
@@ -770,7 +770,7 @@ mod tests {
             destination,
             result_layout(),
         )
-        .unwrap();
+        .expect("fixture `transfer_outcome` call must succeed");
 
         assert_eq!(storage.0[0], COMPLETED_TAG);
         assert_eq!(&storage.0[8..16], &completed.to_ne_bytes());
@@ -863,7 +863,7 @@ mod tests {
             std::ptr::from_mut(&mut destination).addr(),
             result_layout(),
         )
-        .unwrap();
+        .expect("fixture `transfer_outcome` call must succeed");
 
         assert_eq!(destination.tag, u64::from(PANICKED_TAG));
 

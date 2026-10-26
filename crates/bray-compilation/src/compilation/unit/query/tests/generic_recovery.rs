@@ -166,7 +166,7 @@ fn malformed_generic_applications_preserve_source_diagnostics() {
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             DiagnosticKind::BindingGenericArgumentCountMismatch,
         );
     }
@@ -223,7 +223,7 @@ fn malformed_generic_tokens_do_not_abort_diagnostic_collection() {
     let diagnostics = application.check_diagnostics();
 
     bray_testing::assert_goal_state_diagnostic_kind(
-        &diagnostics,
+        diagnostics,
         DiagnosticKind::LexicalInvalidOperatorOrPunctuation,
     );
 
@@ -287,7 +287,7 @@ fn malformed_generic_trait_applications_recover_across_consumers() {
         let diagnostics = application.check_diagnostics();
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             DiagnosticKind::BindingGenericArgumentCountMismatch,
         );
     }
@@ -310,7 +310,7 @@ fn malformed_generic_type_arguments_recover_without_syntax_contract_failures() {
         let diagnostics = application.check_diagnostics();
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             DiagnosticKind::BindingGenericArgumentMustBeType,
         );
     }

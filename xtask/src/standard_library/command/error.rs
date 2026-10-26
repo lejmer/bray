@@ -305,7 +305,7 @@ mod tests {
         .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
 
         let failure = BuildError::compilation_failed(
-            TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
+            TargetIdentity::try_new("x86_64-pc-windows-msvc").expect("fixture target identity must be valid"),
             "internal diagnostic bag".to_owned(),
             [&DiagnosticBag::single(diagnostic)],
             &SourceStore::new(),

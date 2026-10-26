@@ -420,7 +420,7 @@ mod tests {
                 panic!("test extent must be an integer literal");
             };
 
-            Ok(value.to_u64().unwrap())
+            Ok(value.to_u64().expect("fixture `to_u64` call must succeed"))
         }
 
         fn standard_library_callable(
@@ -447,8 +447,8 @@ mod tests {
 
     #[test]
     fn array_cleanup_mir_size_is_independent_of_the_extent() {
-        let context = TupleContext(SemanticValueStore::try_new().unwrap());
-        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
         let mut sizes = Vec::new();
 
         for length in [1, 4, 257, u64::from(u32::MAX) + 1] {
@@ -458,7 +458,7 @@ mod tests {
                     ty: bray_symbols::TargetSizedIntegerType::Usize,
                     value: bray_symbols::IntegerConstant::from_u64(length),
                 })
-                .unwrap();
+                .expect("fixture constant term must be interned");
 
             let array = context
                 .0
@@ -466,7 +466,7 @@ mod tests {
                     element: leaf,
                     length,
                 })
-                .unwrap();
+                .expect("fixture type must be interned");
 
             let reference =
                 MirHelperReference::Destroy(array, bray_ir::MirDestructionDisposition::Dynamic);
@@ -483,12 +483,12 @@ mod tests {
                 MirUnitId::new(7),
                 &bray_testing::test_mir_target(),
             )
-            .unwrap();
+            .expect("fixture `lower_lifecycle` call must succeed");
 
             assert!(
                 context
                     .lifecycle_action(array, bray_bound_tree::LifecyclePhase::Destroy)
-                    .unwrap()
+                    .expect("fixture `lifecycle_action` call must succeed")
                     .local_calls()
                     .next()
                     .is_none(),
@@ -514,13 +514,13 @@ mod tests {
 
     #[test]
     fn tuple_destruction_lowers_reverse_order_without_compilation_queries() {
-        let context = TupleContext(SemanticValueStore::try_new().unwrap());
-        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let pair = context
             .0
             .intern_type(TypeData::tuple([leaf, leaf]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let reference =
             MirHelperReference::Destroy(pair, bray_ir::MirDestructionDisposition::Dynamic);
@@ -537,7 +537,7 @@ mod tests {
             MirUnitId::new(3),
             &bray_testing::test_mir_target(),
         )
-        .unwrap();
+        .expect("fixture `lower_lifecycle` call must succeed");
 
         assert_eq!(mir.key(), &key);
 
@@ -552,7 +552,7 @@ mod tests {
                 };
 
                 let MirProjectionKind::TupleField(index) =
-                    place.projections().last().unwrap().kind()
+                    place.projections().last().expect("fixture sequence must contain its last item").kind()
                 else {
                     panic!("tuple teardown must retain the element projection");
                 };
@@ -566,9 +566,9 @@ mod tests {
 
     #[test]
     fn nullable_cleanup_lowers_both_phases_with_generated_provenance() {
-        let context = TupleContext(SemanticValueStore::try_new().unwrap());
-        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
-        let nullable = context.0.intern_type(TypeData::Nullable(leaf)).unwrap();
+        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let nullable = context.0.intern_type(TypeData::Nullable(leaf)).expect("fixture type must be interned");
 
         for phase in [
             MirCleanupPhase::TaskCancellation,
@@ -591,7 +591,7 @@ mod tests {
                 MirUnitId::new(5),
                 &bray_testing::test_mir_target(),
             )
-            .unwrap();
+            .expect("fixture `lower_lifecycle` call must succeed");
 
             assert!(mir.operations().iter().all(|operation| operation.source()
                 == &bray_ir::MirSourceAnchor::generated_helper(reference.clone())));

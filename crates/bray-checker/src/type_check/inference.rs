@@ -214,13 +214,9 @@ impl TypeInferenceContext {
     ) -> Option<TypeId> {
         let root = self.find(id);
 
-        let Some(index) = root.to_index() else {
-            return None;
-        };
+        let index = root.to_index()?;
 
-        let Some(node) = self.nodes.get(index) else {
-            return None;
-        };
+        let node = self.nodes.get(index)?;
 
         let mut selected = None;
 

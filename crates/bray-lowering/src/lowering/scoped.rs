@@ -572,6 +572,10 @@ impl Lowerer<'_> {
             .0)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "scoped exit outcomes retain selected outcome, shielding, value, and continuation destinations"
+    )]
     pub(super) fn check_scoped_exit_call(
         &mut self,
         expression: BoundExpressionId,

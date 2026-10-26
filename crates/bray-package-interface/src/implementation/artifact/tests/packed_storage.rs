@@ -31,18 +31,18 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
         }))
         .collect::<Vec<_>>();
 
-    let bytes = encode_artifact(&identity, &bodies, &[], &[], &[], None, &[], &[]).unwrap();
-    let directory = tempfile::tempdir().unwrap();
+    let bytes = encode_artifact(&identity, &bodies, &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("large.brayimpl");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     let input = crate::PackageArtifactInput::packed_file(
         &path,
-        PackageImplementationArtifact::metadata_digest(&bytes).unwrap(),
+        PackageImplementationArtifact::metadata_digest(&bytes).expect("fixture `PackageImplementationArtifact::metadata_digest` call must succeed"),
     );
 
-    let artifact = input.load_implementation().unwrap();
+    let artifact = input.load_implementation().expect("fixture implementation must load");
     let metadata = artifact.access_statistics();
 
     assert_eq!(metadata.opens, 1);
@@ -70,7 +70,7 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
                 assert!(
                     artifact
                         .constant_callable_body(owner, surface)
-                        .unwrap()
+                        .expect("fixture `scope` call must succeed")
                         .is_some()
                 )
             });
@@ -94,13 +94,13 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
         input
             .clone()
             .load_implementation()
-            .unwrap()
+            .expect("fixture implementation must load")
             .access_statistics(),
         demanded
     );
 
     assert!(demanded.payload_bytes_hashed < 8192);
-    artifact.verify_all().unwrap();
+    artifact.verify_all().expect("fixture MIR must satisfy its structural contracts");
 
     // Complete acquisition verification streams unread bodies without retaining them.
     assert_eq!(
@@ -128,23 +128,23 @@ fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption
         [],
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().unwrap();
-    let directory = tempfile::tempdir().unwrap();
+    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     let input = crate::PackageArtifactInput::file(&path, None);
-    let old = input.load_implementation().unwrap();
+    let old = input.load_implementation().expect("fixture implementation must load");
 
-    std::fs::rename(&path, directory.path().join("old.brayimpl")).unwrap();
-    std::fs::write(&path, b"corrupt replacement").unwrap();
+    std::fs::rename(&path, directory.path().join("old.brayimpl")).expect("fixture path must be renamed");
+    std::fs::write(&path, b"corrupt replacement").expect("fixture contents must be written");
 
     assert!(
         old.constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
-            .unwrap()
+            .expect("fixture `constant_callable_body` call must succeed")
             .is_some()
     );
 
@@ -152,9 +152,9 @@ fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption
         input
             .clone()
             .load_implementation()
-            .unwrap()
+            .expect("fixture implementation must load")
             .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
-            .unwrap()
+            .expect("fixture `constant_callable_body` call must succeed")
             .is_some()
     );
 
@@ -168,28 +168,28 @@ fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption
 #[test]
 fn object_only_selection_leaves_bitcode_payloads_untouched() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).unwrap();
+    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
     let artifact = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
         &fixture.bundle,
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from export bundle must succeed");
 
-    let target = NativeTarget::for_identity(artifact.identity().configuration().target()).unwrap();
+    let target = NativeTarget::for_identity(artifact.identity().configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
     let producer = native_digest(b"producer");
 
     let object = NativeArtifactIndex::try_new(target, producer, [], [])
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
     let bitcode = NativeArtifactIndex::try_new(target, producer, [], [])
-        .unwrap()
+        .expect("fixture native artifact index must be valid")
         .with_bitcode_toolchain("llvm-test")
         .encode()
-        .unwrap();
+        .expect("fixture artifact must encode");
 
     let variants = artifact
         .try_native_only_artifact(
@@ -199,11 +199,11 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
             ],
             &[],
         )
-        .unwrap();
+        .expect("fixture native only artifact must succeed");
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
-    let mut bytes = variants.shared_bytes().unwrap().to_vec();
+    let mut bytes = variants.shared_bytes().expect("fixture `shared_bytes` call must succeed").to_vec();
 
     let bitcode_entry = variants
         .directory
@@ -212,16 +212,16 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
             entry.kind == Some(ImplementationPayloadKind::NativeIndex)
                 && entry.discriminator[0] == 2
         })
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     bytes[bitcode_entry.payload.start] ^= 1;
-    std::fs::write(&path, bytes).unwrap();
+    std::fs::write(&path, bytes).expect("fixture contents must be written");
 
     let input = crate::PackageArtifactInput::packed_file(&path, *variants.artifact_hash());
-    let loaded = input.load_implementation().unwrap();
+    let loaded = input.load_implementation().expect("fixture implementation must load");
 
     assert_eq!(
-        loaded.native_representation(None).unwrap().unwrap().0,
+        loaded.native_representation(None).expect("fixture `native_representation` call must succeed").expect("successful fixture query must contain its expected result").0,
         NativeUnitKind::Object
     );
 
@@ -239,7 +239,7 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
 
 #[test]
 fn packed_read_errors_preserve_path_and_exact_io_cause() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("absent.brayimpl");
 
     assert!(
@@ -260,22 +260,22 @@ fn packed_read_errors_preserve_path_and_exact_io_cause() {
         [],
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().unwrap();
+    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     let selected = crate::PackageArtifactInput::file(&path, None)
         .load_implementation()
-        .unwrap();
+        .expect("fixture implementation must load");
 
     std::fs::OpenOptions::new()
         .write(true)
         .open(&path)
-        .unwrap()
+        .expect("fixture file must open")
         .set_len(super::super::HEADER_LENGTH as u64)
-        .unwrap();
+        .expect("fixture `set_len` call must succeed");
 
     assert!(
         matches!(selected.constant_callable_body(fixture.body.owner(), fixture.bundle.surface()),
@@ -335,13 +335,13 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
         [],
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().unwrap();
-    let directory = tempfile::tempdir().unwrap();
+    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     assert!(matches!(
         crate::PackageArtifactInput::packed_file(&path, [0; 32]).read(),
@@ -352,18 +352,18 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
 
     let input = crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash());
 
-    assert_eq!(input.read().unwrap(), bytes);
+    assert_eq!(input.read().expect("fixture contents must be readable"), bytes);
 
-    std::fs::write(&path, b"replacement").unwrap();
+    std::fs::write(&path, b"replacement").expect("fixture contents must be written");
 
-    let loaded = input.load_implementation().unwrap();
+    let loaded = input.load_implementation().expect("fixture implementation must load");
 
     assert_eq!(loaded.access_statistics().opens, 0);
 
     assert!(
         loaded
             .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
-            .unwrap()
+            .expect("fixture `constant_callable_body` call must succeed")
             .is_some()
     );
 

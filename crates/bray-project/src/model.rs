@@ -163,6 +163,10 @@ pub struct ProjectProduct {
 }
 
 impl ProjectProduct {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "product construction retains distinct dependencies, sources, targets, outputs, and platform service selections"
+    )]
     pub(crate) fn new(
         identity: ProductIdentity,
         kind: ProductKind,

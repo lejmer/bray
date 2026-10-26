@@ -115,7 +115,7 @@ mod tests {
             vec![vec![0], vec![]],
             vec![vec![0, 0]],
             vec![vec![1]],
-            vec![vec![255].into()],
+            vec![vec![255]],
         ];
 
         for pair in values.windows(2) {

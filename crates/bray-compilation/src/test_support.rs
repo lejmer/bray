@@ -915,7 +915,7 @@ pub(crate) fn production_standard_library_compilation(
     )
     .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
         bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new(name).unwrap(),
+            bray_base::NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
             if name == "dl" {
                 bray_symbols::NativeLinkKind::Dynamic
             } else {
@@ -926,7 +926,7 @@ pub(crate) fn production_standard_library_compilation(
 
     Compilation::load(
         CompilationRequest::with_options(
-            PackageIdentity::try_new("std").unwrap(),
+            PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
             sources,
             options,
         )

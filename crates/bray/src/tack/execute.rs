@@ -470,6 +470,10 @@ fn execute_invocation_with_progress(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "checking joins selected products, workspace and toolchain, execution controls, profiling, and output mode"
+)]
 fn run_check(
     workspace_root: &Path,
     graph: &ProjectGraph,
@@ -1061,6 +1065,10 @@ fn run_language_server(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "format execution retains independent source selection, configuration, execution controls, output mode, and input stream"
+)]
 fn run_format(
     workspace_root: &Path,
     worker_count: usize,
@@ -1545,14 +1553,14 @@ mod tests {
         let workspace = ProjectWorkspace::basic();
         let executor = RecordingExecutor::default();
         let root = workspace.path().join("build");
-        let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu").unwrap();
+        let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu").expect("fixture target identity must be valid");
 
         let cache =
-            bray_emitter::ManagedCache::thin_lto(&root, &target, "test-llvm", &|| false).unwrap();
+            bray_emitter::ManagedCache::thin_lto(&root, &target, "test-llvm", &|| false).expect("fixture `bray_emitter::ManagedCache::thin_lto` call must succeed");
 
         let file = cache.directory().join("content");
 
-        std::fs::write(&file, b"optional cache").unwrap();
+        std::fs::write(&file, b"optional cache").expect("fixture contents must be written");
         drop(cache);
 
         for (command, dry_run, remains) in [
@@ -1585,7 +1593,7 @@ mod tests {
 
             assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
 
-            let report: serde_json::Value = serde_json::from_str(result.stdout()).unwrap();
+            let report: serde_json::Value = serde_json::from_str(result.stdout()).expect("fixture data must parse");
 
             assert_eq!(report["kind"], "storage_report");
             assert_eq!(report["clean"], command == "clean");
@@ -1989,14 +1997,14 @@ mod tests {
             let manifest_path = workspace.path().join("app/bray-package.json");
 
             let mut manifest: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+                serde_json::from_slice(&std::fs::read(&manifest_path).expect("fixture contents must be readable")).expect("fixture data must deserialize");
 
             manifest["products"][0]["kind"] = kind.into();
             manifest["products"][0]["outputs"] = serde_json::json!([artifact.replace('-', "_")]);
 
             workspace.write(
                 "app/bray-package.json",
-                &serde_json::to_string(&manifest).unwrap(),
+                &serde_json::to_string(&manifest).expect("fixture data must serialize"),
             );
 
             let toolchain = unique_temporary_directory();

@@ -731,7 +731,7 @@ mod tests {
                     "caches",
                 ]),
             )
-            .unwrap();
+            .expect("fixture from arguments must succeed");
 
             let (_, _, _, _, _, profile, command) = invocation.into_parts();
 
@@ -867,7 +867,7 @@ mod tests {
 
     #[test]
     fn unexpected_argument_error_names_the_argument() {
-        let error = TackInvocation::try_from_arguments(["bray", "--release", "test"]).unwrap_err();
+        let error = TackInvocation::try_from_arguments(["bray", "--release", "test"]).expect_err("unsupported release argument must be rejected");
 
         let (_, _, stderr) = error.into_output();
 

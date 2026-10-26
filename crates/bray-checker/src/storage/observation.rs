@@ -159,16 +159,13 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
         let ty = shared.unwrap_or(ty);
 
-        if !shapes.contains_key(&ty) {
-            shapes.insert(
-                ty,
-                paths(
+        if let std::collections::btree_map::Entry::Vacant(e) = shapes.entry(ty) {
+            e.insert(paths(
                     request,
                     ty,
                     &mut BTreeSet::new(),
                     &mut complete_reference_types,
-                )?,
-            );
+                )?);
         }
 
         let mut observations = shapes[&ty]
@@ -291,16 +288,13 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             .expect("assignment retains its checked destination")
             .reached_type();
 
-        if !shapes.contains_key(&ty) {
-            shapes.insert(
-                ty,
-                paths(
+        if let std::collections::btree_map::Entry::Vacant(e) = shapes.entry(ty) {
+            e.insert(paths(
                     request,
                     ty,
                     &mut BTreeSet::new(),
                     &mut complete_reference_types,
-                )?,
-            );
+                )?);
         }
     }
 

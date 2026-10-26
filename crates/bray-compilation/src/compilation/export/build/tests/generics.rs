@@ -225,7 +225,7 @@ fn abstract_trait_results_survive_package_interfaces() {
 
             let flow = consumer
                 .storage_flow(source_function_body_key(&consumer, "caller"))
-                .unwrap();
+                .expect("fixture callable must complete storage-flow analysis");
 
             if valid {
                 assert!(
@@ -793,7 +793,7 @@ fn member_access_distinguishes_trait_applications_from_value_arguments() {
             let diagnostics = consumer.check_diagnostics();
 
             match failure {
-                Some(kind) => bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, kind),
+                Some(kind) => bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind),
                 None => assert!(!diagnostics.has_errors(), "{body}\n{diagnostics:?}"),
             }
         }

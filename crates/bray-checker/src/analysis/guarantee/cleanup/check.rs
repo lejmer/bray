@@ -55,6 +55,7 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
     Ok(valid)
 }
 
+#[expect(clippy::too_many_arguments, reason = "cleanup certification retains the exact storage access, execution property and proof outputs")]
 pub(in crate::analysis::guarantee) fn check_cleanup<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,

@@ -183,18 +183,20 @@ fn bind_static_instance_template(
     ))
 }
 
-fn static_initializer_behavior(
-    context: &CompilationBindingContext<'_>,
-    declaration: StaticSymbolId,
-    source_duration: StaticStorageDuration,
-    diagnostics: &mut DiagnosticBag,
-) -> BindingQueryResult<(
+type StaticInitializerBehavior = (
     StaticStorageDuration,
     bray_symbols::DependencyContractTemplateId,
     Vec<bray_symbols::LifecycleObligationKind>,
     Vec<bray_symbols::SymbolKey>,
     Vec<StaticSymbolId>,
-)> {
+);
+
+fn static_initializer_behavior(
+    context: &CompilationBindingContext<'_>,
+    declaration: StaticSymbolId,
+    source_duration: StaticStorageDuration,
+    diagnostics: &mut DiagnosticBag,
+) -> BindingQueryResult<StaticInitializerBehavior> {
     let native = context
         .compilation()
         .foreign_static_contract_with_cancellation(declaration, context.cancellation())

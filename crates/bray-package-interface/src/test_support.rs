@@ -441,7 +441,7 @@ fn template_semantics(
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
                     variadic: false,
-                    invocation_behavior: invocation_behavior.clone(),
+                    invocation_behavior: invocation_behavior.clone().into(),
                     deferred_execution_behavior: None,
                 },
                 InterfaceType::Callable {
@@ -451,7 +451,7 @@ fn template_semantics(
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
                     variadic: false,
-                    invocation_behavior: invocation_behavior.clone(),
+                    invocation_behavior: invocation_behavior.clone().into(),
                     deferred_execution_behavior: None,
                 },
             ],

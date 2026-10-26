@@ -44,9 +44,7 @@ pub(super) fn validate_host_operation(
             execution,
             runtime,
         } => {
-            let Some(contract_entry) = host.entry(*entry) else {
-                return None;
-            };
+            let contract_entry = host.entry(*entry)?;
 
             if root.kind() != BoundUnitKind::CallableBody || *execution != contract_entry.root() {
                 return None;
@@ -65,9 +63,7 @@ pub(super) fn validate_host_operation(
             validate_runtime_role(unit, *runtime, role)
         }
         MirHostOperation::ObserveRootTerminal { entry, runtime } => {
-            if host.entry(*entry).is_none() {
-                return None;
-            }
+            host.entry(*entry)?;
 
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootTerminalObservation)
         }
@@ -78,9 +74,7 @@ pub(super) fn validate_host_operation(
             panic,
             entry_failure,
         } => {
-            let Some(contract_entry) = host.entry(*entry) else {
-                return None;
-            };
+            let contract_entry = host.entry(*entry)?;
 
             let expected_error = match contract_entry.result() {
                 bray_runtime_interface::ExecutableEntryResult::Fallible { error, .. } => {

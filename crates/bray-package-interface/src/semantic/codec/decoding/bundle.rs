@@ -839,7 +839,7 @@ mod tests {
 
         types.push(InterfaceType::Tuple([].into()));
 
-        let replacement = InterfaceTypeId::new(u32::try_from(types.len()).unwrap());
+        let replacement = InterfaceTypeId::new(u32::try_from(types.len()).expect("fixture value must fit the requested representation"));
 
         types.push(InterfaceType::Tuple(
             [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),
@@ -884,7 +884,7 @@ mod tests {
             InterfaceSemanticRecordKind::CallableSignature,
             InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture `decode_semantic_graph` call must succeed");
 
         for effect in &*decoded.dependency_contracts[0].effects {
             let (DependencyStorageEffect::Direct {

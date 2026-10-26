@@ -621,7 +621,7 @@ mod tests {
                 [],
                 false,
             )
-            .unwrap()
+            .expect("fixture checked dependency contracts must be valid")
         };
 
         let contract = |access, kind| {
@@ -656,7 +656,7 @@ mod tests {
 
         let published = table()
             .try_with_calls([(expression.into(), phases.clone())].into())
-            .unwrap();
+            .expect("fixture with calls must succeed");
 
         let call = &published.calls()[&expression.into()];
 

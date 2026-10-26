@@ -39,10 +39,10 @@ fn truncated_headers_identify_the_exact_field() {
 
     for (length, expected_field) in cases {
         let error = PackageImplementationArtifact::try_from_bytes(
-            artifact.shared_bytes().unwrap()[..length].to_vec(),
+            artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed")[..length].to_vec(),
             InterfaceValidationLimits::default(),
         )
-        .unwrap_err();
+        .expect_err("truncated implementation header must be rejected");
 
         assert!(matches!(
             error,

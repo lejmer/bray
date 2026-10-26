@@ -325,9 +325,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
     }
 
     if let (MirOperationKind::Text(text), Some(result)) = (operation.kind(), operation.result()) {
-        let Some(result) = unit.value(result) else {
-            return None;
-        };
+        let result = unit.value(result)?;
 
         if Some(result.ty()) != text.result_type() {
             return None;
@@ -337,9 +335,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
     if let (MirOperationKind::NullableQuery(query), Some(result)) =
         (operation.kind(), operation.result())
     {
-        let Some(result) = unit.value(result) else {
-            return None;
-        };
+        let result = unit.value(result)?;
 
         if result.ty() != query.result_type() {
             return None;
@@ -354,9 +350,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         Some(result),
     ) = (operation.kind(), operation.result())
     {
-        let Some(result) = unit.value(result) else {
-            return None;
-        };
+        let result = unit.value(result)?;
 
         if unit.operand_type(operand)? != conversion.source_type()
             || result.ty() != conversion.target_type()
@@ -366,9 +360,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
     }
 
     if let (MirOperationKind::Call(call), Some(result)) = (operation.kind(), operation.result()) {
-        let Some(result) = unit.value(result) else {
-            return None;
-        };
+        let result = unit.value(result)?;
 
         if result.ty() != call.result().ty() {
             return None;
@@ -383,9 +375,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         }
 
         if let Some(result) = operation.result() {
-            let Some(result) = unit.value(result) else {
-                return None;
-            };
+            let result = unit.value(result)?;
 
             if Some(result.ty()) != memory.result_type() {
                 return None;
@@ -398,9 +388,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         Some(result),
     ) = (operation.kind(), operation.result())
     {
-        let Some(result) = unit.value(result) else {
-            return None;
-        };
+        let result = unit.value(result)?;
 
         if initializer.future_type() != Some(result.ty()) {
             return None;
@@ -643,7 +631,7 @@ mod tests {
                     inputs: ty,
                     output: Some(ty),
                     labels: None,
-                    contract: assembly,
+                    contract: assembly.into(),
                 },
                 1,
                 true,
@@ -653,7 +641,7 @@ mod tests {
                     inputs: ty,
                     output: None,
                     labels: None,
-                    contract: assembly,
+                    contract: assembly.into(),
                 },
                 1,
                 false,
@@ -1052,9 +1040,7 @@ pub(super) fn validate_place(
 ) -> Option<()> {
     validate_storage(unit, place.storage())?;
 
-    let Some(storage) = unit.storage(place.storage()) else {
-        return None;
-    };
+    let storage = unit.storage(place.storage())?;
 
     let mut expected_type = storage.ty();
 
@@ -1108,9 +1094,7 @@ fn validate_current_frame(
 }
 
 fn validate_storage(unit: &MirUnit, storage: MirStorageId) -> Option<()> {
-    if unit.storage(storage).is_none() {
-        return None;
-    }
+    unit.storage(storage)?;
 
     Some(())
 }
@@ -1138,9 +1122,7 @@ fn validate_place_storage_kind(
 }
 
 pub(super) fn validate_value(unit: &MirUnit, value: MirValueId) -> Option<()> {
-    if unit.value(value).is_none() {
-        return None;
-    }
+    unit.value(value)?;
 
     Some(())
 }
@@ -1153,9 +1135,7 @@ fn validate_value_at(
 ) -> Option<()> {
     validate_value(unit, value)?;
 
-    let Some(value_data) = unit.value(value) else {
-        return None;
-    };
+    let value_data = unit.value(value)?;
 
     let valid = match value_data.origin() {
         crate::MirValueOrigin::BlockParameter(owner) => owner == block,

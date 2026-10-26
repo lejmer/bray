@@ -98,9 +98,7 @@ pub fn resolve_type_expression_template(
                 );
             };
 
-            let Some(arguments) = resolve_arguments(values, arguments, constants) else {
-                return None;
-            };
+            let arguments = resolve_arguments(values, arguments, constants)?;
 
             let substitution =
                 GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_type_expression_template: {error:?}"));
@@ -119,13 +117,9 @@ pub fn resolve_type_expression_template(
             parameters,
             arguments,
         } => {
-            let Some(target) = resolve_type_expression_template(values, target, constants) else {
-                return None;
-            };
+            let target = resolve_type_expression_template(values, target, constants)?;
 
-            let Some(arguments) = resolve_arguments(values, arguments, constants) else {
-                return None;
-            };
+            let arguments = resolve_arguments(values, arguments, constants)?;
 
             let Some(owner) = GenericOwnerId::try_new((*definition).into()) else {
                 panic!(
@@ -148,15 +142,9 @@ pub fn resolve_type_expression_template(
             application,
             member,
         } => {
-            let Some(subject) = resolve_type_expression_template(values, subject, constants) else {
-                return None;
-            };
+            let subject = resolve_type_expression_template(values, subject, constants)?;
 
-            let Some(application) =
-                resolve_trait_application_template(values, application, constants)
-            else {
-                return None;
-            };
+            let application = resolve_trait_application_template(values, application, constants)?;
 
             TypeData::TypeValuedMemberProjection {
                 subject,
@@ -165,48 +153,34 @@ pub fn resolve_type_expression_template(
             }
         }
         TypeExpressionTemplate::Tuple(elements) => {
-            let Some(elements) = resolve_types(values, elements, constants) else {
-                return None;
-            };
+            let elements = resolve_types(values, elements, constants)?;
 
             TypeData::tuple(elements)
         }
         TypeExpressionTemplate::Array { element, length } => {
-            let Some(element) = resolve_type_expression_template(values, element, constants) else {
-                return None;
-            };
+            let element = resolve_type_expression_template(values, element, constants)?;
 
-            let Some(length) = constants.term(length.key()) else {
-                return None;
-            };
+            let length = constants.term(length.key())?;
 
             TypeData::Array { element, length }
         }
         TypeExpressionTemplate::FlexibleArray(element) => {
-            let Some(element) = resolve_type_expression_template(values, element, constants) else {
-                return None;
-            };
+            let element = resolve_type_expression_template(values, element, constants)?;
 
             TypeData::FlexibleArray(element)
         }
         TypeExpressionTemplate::Slice(target) => {
-            let Some(target) = resolve_type_expression_template(values, target, constants) else {
-                return None;
-            };
+            let target = resolve_type_expression_template(values, target, constants)?;
 
             TypeData::Slice(target)
         }
         TypeExpressionTemplate::Nullable(target) => {
-            let Some(target) = resolve_type_expression_template(values, target, constants) else {
-                return None;
-            };
+            let target = resolve_type_expression_template(values, target, constants)?;
 
             TypeData::Nullable(target)
         }
         TypeExpressionTemplate::Borrow { kind, target } => {
-            let Some(target) = resolve_type_expression_template(values, target, constants) else {
-                return None;
-            };
+            let target = resolve_type_expression_template(values, target, constants)?;
 
             TypeData::Borrow {
                 kind: *kind,
@@ -214,22 +188,14 @@ pub fn resolve_type_expression_template(
             }
         }
         TypeExpressionTemplate::TraitView(application) => {
-            let Some(application) =
-                resolve_trait_application_template(values, application, constants)
-            else {
-                return None;
-            };
+            let application = resolve_trait_application_template(values, application, constants)?;
 
             TypeData::TraitView(application)
         }
         TypeExpressionTemplate::OwnedIndirection { storage, target } => {
-            let Some(storage) = resolve_type_expression_template(values, storage, constants) else {
-                return None;
-            };
+            let storage = resolve_type_expression_template(values, storage, constants)?;
 
-            let Some(target) = resolve_type_expression_template(values, target, constants) else {
-                return None;
-            };
+            let target = resolve_type_expression_template(values, target, constants)?;
 
             TypeData::OwnedIndirection { storage, target }
         }
@@ -237,10 +203,7 @@ pub fn resolve_type_expression_template(
             let mut parameters = Vec::with_capacity(callable.parameters().len());
 
             for parameter in callable.parameters() {
-                let Some(ty) = resolve_type_expression_template(values, parameter.ty(), constants)
-                else {
-                    return None;
-                };
+                let ty = resolve_type_expression_template(values, parameter.ty(), constants)?;
 
                 // Callable parameter names are immutable canonical payloads.
                 parameters.push(bray_symbols::CallableParameterData::new(
@@ -251,11 +214,7 @@ pub fn resolve_type_expression_template(
                 ));
             }
 
-            let Some(result) =
-                resolve_type_expression_template(values, callable.result(), constants)
-            else {
-                return None;
-            };
+            let result = resolve_type_expression_template(values, callable.result(), constants)?;
 
             // The resolved callable type owns the Arc-backed phase behavior snapshot.
             TypeData::Callable(
@@ -288,16 +247,9 @@ pub fn resolve_callable_signature_template(
     substitution: GenericSubstitutionId,
     constants: &CheckedConstantTerms,
 ) -> Option<CallableSignature> {
-    let Some(callable_type) =
-        resolve_type_expression_template(values, template.callable_type(), constants)
-    else {
-        return None;
-    };
+    let callable_type = resolve_type_expression_template(values, template.callable_type(), constants)?;
 
-    let Some(result) = resolve_type_expression_template(values, template.result(), constants)
-    else {
-        return None;
-    };
+    let result = resolve_type_expression_template(values, template.result(), constants)?;
 
     let parameter_templates =
         template
@@ -311,10 +263,7 @@ pub fn resolve_callable_signature_template(
         .copied()
         .zip(parameter_templates)
     {
-        let Some(ty) = resolve_type_expression_template(values, &parameter_template, constants)
-        else {
-            return None;
-        };
+        let ty = resolve_type_expression_template(values, &parameter_template, constants)?;
 
         parameters.push(CallableParameterSignature::new(parameter, ty));
     }
@@ -354,9 +303,7 @@ pub fn resolve_trait_application_template(
         );
     };
 
-    let Some(arguments) = resolve_arguments(values, template.arguments(), constants) else {
-        return None;
-    };
+    let arguments = resolve_arguments(values, template.arguments(), constants)?;
 
     let substitution =
         GenericSubstitutionData::try_new(owner, template.parameters().iter().copied(), arguments).unwrap_or_else(|error| panic!("Generic substitution construction rejected an exact parameter-to-argument relationship. in resolve_trait_application_template: {error:?}"));
@@ -383,16 +330,12 @@ fn resolve_arguments(
         let argument = match template {
             GenericArgumentTemplate::Resolved(argument) => *argument,
             GenericArgumentTemplate::Type(template) => {
-                let Some(ty) = resolve_type_expression_template(values, template, constants) else {
-                    return None;
-                };
+                let ty = resolve_type_expression_template(values, template, constants)?;
 
                 GenericArgument::Type(ty)
             }
             GenericArgumentTemplate::Constant(occurrence) => {
-                let Some(term) = constants.term(occurrence.key()) else {
-                    return None;
-                };
+                let term = constants.term(occurrence.key())?;
 
                 GenericArgument::Constant(term)
             }
@@ -412,9 +355,7 @@ fn resolve_types(
     let mut types = Vec::with_capacity(templates.len());
 
     for template in templates {
-        let Some(ty) = resolve_type_expression_template(values, template, constants) else {
-            return None;
-        };
+        let ty = resolve_type_expression_template(values, template, constants)?;
 
         types.push(ty);
     }

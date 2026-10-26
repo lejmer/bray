@@ -387,7 +387,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        return Some(crate::ExecutionCallEvidence {
+        Some(crate::ExecutionCallEvidence {
             returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -395,7 +395,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             arguments,
             assumptions: state.assumptions.clone(),
             trusted_assumptions: state.call_trusted_assumptions([]),
-        });
+        })
     }
 
     pub(super) fn call_entry(

@@ -99,7 +99,7 @@ func inspect(pos slice: &[u8], pos array: [u8; 4]) -> (usize, bool, usize, bool)
             .filter(|operation| matches!(
                 operation.kind(),
                 MirOperationKind::Memory(memory)
-                    if memory.kind() == CheckedMemoryOperationKind::SequenceLength
+                    if memory.kind() == &CheckedMemoryOperationKind::SequenceLength
             ))
             .count(),
         4

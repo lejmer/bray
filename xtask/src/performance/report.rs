@@ -332,6 +332,10 @@ fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
     finish(html)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "comparison rows retain independent process, compiler, controlled execution, and artifact measurements"
+)]
 fn comparison_row(
     html: &mut BoundedHtml,
     workload: &str,

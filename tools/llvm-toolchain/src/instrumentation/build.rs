@@ -301,7 +301,7 @@ fn link_objects(
         command.arg(format!("/Fe{}", output.display()));
         command.args(["/link", "/subsystem:console"]);
     } else {
-        command.arg("-o").arg(&output);
+        command.arg("-o").arg(output);
     }
 
     run(&mut command, compiler)?;

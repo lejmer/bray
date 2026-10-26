@@ -494,7 +494,7 @@ pub enum DiagnosticProjectCommandFailure {
     /// Test scheduling rejected a host result.
     TestScheduling(DiagnosticTestSchedulingProblem),
     /// Two selected profile reports cannot be compared meaningfully.
-    ProfileComparison(DiagnosticProfileComparisonProblem),
+    ProfileComparison(Box<DiagnosticProfileComparisonProblem>),
     /// A selected profile report violates its structural contract.
     ProfileValidation {
         /// Exact selected profile path.

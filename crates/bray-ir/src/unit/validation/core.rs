@@ -4,9 +4,7 @@ use super::control::validate_terminator;
 use super::operation::validate_operation;
 
 pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Option<()> {
-    let Some(entry) = unit.block(unit.entry()) else {
-        return None;
-    };
+    let entry = unit.block(unit.entry())?;
 
     if entry.kind() != MirBlockKind::Ordinary {
         return None;
@@ -72,9 +70,7 @@ fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
         .map(crate::MirOperation::kind)
         .collect::<Vec<_>>();
 
-    let Some((shutdown, preceding)) = operations.split_last() else {
-        return None;
-    };
+    let (shutdown, preceding) = operations.split_last()?;
 
     let selects_entries = host
         .requirements()
@@ -302,18 +298,14 @@ fn validate_value_definitions(unit: &MirUnit) -> Option<()> {
 
         match value.origin() {
             MirValueOrigin::BlockParameter(block) => {
-                let Some(block) = unit.block(block) else {
-                    return None;
-                };
+                let block = unit.block(block)?;
 
                 if !block.parameters().contains(&id) {
                     return None;
                 }
             }
             MirValueOrigin::Operation(operation) => {
-                let Some(operation) = unit.operation(operation) else {
-                    return None;
-                };
+                let operation = unit.operation(operation)?;
 
                 if operation.result() != Some(id) {
                     return None;
@@ -336,14 +328,9 @@ fn validate_blocks(unit: &MirUnit) -> Option<()> {
         for operation in block.operations() {
             let operation_id = *operation;
 
-            let Some(operation_index) = local_index(unit, operation.unit(), operation.to_index())
-            else {
-                return None;
-            };
+            let operation_index = local_index(unit, operation.unit(), operation.to_index())?;
 
-            let Some(seen) = seen_operations.get_mut(operation_index) else {
-                return None;
-            };
+            let seen = seen_operations.get_mut(operation_index)?;
 
             if *seen {
                 return None;
@@ -351,9 +338,7 @@ fn validate_blocks(unit: &MirUnit) -> Option<()> {
 
             *seen = true;
 
-            let Some(operation) = unit.operations().get(operation_index) else {
-                return None;
-            };
+            let operation = unit.operations().get(operation_index)?;
 
             validate_operation(unit, id, block.kind(), operation_id, operation)?;
         }
@@ -387,9 +372,7 @@ fn compact_slot(index: usize) -> Option<u32> {
 }
 
 pub(super) fn validate_frame_state(unit: &MirUnit, state: crate::MirFrameStateId) -> Option<()> {
-    let Some(descriptor) = unit.frame_descriptor() else {
-        return None;
-    };
+    let descriptor = unit.frame_descriptor()?;
 
     if !descriptor
         .states()

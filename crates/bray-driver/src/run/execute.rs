@@ -220,7 +220,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             configuration,
             files,
         } => {
-            return run_build_request(&options, configuration, files)
+            return run_build_request(&options, *configuration, files)
                 .with_profile_output(profile_output);
         }
         command => command,
@@ -584,7 +584,7 @@ fn publish_package_interface(
         .map_err(|error| failure(ProductEmissionErrorKind::from(error)))?;
 
     publish_artifact(destination, artifact.bytes(), diagnostic_id)
-        .map_err(DiagnosticBag::single)?;
+        .map_err(|diagnostic| DiagnosticBag::single(*diagnostic))?;
 
     implementation.verify_all().expect(
         "compiler-produced interface implementation must pass complete publication authentication",
@@ -599,15 +599,15 @@ fn publish_package_interface(
             .map_err(|error| DiagnosticBag::single(error.into_diagnostic(diagnostic_id)))?,
         diagnostic_id,
     )
-    .map_err(DiagnosticBag::single)
+    .map_err(|diagnostic| DiagnosticBag::single(*diagnostic))
 }
 fn publish_artifact(
     destination: &Path,
     bytes: &[u8],
     diagnostic_id: DiagnosticId,
-) -> Result<(), Diagnostic> {
+) -> Result<(), Box<Diagnostic>> {
     write_file_atomically(destination, bytes)
-        .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))
+        .map_err(|error| Box::new(artifact_write_failure(diagnostic_id, destination, error.kind())))
 }
 
 #[cfg(test)]
@@ -658,12 +658,12 @@ mod tests {
 
         let arguments = vec![
             OsString::from("--expected-source-digest"),
-            OsString::from(serde_json::to_string(&[0_u8; 32]).unwrap()),
+            OsString::from(serde_json::to_string(&[0_u8; 32]).expect("fixture data must serialize")),
             OsString::from("check"),
             file.path().as_os_str().to_os_string(),
         ];
 
-        bray_tooling::write_compiler_request(request.path(), &arguments).unwrap();
+        bray_tooling::write_compiler_request(request.path(), &arguments).expect("fixture `bray_tooling::write_compiler_request` call must succeed");
 
         let result = run_result([
             OsString::from("brayc"),
@@ -742,8 +742,8 @@ mod tests {
             &mut stderr,
         );
 
-        let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
-        let rendered = serde_json::to_string(&json).unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&stdout).expect("fixture data must deserialize");
+        let rendered = serde_json::to_string(&json).expect("fixture data must serialize");
 
         assert_eq!(result, ExitCode::FAILURE);
         assert!(rendered.contains("compiler_request"));
@@ -753,13 +753,13 @@ mod tests {
 
     #[test]
     fn interface_publication_preserves_the_export_failure() {
-        let package = PackageIdentity::try_new("app").unwrap();
-        let product = ProductIdentity::try_new(package.clone(), "library").unwrap();
+        let package = PackageIdentity::try_new("app").expect("fixture package identity must be valid");
+        let product = ProductIdentity::try_new(package.clone(), "library").expect("fixture product identity must be valid");
 
         let compilation = bray_compilation::Compilation::load(
             bray_compilation::CompilationRequest::new(package, Vec::new()),
         )
-        .unwrap();
+        .expect("fixture input must load");
 
         let destination = TemporaryFile::write("output.brayi", b"unchanged");
 
@@ -769,7 +769,7 @@ mod tests {
             bray_diagnostics::DiagnosticId::new(0),
             &product,
         )
-        .unwrap_err();
+        .expect_err("failed interface publication must retain diagnostics");
 
         assert!(
             diagnostics
@@ -786,7 +786,7 @@ mod tests {
             "{diagnostics:?}"
         );
 
-        assert_eq!(std::fs::read(destination.path()).unwrap(), b"unchanged");
+        assert_eq!(std::fs::read(destination.path()).expect("fixture contents must be readable"), b"unchanged");
     }
 
     #[test]

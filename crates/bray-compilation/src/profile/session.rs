@@ -493,9 +493,7 @@ impl ProfileSession {
         let runtime_artifacts = self
             .runtime_artifacts
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .map(|(_, artifact)| artifact.clone())
+            .unwrap_or_else(|poisoned| poisoned.into_inner()).values().cloned()
             .collect();
 
         let runtime_roles = profile_strings(&self.runtime_roles);
@@ -540,6 +538,10 @@ impl ProfileSession {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "profile span completion retains operation, query, subject, worker and thread identities, timing, and outcome"
+    )]
     fn finish_span(
         &self,
         operation: ProfileOperation,
@@ -1310,7 +1312,7 @@ mod tests {
                         .query_descriptor(query.id)
                         .is_some_and(|descriptor| descriptor.name == "body_semantics")
                 })
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             assert_eq!(bodies.evaluations, 4);
         }

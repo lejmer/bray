@@ -86,7 +86,7 @@ impl Compilation {
             .find(|package| package.identity() == self.package_identity())
             .ok_or_else(|| missing_helper(reference))?;
 
-        let owner = source_standard_library_scope_owner(&graph, package.id(), scope)
+        let owner = source_standard_library_scope_owner(graph, package.id(), scope)
             .ok_or_else(|| missing_helper(reference))?;
 
         let Some(name) = descriptor.identity().name() else {

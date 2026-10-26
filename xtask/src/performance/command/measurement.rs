@@ -202,10 +202,6 @@ pub(super) fn execute_interleaved(
     )
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one process round requires the shared execution and sampling contract"
-)]
 fn execute_process_round(
     implementations: &[ImplementationTarget<'_>],
     working_directory: &Path,
@@ -239,10 +235,6 @@ fn execute_process_round(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "one controlled round requires the shared execution and sampling contract"
-)]
 fn execute_controlled_round(
     implementations: &[ImplementationTarget<'_>],
     working_directory: &Path,

@@ -51,16 +51,16 @@ fn unproved_requirements_execute_before_declared_calls() {
             crate::SelectedTarget::baseline(),
         )
         .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+            bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
             bray_symbols::NativeLinkKind::Dynamic,
         )]);
 
         let compilation = crate::Compilation::load(crate::CompilationRequest::with_options(
-            bray_symbols::PackageIdentity::try_new("example.package").unwrap(),
+            bray_symbols::PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
             vec![crate::test_support::source_input(&source, 0)],
             options,
         ))
-        .unwrap();
+        .expect("fixture input must load");
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -70,7 +70,7 @@ fn unproved_requirements_execute_before_declared_calls() {
 
         let result = compilation
             .lowered_unit(source_function_body_key(&compilation, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !result.diagnostics().has_errors(),
@@ -112,7 +112,7 @@ fn unproved_requirements_execute_before_declared_calls() {
         for block in mir.blocks().iter().filter(|block| {
             block.operations().iter().any(|id| {
                 matches!(
-                    mir.operation(*id).unwrap().kind(),
+                    mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
                     MirOperationKind::PanicReport(_)
                 )
             })
@@ -150,7 +150,7 @@ fn established_requirements_do_not_emit_runtime_predicates() {
 
     let result = compilation
         .lowered_unit(source_function_body_key(&compilation, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     let mir = lowered_mir(&result);
 
@@ -176,7 +176,7 @@ fn execution_requirements_remain_compile_time_obligations() {
 
     let result = compilation
         .lowered_unit(source_function_body_key(&compilation, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     let mir = lowered_mir(&result);
 
@@ -201,7 +201,7 @@ fn represented_indirect_requirements_execute_before_invocation() {
 
     let result = compilation
         .lowered_unit(source_function_body_key(&compilation, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !result.diagnostics().has_errors(),
@@ -308,7 +308,7 @@ fn constructors_and_receivers_check_requirements() {
 
         let result = compilation
             .lowered_unit(source_function_body_key(&compilation, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         let mir = lowered_mir(&result);
 
@@ -365,7 +365,7 @@ fn scoped_requirements_check_entry_and_exit() {
 
         let result = compilation
             .lowered_unit(source_function_body_key(&compilation, "caller"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         let mir = lowered_mir(&result);
 
@@ -399,7 +399,7 @@ fn asynchronous_requirements_fail_before_frame_creation() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let selections = compilation.semantic_selections(key.clone()).unwrap();
+    let selections = compilation.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
 
     let selected = selections
         .value()
@@ -409,7 +409,7 @@ fn asynchronous_requirements_fail_before_frame_creation() {
             bray_bound_tree::SemanticSelection::Call(call) => Some(call),
             _ => None,
         })
-        .unwrap();
+        .expect("fixture selection must find its expected value");
 
     assert!(
         selected
@@ -427,22 +427,22 @@ fn asynchronous_requirements_fail_before_frame_creation() {
             _ => None,
         })
         .nth(1)
-        .unwrap();
+        .expect("fixture `nth` call must succeed");
 
     assert_eq!(
         selected
             .phase_behaviors()
             .deferred_execution()
-            .unwrap()
+            .expect("fixture `deferred_execution` call must succeed")
             .may_unwind(),
         baseline
             .phase_behaviors()
             .deferred_execution()
-            .unwrap()
+            .expect("fixture `deferred_execution` call must succeed")
             .may_unwind()
     );
 
-    let result = compilation.lowered_unit(key).unwrap();
+    let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
     let mir = lowered_mir(&result);
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Predicate(_)))));
@@ -485,16 +485,16 @@ fn nested_argument_calls_keep_the_declared_requirement_type() {
         crate::SelectedTarget::baseline(),
     )
     .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-        bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+        bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
         bray_symbols::NativeLinkKind::Dynamic,
     )]);
 
     let compilation = crate::Compilation::load(crate::CompilationRequest::with_options(
-        bray_symbols::PackageIdentity::try_new("example.package").unwrap(),
+        bray_symbols::PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
         vec![crate::test_support::source_input(source, 0)],
         options,
     ))
-    .unwrap();
+    .expect("fixture input must load");
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -546,7 +546,7 @@ fn caught_scope_exit_requirements_preserve_lifecycle_control_flow() {
 
     let result = compilation
         .lowered_unit(source_function_body_key(&compilation, "caller"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
     let mir = lowered_mir(&result);
 

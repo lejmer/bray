@@ -135,7 +135,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(BTreeSet::new(), DiagnosticBag::new()));
         }
 
-        let declared = self.execution_unit_declaration(&key)?;
+        let declared = self.execution_unit_declaration(key)?;
 
         let inputs =
             self.predicate_condition_inputs(key, declared.value().requirements(), cancellation)?;
@@ -486,7 +486,7 @@ mod tests {
 
             let result = compilation
                 .unwind_behavior(key.clone(), &compilation.state.cancellation)
-                .unwrap();
+                .expect("fixture callable must resolve its unwind behavior");
 
             assert!(
                 !result.result().diagnostics().has_errors(),
@@ -509,7 +509,7 @@ mod tests {
 
             let repeated = compilation
                 .unwind_behavior(key, &compilation.state.cancellation)
-                .unwrap();
+                .expect("fixture callable must resolve its unwind behavior");
 
             assert!(std::sync::Arc::ptr_eq(&result, &repeated));
         }
@@ -533,7 +533,7 @@ mod tests {
                     source_function_body_key(&compilation, "root"),
                     &compilation.state.cancellation,
                 )
-                .unwrap();
+                .expect("fixture callable must resolve its unwind behavior");
 
             assert!(
                 !result.result().diagnostics().has_errors(),
@@ -578,7 +578,7 @@ mod tests {
                     source_function_body_key(&compilation, "root"),
                     &compilation.state.cancellation,
                 )
-                .unwrap();
+                .expect("fixture callable must resolve its unwind behavior");
 
             assert!(
                 !result.result().diagnostics().has_errors(),
@@ -642,7 +642,7 @@ mod tests {
 
             let result = compilation
                 .unwind_behavior(key, &compilation.state.cancellation)
-                .unwrap();
+                .expect("fixture callable must resolve its unwind behavior");
 
             assert!(
                 !result.result().diagnostics().has_errors(),

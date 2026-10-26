@@ -799,14 +799,14 @@ mod tests {
 
     #[test]
     fn structural_pattern_tests_do_not_retain_observed_payloads() {
-        let backend = LlvmCodeGenerator::try_new().unwrap();
+        let backend = LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid");
         let fixture = copied_composite_fixture(&backend, true);
         let context = Context::create();
 
         let (_, module) = backend
             .prepare_module(fixture.request(), &context)
-            .unwrap()
-            .unwrap();
+            .expect("fixture `prepare_module` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         let ir = module.print_to_string().to_string();
 
@@ -1137,7 +1137,7 @@ mod tests {
             if test_patterns && ty != types.tuple {
                 let next = builder
                     .push_block(source.clone(), MirBlockKind::Ordinary)
-                    .unwrap();
+                    .expect("fixture block must fit its identity space");
 
                 let predicate = if ty == types.nullable {
                     bray_ir::MirPatternPredicate::NullablePresent

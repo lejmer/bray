@@ -149,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 place
                     .value_in(&state.current)
                     .filter(|value| *value != ExecutionCondition::Unknown)
-                    .unwrap_or_else(|| {
+                    .unwrap_or({
                         ExecutionCondition::PostState(
                             bray_bound_tree::StorageMutation::Operation(invocation),
                             place,

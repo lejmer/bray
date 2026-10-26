@@ -19,25 +19,21 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerSemanticQueryProvider,
 use super::domain::{SetLiveness, SetTransfer};
 use super::effects::OperationEffects;
 
+type EdgeLifetimeEnds = BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>;
+
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     effects: &OperationEffects,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
     reachability: &ReachabilityResult,
-) -> CheckerOutcome<
-    (
-        Liveness,
-        BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
-    ),
-    C::UpstreamError,
->
+) -> CheckerOutcome<(Liveness, EdgeLifetimeEnds), C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    let domain = storage_domain(&graph, &reachability, effects);
+    let domain = storage_domain(graph, reachability, effects);
 
-    let result = match solve_fixed_point(&graph, &domain, &request) {
+    let result = match solve_fixed_point(graph, &domain, &request) {
         FixedPointOutcome::Complete(result) => result,
         FixedPointOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
@@ -48,8 +44,8 @@ where
     };
 
     let liveness = collect_liveness(
-        &graph,
-        &reachability,
+        graph,
+        reachability,
         effects,
         domain.universe(),
         &result,
@@ -60,7 +56,7 @@ where
     match liveness {
         Ok(liveness) => CheckerOutcome::without_diagnostics((
             liveness,
-            collect_edge_lifetime_ends(graph, &reachability, effects, &domain, &result),
+            collect_edge_lifetime_ends(graph, reachability, effects, &domain, &result),
         )),
         Err(error) => {
             panic!(
@@ -293,7 +289,7 @@ fn collect_edge_lifetime_ends(
     effects: &OperationEffects,
     domain: &SetLiveness<'_, BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
-) -> BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>> {
+) -> EdgeLifetimeEnds {
     let mut ends = BTreeMap::new();
 
     for target in graph.blocks() {
@@ -749,7 +745,7 @@ mod tests {
 
         let identity = builder
             .push_identity(StorageIdentity::Temporary(expression))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let access = builder
             .push_access(StorageAccess::new(
@@ -759,7 +755,7 @@ mod tests {
                 origin.source_anchor(),
                 false,
             ))
-            .unwrap();
+            .expect("fixture access must fit its identity space");
 
         let sites = [
             bray_bound_tree::BoundExecutionSite::Iterate(expression),
@@ -781,7 +777,7 @@ mod tests {
                     origin.source_anchor(),
                     false,
                 ))
-                .unwrap()
+                .expect("fixture borrow capability must fit its identity space")
         });
 
         let storage = builder.finish();
@@ -814,7 +810,7 @@ mod tests {
             );
 
             let completion = operation(crate::analysis::model::AnalysisCallPhase::Completion);
-            let completed = effects.operation_effect(&completion).unwrap();
+            let completed = effects.operation_effect(&completion).expect("fixture `operation_effect` call must succeed");
 
             assert!(completed.definitions().next().is_none());
             assert!(view.retirement_subjects().next().is_none());
@@ -824,7 +820,7 @@ mod tests {
             assert!(
                 effects
                     .operation_effect(&attempt)
-                    .unwrap()
+                    .expect("fixture `operation_effect` call must succeed")
                     .retirement_subjects()
                     .next()
                     .is_none()
@@ -837,7 +833,7 @@ mod tests {
             );
 
             assert_eq!(
-                storage.borrow_capability(loan).unwrap().occurrence(),
+                storage.borrow_capability(loan).expect("fixture `borrow_capability` call must succeed").occurrence(),
                 Some(site)
             );
         }
@@ -967,7 +963,7 @@ mod tests {
 
         let identity = builder
             .push_identity(StorageIdentity::Temporary(expression))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let subject = BoundDependencySubject::Storage(identity);
 
@@ -975,7 +971,7 @@ mod tests {
             .push_identity(StorageIdentity::InvocationResult(
                 bray_bound_tree::BoundExecutionSite::Iterate(expression),
             ))
-            .unwrap();
+            .expect("fixture identity must fit its identity space");
 
         let cursor = BoundDependencySubject::Storage(cursor);
 

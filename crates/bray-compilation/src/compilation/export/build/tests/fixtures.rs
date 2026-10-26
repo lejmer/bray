@@ -25,7 +25,7 @@ pub(super) fn execution_dependency(provider: &Compilation) -> DependencyInterfac
 pub(super) fn execution_bundle_dependency(
     bundle: &PackageInterfaceExportBundle,
 ) -> DependencyInterfaceInput {
-    let artifact = encode_package_interface(bundle).unwrap();
+    let artifact = encode_package_interface(bundle).expect("fixture package interface must encode");
 
     bundle_dependency(bundle, artifact.shared_bytes())
 }
@@ -33,7 +33,7 @@ pub(super) fn execution_bundle_dependency(
 pub(super) fn implementation_dependency(
     bundle: &PackageInterfaceExportBundle,
 ) -> DependencyInterfaceInput {
-    let artifact = encode_package_interface(bundle).unwrap();
+    let artifact = encode_package_interface(bundle).expect("fixture package interface must encode");
 
     let implementation =
         bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
@@ -41,7 +41,7 @@ pub(super) fn implementation_dependency(
             bundle,
             bray_package_interface::InterfaceValidationLimits::default(),
         )
-        .unwrap();
+        .expect("fixture from export bundle must succeed");
 
     bundle_dependency(bundle, artifact.shared_bytes())
         .with_implementation_artifact("provider.brayimpl", Arc::new(implementation))

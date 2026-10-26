@@ -1131,7 +1131,7 @@ mod tests {
 
                 let ty = semantic_values()
                     .intern_type(TypeData::Callable(callable))
-                    .unwrap();
+                    .expect("fixture type must be interned");
 
                 for hook in [
                     ImplementationHook::CallableFromPointer,

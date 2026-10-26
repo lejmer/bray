@@ -25,8 +25,8 @@ pub(in crate::output::diagnostic::json) enum DiagnosticImplementationOverloadPro
     },
     FamilyMismatch {
         implementation: DiagnosticInterfaceSymbolIdentityJson,
-        required: DiagnosticImplementationFamilyJson,
-        provided: DiagnosticImplementationFamilyJson,
+        required: Box<DiagnosticImplementationFamilyJson>,
+        provided: Box<DiagnosticImplementationFamilyJson>,
     },
 }
 
@@ -194,8 +194,8 @@ impl DiagnosticImplementationOverloadProblemJson {
                 implementation: DiagnosticInterfaceSymbolIdentityJson::from_identity(
                     implementation,
                 ),
-                required: DiagnosticImplementationFamilyJson::from_family(required),
-                provided: DiagnosticImplementationFamilyJson::from_family(provided),
+                required: Box::new(DiagnosticImplementationFamilyJson::from_family(required)),
+                provided: Box::new(DiagnosticImplementationFamilyJson::from_family(provided)),
             },
         }
     }

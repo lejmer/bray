@@ -174,7 +174,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let escaped = self.escape_effects(
                     &memory,
                     effects.as_deref(),
-                    receiver.as_ref().map(std::slice::from_ref).unwrap_or(&[]),
+                    receiver.as_slice(),
                     false,
                     self.on_normal_path,
                 );

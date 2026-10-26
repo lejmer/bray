@@ -2,7 +2,7 @@ use bray_bound_tree::{CheckedMemoryOperationKind as Operation, MemoryReadKind};
 use bray_symbols::ExecutionProperty;
 
 /// Closed operations whose checked storage domain requires trusted caller evidence.
-pub(crate) const fn requires_trust(kind: Operation) -> bool {
+pub(crate) const fn requires_trust(kind: &Operation) -> bool {
     matches!(
         kind,
         Operation::UninitAssumeInitialized { .. }
@@ -34,7 +34,7 @@ pub(crate) const fn requires_trust(kind: Operation) -> bool {
 
 /// Intrinsic execution properties on the operation's checked storage domain.
 /// Argument evaluation, requirements, conversions and cleanup remain separate obligations.
-pub(crate) fn guarantees(operation: Operation, property: ExecutionProperty) -> bool {
+pub(crate) fn guarantees(operation: &Operation, property: ExecutionProperty) -> bool {
     match operation {
         Operation::UninitNew { .. }
         | Operation::UninitFrom { .. }
@@ -122,7 +122,7 @@ pub(crate) enum StorageEffect {
 }
 
 /// Classifies the checked intrinsic. Argument transfers and cleanup apply separately.
-pub(crate) fn storage_effect(operation: Operation) -> StorageEffect {
+pub(crate) fn storage_effect(operation: &Operation) -> StorageEffect {
     match operation {
         Operation::UninitNew { .. }
         | Operation::UninitFrom { .. }
@@ -217,16 +217,16 @@ mod tests {
             Operation::UninitFrom { element },
             Operation::UninitAssumeInitialized { element },
         ] {
-            assert!(guarantees(operation, ExecutionProperty::Pure));
-            assert!(guarantees(operation, ExecutionProperty::Total));
+            assert!(guarantees(&operation, ExecutionProperty::Pure));
+            assert!(guarantees(&operation, ExecutionProperty::Total));
         }
 
         for operation in [
             Operation::UninitWrite { element },
             Operation::UninitMove { element },
         ] {
-            assert!(!guarantees(operation, ExecutionProperty::Pure));
-            assert!(guarantees(operation, ExecutionProperty::Total));
+            assert!(!guarantees(&operation, ExecutionProperty::Pure));
+            assert!(guarantees(&operation, ExecutionProperty::Total));
         }
     }
 
@@ -239,8 +239,8 @@ mod tests {
             order: bray_bound_tree::MemoryOrder::Acquire,
         };
 
-        assert_eq!(storage_effect(load), StorageEffect::None);
-        assert!(!guarantees(load, ExecutionProperty::Pure));
+        assert_eq!(storage_effect(&load), StorageEffect::None);
+        assert!(!guarantees(&load, ExecutionProperty::Pure));
 
         let read = |kind| Operation::Read {
             pointee: element,
@@ -248,22 +248,22 @@ mod tests {
         };
 
         assert_eq!(
-            storage_effect(read(bray_bound_tree::MemoryReadKind::Copy)),
+            storage_effect(&read(bray_bound_tree::MemoryReadKind::Copy)),
             StorageEffect::None
         );
 
         assert_eq!(
-            storage_effect(read(bray_bound_tree::MemoryReadKind::Move)),
+            storage_effect(&read(bray_bound_tree::MemoryReadKind::Move)),
             StorageEffect::Contents
         );
 
         assert!(guarantees(
-            read(bray_bound_tree::MemoryReadKind::Move),
+            &read(bray_bound_tree::MemoryReadKind::Move),
             ExecutionProperty::Total
         ));
 
         assert_eq!(
-            storage_effect(Operation::UninitMove { element }),
+            storage_effect(&Operation::UninitMove { element }),
             StorageEffect::Contents
         );
 
@@ -280,14 +280,14 @@ mod tests {
                 address_space: bray_bound_tree::VolatileAddressSpace::Device,
             };
 
-            assert_eq!(storage_effect(operation), effect);
-            assert!(!guarantees(operation, ExecutionProperty::Pure));
+            assert_eq!(storage_effect(&operation), effect);
+            assert!(!guarantees(&operation, ExecutionProperty::Pure));
         }
 
-        assert_eq!(storage_effect(Operation::RawAllocate), StorageEffect::None);
+        assert_eq!(storage_effect(&Operation::RawAllocate), StorageEffect::None);
 
         assert_eq!(
-            storage_effect(Operation::RawDeallocate),
+            storage_effect(&Operation::RawDeallocate),
             StorageEffect::Unknown
         );
     }
@@ -305,8 +305,8 @@ mod tests {
                 order: bray_bound_tree::MemoryOrder::Acquire,
             },
         ] {
-            assert!(!guarantees(operation, ExecutionProperty::Pure));
-            assert!(!guarantees(operation, ExecutionProperty::Total));
+            assert!(!guarantees(&operation, ExecutionProperty::Pure));
+            assert!(!guarantees(&operation, ExecutionProperty::Total));
         }
     }
 }

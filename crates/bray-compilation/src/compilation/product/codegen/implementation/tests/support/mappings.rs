@@ -92,7 +92,7 @@ pub(in super::super) fn realize_codegen_mappings(
         reachability.graph(),
         |instance| compatibility.get(instance.key()).cloned(),
         |mir| {
-            crate::compilation::product::mir_content_identity(&compilation, mir)
+            crate::compilation::product::mir_content_identity(compilation, mir)
                 .unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}"))
         },
     )

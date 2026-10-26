@@ -87,7 +87,7 @@ fn native_link_input_failures_use_stable_leaf_fields() {
             name: "provider".into(),
             kind: bray_symbols::NativeLinkKind::Static,
             provenance: bray_linker::LinkInputProvenance::Package(
-                PackageIdentity::try_new("example.provider").unwrap(),
+                PackageIdentity::try_new("example.provider").expect("fixture package identity must be valid"),
             ),
         });
 
@@ -136,24 +136,24 @@ fn native_product_failures_preserve_exact_product_target_and_reason() {
 
 #[test]
 fn native_library_failures_preserve_product_target_and_exact_symbol() {
-    let package = PackageIdentity::try_new("example").unwrap();
-    let product = ProductIdentity::try_new(package, "application").unwrap();
+    let package = PackageIdentity::try_new("example").expect("fixture package identity must be valid");
+    let product = ProductIdentity::try_new(package, "application").expect("fixture product identity must be valid");
 
     let error = NativeProductPlanningError::NativeResolution(
         bray_native_artifact::NativeResolutionError::Unresolved(
             bray_symbols::NativeSymbolContract::required_name(
-                bray_base::NonEmptySharedStr::try_new("provider_entry").unwrap(),
+                bray_base::NonEmptySharedStr::try_new("provider_entry").expect("fixture non empty shared str must be valid"),
             ),
         ),
     );
 
     let diagnostics = error
         .diagnostic(&product, "x86_64-pc-windows-msvc")
-        .unwrap();
+        .expect("fixture `diagnostic` call must succeed");
 
     assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::NativeProductPreparationFailed);
 
-    let diagnostic = diagnostics.iter().next().unwrap();
+    let diagnostic = diagnostics.iter().next().expect("fixture iterator must provide its expected item");
 
     assert!(diagnostic.args().iter().any(|arg| matches!(arg.value(),
         DiagnosticArgValue::NativeProductFailureKind(DiagnosticNativeProductFailureKind::NativeResolution(detail))
@@ -165,8 +165,8 @@ fn native_library_failures_preserve_product_target_and_exact_symbol() {
 #[test]
 fn capacity_failures_do_not_claim_a_compiler_defect() {
     let product =
-        ProductIdentity::try_new(PackageIdentity::try_new("example").unwrap(), "application")
-            .unwrap();
+        ProductIdentity::try_new(PackageIdentity::try_new("example").expect("fixture package identity must be valid"), "application")
+            .expect("fixture product identity must be valid");
 
     let diagnostic = native_product_preparation_diagnostic(
         DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,

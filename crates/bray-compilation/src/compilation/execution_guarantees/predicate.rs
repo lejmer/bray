@@ -1101,7 +1101,7 @@ mod tests {
         );
 
         let body = crate::test_support::source_function_body_key(&checked, "scalar_slice_data");
-        let declaration = checked.execution_unit_declaration(&body).unwrap();
+        let declaration = checked.execution_unit_declaration(&body).expect("fixture `execution_unit_declaration` call must succeed");
 
         for anchor in declaration
             .value()
@@ -1111,13 +1111,13 @@ mod tests {
         {
             let key = bray_bound_tree::BoundUnitKey::contract_clause(
                 body.declared_owner().clone(),
-                checked.bound_source(*anchor).unwrap(),
+                checked.bound_source(*anchor).expect("fixture `bound_source` call must succeed"),
             )
             .expect("production postcondition has a clause key");
 
             let diagnostics = checked
                 .check_predicate_eligibility(&key, &checked.state.cancellation)
-                .unwrap();
+                .expect("fixture `check_predicate_eligibility` call must succeed");
 
             assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
         }

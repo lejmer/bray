@@ -131,7 +131,7 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
 
 pub(in crate::analysis) fn call_preserves_storage(
     call: &SelectedCall,
-    operation: Option<bray_bound_tree::CheckedMemoryOperationKind>,
+    operation: Option<&bray_bound_tree::CheckedMemoryOperationKind>,
 ) -> bool {
     // Predicate and const declarations establish observational computation.
     // Their callers rely on that contract, including imported and opaque predicates.

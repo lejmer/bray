@@ -59,6 +59,10 @@ fn assert_symbol_contract(target: &CodegenTarget, symbol: &CodegenSymbolMapping)
 }
 
 impl Compilation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "symbol mapping combines checked operations, static storage, host, platform overrides, roots, and reachability"
+    )]
     pub(in crate::compilation::product::realization) fn codegen_symbols(
         &self,
         product: &bray_symbols::ProductIdentity,

@@ -212,8 +212,8 @@ pub(super) fn decode_directory_entry(
             )
         })?;
 
-    if encoding == crate::InterfaceSectionEncoding::Raw {
-        if encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX) {
+    if encoding == crate::InterfaceSectionEncoding::Raw
+        && encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX) {
             return Err(InterfaceValidationError::Malformed {
                 context,
                 cause: InterfaceMalformedCause::LengthMismatch {
@@ -223,7 +223,6 @@ pub(super) fn decode_directory_entry(
                 },
             });
         }
-    }
 
     let entry = ImplementationDirectoryEntry {
         index,
@@ -420,14 +419,13 @@ fn validate_payload_address(
                 ));
             }
         }
-        Some(ImplementationPayloadKind::NativeBinding) => {
-            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() {
+        Some(ImplementationPayloadKind::NativeBinding)
+            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() => {
                 return Err(crate::implementation::invalid_value(
                     InterfaceValidationField::Value,
                 ));
-            }
         }
-        None => {}
+        Some(ImplementationPayloadKind::NativeBinding) | None => {}
     }
 
     Ok(())

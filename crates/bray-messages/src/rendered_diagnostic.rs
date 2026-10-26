@@ -1,5 +1,5 @@
 use bray_diagnostics::{
-    DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
+    Diagnostic, DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
     DiagnosticNoteKind, DiagnosticRelatedLocationKind, DiagnosticSourceEdit,
     DiagnosticSuggestionApplicability, DiagnosticSuggestionKind, SeverityKind,
 };
@@ -21,10 +21,7 @@ pub struct RenderedDiagnostic {
 
 impl RenderedDiagnostic {
     pub(crate) fn new(
-        id: DiagnosticId,
-        kind: DiagnosticKind,
-        severity: SeverityKind,
-        primary_span: Option<SourceSpan>,
+        diagnostic: &Diagnostic,
         message: String,
         labels: Vec<RenderedDiagnosticLabel>,
         notes: Vec<RenderedDiagnosticNote>,
@@ -32,10 +29,10 @@ impl RenderedDiagnostic {
         suggestions: Vec<RenderedDiagnosticSuggestion>,
     ) -> Self {
         Self {
-            id,
-            kind,
-            severity,
-            primary_span,
+            id: diagnostic.id(),
+            kind: diagnostic.kind(),
+            severity: diagnostic.severity(),
+            primary_span: diagnostic.primary_span(),
             message,
             labels,
             notes,

@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn large_requests_preserve_order_and_native_arguments() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let path = directory.path().join("request.json");
 
         let mut arguments = vec![
@@ -81,29 +81,29 @@ mod tests {
             arguments.push(OsString::from_vec(vec![0xFF, 0x61]));
         }
 
-        write_compiler_request(&path, &arguments).unwrap();
-        assert_eq!(read_compiler_request(&path).unwrap(), arguments);
+        write_compiler_request(&path, &arguments).expect("fixture `write_compiler_request` call must succeed");
+        assert_eq!(read_compiler_request(&path).expect("fixture `read_compiler_request` call must succeed"), arguments);
     }
 
     #[test]
     fn malformed_requests_preserve_document_causes() {
         use bray_diagnostics::{DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure};
 
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let path = directory.path().join("request.json");
 
         for (bytes, expected) in [
             ("[", DiagnosticDocumentParseKind::UnexpectedEnd),
             ("{}", DiagnosticDocumentParseKind::Schema),
         ] {
-            std::fs::write(&path, bytes).unwrap();
+            std::fs::write(&path, bytes).expect("fixture contents must be written");
 
             let DiagnosticProjectCommandFailure::Document {
                 path: actual_path,
                 problem,
                 detail,
                 ..
-            } = read_compiler_request(&path).unwrap_err()
+            } = read_compiler_request(&path).expect_err("malformed compiler request must retain its document failure")
             else {
                 panic!("expected document failure");
             };

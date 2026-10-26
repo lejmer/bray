@@ -198,6 +198,7 @@ pub struct DeclaredTypeDefinition {
 
 impl DeclaredTypeDefinition {
     /// Creates one product-type definition.
+    #[expect(clippy::too_many_arguments, reason = "nominal structure validation preserves each independent declaration property")]
     pub fn structure(
         subject: NamedTypeSymbolId,
         span: SourceSpan,

@@ -48,7 +48,7 @@ fn prepare_units(
     let mut contract = None;
 
     for (index, bytes) in modules.iter_mut().enumerate() {
-        if !is_llvm_bitcode(&bytes) {
+        if !is_llvm_bitcode(bytes) {
             continue;
         }
 
@@ -82,7 +82,7 @@ fn prepare_module(
 
     let input = staging.join(format!("input_{index:04}.bc"));
 
-    fs::write(&input, &bytes).map_err(|error| BuildError::write(&input, error))?;
+    fs::write(&input, bytes).map_err(|error| BuildError::write(&input, error))?;
 
     summarize_module(root, &input, &output, target.as_str())?;
 
@@ -302,14 +302,14 @@ mod tests {
 
     #[test]
     fn tool_launch_failures_retain_the_operation_program_and_io_cause() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let program = directory.path().join("nonexistent-llvm-ar");
 
         let error = super::require_success(
             std::process::Command::new(&program),
             "create optimization archive",
         )
-        .unwrap_err();
+        .expect_err("missing archiver must fail to launch");
 
         assert!(error.to_string().contains("create optimization archive"));
 
@@ -331,14 +331,14 @@ mod tests {
         module.add_function("__cxa_atexit", context.i32_type().fn_type(&[], false), None);
 
         let buffer = module.write_bitcode_to_memory();
-        let bytes = buffer.as_slice().strip_suffix(&[0]).unwrap();
+        let bytes = buffer.as_slice().strip_suffix(&[0]).expect("fixture `strip_suffix` call must succeed");
 
         let contract = super::inspect_module_contract(
             std::path::Path::new("C:\\workspace\\bray"),
             bytes,
             false,
         )
-        .unwrap();
+        .expect("fixture `super::inspect_module_contract` call must succeed");
 
         assert_eq!(
             contract,

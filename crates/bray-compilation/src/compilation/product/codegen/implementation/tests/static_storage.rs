@@ -207,7 +207,7 @@ public func main() -> i32
     let definitions = units
         .iter()
         .flat_map(|artifact| {
-            match bray_native_artifact::scan_object_unit_summary(artifact).unwrap() {
+            match bray_native_artifact::scan_object_unit_summary(artifact).expect("fixture object unit must have a native summary") {
                 bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
                     definitions.to_vec()
                 }
@@ -223,7 +223,7 @@ public func main() -> i32
         .iter()
         .flat_map(bray_codegen::CodegenMappings::static_storages)
         .next()
-        .unwrap();
+        .expect("fixture iterator must provide its expected item");
 
     for name in [
         storage.symbol().as_str().to_owned(),
@@ -267,7 +267,7 @@ fn static_cleanup_orders_declaration_names_independently_of_source_order() {
                 .iter()
                 .flat_map(bray_codegen::CodegenMappings::static_storages)
                 .find(|mapping| mapping.host_name() == entry.host_symbol().as_str())
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             if mapping
                 .instance()
@@ -359,14 +359,14 @@ fn const_generic_static_specializations_emit_distinct_native_instances() {
             let storage = mappings
                 .iter()
                 .find(|mapping| mapping.host_name() == entry.host_symbol().as_str())
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             let value = plan
                 .mappings()
                 .iter()
                 .flat_map(bray_codegen::CodegenMappings::constants)
                 .find(|constant| constant.value() == storage.initial_value())
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             let bray_symbols::ConstantValueKind::Integer(integer) = value.data().kind() else {
                 panic!("generic integer static must retain its integer initializer");

@@ -453,7 +453,7 @@ mod tests {
             let section = sections
                 .iter_mut()
                 .find(|section| section.tag == tag)
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             section.payload[range].copy_from_slice(&u32::MAX.to_le_bytes());
 
@@ -477,7 +477,7 @@ mod tests {
         let section = sections
             .iter_mut()
             .find(|section| section.tag == InterfaceSectionTag::ExportedLookup)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         // Canonical name order places the direct Widget edge first.
         section.payload[12..16].copy_from_slice(&2_u32.to_le_bytes());

@@ -11,19 +11,18 @@ use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{CodegenPreparationError, Compilation};
 use crate::fact::CancellationToken;
 
+type FrameExecutionRequirements = (
+    BTreeMap<CodegenInstanceKey, Vec<[&'static [ExecutionLaneRequirement]; 3]>>,
+    BTreeMap<CodegenInstanceKey, &'static [ExecutionLaneRequirement]>,
+);
+
 impl Compilation {
     pub(in crate::compilation::product) fn frame_execution_requirements<'a>(
         &self,
         instances: impl IntoIterator<Item = (&'a CodegenInstance, &'a ConcreteCodegenInstance)>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            BTreeMap<CodegenInstanceKey, Vec<[&'static [ExecutionLaneRequirement]; 3]>>,
-            BTreeMap<CodegenInstanceKey, &'static [ExecutionLaneRequirement]>,
-        ),
-        CodegenPreparationError,
-    > {
+    ) -> Result<FrameExecutionRequirements, CodegenPreparationError> {
         let instances = instances.into_iter().collect::<Vec<_>>();
 
         let helpers = instances

@@ -156,8 +156,8 @@ pub(super) fn checked_runtime_source_signature(
     if !matches {
         return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
             role,
-            expected,
-            actual: signature,
+            expected: Box::new(expected),
+            actual: Box::new(signature),
         });
     }
 
@@ -439,7 +439,7 @@ mod tests {
                         &bray_ir::MirUnitKey::Bound(key),
                         &CancellationToken::new()
                     )
-                    .unwrap(),
+                    .expect("fixture `super::runtime_source_contract_matches` call must succeed"),
                     expected,
                     "{module}: {requirement}"
                 );
@@ -479,7 +479,7 @@ mod tests {
                         &bray_ir::MirUnitKey::Bound(key),
                         &CancellationToken::new()
                     )
-                    .unwrap(),
+                    .expect("fixture runtime source contract must be checked"),
                     "{declaration}"
                 );
             }
@@ -500,7 +500,7 @@ mod tests {
                         &bray_ir::MirUnitKey::Bound(key),
                         &CancellationToken::new()
                     )
-                    .unwrap(),
+                    .expect("fixture `super::runtime_source_contract_matches` call must succeed"),
                     "{target:?}"
                 );
             }
@@ -516,8 +516,8 @@ mod tests {
                     crate::SelectedTarget::for_native(target),
                 );
 
-            let symbols = compilation.symbol_graph().unwrap();
-            let values = compilation.semantic_value_store().unwrap();
+            let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
             let definition = symbols
                 .structures()
@@ -533,13 +533,13 @@ mod tests {
                 values,
                 bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
             )
-            .unwrap();
+            .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
 
             let pointer = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_type(values, RepresentationRole::RawPointer, report)
-                .unwrap()
-                .unwrap();
+                .expect("fixture unary representation must resolve")
+                .expect("successful fixture query must contain its expected result");
 
             for (parameter, accepts_value) in [(report, true), (pointer, false)] {
                 let transfer = CodegenCallableSignature::new(
@@ -554,7 +554,7 @@ mod tests {
                     CodegenResultMapping::direct(
                         compilation
                             .codegen_representation_type(RepresentationRole::ScalarU32)
-                            .unwrap(),
+                            .expect("fixture type must have a code-generation representation"),
                         None,
                         [],
                     ),
@@ -570,7 +570,7 @@ mod tests {
                         &CancellationToken::new(),
                         &mut bray_diagnostics::DiagnosticBag::new()
                     )
-                    .unwrap(),
+                    .expect("fixture runtime signature must be checked"),
                     Some(accepts_value),
                     "{target:?}"
                 );
@@ -583,7 +583,7 @@ mod tests {
                         &CancellationToken::new(),
                         &mut bray_diagnostics::DiagnosticBag::new()
                     )
-                    .unwrap(),
+                    .expect("fixture runtime signature must be checked"),
                     Some(!accepts_value),
                     "{target:?}"
                 );
@@ -597,11 +597,11 @@ mod tests {
 
         let usize = compilation
             .codegen_representation_type(RepresentationRole::ScalarUsize)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         let u32 = compilation
             .codegen_representation_type(RepresentationRole::ScalarU32)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         for (abi, parameter, context, expected) in [
             (CallableAbi::C, usize, true, true),
@@ -633,7 +633,7 @@ mod tests {
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new(),
                 )
-                .unwrap(),
+                .expect("fixture runtime signature must be checked"),
                 Some(expected),
             );
         }
@@ -645,17 +645,17 @@ mod tests {
 
         let usize = compilation
             .codegen_representation_type(RepresentationRole::ScalarUsize)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         let pointer = compilation
             .available_compiler_known_symbols()
             .unary_representation_type(
-                compilation.semantic_value_store().unwrap(),
+                compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
                 RepresentationRole::RawPointer,
                 usize,
             )
-            .unwrap()
-            .unwrap();
+            .expect("fixture unary representation must resolve")
+            .expect("successful fixture query must contain its expected result");
 
         for (parameter, result, expected) in [
             (pointer, CodegenResultMapping::Void, true),
@@ -684,7 +684,7 @@ mod tests {
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new(),
                 )
-                .unwrap(),
+                .expect("fixture runtime signature must be checked"),
                 Some(expected)
             );
         }
@@ -725,7 +725,7 @@ mod tests {
                         &compilation,
                         name,
                     ))
-                    .unwrap();
+                    .expect("fixture callable must lower successfully");
 
                 assert!(
                     !checked.diagnostics().has_errors(),
@@ -733,8 +733,8 @@ mod tests {
                 );
             }
 
-            let values = compilation.semantic_value_store().unwrap();
-            let symbols = compilation.symbol_graph().unwrap();
+            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+            let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
             let types = symbols
                 .structures()
@@ -764,7 +764,7 @@ mod tests {
                         values,
                         bray_symbols::NamedTypeSymbolId::Struct(symbol.id()),
                     )
-                    .unwrap()
+                    .expect("fixture `crate::compilation::substitution::named_type` call must succeed")
                 })
                 .collect::<std::collections::BTreeSet<_>>();
 
@@ -774,11 +774,11 @@ mod tests {
                 .selected_target()
                 .target()
                 .codegen_target()
-                .unwrap();
+                .expect("fixture target must support code generation");
 
             let mappings = compilation
                 .codegen_types(types, None, &target, &CancellationToken::new())
-                .unwrap();
+                .expect("fixture `codegen_types` call must succeed");
 
             for name in ["HostOwner", "Product", "AdmittedStatic", "NativeExecution"] {
                 let symbol = symbols
@@ -789,20 +789,20 @@ mod tests {
                             .member_name(symbol.id().into())
                             .is_some_and(|actual| actual.as_str() == name)
                     })
-                    .unwrap();
+                    .expect("fixture lookup must find its expected value");
 
                 let ty = crate::compilation::substitution::named_type(
                     values,
                     bray_symbols::NamedTypeSymbolId::Struct(symbol.id()),
                 )
-                .unwrap();
+                .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
 
                 let layout = mappings
                     .iter()
                     .find(|mapping| mapping.ty() == ty)
-                    .unwrap()
+                    .expect("fixture lookup must find its expected value")
                     .layout()
-                    .unwrap();
+                    .expect("fixture `layout` call must succeed");
 
                 eprintln!(
                     "{} {name}: bytes={} align={}",
@@ -835,17 +835,17 @@ mod tests {
 
             let byte = compilation
                 .codegen_representation_type(RepresentationRole::ScalarU8)
-                .unwrap();
+                .expect("fixture type must have a code-generation representation");
 
             let pointer = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_type(
-                    compilation.semantic_value_store().unwrap(),
+                    compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
                     RepresentationRole::RawPointer,
                     byte,
                 )
-                .unwrap()
-                .unwrap();
+                .expect("fixture unary representation must resolve")
+                .expect("successful fixture query must contain its expected result");
 
             let expected = if target.as_str().contains("windows") {
                 CallableAbi::System
@@ -870,7 +870,7 @@ mod tests {
                         &CancellationToken::new(),
                         &mut bray_diagnostics::DiagnosticBag::new(),
                     )
-                    .unwrap(),
+                    .expect("fixture runtime signature must be checked"),
                     Some(abi == expected),
                     "{target:?}, {abi:?}",
                 );
@@ -890,42 +890,42 @@ mod tests {
         "#,
         );
 
-        let values = compilation.semantic_value_store().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
         let function = crate::test_support::source_function(&compilation, "callback");
 
         let substitution =
-            crate::compilation::substitution::empty_substitution(values, function.into()).unwrap();
+            crate::compilation::substitution::empty_substitution(values, function.into()).expect("fixture `crate::compilation::substitution::empty_substitution` call must succeed");
 
         let callable = bray_symbols::CallableInstanceData::new(
-            bray_symbols::CallableDefinitionId::try_new(function.into()).unwrap(),
+            bray_symbols::CallableDefinitionId::try_new(function.into()).expect("fixture callable definition id must be valid"),
             substitution,
         );
 
         let signature = compilation
             .constant_callable_signature(callable, &CancellationToken::new())
-            .unwrap();
+            .expect("fixture `constant_callable_signature` call must succeed");
 
-        let callable_type = signature.value().as_ref().unwrap().callable_type();
+        let callable_type = signature.value().as_ref().expect("fixture optional value must be present").callable_type();
 
         let byte = compilation
             .codegen_representation_type(RepresentationRole::ScalarU8)
-            .unwrap();
+            .expect("fixture type must have a code-generation representation");
 
         let data = compilation
             .available_compiler_known_symbols()
             .unary_representation_type(values, RepresentationRole::RawPointer, byte)
-            .unwrap()
-            .unwrap();
+            .expect("fixture unary representation must resolve")
+            .expect("successful fixture query must contain its expected result");
 
         let function = compilation
             .available_compiler_known_symbols()
             .unary_representation_type(values, RepresentationRole::FunctionPointer, callable_type)
-            .unwrap()
-            .unwrap();
+            .expect("fixture unary representation must resolve")
+            .expect("successful fixture query must contain its expected result");
 
         let nullable = values
             .intern_type(bray_symbols::TypeData::Nullable(function))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         for (parameter, accepted) in [
             (data, true),
@@ -952,7 +952,7 @@ mod tests {
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new()
                 )
-                .unwrap(),
+                .expect("fixture runtime signature must be checked"),
                 Some(accepted)
             );
 
@@ -964,7 +964,7 @@ mod tests {
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new()
                 )
-                .unwrap(),
+                .expect("fixture `crate::compilation::foreign::abi_type_matches` call must succeed"),
                 parameter == data
             );
         }

@@ -45,9 +45,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let memory = self.memory;
 
-        let Some(operation) = memory.operation(expression) else {
-            return None;
-        };
+        let operation = memory.operation(expression)?;
 
         let proven = self.memory_evidence;
         let mut write_target = None;
@@ -94,8 +92,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let status = self.apply_valid_memory_operation(state, operation, proven);
 
-            if status == MemoryOperationStatus::Valid && proven != Some(true) {
-                if let Some((targets, element, purpose)) = targets {
+            if status == MemoryOperationStatus::Valid && proven != Some(true)
+                && let Some((targets, element, purpose)) = targets {
                     for (place, storage_type, definite) in targets {
                         let same_type = storage_type == Some(element);
 
@@ -111,7 +109,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     }
                 }
-            }
 
             status
         };
@@ -156,7 +153,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let result = || self.expression_result_storage(operation.expression());
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::UninitNew { .. }
             | CheckedMemoryOperationKind::UninitFrom { .. }
             | CheckedMemoryOperationKind::UninitPointer { .. }
@@ -268,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let allocation = state.memory.fresh(result.clone(), operation.expression());
 
-                if operation.kind() == CheckedMemoryOperationKind::RawBufferAllocate {
+                if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferAllocate) {
                     self.retain_allocated_buffer_pointer(state, &result, allocation);
                 }
             }
@@ -328,7 +325,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let arguments = operation.arguments();
         let result = || self.expression_result_storage(operation.expression());
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::UninitNew { element } => {
                 if let Some(result) = result() {
                     state.memory.uninit(

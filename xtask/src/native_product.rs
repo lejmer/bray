@@ -58,6 +58,10 @@ pub(crate) fn emit_executable(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native emission retains compilation, product, target, runtime, output, search paths, map, and build configuration"
+)]
 pub(crate) fn emit_executable_with_configuration(
     compilation: &Compilation,
     product: ProductIdentity,
@@ -253,7 +257,7 @@ mod tests {
 
     #[test]
     fn native_outputs_share_storage_in_their_parent_build_directory() {
-        let destination = super::managed_destination(Path::new("build/native/release")).unwrap();
+        let destination = super::managed_destination(Path::new("build/native/release")).expect("fixture `super::managed_destination` call must succeed");
 
         assert_eq!(destination.root(), Path::new("build/native"));
         assert_eq!(destination.directory(), Path::new("build/native/release"));

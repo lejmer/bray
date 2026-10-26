@@ -74,7 +74,7 @@ pub(super) fn standard_memory_request(source: &str, imported: bool) -> crate::Co
     }
 
     crate::CompilationRequest::new(
-        bray_symbols::PackageIdentity::try_new("std").unwrap(),
+        bray_symbols::PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
         source_inputs(&[
             include_str!("../../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),

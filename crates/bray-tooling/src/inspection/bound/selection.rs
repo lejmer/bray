@@ -854,18 +854,18 @@ func main()
         );
 
         let compilation = Compilation::load_sources(
-            PackageIdentity::try_new("test.package").unwrap(),
+            PackageIdentity::try_new("test.package").expect("fixture package identity must be valid"),
             vec![input],
         )
-        .unwrap();
+        .expect("fixture `Compilation::load_sources` call must succeed");
 
         let units = compilation
             .bound_units_for_source(
-                SourceId::stored(0).unwrap(),
+                SourceId::stored(0).expect("fixture `SourceId::stored` call must succeed"),
                 &CancellationToken::new(),
                 QueryPriority::Interactive,
             )
-            .unwrap();
+            .expect("fixture `bound_units_for_source` call must succeed");
 
         let caller = units[0].value().local_symbols();
         let child = units[1].value().local_symbols();
@@ -877,7 +877,7 @@ func main()
         let target = super::local_target(callable.into(), caller);
 
         assert_eq!(
-            serde_json::to_value(target).unwrap(),
+            serde_json::to_value(target).expect("fixture JSON must serialize"),
             serde_json::json!({
                 "target_kind": "local",
                 "symbol_kind": "anonymous_callable",

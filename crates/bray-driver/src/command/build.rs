@@ -86,6 +86,10 @@ pub struct DriverProductConfiguration {
 
 impl DriverProductConfiguration {
     /// Creates product configuration and canonicalizes repeated artifact selections.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "product configuration retains backend, build, runtime, capabilities, output, catalog, and artifact selections"
+    )]
     pub fn new(
         backend: DriverBackend,
         build: bray_compilation::BuildConfiguration,

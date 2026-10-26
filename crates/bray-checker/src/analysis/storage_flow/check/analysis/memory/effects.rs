@@ -15,7 +15,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     )> {
         use bray_bound_tree::MemoryReadKind;
 
-        let (index, element, purpose) = match operation.kind() {
+        let (index, element, purpose) = match *operation.kind() {
             CheckedMemoryOperationKind::Read {
                 pointee: element,
                 kind: MemoryReadKind::Move,
@@ -73,7 +73,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return Some(Vec::new());
         }
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::RawBufferPush { element } => {
                 return self.buffer_prefix_effects(
                     state,

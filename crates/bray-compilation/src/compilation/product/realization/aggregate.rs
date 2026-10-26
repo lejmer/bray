@@ -254,10 +254,6 @@ impl Compilation {
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "generator realization shares recursive mapping state with element and metadata types"
-    )]
     pub(super) fn codegen_generator_type(
         &self,
         ty: TypeId,
@@ -297,10 +293,6 @@ impl Compilation {
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "nullable realization shares recursive mapping state with tag and payload types"
-    )]
     pub(super) fn codegen_nullable_type(
         &self,
         ty: TypeId,
@@ -325,10 +317,6 @@ impl Compilation {
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "string realization shares recursive mapping state with data and length types"
-    )]
     pub(super) fn codegen_string_type(
         &self,
         ty: TypeId,

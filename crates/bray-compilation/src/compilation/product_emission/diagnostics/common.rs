@@ -55,37 +55,6 @@ pub(super) fn codegen_unit_identity(
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use bray_diagnostics::{DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure};
-    use bray_symbols::{PackageIdentity, ProductIdentity};
-    use bray_target::TargetIdentity;
-
-    use super::emission_failure_diagnostic;
-
-    #[test]
-    fn capacity_failures_do_not_invent_source_locations_or_defect_guidance() {
-        let product = ProductIdentity::try_new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            "application",
-        )
-        .unwrap();
-
-        let target = TargetIdentity::try_new("test-target").unwrap();
-
-        let diagnostic = emission_failure_diagnostic(
-            DiagnosticEmissionFailure::Evaluation(
-                DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
-            ),
-            &product,
-            &target,
-        );
-
-        assert!(diagnostic.notes().is_empty());
-        assert_eq!(diagnostic.primary_span(), None);
-    }
-}
-
 pub(super) fn emission_artifact_diagnostic(
     kind: DiagnosticKind,
     artifact: &bray_emitter::ArtifactId,
@@ -99,4 +68,35 @@ pub(super) fn emission_artifact_diagnostic(
             artifact.kind().diagnostic_kind(),
         ))
         .with_arg(DiagnosticArg::artifact_ordinal(artifact.ordinal()))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure};
+    use bray_symbols::{PackageIdentity, ProductIdentity};
+    use bray_target::TargetIdentity;
+
+    use super::emission_failure_diagnostic;
+
+    #[test]
+    fn capacity_failures_do_not_invent_source_locations_or_defect_guidance() {
+        let product = ProductIdentity::try_new(
+            PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
+            "application",
+        )
+        .expect("fixture product identity must be valid");
+
+        let target = TargetIdentity::try_new("test-target").expect("fixture target identity must be valid");
+
+        let diagnostic = emission_failure_diagnostic(
+            DiagnosticEmissionFailure::Evaluation(
+                DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+            ),
+            &product,
+            &target,
+        );
+
+        assert!(diagnostic.notes().is_empty());
+        assert_eq!(diagnostic.primary_span(), None);
+    }
 }

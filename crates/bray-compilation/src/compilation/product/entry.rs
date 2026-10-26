@@ -80,6 +80,10 @@ impl EntrypointSelection {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "entrypoint selection joins binder and semantic views, compiler-known symbols, candidate identities, and diagnostics"
+)]
 pub(super) fn select_executable_entrypoint(
     binder: &CompilationBindingContext<'_>,
     semantic_values: &SemanticValueStore,

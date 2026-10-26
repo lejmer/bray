@@ -5,10 +5,6 @@ use super::model::{
     Checkpoint, ConfirmationIdentity, Decision, GateReport, Policy, State, TimingEvidence,
 };
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "gate evaluation binds measured evidence to verified Git revisions and repository policy"
-)]
 pub(super) fn evaluate(
     baseline: &PerformanceReport,
     candidate: &PerformanceReport,

@@ -528,7 +528,8 @@ impl InlineAssemblyContract {
         let mut label_index = 0_usize;
 
         let valid = self.operands().all(|operand| {
-            let label_valid = if operand.kind() == InlineAssemblyOperandKind::Label {
+
+            if operand.kind() == InlineAssemblyOperandKind::Label {
                 let valid = labels.get(label_index).copied() == Some(operand.ty());
 
                 label_index += 1;
@@ -536,9 +537,7 @@ impl InlineAssemblyContract {
                 valid
             } else {
                 true
-            };
-
-            label_valid
+            }
         });
 
         valid && label_index == labels.len()
@@ -797,7 +796,8 @@ pub enum AtomicFetchKind {
 }
 
 /// Checked compiler-provided memory behavior at one call expression.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+/// Assembly contracts share their operand tables so ordinary operations stay compact.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CheckedMemoryOperationKind {
     /// Create protected storage with the representation of `element` but no initialized value.
     UninitNew {
@@ -1029,7 +1029,7 @@ pub enum CheckedMemoryOperationKind {
         /// Structural tuple of typed label callables for alternate control flow.
         labels: Option<TypeId>,
         /// Checked compile-time assembly contract.
-        contract: InlineAssemblyContract,
+        contract: Arc<InlineAssemblyContract>,
     },
     /// Initialize protected atomic storage before it becomes shared.
     AtomicInitialize {
@@ -1095,7 +1095,7 @@ pub enum CheckedMemoryOperationKind {
 
 impl CheckedMemoryOperationKind {
     /// Returns whether every atomic ordering carried by this operation is legal for its role.
-    pub const fn has_valid_atomic_ordering(self) -> bool {
+    pub const fn has_valid_atomic_ordering(&self) -> bool {
         match self {
             Self::AtomicLoad { order, .. } | Self::AtomicWait { order, .. } => {
                 order.valid_for_load()
@@ -1103,17 +1103,17 @@ impl CheckedMemoryOperationKind {
             Self::AtomicStore { order, .. } => order.valid_for_store(),
             Self::AtomicCompareExchange {
                 success, failure, ..
-            } => success.permits_failure(failure),
+            } => success.permits_failure(*failure),
             _ => true,
         }
     }
 
     /// Iterates compile-time values that form part of the checked operation contract.
-    pub fn contract_constants(self) -> impl Iterator<Item = ConstantValueId> {
+    pub fn contract_constants(&self) -> impl Iterator<Item = ConstantValueId> {
         let mut values = [None; MAX_INLINE_ASSEMBLY_CONTRACT_CONSTANTS];
 
         match self {
-            Self::TargetFeatureEnabled { feature } => values[0] = Some(feature),
+            Self::TargetFeatureEnabled { feature } => values[0] = Some(*feature),
             Self::InlineAssembly { contract, .. } => {
                 for (destination, value) in values.iter_mut().zip(contract.constant_values()) {
                     *destination = Some(value);
@@ -1126,7 +1126,7 @@ impl CheckedMemoryOperationKind {
     }
 
     /// Returns the exact number of runtime operands required by this operation.
-    pub const fn operand_count(self) -> usize {
+    pub const fn operand_count(&self) -> usize {
         match self {
             Self::UninitFrom { .. }
             | Self::UninitPointer { .. }
@@ -1195,7 +1195,7 @@ impl CheckedMemoryOperationKind {
     }
 
     /// Maps a selected source-argument ordinal to its runtime MIR operand index.
-    pub const fn runtime_argument_index(self, ordinal: usize) -> Option<usize> {
+    pub const fn runtime_argument_index(&self, ordinal: usize) -> Option<usize> {
         match self {
             Self::UninitFrom { .. }
             | Self::UninitPointer { .. }
@@ -1289,7 +1289,7 @@ impl CheckedMemoryOperationKind {
     }
 
     /// Returns whether the operation produces a value instead of only changing memory state.
-    pub const fn produces_value(self) -> bool {
+    pub const fn produces_value(&self) -> bool {
         !matches!(
             self,
             Self::Write { .. }
@@ -1316,7 +1316,7 @@ impl CheckedMemoryOperationKind {
     }
 
     /// Returns whether this operation can propagate a helper's panic outcome.
-    pub const fn requires_checked_outcome(self) -> bool {
+    pub const fn requires_checked_outcome(&self) -> bool {
         matches!(
             self,
             Self::RawAllocate
@@ -1335,6 +1335,12 @@ mod atomic_order_tests {
     use bray_symbols::{SemanticValueStore, TypeData};
 
     use super::{CheckedMemoryOperationKind, MemoryOrder};
+
+    #[test]
+    fn ordinary_memory_kinds_do_not_inline_assembly_operand_tables() {
+        assert!(std::mem::size_of::<super::CheckedMemoryOperationKind>() <= 96);
+        assert!(std::mem::size_of::<super::CheckedMemoryOperation>() <= 128);
+    }
 
     #[test]
     fn operation_specific_ordering_matrix_is_exact() {
@@ -1453,8 +1459,8 @@ impl CheckedMemoryOperation {
     }
 
     /// Returns the exact memory behavior selected for the call.
-    pub const fn kind(&self) -> CheckedMemoryOperationKind {
-        self.kind
+    pub const fn kind(&self) -> &CheckedMemoryOperationKind {
+        &self.kind
     }
 
     /// Returns evaluated source arguments in declaration-parameter order.
@@ -1654,7 +1660,7 @@ mod tests {
             inputs: ty,
             output: None,
             labels: None,
-            contract,
+            contract: contract.into(),
         };
 
         assert_eq!(

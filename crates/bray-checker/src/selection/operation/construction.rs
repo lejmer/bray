@@ -187,7 +187,7 @@ where
         );
     };
 
-    let inputs = match expression {
+    match expression {
         BoundExpression::StructConstruction(construction) => construction
             .fields()
             .iter()
@@ -221,9 +221,7 @@ where
         _ => panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in construction_inputs"
         ),
-    };
-
-    inputs
+    }
 }
 
 fn construction_surface_is_valid(

@@ -136,8 +136,8 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
     }
 }
 
-fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
-    match kind {
+fn collect_memory_types(kind: &CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
+    match *kind {
         CheckedMemoryOperationKind::UninitFrom { element: pointee }
         | CheckedMemoryOperationKind::UninitNew { element: pointee }
         | CheckedMemoryOperationKind::UninitPointer {
@@ -179,7 +179,7 @@ fn collect_memory_types(kind: CheckedMemoryOperationKind, types: &mut BTreeSet<T
             inputs,
             output,
             labels,
-            contract,
+            ref contract,
         } => {
             types.insert(inputs);
 

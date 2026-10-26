@@ -439,7 +439,7 @@ mod tests {
             symbol.signature().clone(),
         );
 
-        let references = mapped_runtime_references(request.unit(), &[direct.clone()]);
+        let references = mapped_runtime_references(request.unit(), std::slice::from_ref(&direct));
 
         assert!(
             !references

@@ -334,11 +334,11 @@ mod tests {
     fn windows_aggregates_use_one_integer_register_or_an_aligned_temporary() {
         let compilation = compilation("module app;");
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
-        let values = compilation.semantic_value_store().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
         let byte = compilation
             .compiler_known_type(RepresentationRole::ScalarU8)
-            .unwrap();
+            .expect("fixture compiler-known type must resolve");
 
         for bytes in [1, 2, 3, 4, 5, 8, 16] {
             let aggregate = intern_type(values, TypeData::tuple(std::iter::repeat_n(byte, bytes)));
@@ -347,7 +347,7 @@ mod tests {
                 let signature = classify(&compilation, &target, abi, [aggregate], aggregate);
 
                 if matches!(bytes, 1 | 2 | 4 | 8) {
-                    let expected = [(0, integer(u16::try_from(bytes * 8).unwrap()))];
+                    let expected = [(0, integer(u16::try_from(bytes * 8).expect("fixture value must fit the requested representation")))];
 
                     let CodegenParameterMapping::Direct {
                         coercion: Some(parameter),
@@ -410,7 +410,7 @@ mod tests {
 
         let scalar = compilation
             .compiler_known_type(RepresentationRole::ScalarR32)
-            .unwrap();
+            .expect("fixture compiler-known type must resolve");
 
         let pair = intern_type(values, TypeData::tuple([scalar, scalar]));
         let floating = classify(&compilation, &target, CallableAbi::C, [pair], pair);
@@ -432,7 +432,7 @@ mod tests {
 
         let (scalar, pair) = pair_types(&compilation);
 
-        let values = compilation.semantic_value_store().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
         let small = intern_type(values, TypeData::tuple([scalar]));
         let large = intern_type(values, TypeData::tuple([scalar, scalar, scalar]));
         let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
@@ -482,7 +482,7 @@ mod tests {
 
         let byte = compilation
             .compiler_known_type(RepresentationRole::ScalarU8)
-            .unwrap();
+            .expect("fixture compiler-known type must resolve");
 
         let mut mappings = BTreeMap::from([
             (
@@ -490,7 +490,7 @@ mod tests {
                 CodegenTypeMapping::new(
                     scalar,
                     layout(8, 8),
-                    CodegenTypeKind::UnsignedInteger(NonZeroU16::new(64).unwrap()),
+                    CodegenTypeKind::UnsignedInteger(NonZeroU16::new(64).expect("fixture non zero u16 must be valid")),
                 ),
             ),
             (
@@ -498,7 +498,7 @@ mod tests {
                 CodegenTypeMapping::new(
                     byte,
                     layout(1, 1),
-                    CodegenTypeKind::UnsignedInteger(NonZeroU16::new(8).unwrap()),
+                    CodegenTypeKind::UnsignedInteger(NonZeroU16::new(8).expect("fixture non zero u16 must be valid")),
                 ),
             ),
             (
@@ -514,7 +514,7 @@ mod tests {
             ),
         ]);
 
-        assert!(sysv::coercion(pair, &mappings).unwrap().is_none());
+        assert!(sysv::coercion(pair, &mappings).expect("fixture `sysv::coercion` call must succeed").is_none());
 
         let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
 
@@ -531,7 +531,7 @@ mod tests {
                 &mut mappings,
                 &mut BTreeSet::new(),
             )
-            .unwrap();
+            .expect("fixture `classify_codegen_signature` call must succeed");
 
         assert!(
             matches!(signature.parameters(), [CodegenParameterMapping::Indirect { alignment, kind: CodegenIndirectParameterKind::ByValue, .. }] if alignment.get() == 8)
@@ -557,13 +557,13 @@ mod tests {
         "#;
 
         let selected = SelectedTarget::for_native(NativeTarget::X86_64LinuxGnu);
-        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
 
         let registry =
             CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
-                .unwrap();
+                .expect("fixture code generator registry must be valid");
 
-        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).expect("fixture codegen configuration must be valid");
 
         let request = CompilationRequest::with_options(
             package_identity(),
@@ -576,7 +576,7 @@ mod tests {
         )
         .with_dependency_interfaces([runtime_standard_library_dependency(&selected)]);
 
-        let compilation = Compilation::load_with_codegen(request, codegen).unwrap();
+        let compilation = Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -584,14 +584,14 @@ mod tests {
             compilation.check_diagnostics()
         );
 
-        let values = compilation.semantic_value_store().unwrap();
-        let symbols = compilation.symbol_graph().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
 
         let types = symbols
             .structures()
             .iter()
             .filter(|symbol| symbol.origin() == SymbolOrigin::Source)
-            .map(|symbol| named_type(values, NamedTypeSymbolId::Struct(symbol.id())).unwrap())
+            .map(|symbol| named_type(values, NamedTypeSymbolId::Struct(symbol.id())).expect("fixture `named_type` call must succeed"))
             .collect::<Vec<_>>();
 
         assert_eq!(types.len(), 3);
@@ -603,7 +603,7 @@ mod tests {
                 &target,
                 &CancellationToken::new(),
             )
-            .unwrap()
+            .expect("fixture `codegen_types` call must succeed")
             .into_iter()
             .map(|mapping| (mapping.ty(), mapping))
             .collect::<BTreeMap<_, _>>();
@@ -611,11 +611,11 @@ mod tests {
         let opaque = types
             .iter()
             .copied()
-            .find(|ty| mappings[ty].layout().unwrap().size() == 8)
-            .unwrap();
+            .find(|ty| mappings[ty].layout().expect("fixture `layout` call must succeed").size() == 8)
+            .expect("fixture lookup must find its expected value");
 
         for ty in types {
-            let large = mappings[&ty].layout().unwrap().size() > 16;
+            let large = mappings[&ty].layout().expect("fixture `layout` call must succeed").size() > 16;
 
             let parameter = compilation.classify_codegen_parameter(
                 ty,
@@ -637,7 +637,7 @@ mod tests {
 
             if large {
                 assert!(matches!(
-                    parameter.unwrap(),
+                    parameter.expect("fixture `parameter` call must succeed"),
                     CodegenParameterMapping::Indirect {
                         kind: CodegenIndirectParameterKind::ByValue,
                         ..
@@ -645,7 +645,7 @@ mod tests {
                 ));
 
                 assert!(matches!(
-                    result.unwrap(),
+                    result.expect("fixture `result` call must succeed"),
                     CodegenResultMapping::Indirect { .. }
                 ));
             } else {
@@ -665,10 +665,10 @@ mod tests {
     fn pair_types(compilation: &Compilation) -> (TypeId, TypeId) {
         let scalar = compilation
             .compiler_known_type(RepresentationRole::ScalarU64)
-            .unwrap();
+            .expect("fixture compiler-known type must resolve");
 
         let pair = intern_type(
-            compilation.semantic_value_store().unwrap(),
+            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
             TypeData::tuple([scalar, scalar]),
         );
 
@@ -691,7 +691,7 @@ mod tests {
                 target,
                 &CancellationToken::new(),
             )
-            .unwrap()
+            .expect("fixture `codegen_types` call must succeed")
             .into_iter()
             .map(|mapping| (mapping.ty(), mapping))
             .collect();
@@ -711,17 +711,17 @@ mod tests {
                 &mut mappings,
                 &mut BTreeSet::new(),
             )
-            .unwrap()
+            .expect("fixture `classify_codegen_signature` call must succeed")
     }
 
     fn integer(bits: u16) -> CodegenAbiScalar {
-        CodegenAbiScalar::Integer(NonZeroU16::new(bits).unwrap())
+        CodegenAbiScalar::Integer(NonZeroU16::new(bits).expect("fixture non zero u16 must be valid"))
     }
 
     fn layout(size: u64, alignment: u64) -> TargetValueLayout {
         TargetValueLayout::new(
             size,
-            NonZeroU64::new(alignment).unwrap(),
+            NonZeroU64::new(alignment).expect("fixture non zero u64 must be valid"),
             TargetLayoutContract::C,
         )
     }

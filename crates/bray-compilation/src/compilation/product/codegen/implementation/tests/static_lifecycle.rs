@@ -61,7 +61,7 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     assert!(
         executable
             .executable_host()
-            .unwrap()
+            .expect("fixture `executable_host` call must succeed")
             .requirements()
             .requires_role(RuntimeAbiRole::RuntimeInitialization)
     );
@@ -91,7 +91,7 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     let operations = host.mir().operations();
 
     let position = |predicate: fn(&bray_ir::MirHostOperation) -> bool| {
-        operations.iter().position(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Host(operation) if predicate(operation))).unwrap()
+        operations.iter().position(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Host(operation) if predicate(operation))).expect("fixture sequence must contain the selected entry")
     };
 
     let admitted =
@@ -119,7 +119,7 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     assert!(
         executable
             .executable_host()
-            .unwrap()
+            .expect("fixture `executable_host` call must succeed")
             .requirements()
             .capabilities()
             .contains(&RuntimeCapability::MainThreadLane)
@@ -157,8 +157,8 @@ fn shared_libraries_own_hosts_while_archives_contribute_storage() {
     });
 
     assert!(!Arc::ptr_eq(&plans[0], &plans[1]));
-    assert!(!plans[0].product_host().unwrap().is_final_image());
-    assert!(plans[1].product_host().unwrap().is_final_image());
+    assert!(!plans[0].product_host().expect("fixture shared library must own an executable host").is_final_image());
+    assert!(plans[1].product_host().expect("fixture `product_host` call must succeed").is_final_image());
 
     assert!(
         plans[0]
@@ -512,7 +512,7 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
 
     assert!(
         plan.executable_host()
-            .unwrap()
+            .expect("fixture `executable_host` call must succeed")
             .requirements()
             .roles()
             .contains(&bray_runtime_interface::RuntimeAbiRole::CleanupStorageRelease,)
@@ -621,7 +621,7 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
             })
             .expect("generic resource must retain its static finalizer");
 
-        let finalization = storage.finalization().unwrap();
+        let finalization = storage.finalization().expect("fixture `finalization` call must succeed");
 
         let requirement = storage
             .outgoing_requirements()
@@ -632,12 +632,12 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
         let layout = mapping
             .instance_ty(storage.owner(), requirement.completion())
             .and_then(bray_codegen::CodegenTypeMapping::layout)
-            .unwrap();
+            .expect("fixture `and_then` call must succeed");
 
         assert!(layout.size() >= alignment);
         assert_eq!(layout.alignment().get(), alignment);
 
-        let roles = plan.executable_host().unwrap().requirements().roles();
+        let roles = plan.executable_host().expect("fixture `executable_host` call must succeed").requirements().roles();
 
         assert!(roles.contains(&RuntimeAbiRole::CleanupStorageClaim));
         assert!(roles.contains(&RuntimeAbiRole::CleanupStorageRelease));

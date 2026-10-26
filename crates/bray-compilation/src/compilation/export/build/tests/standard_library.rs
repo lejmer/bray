@@ -3191,7 +3191,7 @@ fn thread_storage_load_only_initializes_successful_outputs() {
             include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
             include_str!("../../../../../../../standard-library/std/src/platform/status.bray"),
             platform,
-            &preparation,
+            preparation,
             &boundary,
             &caller,
         ]);
@@ -3457,7 +3457,7 @@ fn local_callable_execution_proofs_export_their_named_dependencies() {
     for application in [&provider, &consumer] {
         let proof = application
             .execution_properties(source_function_body_key(application, "invoke"))
-            .unwrap();
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(
             !proof.diagnostics().has_errors(),
@@ -3490,7 +3490,7 @@ fn production_path_view_preserves_its_borrowed_storage() {
     ]);
 
     let key = source_function_body_key(&compilation, "platform_path");
-    let checked = compilation.lowered_unit(key.clone()).unwrap();
+    let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3498,7 +3498,7 @@ fn production_path_view_preserves_its_borrowed_storage() {
         checked.diagnostics()
     );
 
-    let proof = compilation.execution_properties(key).unwrap();
+    let proof = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
     assert!(
         !proof.diagnostics().has_errors(),
@@ -3594,7 +3594,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     for name in ["caller", "static_caller", "prepared_caller"] {
         let checked = source
             .lowered_unit(source_function_body_key(&source, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -3609,7 +3609,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
     for name in ["caller", "static_caller", "prepared_caller"] {
         let checked = consumer
             .lowered_unit(source_function_body_key(&consumer, name))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -3639,7 +3639,7 @@ fn guard_lifetime_anchors_are_not_opaque_call_targets() {
         ] {
             let checked = application
                 .lowered_unit(source_function_body_key(application, name))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             bray_testing::assert_goal_state_diagnostic_kind(checked.diagnostics(), kind);
         }

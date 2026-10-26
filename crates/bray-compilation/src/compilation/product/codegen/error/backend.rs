@@ -65,7 +65,7 @@ pub(super) fn codegen_backend_failure_kind(
                         "exit",
                         // The diagnostic owns the captured process result after this borrowed
                         // planning error is released.
-                        DiagnosticFailureValue::ExternalToolExit(exit.clone()),
+                        DiagnosticFailureValue::ExternalToolExit(exit.as_ref().clone()),
                     ),
                 ],
             ))

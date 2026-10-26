@@ -167,7 +167,7 @@ fn ordinary_library_fallback_publication_is_exact() {
     let source = FALLBACK_LIBRARY_SOURCE;
 
     let role = PlatformServiceRole::StandardOutputFlush;
-    let binding = PlatformServiceBinding::try_new(role, "app.flush").unwrap();
+    let binding = PlatformServiceBinding::try_new(role, "app.flush").expect("fixture platform service binding must be valid");
 
     let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
         &[source],
@@ -187,7 +187,7 @@ fn ordinary_library_fallback_publication_is_exact() {
             continue;
         }
 
-        let summary = bray_native_artifact::scan_object_unit_summary(&object).unwrap();
+        let summary = bray_native_artifact::scan_object_unit_summary(&object).expect("fixture object unit must have a native summary");
 
         let bray_native_artifact::NativeUnitSummary::Exact {
             definitions, roots, ..
@@ -218,7 +218,7 @@ fn ordinary_library_fallback_publication_is_exact() {
         ProductKind::Library,
         SelectedTarget::for_native(NativeTarget::X86_64LinuxGnu),
         &[],
-        [PlatformServiceBinding::try_new(role, "app.flush").unwrap()],
+        [PlatformServiceBinding::try_new(role, "app.flush").expect("fixture platform service binding must be valid")],
     );
 
     let bitcode = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode);
@@ -228,7 +228,7 @@ fn ordinary_library_fallback_publication_is_exact() {
     for bytes in bitcode {
         let summary =
             bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, NativeTarget::X86_64LinuxGnu)
-                .unwrap();
+                .expect("fixture bitcode unit must have a native summary");
 
         match summary {
             bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
@@ -346,7 +346,7 @@ fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
         for bytes in
             generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode)
         {
-            match bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap() {
+            match bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).expect("fixture bitcode unit must have a native summary") {
                 NativeUnitSummary::Exact { definitions, .. } => {
                     exact.extend(definitions.iter().filter_map(|definition| {
                         definition.symbol().identity().name().map(str::to_owned)
@@ -432,7 +432,7 @@ fn library_publication_preserves_named_native_dependencies() {
             ProductKind::Library,
             SelectedTarget::for_native(target),
             &[NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("native").unwrap(),
+                NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
                 NativeLinkKind::Dynamic,
             )],
         );
@@ -444,7 +444,7 @@ fn library_publication_preserves_named_native_dependencies() {
         for bytes in
             generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode)
         {
-            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap();
+            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).expect("fixture bitcode unit must have a native summary");
 
             let references = summary
                 .references()
@@ -490,7 +490,7 @@ fn optional_native_storage_keeps_unrelated_library_exports_exact() {
         ProductKind::Library,
         SelectedTarget::for_native(NativeTarget::X86_64LinuxGnu),
         &[NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("native").unwrap(),
+            NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )],
     );
@@ -530,7 +530,7 @@ fn optional_native_storage_keeps_unrelated_library_exports_exact() {
     for bytes in bitcode {
         let summary =
             bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, NativeTarget::X86_64LinuxGnu)
-                .unwrap();
+                .expect("fixture bitcode unit must have a native summary");
 
         match summary {
             bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
@@ -570,12 +570,12 @@ fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() 
         ProductKind::Library,
         SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
         &[],
-        [PlatformServiceBinding::try_new(role, "app.flush").unwrap()],
+        [PlatformServiceBinding::try_new(role, "app.flush").expect("fixture platform service binding must be valid")],
     );
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let prefix = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap()).join("bin");
+    let prefix = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.expect("native fixture requires the configured LLVM toolchain prefix")).join("bin");
 
     let run = |tool: &str, arguments: Vec<std::ffi::OsString>| {
         let output = std::process::Command::new(
@@ -584,7 +584,7 @@ fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() 
         .args(arguments)
         .current_dir(directory.path())
         .output()
-        .unwrap();
+        .expect("fixture command must execute");
 
         assert!(
             output.status.success(),
@@ -604,7 +604,7 @@ fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() 
         if text.contains("/alternatename:") || text.contains("@live =") {
             let name = format!("source-{ordinal}.ll");
 
-            fs::write(directory.path().join(&name), bytes).unwrap();
+            fs::write(directory.path().join(&name), bytes).expect("fixture contents must be written");
             sources.push(name.into());
         }
     }
@@ -680,14 +680,14 @@ define void @{symbol}(ptr %out) {{
 "#
     );
 
-    fs::write(directory.path().join("main.ll"), main).unwrap();
-    fs::write(directory.path().join("strong.ll"), strong).unwrap();
+    fs::write(directory.path().join("main.ll"), main).expect("fixture contents must be written");
+    fs::write(directory.path().join("strong.ll"), strong).expect("fixture contents must be written");
 
     fs::write(
         directory.path().join("unused.ll"),
         format!("{preamble}@unused = global [4096 x i8] zeroinitializer"),
     )
-    .unwrap();
+    .expect("fixture contents must be written");
 
     for name in ["main", "strong", "unused"] {
         run(
@@ -718,13 +718,13 @@ define void @{symbol}(ptr %out) {{
             "optimized.bc",
         ),
     ] {
-        let bytes = fs::read(directory.path().join(payload)).unwrap();
+        let bytes = fs::read(directory.path().join(payload)).expect("fixture contents must be readable");
 
         let summary = if kind == bray_native_artifact::NativeUnitKind::Object {
-            bray_native_artifact::scan_object_unit_summary(&bytes).unwrap()
+            bray_native_artifact::scan_object_unit_summary(&bytes).expect("fixture object unit must have a native summary")
         } else {
             bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, NativeTarget::X86_64WindowsMsvc)
-                .unwrap()
+                .expect("fixture bitcode unit must have a native summary")
         };
 
         let bray_native_artifact::NativeUnitSummary::Exact {
@@ -783,12 +783,12 @@ define void @{symbol}(ptr %out) {{
                 {
                     let result = std::process::Command::new(directory.path().join("result.exe"))
                         .status()
-                        .unwrap();
+                        .expect("fixture command must execute");
 
                     assert_eq!(result.code(), Some(if provider.is_some() { 5 } else { 4 }));
                 }
 
-                let map = fs::read_to_string(directory.path().join("result.map")).unwrap();
+                let map = fs::read_to_string(directory.path().join("result.map")).expect("fixture text must be readable");
 
                 if provider.is_some() {
                     assert!(
@@ -813,7 +813,7 @@ define void @{symbol}(ptr %out) {{
                     "{kind:?} provider={provider:?} reverse={reverse} payload={} linked={} bytes",
                     bytes.len(),
                     fs::metadata(directory.path().join("result.exe"))
-                        .unwrap()
+                        .expect("fixture metadata must be readable")
                         .len()
                 );
             }

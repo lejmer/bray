@@ -71,7 +71,7 @@ impl Compilation {
                     bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
                         contract,
                         ..
-                    } => Some(contract),
+                    } => Some(**contract),
                     _ => None,
                 },
                 _ => None,
@@ -138,6 +138,10 @@ impl Compilation {
         Ok(mappings.into_values().collect())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "type mapping joins demanded types, substitution, target, concrete instance, and shared recursive maps"
+    )]
     pub(super) fn extend_codegen_types(
         &self,
         demanded: BTreeSet<TypeId>,

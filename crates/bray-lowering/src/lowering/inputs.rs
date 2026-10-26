@@ -744,8 +744,8 @@ mod tests {
 
     #[test]
     fn crossed_boundaries_preserve_inputs_outside_an_inner_catch_or_scope() {
-        let values = SemanticValueStore::try_new().unwrap();
-        let ty = values.intern_type(TypeData::tuple([])).unwrap();
+        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let ty = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let temporary = InputTemporary {
             place: MirPlace::new(MirStorageId::from_slot(MirUnitId::new(1), 0), [], ty),

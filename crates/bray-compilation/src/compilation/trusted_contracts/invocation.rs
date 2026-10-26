@@ -169,6 +169,10 @@ impl Compilation {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "implicit invocation checking retains selected target and signature, source identity, contract inputs, and diagnostics"
+    )]
     fn add_implicit_invocation(
         &self,
         site: bray_bound_tree::BoundExecutionSite,

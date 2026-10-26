@@ -223,6 +223,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         );
     }
 
+    #[expect(clippy::too_many_arguments, reason = "reference observation keeps memory state, effects, invalidation and replacement identity explicit")]
     pub(super) fn reference_observation(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,

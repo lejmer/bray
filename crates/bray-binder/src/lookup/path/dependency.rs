@@ -135,8 +135,8 @@ mod tests {
         let context = fixture.context();
         let symbols = context.symbols();
         let owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
-        let path = ModulePathKey::try_new(["core", "memory"]).unwrap();
-        let memory = symbols.module_by_path(owner, &path).unwrap();
+        let path = ModulePathKey::try_new(["core", "memory"]).expect("fixture module path key must be valid");
+        let memory = symbols.module_by_path(owner, &path).expect("fixture `module_by_path` call must succeed");
         let lookup = MemberLookupResult::Found(ResolvedName::Surface(memory.id().into()));
 
         assert!(lookup_dependency_declared(
@@ -151,7 +151,7 @@ mod tests {
             .modules()
             .iter()
             .find(|module| module.origin() == bray_symbols::SymbolOrigin::Source)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         assert!(!lookup_dependency_declared(
             symbols,

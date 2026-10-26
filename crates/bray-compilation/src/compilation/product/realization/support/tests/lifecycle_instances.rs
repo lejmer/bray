@@ -214,8 +214,7 @@ fn declaration_helpers_require_the_exact_concrete_dependency() {
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         dependency_symbol(&owner, &missing, &reference)
     }))
-    .err()
-    .expect("compiler invariant must panic");
+    .expect_err("compiler invariant must panic");
 
     let message = bray_testing::panic_payload_text(panic.as_ref());
 

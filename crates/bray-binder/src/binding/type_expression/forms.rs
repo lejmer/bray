@@ -73,7 +73,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             Ok(Some(storage)) => self.bind_type(&storage)?,
             Ok(None) => self.bind_heap_storage_type()?,
             Err(diagnostic) => {
-                self.diagnostics.add(diagnostic);
+                self.diagnostics.add(*diagnostic);
 
                 return self.error_type_template();
             }
@@ -201,7 +201,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 /// Selects the one type argument shared by box types and box construction expressions.
 pub(in crate::binding) fn box_storage_policy(
     syntax: Option<bray_syntax::TypeFormArgumentListSyntax>,
-) -> Result<Option<bray_syntax::TypeExpressionSyntax>, bray_diagnostics::Diagnostic> {
+) -> Result<Option<bray_syntax::TypeExpressionSyntax>, Box<bray_diagnostics::Diagnostic>> {
     use bray_syntax::SourceSyntaxNode;
 
     let Some(syntax) = syntax else {
@@ -209,7 +209,7 @@ pub(in crate::binding) fn box_storage_policy(
     };
 
     let invalid = || {
-        super::diagnostic::source_diagnostic(
+        Box::new(super::diagnostic::source_diagnostic(
             &syntax,
             bray_diagnostics::DiagnosticKind::BindingInvalidBoxStoragePolicy,
         )
@@ -222,7 +222,7 @@ pub(in crate::binding) fn box_storage_policy(
                 .source()
                 .text_slice(syntax.full_range())
                 .unwrap_or_default(),
-        ))
+        )))
     };
 
     let mut arguments = syntax.type_form_arguments();

@@ -34,13 +34,11 @@ where
         );
     };
 
-    let Some(parameter_indices) = crate::selection::map_argument_parameter_indices(
+    let parameter_indices = crate::selection::map_argument_parameter_indices(
         call.arguments(),
         callable.parameters(),
         callable.is_variadic(),
-    ) else {
-        return None;
-    };
+    )?;
 
     let inferable = parameters.iter().copied().collect::<BTreeSet<_>>();
     let mut inference = GenericArgumentInference::new(request, inferable);
@@ -69,12 +67,10 @@ where
         }
     }
 
-    let arguments = parameters
+    parameters
         .iter()
         .map(|parameter| inference.arguments.get(parameter).copied())
-        .collect::<Option<Vec<_>>>();
-
-    arguments
+        .collect::<Option<Vec<_>>>()
 }
 
 pub(crate) fn infer_generic_arguments_from_type<C>(

@@ -70,16 +70,12 @@ where
         ));
     }
 
-    let Some(children) = composite_conversion_children_for_context(request, source, target) else {
-        return None;
-    };
+    let children = composite_conversion_children_for_context(request, source, target)?;
 
     let mut plans = Vec::with_capacity(children.len());
 
     for (source, target) in children {
-        let Some(plan) = built_in_conversion_plan_for_context(request, source, target) else {
-            return None;
-        };
+        let plan = built_in_conversion_plan_for_context(request, source, target)?;
 
         plans.push(plan);
     }
@@ -340,9 +336,7 @@ where
         ) if source_length == target_length => vec![(*source_element, *target_element)],
         (TypeData::Nullable(source), TypeData::Nullable(target)) => vec![(*source, *target)],
         (TypeData::Tuple(elements), _) if elements.len() == 2 => {
-            let Some(component) = complex_component_type(request, target) else {
-                return None;
-            };
+            let component = complex_component_type(request, target)?;
 
             elements
                 .iter()
@@ -360,10 +354,7 @@ fn complex_component_type<C>(request: &C, target: TypeId) -> Option<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(target_role) = crate::representation::type_representation_for_context(request, target)
-    else {
-        return None;
-    };
+    let target_role = crate::representation::type_representation_for_context(request, target)?;
 
     let component = match target_role {
         RepresentationRole::ScalarC32 => RepresentationRole::ScalarR16,
@@ -434,7 +425,7 @@ mod tests {
         use bray_symbols::{CallablePhaseBehavior, PredicateDomain, PredicateSemanticSummary};
 
         let values = crate::test_support::semantic_values();
-        let dependency = values.empty_dependency_contract_template().unwrap();
+        let dependency = values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
 
         for source in [
             PredicateDomain::Value,
@@ -541,7 +532,7 @@ mod tests {
         let unit = test_unit(BoundUnitId::new(85), source);
         let context = TestCheckerContext::new(false);
 
-        assert_eq!(validate(&unit, &context, &conversion), true);
+        assert!(validate(&unit, &context, &conversion));
 
         assert_eq!(
             conversion.target(),
@@ -561,7 +552,7 @@ mod tests {
         let unit = test_unit(BoundUnitId::new(86), source);
         let context = TestCheckerContext::new(false);
 
-        assert_eq!(validate(&unit, &context, &conversion), false);
+        assert!(!validate(&unit, &context, &conversion));
     }
 
     fn test_unit(unit: BoundUnitId, ty: bray_symbols::TypeId) -> bray_bound_tree::BoundUnit {

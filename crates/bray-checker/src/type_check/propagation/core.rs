@@ -460,8 +460,6 @@ fn infer_borrow<C>(
             .intern_type(TypeData::Borrow { kind, target }).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in infer_borrow: {error:?}"));
 
         inference.add_evidence(variable, ty, expression_id);
-
-        return;
     }
 }
 

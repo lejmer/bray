@@ -269,6 +269,10 @@ pub struct TackInvocation {
 }
 
 impl TackInvocation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "invocation construction retains independent workspace, toolchain, execution, output, profiling, and command selections"
+    )]
     pub(crate) const fn new(
         workspace_root: PathBuf,
         toolchain_root: Option<PathBuf>,

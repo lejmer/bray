@@ -82,12 +82,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 };
 
                 let helpers = self.operation_helpers(id)?;
-                let mut helpers = helpers.iter();
+                let converted = self.translate_conversion_plan(operand, conversion)?;
 
-                let converted =
-                    self.translate_conversion_plan(operand, conversion, &mut helpers)?;
-
-                if helpers.next().is_some() {
+                if !helpers.is_empty() {
                     panic!(
                         "checked MIR effect translation violated an established compiler contract"
                     );

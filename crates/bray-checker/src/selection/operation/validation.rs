@@ -589,15 +589,14 @@ mod tests {
             panic!("test source expression must be committed");
         };
 
-        assert_eq!(
+        assert!(
             implementation_selections_match(
                 &fixture.operation,
                 std::slice::from_ref(&fixture.implementation)
-            ),
-            true
+            )
         );
 
-        assert_eq!(
+        assert!(
             compiler_known_operations_match(
                 request,
                 &fixture.operation,
@@ -607,8 +606,7 @@ mod tests {
                     ExpressionTypeStatus::Valid
                 )],
                 std::slice::from_ref(&fixture.contract)
-            ),
-            true
+            )
         );
 
         let wrong_witness = ImplementationSelectionEvidence::new(
@@ -616,9 +614,8 @@ mod tests {
             ImplementationSelection::Selected(fixture.other_witness),
         );
 
-        assert_eq!(
-            implementation_selections_match(&fixture.operation, &[wrong_witness]),
-            false
+        assert!(
+            !implementation_selections_match(&fixture.operation, &[wrong_witness])
         );
 
         let wrong_signature = CallableSignature::new(
@@ -641,8 +638,8 @@ mod tests {
             wrong_signature,
         );
 
-        assert_eq!(
-            compiler_known_operations_match(
+        assert!(
+            !compiler_known_operations_match(
                 request,
                 &fixture.operation,
                 source_expression,
@@ -651,8 +648,7 @@ mod tests {
                     ExpressionTypeStatus::Valid
                 )],
                 &[wrong_contract]
-            ),
-            false
+            )
         );
 
         let wrong_role = CompilerKnownOperationEvidence::new(
@@ -662,8 +658,8 @@ mod tests {
             fixture.contract.signature().clone(),
         );
 
-        assert_eq!(
-            compiler_known_operations_match(
+        assert!(
+            !compiler_known_operations_match(
                 request,
                 &fixture.operation,
                 source_expression,
@@ -672,8 +668,7 @@ mod tests {
                     ExpressionTypeStatus::Valid
                 )],
                 &[wrong_role]
-            ),
-            false
+            )
         );
     }
 

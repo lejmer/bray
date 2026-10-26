@@ -288,7 +288,7 @@ pub(super) fn export_default_semantics(
                 .resolve_symbol_query(
                     SymbolQueryRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
                 )
-                .map_err(|error| super::super::binding_query_export_error(error))?;
+                .map_err(super::super::binding_query_export_error)?;
 
             if default.diagnostics().has_errors() {
                 return Err(incomplete(symbol));
@@ -304,7 +304,7 @@ pub(super) fn export_default_semantics(
             if default.value().is_present() {
                 let checked = compilation
                     .callable_parameter_default(parameter)
-                    .map_err(|error| super::super::fact_query_export_error(error))?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if checked.diagnostics().has_errors() {
                     return Err(incomplete(symbol));
@@ -330,7 +330,7 @@ pub(super) fn export_default_semantics(
             if field.default_presence() != RuntimeDefaultPresence::Absent {
                 let checked = compilation
                     .struct_field_default(field.id())
-                    .map_err(|error| super::super::fact_query_export_error(error))?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if checked.diagnostics().has_errors() {
                     return Err(incomplete(symbol));
@@ -356,7 +356,7 @@ pub(super) fn export_default_semantics(
             if field.default_presence() != RuntimeDefaultPresence::Absent {
                 let checked = compilation
                     .union_payload_field_default(field.id())
-                    .map_err(|error| super::super::fact_query_export_error(error))?;
+                    .map_err(super::super::fact_query_export_error)?;
 
                 if checked.diagnostics().has_errors() {
                     return Err(incomplete(symbol));

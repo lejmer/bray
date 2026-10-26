@@ -24,13 +24,15 @@ pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
     values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
+type DecodedSection = OnceLock<Result<Option<Arc<[u8]>>, InterfaceValidationError>>;
+
 /// Immutable package-interface bytes with an eagerly validated structural envelope.
 #[derive(Clone, Debug)]
 pub struct ValidatedPackageInterface {
     bytes: Arc<[u8]>,
     header: InterfaceHeader,
     directory: Arc<[DirectoryEntry]>,
-    decoded_sections: Arc<[OnceLock<Result<Option<Arc<[u8]>>, InterfaceValidationError>>]>,
+    decoded_sections: Arc<[DecodedSection]>,
     semantic_records: Arc<crate::semantic::SemanticRecordIndex>,
     limits: InterfaceValidationLimits,
 }

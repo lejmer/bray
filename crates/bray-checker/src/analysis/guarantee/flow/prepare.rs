@@ -8,6 +8,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::super::super::fixed_point::{FixedPointOutcome, solve_fixed_point};
 
+#[expect(clippy::too_many_arguments, reason = "flow analysis consumes tables from independent checker queries without hidden lookups")]
 pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     'a,
     'view,
@@ -56,6 +57,7 @@ pub(in crate::analysis::guarantee) fn analyze_execution_flow<
     CheckerOutcome::without_diagnostics(ExecutionFlow { domain, states })
 }
 
+#[expect(clippy::too_many_arguments, reason = "flow preparation consumes tables from independent checker queries without hidden lookups")]
 pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Sized>(
     prepared: &'a crate::PreparedBodyAnalysis,
     request: CheckerUnitView<'view, C>,

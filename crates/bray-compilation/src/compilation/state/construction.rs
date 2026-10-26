@@ -691,6 +691,19 @@ fn empty_query_caches<T>(len: usize) -> Vec<FactCell<T>> {
     (0..len).map(|_| FactCell::new()).collect()
 }
 
+fn record_source_metrics(profile: &crate::profile::ProfileSession, sources: &SourceStore) {
+    profile.record_metric(
+        crate::profile::ProfileMetricKind::SourceUnits,
+        u64::try_from(sources.len()).unwrap_or(u64::MAX),
+    );
+
+    let source_bytes = sources.iter().fold(0_u64, |total, source| {
+        total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
+    });
+
+    profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
+}
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, BoundUnitKind};
@@ -1460,8 +1473,7 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             compilation.control_flow(foreign_key.clone())
         }))
-        .err()
-        .expect("compiler invariant must panic");
+        .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -1705,17 +1717,4 @@ mod tests {
             None => panic!("test compiler-known declaration key should be valid"),
         }
     }
-}
-
-fn record_source_metrics(profile: &crate::profile::ProfileSession, sources: &SourceStore) {
-    profile.record_metric(
-        crate::profile::ProfileMetricKind::SourceUnits,
-        u64::try_from(sources.len()).unwrap_or(u64::MAX),
-    );
-
-    let source_bytes = sources.iter().fold(0_u64, |total, source| {
-        total.saturating_add(u64::try_from(source.text().len()).unwrap_or(u64::MAX))
-    });
-
-    profile.record_metric(crate::profile::ProfileMetricKind::SourceBytes, source_bytes);
 }

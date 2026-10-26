@@ -763,7 +763,7 @@ mod tests {
         let mut native_root = report(1_000_000);
 
         native_root.native_codegen = Some(inventory.clone());
-        native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor = None;
+        native_root.native_codegen.as_mut().expect("fixture optional value must be present for mutation").runtime_demands[0].predecessor = None;
         assert!(native_root.validate().is_ok());
 
         let encoded = serde_json::to_vec(&native_root).expect("native root profile must serialize");
@@ -774,7 +774,7 @@ mod tests {
         assert_eq!(decoded.schema_revision, 1);
         assert_eq!(decoded, native_root);
 
-        native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor =
+        native_root.native_codegen.as_mut().expect("fixture optional value must be present for mutation").runtime_demands[0].predecessor =
             Some(u32::MAX);
 
         assert_eq!(

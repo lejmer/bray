@@ -68,15 +68,11 @@ fn module_summary(
             && line
                 .split_whitespace()
                 .any(|token| matches!(token, "alias" | "ifunc"))
-        {
-            if !line.contains(" = internal ") && !line.contains(" = private ") {
-                if let Some(name) = alias_name(line) {
-                    if let Some(name) = object_symbol(target, &name) {
+            && !line.contains(" = internal ") && !line.contains(" = private ")
+                && let Some(name) = alias_name(line)
+                    && let Some(name) = object_symbol(target, &name) {
                         aliases_provided.insert(NativeSymbolIdentity::Name(name));
                     }
-                }
-            }
-        }
 
         module_assembly |= line.starts_with("module asm ");
 
@@ -349,15 +345,15 @@ mod tests {
         let terminated = format!("{ir}\0");
 
         let buffer =
-            MemoryBuffer::create_from_memory_range(&terminated.as_bytes(), "native fixture");
+            MemoryBuffer::create_from_memory_range(terminated.as_bytes(), "native fixture");
 
-        let module = context.create_module_from_ir(buffer).unwrap();
+        let module = context.create_module_from_ir(buffer).expect("fixture `create_module_from_ir` call must succeed");
 
         crate::serialization::bitcode_bytes(&module)
     }
 
     fn summary(ir: &str, target: NativeTarget) -> NativeUnitSummary {
-        inspect_bitcode_unit_summary(&bitcode(ir), target).unwrap()
+        inspect_bitcode_unit_summary(&bitcode(ir), target).expect("fixture bitcode unit must have a native summary")
     }
 
     #[test]
@@ -392,7 +388,7 @@ mod tests {
             );
 
             let bytes = bitcode(&ir);
-            let observed = inspect_bitcode_unit_summary(&bytes, target).unwrap();
+            let observed = inspect_bitcode_unit_summary(&bytes, target).expect("fixture bitcode unit must have a native summary");
             let file = TemporaryFile::write("native-summary.bc", &bytes);
 
             let output = Command::new(
@@ -409,7 +405,7 @@ mod tests {
             .args(["--extern-only", "--format=posix"])
             .arg(file.path())
             .output()
-            .unwrap();
+            .expect("fixture command must execute");
 
             assert!(
                 output.status.success(),
@@ -417,14 +413,14 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
 
-            let symbols = String::from_utf8(output.stdout).unwrap();
+            let symbols = String::from_utf8(output.stdout).expect("fixture text must be valid UTF-8");
             let mut expected_provided = BTreeSet::new();
             let mut expected_references = BTreeSet::new();
 
             for line in symbols.lines() {
                 let mut fields = line.split_whitespace();
-                let name = fields.next().unwrap();
-                let class = fields.next().unwrap();
+                let name = fields.next().expect("fixture iterator must provide its expected item");
+                let class = fields.next().expect("fixture iterator must provide its expected item");
 
                 if matches!(class, "U" | "w" | "v") {
                     expected_references.insert(name);
@@ -436,7 +432,7 @@ mod tests {
             assert_eq!(
                 observed
                     .defined_symbols()
-                    .map(|s| s.name().unwrap())
+                    .map(|s| s.name().expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 expected_provided
             );
@@ -445,7 +441,7 @@ mod tests {
                 observed
                     .references()
                     .iter()
-                    .map(|s| s.identity().name().unwrap())
+                    .map(|s| s.identity().name().expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 expected_references
             );
@@ -499,7 +495,7 @@ mod tests {
             let provider = definitions
                 .iter()
                 .find(|d| d.symbol().identity().name() == Some(name.as_ref()))
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
             assert_eq!(provider.symbol().binding(), NativeSymbolBinding::Weak);
 
@@ -662,7 +658,7 @@ mod tests {
         assert_eq!(
             observed
                 .defined_symbols()
-                .map(|s| s.name().unwrap())
+                .map(|s| s.name().expect("fixture symbol inventory must contain the selected symbol"))
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["_a b", "unmangled"])
         );
@@ -686,7 +682,7 @@ mod tests {
         assert_eq!(
             observed
                 .defined_symbols()
-                .map(|symbol| symbol.name().unwrap())
+                .map(|symbol| symbol.name().expect("fixture symbol inventory must contain the selected symbol"))
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["_base", "_redirect value", "_table"])
         );
@@ -745,7 +741,7 @@ mod tests {
                 observed
                     .references()
                     .iter()
-                    .map(|symbol| symbol.identity().name().unwrap())
+                    .map(|symbol| symbol.identity().name().expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 BTreeSet::from([dependency.as_ref()]),
             );
@@ -764,7 +760,7 @@ mod tests {
                     )],
                     [],
                 )
-                .unwrap()
+                .expect("fixture native artifact index must be valid")
                 .with_bitcode_toolchain("test-llvm")
             };
 
@@ -777,7 +773,7 @@ mod tests {
                 package(3, summary("define void @unused() { ret void }", target)),
             ]);
 
-            let selected = resolver.select([]).unwrap();
+            let selected = resolver.select([]).expect("fixture selection must succeed");
 
             assert_eq!(
                 selected

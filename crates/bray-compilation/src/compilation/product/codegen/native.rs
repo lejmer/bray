@@ -33,6 +33,10 @@ pub(in crate::compilation) struct NativeLibraries {
 }
 
 impl Compilation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "runtime demands join concrete reachability, codegen options, runtime plan, native route, and target"
+    )]
     pub(super) fn mapped_product_runtime_demands(
         &self,
         product: &ProductIdentity,
@@ -128,7 +132,6 @@ impl Compilation {
                         .map(bray_codegen::CodegenNativeEntryMapping::kind),
                     panic_report_context,
                 )
-                .into_iter()
                 .map(|role| NativeDemand::runtime_role(key.clone(), role)),
             );
 
@@ -449,17 +452,15 @@ impl Compilation {
 
             if let Some((previous_rank, previous_input, previous_artifact, previous_index)) =
                 packages.get(&package)
-            {
-                if artifact.identity() != previous_artifact.identity()
+                && (artifact.identity() != previous_artifact.identity()
                     || index.producer() != previous_index.producer()
-                    || rank == *previous_rank && index != *previous_index
+                    || rank == *previous_rank && index != *previous_index)
                 {
                     return Err(NativeProductPlanningError::ConflictingNativeArtifacts {
                         first: previous_input.path().to_owned(),
                         second: input.path().to_owned(),
                     });
                 }
-            }
 
             if packages
                 .get(&package)

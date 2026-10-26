@@ -326,6 +326,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
     }
 
+    #[expect(clippy::too_many_arguments, reason = "disposal combines independent storage facts with observation and mutation callbacks")]
     fn dispose(
         &self,
         state: &mut ExecutionState,

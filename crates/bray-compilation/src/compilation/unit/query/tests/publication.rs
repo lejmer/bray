@@ -73,7 +73,7 @@ fn liveness_is_demanded_independently_and_reuses_its_publication() {
         .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
             key.clone(),
         ))
-        .unwrap()
+        .expect("fixture `dependencies` call must succeed")
         .expect("the component owns this body's prerequisites");
 
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
@@ -151,7 +151,7 @@ fn dependency_contracts_reuse_the_body_semantic_publication() {
         .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
             key.clone(),
         ))
-        .unwrap()
+        .expect("fixture `dependencies` call must succeed")
         .expect("the component owns this body's prerequisites");
 
     assert!(
@@ -239,7 +239,7 @@ fn storage_flow_is_lazy_and_reports_overlapping_borrows() {
         .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
             key.clone(),
         ))
-        .unwrap()
+        .expect("fixture `dependencies` call must succeed")
         .expect("the component owns this body's prerequisites");
 
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::StoragePlan(key.clone())));
@@ -661,7 +661,7 @@ fn selected_call_inventory_precedes_flow_and_reuses_its_publication() {
 
     let first = compilation
         .selected_body_behavior_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `selected_body_behavior_with_cancellation` call must succeed");
 
     assert_eq!(first.result().value().calls().len(), 1);
 
@@ -677,13 +677,13 @@ fn selected_call_inventory_precedes_flow_and_reuses_its_publication() {
 
     let checked = compilation
         .body_semantics_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
     assert!(!checked.result().diagnostics().has_errors(), "{checked:#?}");
 
     let second = compilation
         .selected_body_behavior_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `selected_body_behavior_with_cancellation` call must succeed");
 
     assert!(Arc::ptr_eq(&first, &second));
 
@@ -691,8 +691,8 @@ fn selected_call_inventory_precedes_flow_and_reuses_its_publication() {
         .state
         .fact_runtime
         .dependencies(&crate::fact::CompilationFactKey::BodySemantics(key.clone()))
-        .unwrap()
-        .unwrap();
+        .expect("fixture `dependencies` call must succeed")
+        .expect("successful fixture query must contain its expected result");
 
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::SelectedBodyBehavior(key)));
 }
@@ -716,7 +716,7 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
 
     let prepared = compilation
         .prepared_body_analysis_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `prepared_body_analysis_with_cancellation` call must succeed");
 
     assert!(
         !prepared.result().diagnostics().has_errors(),
@@ -763,7 +763,7 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
                 .state
                 .fact_runtime
                 .dependencies(&dependency)
-                .unwrap()
+                .expect("fixture `dependencies` call must succeed")
                 .into_iter()
                 .flatten(),
         );
@@ -771,19 +771,19 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
 
     let unwind = compilation
         .unwind_behavior(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture callable must resolve its unwind behavior");
 
     assert!(!unwind.result().diagnostics().has_errors(), "{unwind:#?}");
 
     let body = compilation
         .body_semantics_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
     assert!(!body.result().diagnostics().has_errors(), "{body:#?}");
 
     let execution = compilation
         .execution_candidates_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `execution_candidates_with_cancellation` call must succeed");
 
     assert!(
         !execution.result().diagnostics().has_errors(),
@@ -792,7 +792,7 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
 
     let reused = compilation
         .prepared_body_analysis_with_cancellation(key.clone(), &cancellation)
-        .unwrap();
+        .expect("fixture `prepared_body_analysis_with_cancellation` call must succeed");
 
     assert!(Arc::ptr_eq(&prepared, &reused));
 
@@ -805,8 +805,8 @@ fn prepared_body_is_shared_by_ownership_unwind_and_execution_proofs() {
             .state
             .fact_runtime
             .dependencies(&consumer)
-            .unwrap()
-            .unwrap();
+            .expect("fixture `dependencies` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert!(
             dependencies.contains(&crate::fact::CompilationFactKey::PreparedBodyAnalysis(
@@ -846,11 +846,11 @@ fn recursive_result_dependencies_share_one_component_publication() {
     let owner = members
         .iter()
         .min_by_key(|(callable, _)| *callable)
-        .unwrap();
+        .expect("fixture `min_by_key` call must succeed");
 
     let key = crate::fact::CompilationFactKey::ResultDependencyComponent(owner.1.clone());
     let cancellation = &application.state.cancellation;
-    let context = application.binding_context(cancellation).unwrap();
+    let context = application.binding_context(cancellation).expect("fixture compilation must provide a binding context");
     let start = std::sync::Barrier::new(members.len());
 
     std::thread::scope(|scope| {
@@ -868,13 +868,13 @@ fn recursive_result_dependencies_share_one_component_publication() {
                             bray_symbols::CallableResultDependenciesQuery,
                         >::new(*callable),
                     )
-                    .unwrap()
+                    .expect("fixture symbol query must resolve")
                 })
             })
             .collect::<Vec<_>>();
 
         for handle in handles {
-            let result = handle.join().unwrap();
+            let result = handle.join().expect("fixture worker must join successfully");
 
             assert!(!result.diagnostics().has_errors(), "{result:?}");
         }
@@ -888,7 +888,7 @@ fn recursive_result_dependencies_share_one_component_publication() {
         >::new(*callable);
 
         let result =
-            bray_binder::SymbolQueryProvider::resolve_symbol_query(&context, request).unwrap();
+            bray_binder::SymbolQueryProvider::resolve_symbol_query(&context, request).expect("fixture symbol query must resolve");
 
         assert!(!result.diagnostics().has_errors(), "{result:?}");
 
@@ -902,7 +902,7 @@ fn recursive_result_dependencies_share_one_component_publication() {
                 owner.1.clone(),
                 || panic!("demanding any member must publish the complete component"),
             )
-            .unwrap();
+            .expect("fixture query must complete successfully");
 
         assert_eq!(
             published
@@ -934,7 +934,7 @@ fn recursive_result_dependencies_share_one_component_publication() {
 
         let body_result = application
             .body_semantics_with_cancellation(body.clone(), cancellation)
-            .unwrap();
+            .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
         assert!(
             Arc::ptr_eq(
@@ -955,8 +955,8 @@ fn recursive_result_dependencies_share_one_component_publication() {
             .dependencies(&crate::fact::CompilationFactKey::from(
                 crate::fact::SymbolQueryKey::new(request.symbol(), request.kind()),
             ))
-            .unwrap()
-            .unwrap();
+            .expect("fixture `dependencies` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert!(dependencies.contains(&key), "{dependencies:?}");
 
@@ -973,8 +973,8 @@ fn recursive_result_dependencies_share_one_component_publication() {
         .state
         .fact_runtime
         .dependencies(&key)
-        .unwrap()
-        .unwrap();
+        .expect("fixture `dependencies` call must succeed")
+        .expect("successful fixture query must contain its expected result");
 
     for (_, body) in members {
         assert!(
@@ -998,7 +998,7 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
     );
 
     let cancellation = &application.state.cancellation;
-    let context = application.binding_context(cancellation).unwrap();
+    let context = application.binding_context(cancellation).expect("fixture compilation must provide a binding context");
 
     let callable: bray_symbols::CallableSymbolId =
         crate::test_support::source_function(&application, "repeat").into();
@@ -1007,7 +1007,7 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
 
     let behavior = application
         .selected_body_behavior_with_cancellation(body.clone(), cancellation)
-        .unwrap();
+        .expect("fixture `selected_body_behavior_with_cancellation` call must succeed");
 
     let provider = behavior.result().value().defaults()[0];
 
@@ -1016,11 +1016,11 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
             provider.symbol(),
             bray_bound_tree::BoundUnitKind::RuntimeDefault,
         )
-        .unwrap()
-        .unwrap();
+        .expect("fixture `declared_unit_key` call must succeed")
+        .expect("successful fixture query must contain its expected result");
 
     let members = [(callable.into_any(), body), (provider.symbol(), default)];
-    let owner = members.iter().min_by_key(|(symbol, _)| *symbol).unwrap();
+    let owner = members.iter().min_by_key(|(symbol, _)| *symbol).expect("fixture `min_by_key` call must succeed");
     let start = std::sync::Barrier::new(2);
 
     std::thread::scope(|scope| {
@@ -1035,13 +1035,13 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
 
                     application
                         .body_semantics_with_cancellation(key.clone(), cancellation)
-                        .unwrap()
+                        .expect("fixture `body_semantics_with_cancellation` call must succeed")
                 })
             })
             .collect::<Vec<_>>();
 
         for handle in handles {
-            let body = handle.join().unwrap();
+            let body = handle.join().expect("fixture worker must join successfully");
 
             assert!(!body.result().diagnostics().has_errors(), "{body:?}");
         }
@@ -1057,12 +1057,12 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
             owner.1.clone(),
             || panic!("both bodies must already share one completed component"),
         )
-        .unwrap();
+        .expect("fixture query must complete successfully");
 
     assert_eq!(published.result().value().len(), 2);
 
     let summary =
-        crate::compilation::binder::default_result_dependencies(&context, provider).unwrap();
+        crate::compilation::binder::default_result_dependencies(&context, provider).expect("fixture `crate::compilation::binder::default_result_dependencies` call must succeed");
 
     assert_eq!(
         summary,
@@ -1074,7 +1074,7 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
     for (symbol, key) in &members {
         let body = application
             .body_semantics_with_cancellation(key.clone(), cancellation)
-            .unwrap();
+            .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
         assert!(Arc::ptr_eq(
             body.result().value(),
@@ -1120,7 +1120,7 @@ fn dependency_component_discovery_visits_each_chain_body_once() {
 
         let context = application
             .binding_context(&application.state.cancellation)
-            .unwrap();
+            .expect("fixture compilation must provide a binding context");
 
         for step in 0..LENGTH {
             let index = if reverse { LENGTH - step - 1 } else { step };
@@ -1132,7 +1132,7 @@ fn dependency_component_discovery_visits_each_chain_body_once() {
             let summary = bray_binder::SymbolQueryProvider::resolve_symbol_query(
                 &context,
                 bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(callable),
-            ).unwrap();
+            ).expect("fixture symbol query must resolve");
 
             assert!(!summary.diagnostics().has_errors(), "{summary:?}");
 
@@ -1141,7 +1141,7 @@ fn dependency_component_discovery_visits_each_chain_body_once() {
                     crate::test_support::source_function_body_key(&application, &name),
                     &application.state.cancellation,
                 )
-                .unwrap();
+                .expect("fixture `body_semantics_with_cancellation` call must succeed");
 
             assert!(!body.result().diagnostics().has_errors(), "{body:?}");
         }

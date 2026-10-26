@@ -7,7 +7,7 @@ pub(crate) fn run_static_finalizer(
 ) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
-    let incidents = super::state::with_runtime(|runtime| {
+    super::state::with_runtime(|runtime| {
         let allocation = runtime.allocate_admitted(admission);
 
         let Some(task) = allocation.task() else {
@@ -70,9 +70,7 @@ pub(crate) fn run_static_finalizer(
             None,
             None,
         ]
-    });
-
-    incidents
+    })
 }
 
 pub(crate) fn with_static_cleanup_context<T>(
@@ -135,7 +133,7 @@ mod tests {
 
         assert!(
             super::super::state::retain_current_runtime()
-                .unwrap()
+                .expect("fixture runtime must remain retained")
                 .is_none()
         );
 
@@ -147,13 +145,13 @@ mod tests {
 
                 assert!(
                     super::super::state::retain_current_runtime()
-                        .unwrap()
+                        .expect("fixture static cleanup context must be installed")
                         .is_none()
                 );
 
                 assert!(!crate::current_run_cancellation_requested());
             })
-            .unwrap();
+            .expect("fixture static cleanup context must be installed");
 
             assert!(incident.is_none());
             assert!(crate::current_run_cancellation_requested());
@@ -163,7 +161,7 @@ mod tests {
 
         assert!(
             super::super::state::retain_current_runtime()
-                .unwrap()
+                .expect("fixture runtime must remain retained")
                 .is_none()
         );
     }
@@ -209,7 +207,7 @@ mod tests {
             assert_eq!(outcome.payload(), 1);
             assert!(super::super::state::with_runtime(|_| ()).is_ok());
         })
-        .unwrap();
+        .expect("fixture static cleanup context must be installed");
 
         assert!(incident.is_none());
         assert!(super::super::state::with_runtime(|_| ()).is_err());
@@ -224,12 +222,12 @@ mod tests {
             crate::bootstrap::with_thread_cleanup(identity, || {
                 let runtime = RETIRING_RUNTIME
                     .with_borrow(|runtime| runtime.clone())
-                    .unwrap();
+                    .expect("fixture `with_borrow` call must succeed");
 
                 let ((), incident) = super::with_static_cleanup_context(Some(&runtime), || {
                     assert_eq!(
                         crate::bootstrap::current_runtime_thread()
-                            .unwrap()
+                            .expect("fixture static cleanup context must be installed")
                             .id()
                             .raw(),
                         identity
@@ -247,8 +245,8 @@ mod tests {
             static RETIRING_RUNTIME: std::cell::RefCell<Option<super::super::state::RetainedRuntime>> = const { std::cell::RefCell::new(None) };
         }
 
-        let runtime = super::super::state::retain_runtime().unwrap();
-        let attachment = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+        let runtime = super::super::state::retain_runtime().expect("fixture `super::super::state::retain_runtime` call must succeed");
+        let attachment = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
 
         RETIRING_RUNTIME.set(Some(runtime.clone()));
         assert!(crate::bootstrap::register_thread_cleanup(cleanup));
@@ -376,9 +374,9 @@ mod tests {
                 completion_bytes: 1,
                 completion_align: 1,
                 states: 1,
-                state: state,
-                resume: resume,
-                cancel: cancel,
+                state,
+                resume,
+                cancel,
                 broadcast: ignore_broadcast,
                 resolve: ignore_resolution,
                 move_completion: ignore_completion_move,

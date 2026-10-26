@@ -306,9 +306,7 @@ where
         type_representation(request, ty) == Some(RepresentationRole::Result)
     });
 
-    let Some(expected) = expected else {
-        return None;
-    };
+    let expected = expected?;
 
     let data = request.semantic_values().type_data(expected);
 
@@ -403,9 +401,7 @@ where
 
     let expected = expected.or_else(|| inference.evidence(variable));
 
-    let Some(expected) = expected else {
-        return None;
-    };
+    let expected = expected?;
 
     let data = request.semantic_values().type_data(expected);
 
@@ -451,21 +447,15 @@ fn generator_source_array_length<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(iteration) = expression.operands().first().copied() else {
-        return None;
-    };
+    let iteration = expression.operands().first().copied()?;
 
     let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration) else {
         return None;
     };
 
-    let Some(source) = variables.get(&iteration.source()).copied() else {
-        return None;
-    };
+    let source = variables.get(&iteration.source()).copied()?;
 
-    let Some(source) = inference.evidence(source) else {
-        return None;
-    };
+    let source = inference.evidence(source)?;
 
     let data = request.semantic_values().type_data(source);
 

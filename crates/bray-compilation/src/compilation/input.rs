@@ -7,6 +7,10 @@ use super::Compilation;
 use crate::fact::{CompilationInputKey, CompilationInputs};
 use crate::request::{CompilationOptions, DependencyInterfaceInput, PackageInterfaceExportRequest};
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "compilation input identity combines all independent immutable source, dependency, runtime, export, and backend inputs"
+)]
 pub(super) fn compilation_inputs(
     package_identity: &PackageIdentity,
     package_source_authority: crate::PackageSourceAuthority,

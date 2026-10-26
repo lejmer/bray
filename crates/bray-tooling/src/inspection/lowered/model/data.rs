@@ -1002,7 +1002,7 @@ fn memory_operation_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
-    match memory.kind() {
+    match *memory.kind() {
         CheckedMemoryOperationKind::AtomicLoad { order, .. }
         | CheckedMemoryOperationKind::AtomicStore { order, .. }
         | CheckedMemoryOperationKind::AtomicExchange { order, .. }
@@ -1019,7 +1019,7 @@ fn memory_operation_parts(
         _ => {}
     }
 
-    let (name, types) = match memory.kind() {
+    let (name, types) = match *memory.kind() {
         CheckedMemoryOperationKind::UninitFrom { element } => {
             ("uninit_from", vec![("element", element)])
         }

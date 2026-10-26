@@ -1,4 +1,7 @@
-use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+#[cfg(test)]
+use std::panic::panic_any;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -113,6 +116,7 @@ impl From<TaskObservationError> for RootExecutionError {
 #[derive(Debug)]
 pub(crate) struct PropagatedCancellation;
 
+#[cfg(test)]
 pub(crate) fn propagate_current_run_cancellation() -> ! {
     panic_any(PropagatedCancellation)
 }
@@ -206,7 +210,7 @@ where
                 root.id(),
                 ready.state(),
                 root.cancellation_context().clone(),
-                root.output_context().clone(),
+                root.output_context(),
                 ready.lane(),
                 wake.clone(),
             );
@@ -265,7 +269,7 @@ mod tests {
     fn synchronous_roots_execute_directly_and_capture_panics() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
         assert!(matches!(
             execute_synchronous_root(|| 17, |_| {}, &mut admitted),
@@ -282,7 +286,7 @@ mod tests {
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             current_run_cancellation_observable,
@@ -299,7 +303,7 @@ mod tests {
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
         let outcome =
             execute_synchronous_root(propagate_current_run_cancellation, |_| {}, &mut admitted);
@@ -312,7 +316,7 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
 
         let mut cancellation = None;
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             || (),
@@ -521,7 +525,7 @@ mod tests {
                     child.id(),
                     ready.state(),
                     child.cancellation_context().clone(),
-                    child.output_context().clone(),
+                    child.output_context(),
                     ready.lane(),
                     child_wake.clone(),
                 );

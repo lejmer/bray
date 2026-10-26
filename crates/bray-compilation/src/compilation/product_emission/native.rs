@@ -80,6 +80,10 @@ pub(super) fn product_staging_error(error: LinkStagingError) -> ProductEmissionE
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native packaging joins emission and staging plans, contributions, interface bundle, and optional linking"
+)]
 pub(super) fn package_native_implementation(
     compilation: &Compilation,
     plan: &EmissionPlan,
@@ -514,12 +518,14 @@ fn native_bindings(
     Ok(bindings)
 }
 
+type NativeContributionUnit = (CodegenUnitKey, NativeUnit, Arc<[u8]>);
+
 fn native_contribution_unit(
     plan: &EmissionPlan,
     staged: &StagedArtifact,
     contribution: &bray_emitter::ArtifactContribution,
     native_links: &[bray_symbols::NativeLinkRequirement],
-) -> Result<Option<(CodegenUnitKey, NativeUnit, Arc<[u8]>)>, ProductEmissionErrorKind> {
+) -> Result<Option<NativeContributionUnit>, ProductEmissionErrorKind> {
     let planned = plan
         .artifact(staged.artifact())
         .expect("staged native input must belong to the immutable emission plan");
@@ -581,27 +587,27 @@ mod tests {
 
         use std::sync::Arc;
 
-        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
 
         let registry = bray_codegen::CodeGeneratorRegistry::try_new([
             Arc::clone(&backend) as Arc<dyn CodeGenerator>
         ])
-        .unwrap();
+        .expect("fixture code generator registry must be valid");
 
         let codegen =
             bray_codegen::CodegenConfiguration::try_new(registry, backend.identity().clone())
-                .unwrap();
+                .expect("fixture codegen configuration must be valid");
 
         let package = crate::test_support::package_identity();
 
         let identity = PackageInterfaceIdentity::try_new(
             package.clone(),
             crate::test_support::package_version(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+            InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
             InterfaceProductKind::Library,
             "public",
         )
-        .unwrap();
+        .expect("fixture package interface identity must be valid");
 
         let source = r#"
             module app;
@@ -628,25 +634,25 @@ mod tests {
             )),
             codegen,
         )
-        .unwrap();
+        .expect("fixture compilation must load for code generation");
 
         let native = compilation
             .native_product_plan(
-                bray_symbols::ProductIdentity::try_new(package, "library").unwrap(),
+                bray_symbols::ProductIdentity::try_new(package, "library").expect("fixture product identity must be valid"),
                 crate::BuildConfiguration::Development,
                 None,
                 [],
                 None,
             )
-            .unwrap();
+            .expect("fixture product must reach native planning");
 
         let bundle = compilation
             .package_interface_export_bundle()
-            .unwrap()
+            .expect("fixture `package_interface_export_bundle` call must succeed")
             .as_ref()
-            .unwrap();
+            .expect("fixture optional value must be present");
 
-        let target = bray_target::NativeTarget::for_identity(native.target().identity()).unwrap();
+        let target = bray_target::NativeTarget::for_identity(native.target().identity()).expect("fixture `bray_target::NativeTarget::for_identity` call must succeed");
         let mut digests = std::collections::BTreeMap::new();
         let mut units = Vec::new();
         let mut symbols = 0;
@@ -654,7 +660,7 @@ mod tests {
         for (ordinal, mappings) in native.mappings().iter().enumerate() {
             let mut bytes = [0; 32];
 
-            bytes[..8].copy_from_slice(&u64::try_from(ordinal).unwrap().to_le_bytes());
+            bytes[..8].copy_from_slice(&u64::try_from(ordinal).expect("fixture value must fit the requested representation").to_le_bytes());
 
             let digest = NativeContentDigest::new(bytes);
 
@@ -698,11 +704,11 @@ mod tests {
             units,
             [],
         )
-        .unwrap();
+        .expect("fixture native artifact index must be valid");
 
         let bindings =
             super::native_bindings(&compilation, &native, bundle, target, &index, &digests)
-                .unwrap();
+                .expect("fixture `super::native_bindings` call must succeed");
 
         assert_eq!(
             bindings.len(),

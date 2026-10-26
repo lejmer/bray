@@ -12,5 +12,5 @@ pub use contract::{
     CallableExecutionObligation, CallableExecutionOrigin, CallableExecutionTarget,
     EXECUTION_CONDITION_WORK_LIMIT, ResolvedCallableExecutionContract,
 };
-pub use proof::{ExecutionProofFailure, check_execution_proof_dependencies};
+pub use proof::{ExecutionProofFailure, ExecutionProofKey, check_execution_proof_dependencies};
 pub use property::ExecutionProperty;

@@ -208,7 +208,7 @@ pub fn diagnostic_native_artifact_cause(
     use bray_diagnostics::DiagnosticNativeArtifactCause as Cause;
     use bray_native_artifact::{NativeIndexError as Error, WireError};
 
-    let cause = match error {
+    match error {
         Error::SizeLimitExceeded => Cause::IndexSizeLimitExceeded,
         Error::Malformed => Cause::IndexMalformed,
         Error::Wire(WireError::UnsupportedSchema) => Cause::IndexUnsupportedSchema,
@@ -229,9 +229,7 @@ pub fn diagnostic_native_artifact_cause(
         Error::MissingCoRetentionMember(_) => Cause::MissingCoRetentionMember,
         Error::DuplicateCoRetentionGroup => Cause::DuplicateCoRetentionGroup,
         Error::InvalidCoRetentionGroup => Cause::InvalidCoRetentionGroup,
-    };
-
-    cause
+    }
 }
 
 const fn manifest_problem(

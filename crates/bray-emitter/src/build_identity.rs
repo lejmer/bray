@@ -19,10 +19,6 @@ pub struct ProductBuildIdentity {
 
 impl ProductBuildIdentity {
     /// Creates the complete identity chain for one reusable product generation.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "each independent reusable-build identity remains explicit"
-    )]
     pub const fn new(
         inputs: [u8; 32],
         compiler: [u8; 32],

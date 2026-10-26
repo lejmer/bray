@@ -212,15 +212,15 @@ func run(pos counter: &mut Counter)
             lowered.diagnostics()
         );
 
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
-        let values = compilation.semantic_value_store().unwrap();
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
 
         for operation in mir.operations() {
             let bray_ir::MirOperationKind::Borrow { place, .. } = operation.kind() else {
                 continue;
             };
 
-            let result = mir.value(operation.result().unwrap()).unwrap();
+            let result = mir.value(operation.result().expect("fixture `result` call must succeed")).expect("fixture `value` call must succeed");
             let ty = values.type_data(result.ty());
 
             assert!(
@@ -548,7 +548,7 @@ fn explicit_receiver_loans_are_reused_and_still_cover_argument_evaluation() {
         if valid {
             let lowered = application
                 .lowered_unit(source_function_body_key(&application, "caller"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert!(lowered.value().is_some(), "{lowered:#?}");
         } else {

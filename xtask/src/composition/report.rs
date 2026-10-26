@@ -261,7 +261,7 @@ mod tests {
             "summary": {"passed": 1, "failed": 0}
         });
 
-        let report = serde_json::from_value(valid.clone()).unwrap();
+        let report = serde_json::from_value(valid.clone()).expect("fixture JSON must deserialize");
 
         assert!(super::validate_structure(&report, "synchronous", true, true).is_ok());
 
@@ -286,10 +286,10 @@ mod tests {
             if pointer == "/duration_nanoseconds" {
                 altered["duration_nanoseconds"] = replacement;
             } else {
-                *altered.pointer_mut(pointer).unwrap() = replacement;
+                *altered.pointer_mut(pointer).expect("fixture `pointer_mut` call must succeed") = replacement;
             }
 
-            let report = serde_json::from_value(altered).unwrap();
+            let report = serde_json::from_value(altered).expect("fixture JSON must deserialize");
 
             assert!(
                 super::validate_structure(&report, "synchronous", true, true).is_err(),

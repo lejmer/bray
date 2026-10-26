@@ -134,7 +134,7 @@ pub(crate) fn operation_inputs(
         return construction
             .inputs()
             .iter()
-            .filter_map(|input| {
+            .map(|input| {
                 let (SelectedConstructionInput::Explicit { ordinal, .. }
                 | SelectedConstructionInput::Default { ordinal, .. }) = input;
 
@@ -153,10 +153,10 @@ pub(crate) fn operation_inputs(
                     (*expression).into()
                 };
 
-                Some((
+                (
                     DependencySubjectRoot::Parameter(ordinal),
                     OperationInput::Value(source),
-                ))
+                )
             })
             .collect();
     }

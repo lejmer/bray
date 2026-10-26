@@ -110,6 +110,10 @@ pub(crate) fn compose_frame(
 }
 
 /// Routes a cleanup call to its immediate parent's handlers without leaving the broadcast phase implicitly.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "call outcome branching needs distinct panic, cancellation, and completed-report destinations"
+)]
 pub(crate) fn check_call_outcome(
     builder: &mut MirUnitBuilder,
     block: MirBlockId,

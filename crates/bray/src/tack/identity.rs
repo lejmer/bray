@@ -32,6 +32,10 @@ impl TestProductBuildEvidence {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "test identity combines project inputs, selected target and configuration, native inputs, and toolchain evidence"
+)]
 pub(super) fn test_product_identity(
     workspace_root: &Path,
     graph: &ProjectGraph,
@@ -55,6 +59,10 @@ pub(super) fn test_product_identity(
     .identity)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "test evidence combines project inputs, selected target and configuration, native inputs, and toolchain evidence"
+)]
 pub(super) fn test_product_build_evidence(
     workspace_root: &Path,
     graph: &ProjectGraph,
@@ -114,6 +122,8 @@ pub(super) fn test_product_build_evidence(
     })
 }
 
+type ProductInputDigests = ([u8; 32], BTreeMap<ProductIdentity, [u8; 32]>);
+
 fn input_digest(
     workspace_root: &Path,
     graph: &ProjectGraph,
@@ -121,7 +131,7 @@ fn input_digest(
     target: &TargetIdentity,
     configuration: TackBuildConfiguration,
     native_link_inputs: &[String],
-) -> Result<([u8; 32], BTreeMap<ProductIdentity, [u8; 32]>), DiagnosticBag> {
+) -> Result<ProductInputDigests, DiagnosticBag> {
     let mut hasher = StableDigestHasher::new();
     let mut source_inputs = BTreeMap::new();
 

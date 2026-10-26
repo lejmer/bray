@@ -730,7 +730,7 @@ mod tests {
         );
 
         let mut document: serde_json::Value =
-            serde_json::from_slice(&metadata.encode_json().unwrap())
+            serde_json::from_slice(&metadata.encode_json().expect("fixture `encode_json` call must succeed"))
                 .expect("test metadata must parse");
 
         document
@@ -739,7 +739,7 @@ mod tests {
             .remove("native_indexes");
 
         assert_eq!(
-            RuntimeArtifactMetadata::decode_json(&serde_json::to_vec(&document).unwrap()),
+            RuntimeArtifactMetadata::decode_json(&serde_json::to_vec(&document).expect("fixture runtime manifest JSON must serialize")),
             Err(RuntimeArtifactMetadataDecodeError::Malformed),
         );
     }

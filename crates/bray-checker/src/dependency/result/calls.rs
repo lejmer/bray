@@ -121,7 +121,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
             let root = bray_symbols::DependencySubjectRoot::Receiver;
 
-            let requirements = bray_symbols::DependencyContractTemplateData::new([
+            bray_symbols::DependencyContractTemplateData::new([
                 DependencyRequirement::result_call(
                     callable,
                     None,
@@ -138,9 +138,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     )],
                     bray_symbols::DependencyCallOutput::Value,
                 ),
-            ]);
-
-            requirements
+            ])
         } else {
             let template = self.request.callable_result_dependencies(symbol)?;
 

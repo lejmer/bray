@@ -27,6 +27,10 @@ use super::{
     executable_discriminator, native_index_discriminator,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "artifact encoding retains separate payload families, native index, native units, and bindings"
+)]
 pub(super) fn encode_artifact(
     identity: &PackageImplementationIdentity,
     bodies: &[InterfaceConstantCallableBody],

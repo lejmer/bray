@@ -28,17 +28,17 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
     crate::report_provider::bray_runtime_activation_header_layout(&mut bytes, &mut alignment);
 
     let header =
-        Layout::from_size_align(bytes, alignment.max(callbacks.storage.alignment())).unwrap();
+        Layout::from_size_align(bytes, alignment.max(callbacks.storage.alignment())).expect("fixture size align must form a valid value");
 
     let capture =
-        Layout::from_size_align(callbacks.storage.bytes(), callbacks.storage.alignment()).unwrap();
+        Layout::from_size_align(callbacks.storage.bytes(), callbacks.storage.alignment()).expect("fixture size align must form a valid value");
 
-    let (header, _) = header.extend(capture).unwrap();
+    let (header, _) = header.extend(capture).expect("fixture `extend` call must succeed");
 
     let completion =
-        Layout::from_size_align(callbacks.completion_bytes, callbacks.completion_align).unwrap();
+        Layout::from_size_align(callbacks.completion_bytes, callbacks.completion_align).expect("fixture size align must form a valid value");
 
-    let (layout, completion) = header.extend(completion).unwrap();
+    let (layout, completion) = header.extend(completion).expect("fixture `extend` call must succeed");
 
     let layout = layout.pad_to_align();
 
@@ -71,7 +71,7 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
         context,
     });
 
-    let mut outgoing = crate::outgoing::OutgoingRecords::admit(4).unwrap();
+    let mut outgoing = crate::outgoing::OutgoingRecords::admit(4).expect("fixture outgoing records must admit the supplied values");
 
     let (head, tail, count) = std::mem::take(&mut outgoing).into_parts();
 
@@ -81,7 +81,7 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
     assert!(
         FRAMES
             .lock()
-            .unwrap()
+            .expect("fixture mutex must not be poisoned")
             .insert(address, Arc::clone(&frame))
             .is_none()
     );
@@ -100,7 +100,7 @@ fn frame(address: usize) -> Arc<Frame> {
     Arc::clone(
         FRAMES
             .lock()
-            .unwrap()
+            .expect("fixture mutex must not be poisoned")
             .get(&address)
             .expect("callback retains its admitted fixture"),
     )
@@ -187,7 +187,7 @@ extern "C-unwind" fn move_completion(address: usize, destination: usize) {
 extern "C-unwind" fn destroy(address: usize) {
     let frame = FRAMES
         .lock()
-        .unwrap()
+        .expect("fixture mutex must not be poisoned")
         .remove(&address)
         .expect("fixture is destroyed exactly once");
 
@@ -298,7 +298,7 @@ mod tests {
             NativeRuntimeConfiguration::new(1, 1),
         )
         .root()
-        .unwrap();
+        .expect("fixture `root` call must succeed");
 
         let _ = super::super::export::bray_runtime_root_terminal_observation(root);
 

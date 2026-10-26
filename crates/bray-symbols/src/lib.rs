@@ -154,7 +154,7 @@ pub use semantic::{
     DeclaredUnionTag, DirectiveArgumentName, DirectiveArgumentTemplate, DirectiveAttachment,
     DirectiveKind, DirectiveSurface, DirectiveTemplate, EXECUTION_CONDITION_WORK_LIMIT,
     ErrorCallableParameterDefault, ErrorConstantDefinition, ErrorPredicateDefinition,
-    ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExecutionProofFailure, ExecutionProperty,
+    ErrorStructFieldDefault, ErrorUnionPayloadDefault, ExecutionProofFailure, ExecutionProofKey, ExecutionProperty,
     ForeignCallableContract, ForeignCallableDirection, ForeignStaticContract,
     GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintObligationKey, GenericConstraintSatisfactionQuery, GenericConstraintSet,

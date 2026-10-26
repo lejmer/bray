@@ -469,6 +469,10 @@ fn callable_signature_error(
     )
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "generic conformance joins subject, trait application, requirement and fulfillment identities, and type bindings"
+)]
 fn generic_surfaces_are_compatible(
     values: &bray_symbols::SemanticValueStore,
     subject: bray_symbols::TypeId,
@@ -715,6 +719,10 @@ fn parameter_default_mismatch(
     Ok(None)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "callable conformance retains subject, trait application, substitution, requirement and fulfillment identities"
+)]
 fn callable_contract_mismatch(
     values: &bray_symbols::SemanticValueStore,
     subject: bray_symbols::TypeId,
@@ -841,6 +849,10 @@ fn contract_set_mismatch(
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "clause conformance retains semantic substitution, input count, paired clauses, and contract surface"
+)]
 fn contract_clause_mismatch(
     values: &bray_symbols::SemanticValueStore,
     subject: bray_symbols::TypeId,

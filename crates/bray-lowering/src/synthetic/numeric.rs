@@ -12,6 +12,10 @@ use crate::SyntheticLoweringError;
 
 /// Realizes a demanded numeric policy as a normal callable without adding a runtime wrapper.
 /// Callers have already established its checked type constraint and ordinary input requirements.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "numeric callable synthesis joins semantic stores, checked callable types, implementation hook, and target"
+)]
 pub fn lower_numeric_callable(
     values: &SemanticValueStore,
     symbols: &AvailableCompilerKnownSymbols,

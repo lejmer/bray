@@ -7,6 +7,10 @@ use bray_ir::{
 use bray_symbols::{BorrowKind, TypeId};
 
 /// Expands a selected invocation through the caller's ownership-aware operation sink.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "lifecycle calls preserve selected callable, receiver, result, destruction, and emission contracts"
+)]
 pub(crate) fn lower_lifecycle_call(
     callable: MirCallableReference,
     receiver_type: TypeId,

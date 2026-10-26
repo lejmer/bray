@@ -5,7 +5,7 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionPlan, ReplacementPolicy};
 
 #[test]
 fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -15,9 +15,9 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
     let unmanaged = output.path().join("keep-user-data.txt");
     let selection = crate::StorageSelection::default();
 
-    std::fs::write(&unmanaged, b"user data").unwrap();
+    std::fs::write(&unmanaged, b"user data").expect("fixture contents must be written");
 
-    let active = crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+    let active = crate::clean_storage(output.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(active.iter().any(|entry| entry.active));
     assert!(active.iter().all(|entry| !entry.removed));
@@ -27,7 +27,7 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
     let index = output.path().join(".bray/storage-index.json");
     let before = file_bytes(&index);
 
-    let preview = crate::clean_storage(output.path(), &selection, true, &never_cancelled).unwrap();
+    let preview = crate::clean_storage(output.path(), &selection, true, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(
         preview
@@ -45,7 +45,7 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
     assert_eq!(file_bytes(&index), before);
     assert_eq!(file_bytes(&public), b"current");
 
-    let removed = crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+    let removed = crate::clean_storage(output.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(removed.iter().all(|entry| entry.removed));
     assert!(!public.exists());
@@ -60,7 +60,7 @@ fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
 
 #[test]
 fn active_product_storage_respects_every_context_filter() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let _active = ArtifactPublisher::new(&never_cancelled)
@@ -69,7 +69,7 @@ fn active_product_storage_respects_every_context_filter() {
     let selections = [
         crate::StorageSelection {
             target: Some(
-                bray_target::TargetIdentity::try_new("aarch64-unknown-linux-gnu").unwrap(),
+                bray_target::TargetIdentity::try_new("aarch64-unknown-linux-gnu").expect("fixture target identity must be valid"),
             ),
             ..Default::default()
         },
@@ -90,7 +90,7 @@ fn active_product_storage_respects_every_context_filter() {
             crate::StoragePolicy::default(),
             &never_cancelled,
         )
-        .unwrap();
+        .expect("fixture storage must be inspectable");
 
         assert!(rows.is_empty());
     }
@@ -98,20 +98,20 @@ fn active_product_storage_respects_every_context_filter() {
 
 #[test]
 fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"never committed", None)]);
 
-    let store = current.generation().unwrap().store().to_owned();
+    let store = current.generation().expect("fixture `generation` call must succeed").store().to_owned();
     let public = output.path().join("application.brayd");
     let journal = store.join("pending-publication.json");
     let staging = store.join("staging/abandoned");
 
-    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).unwrap();
-    std::fs::write(&staging, b"partial output").unwrap();
-    std::fs::remove_file(current.generation().unwrap().reference()).unwrap();
+    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).expect("fixture contents must be written");
+    std::fs::write(&staging, b"partial output").expect("fixture contents must be written");
+    std::fs::remove_file(current.generation().expect("fixture `generation` call must succeed").reference()).expect("fixture file must be removed");
     drop(current);
 
     let operation = crate::ManagedOperation::begin(
@@ -120,7 +120,7 @@ fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
         plan.request().target(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture operation must begin successfully");
 
     assert!(operation.directory().is_dir());
     assert!(!public.exists());
@@ -135,7 +135,7 @@ fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
 
 #[test]
 fn selective_clean_removes_previous_profile_and_staging_without_current_outputs() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let base = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let profile_plan = |profile| {
@@ -156,11 +156,11 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
 
     let old_directory = old
         .generation()
-        .unwrap()
+        .expect("fixture `generation` call must succeed")
         .artifact_path(old_plan.artifacts()[0].id())
-        .unwrap()
+        .expect("fixture `artifact_path` call must succeed")
         .parent()
-        .unwrap()
+        .expect("fixture `parent` call must succeed")
         .to_owned();
 
     drop(old);
@@ -170,21 +170,21 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"current", None)]);
 
-    let store = current.generation().unwrap().store().to_owned();
+    let store = current.generation().expect("fixture `generation` call must succeed").store().to_owned();
 
     let current_directory = current
         .generation()
-        .unwrap()
+        .expect("fixture `generation` call must succeed")
         .artifact_path(plan.artifacts()[0].id())
-        .unwrap()
+        .expect("fixture `artifact_path` call must succeed")
         .parent()
-        .unwrap()
+        .expect("fixture `parent` call must succeed")
         .to_owned();
 
     let staging = store.join("staging/abandoned");
 
     drop(current);
-    std::fs::write(&staging, b"temporary").unwrap();
+    std::fs::write(&staging, b"temporary").expect("fixture contents must be written");
 
     let selection = crate::StorageSelection {
         profile: Some("debug".into()),
@@ -197,19 +197,19 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
         crate::StoragePolicy::default(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].category, crate::StorageCategory::RetainedHistory);
     assert_eq!(rows[0].profile.as_deref(), Some("debug"));
     assert_eq!(rows[0].shared_bytes, Some(0));
 
-    let preview = crate::clean_storage(output.path(), &selection, true, &never_cancelled).unwrap();
+    let preview = crate::clean_storage(output.path(), &selection, true, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert_eq!(preview, rows);
     assert!(old_directory.exists());
 
-    let cleaned = crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+    let cleaned = crate::clean_storage(output.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(cleaned.iter().all(|row| row.removed));
     assert!(!old_directory.exists());
@@ -230,7 +230,7 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
         crate::StoragePolicy::default(),
         &never_cancelled,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
     assert!(
         product_rows
@@ -243,7 +243,7 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
         ..Default::default()
     };
 
-    let cleaned = crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+    let cleaned = crate::clean_storage(output.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(!cleaned.is_empty());
     assert!(cleaned.iter().any(|row| row.path == store.join("staging")));
@@ -264,20 +264,20 @@ fn selective_clean_removes_previous_profile_and_staging_without_current_outputs(
 
 #[test]
 fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_neighbors() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let product = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"old", None)]);
 
-    let store = product.generation().unwrap().store().to_owned();
+    let store = product.generation().expect("fixture `generation` call must succeed").store().to_owned();
     let public = output.path().join("application.brayd");
     let unmanaged = output.path().join("notes.txt");
 
     drop(product);
-    std::fs::write(&unmanaged, b"user data").unwrap();
+    std::fs::write(&unmanaged, b"user data").expect("fixture contents must be written");
 
-    let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
+    let mut managed = crate::storage::ManagedStore::open(output.path()).expect("fixture file must open");
 
     managed
         .maintain(
@@ -287,7 +287,7 @@ fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_nei
             },
             &never_cancelled,
         )
-        .unwrap();
+        .expect("fixture `maintain` call must succeed");
 
     drop(managed);
 
@@ -300,7 +300,7 @@ fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_nei
         plan.request().product(),
         &never_cancelled,
     )
-    .unwrap_err()
+    .expect_err("unpublished generation must be unavailable")
     .into_storage_error(&store);
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
@@ -308,7 +308,7 @@ fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_nei
 
 #[test]
 fn interrupted_storage_clean_resumes_after_public_output_removal() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
@@ -321,12 +321,12 @@ fn interrupted_storage_clean_resumes_after_public_output_removal() {
     let selection = crate::StorageSelection::default();
 
     let error =
-        crate::clean_storage(output.path(), &selection, false, &|| !public.exists()).unwrap_err();
+        crate::clean_storage(output.path(), &selection, false, &|| !public.exists()).expect_err("cancelled storage cleanup must return cancellation");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::Cancelled);
     assert!(!public.exists());
 
-    let resumed = crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+    let resumed = crate::clean_storage(output.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
 
     assert!(resumed.iter().all(|entry| entry.removed));
 
@@ -337,7 +337,7 @@ fn interrupted_storage_clean_resumes_after_public_output_removal() {
             crate::StoragePolicy::default(),
             &never_cancelled
         )
-        .unwrap()
+        .expect("fixture storage must be inspectable")
         .is_empty()
     );
 

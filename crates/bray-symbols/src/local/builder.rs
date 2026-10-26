@@ -920,7 +920,7 @@ mod tests {
 
         assert_eq!(builder.postcondition_result(contract_scope), Some(result));
 
-        assert_eq!(builder.local_symbol_is_recovered(result.into()), false);
+        assert!(!builder.local_symbol_is_recovered(result.into()));
 
         let snapshot = finish(builder);
 
@@ -1145,7 +1145,7 @@ mod tests {
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _ = builder.insert_local_name(root, foreign_binding.into());
+                builder.insert_local_name(root, foreign_binding.into());
             }))
             .is_err()
         );

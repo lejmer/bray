@@ -41,9 +41,7 @@ where
             | StorageAccessPurpose::Projection => None,
         };
 
-        let Some(requested) = requested else {
-            return None;
-        };
+        let requested = requested?;
 
         let access = self.operation_access(plan, purpose);
 
@@ -178,17 +176,13 @@ where
         &self,
         access: StorageAccessId,
     ) -> Option<BorrowKind> {
-        let Some(access) = self.storage.access(access) else {
-            return None;
-        };
+        let access = self.storage.access(access)?;
 
         let StorageAccessRoot::Storage(storage) = access.root() else {
             return None;
         };
 
-        let Some(root_type) = self.storage.storage_type(storage) else {
-            return None;
-        };
+        let root_type = self.storage.storage_type(storage)?;
 
         for depth in 0..=access.projections().len() {
             let ty = if depth == 0 {

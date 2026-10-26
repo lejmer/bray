@@ -199,6 +199,10 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
         Ok(block)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "loop outcomes retain present state, homes, next values, and distinct control destinations"
+    )]
     fn loop_body_outcome(
         &mut self,
         block: MirBlockId,

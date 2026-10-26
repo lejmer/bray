@@ -182,11 +182,10 @@ impl StorageFlowState {
         parent: Option<BoundExpressionId>,
         caught: bool,
     ) {
-        if let Some(subjects) = self.reports.remove(&Some(boundary)) {
-            if !caught {
+        if let Some(subjects) = self.reports.remove(&Some(boundary))
+            && !caught {
                 self.reports.entry(parent).or_default().merge(&subjects);
             }
-        }
 
         self.result_dependencies
             .transfer_report_boundary(boundary, parent, caught);

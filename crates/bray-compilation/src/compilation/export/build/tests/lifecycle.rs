@@ -256,9 +256,9 @@ fn imported_finalizers_use_verified_entry_conditions() {
 
             let lowered = consumer
                 .lowered_unit(source_function_body_key(&consumer, "root"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
-            assert!(lowered.value().as_ref().unwrap().mir().is_some());
+            assert!(lowered.value().as_ref().expect("fixture optional value must be present").mir().is_some());
         }
     }
 }
@@ -521,7 +521,7 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     );
 
     let original = export(&provider);
-    let baseline_artifact = encode_package_interface(original).unwrap();
+    let baseline_artifact = encode_package_interface(original).expect("fixture package interface must encode");
 
     let baseline = crate::test_support::compilation_with_dependencies(
         r#"
@@ -545,8 +545,8 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
             }
         "#,
         [DependencyInterfaceInput::new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+            PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
+            InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
             "provider.brayi",
             baseline_artifact.shared_bytes(),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
@@ -604,13 +604,13 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
         original.language_revision(),
         original.implementation_configuration().clone(),
     )
-    .unwrap();
+    .expect("fixture package interface export bundle must be valid");
 
-    let artifact = encode_package_interface(&bundle).unwrap();
+    let artifact = encode_package_interface(&bundle).expect("fixture package interface must encode");
 
     let dependency = DependencyInterfaceInput::new(
-        PackageIdentity::try_new("example.package").unwrap(),
-        InterfaceProductIdentity::try_new("library").unwrap(),
+        PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
+        InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
         "provider.brayi",
         artifact.shared_bytes(),
         InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
@@ -647,15 +647,15 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     );
 
     let key = source_function_body_key(&consumer, "partial");
-    let analysis = consumer.async_analysis(key.clone()).unwrap();
+    let analysis = consumer.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
 
     assert!(analysis.value().storage_requirements().iter().filter_map(|requirement| requirement.parts()).flatten().any(|part| {
         part.projections().iter().any(|projection| matches!(projection.projection(), bray_bound_tree::StorageCleanupProjectionKind::UnionPayloadElement { ordinal, .. } if ordinal.raw() == 1))
     }), "{analysis:?}");
 
-    let lowered = consumer.lowered_unit(key).unwrap();
+    let lowered = consumer.lowered_unit(key).expect("fixture callable must lower successfully");
 
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
     assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { place, .. } if place.projections().iter().any(|projection| matches!(projection.kind(), MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } if ordinal.raw() == 1)))), "{mir:?}");
 }
@@ -1110,8 +1110,8 @@ fn source_and_imported_scope_lifecycle_self_matches_the_concrete_generic_subject
 
     for compilation in [&provider, &consumer] {
         let key = source_function_body_key(compilation, "caller");
-        let bound = compilation.bound_unit(key.clone()).unwrap();
-        let types = compilation.expression_types(key).unwrap();
+        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let types = compilation.expression_types(key).expect("fixture callable must complete expression typing");
 
         let ty = bound
             .value()
@@ -1119,7 +1119,7 @@ fn source_and_imported_scope_lifecycle_self_matches_the_concrete_generic_subject
             .expressions()
             .find_map(|(id, expression)| {
                 matches!(expression, bray_bound_tree::BoundExpression::Name(_))
-                    .then(|| types.value().expression(id).unwrap().ty())
+                    .then(|| types.value().expression(id).expect("fixture expression must retain its concrete resource type").ty())
             })
             .expect("caller observes its concrete resource parameter");
 
@@ -1131,7 +1131,7 @@ fn source_and_imported_scope_lifecycle_self_matches_the_concrete_generic_subject
         ] {
             let selected = compilation
                 .selected_lifecycle_signature(ty, slot, &cancellation)
-                .unwrap();
+                .expect("fixture `selected_lifecycle_signature` call must succeed");
 
             assert!(
                 selected.diagnostics().is_empty(),
@@ -1146,7 +1146,7 @@ fn source_and_imported_scope_lifecycle_self_matches_the_concrete_generic_subject
 
             match slot {
                 bray_symbols::TypeAssociatedLifecycleSlot::ScopeEnter => {
-                    assert_eq!(signature.receiver().unwrap().ty(), ty);
+                    assert_eq!(signature.receiver().expect("fixture `receiver` call must succeed").ty(), ty);
                     assert_eq!(signature.result(), ty);
                 }
                 bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit => {
@@ -1194,10 +1194,10 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
 
         for compilation in [&source, &imported] {
             let key = source_function_body_key(compilation, "caller");
-            let bound = compilation.bound_unit(key.clone()).unwrap();
-            let types = compilation.expression_types(key.clone()).unwrap();
-            let patterns = compilation.patterns(key.clone()).unwrap();
-            let selections = compilation.semantic_selections(key.clone()).unwrap();
+            let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+            let types = compilation.expression_types(key.clone()).expect("fixture callable must complete expression typing");
+            let patterns = compilation.patterns(key.clone()).expect("fixture `patterns` call must succeed");
+            let selections = compilation.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
 
             let scoped = selections
                 .value()
@@ -1232,7 +1232,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
                     patterns.diagnostics()
                 );
 
-                let storage = compilation.storage_plan(key.clone()).unwrap();
+                let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
 
                 assert!(
                     storage.diagnostics().is_empty(),
@@ -1256,7 +1256,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
 
                 assert_eq!(provenance.definition_node(), Some(pattern.into()));
 
-                let pattern_node = bound.value().view().pattern(pattern).unwrap();
+                let pattern_node = bound.value().view().pattern(pattern).expect("fixture `pattern` call must succeed");
 
                 assert_eq!(
                     pattern_node.mode(),
@@ -1264,7 +1264,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
                 );
 
                 assert_eq!(
-                    patterns.value().pattern(pattern).unwrap().operation(),
+                    patterns.value().pattern(pattern).expect("fixture `pattern` call must succeed").operation(),
                     bray_bound_tree::PatternOperation::Observe
                 );
 
@@ -1285,7 +1285,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
                     unreachable!()
                 };
 
-                let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).unwrap();
+                let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).expect("fixture `bray_bound_tree::StorageScopeOwners::collect` call must succeed");
 
                 assert_eq!(
                     owners.identity_scope(storage.value(), identity),
@@ -1314,7 +1314,7 @@ fn selected_cleanup(
 
     consumer
         .completed_unit_cleanup(&key, &cancellation)
-        .unwrap()
+        .expect("fixture completed unit must resolve cleanup")
         .result()
         .value()
         .clone()
@@ -1366,9 +1366,9 @@ fn imported_async_finalizers_compose_in_the_consuming_frame() {
 
         let lowered = consumer
             .lowered_unit(source_function_body_key(&consumer, "root"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         assert!(mir.is_valid());
 
@@ -1411,14 +1411,14 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
     );
 
     let bundle = export(&provider);
-    let interface = encode_package_interface(bundle).unwrap();
+    let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
 
     let implementation = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
         bundle,
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from export bundle must succeed");
 
     let dependency = super::fixtures::execution_dependency(&provider)
         .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
@@ -1444,9 +1444,9 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
 
     let lowered = consumer
         .lowered_unit(source_function_body_key(&consumer, "root"))
-        .unwrap();
+        .expect("fixture callable must lower successfully");
 
-    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
     assert!(mir.is_valid());
 
@@ -1466,8 +1466,8 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
         })
     )));
 
-    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
-    let skeleton = skeleton.value().as_deref().unwrap();
+    let skeleton = consumer.imported_symbol_skeleton_result().expect("fixture `imported_symbol_skeleton_result` call must succeed");
+    let skeleton = skeleton.value().as_deref().expect("fixture optional referent must be present");
     let mut abandoned = 0;
 
     for template in bundle.executable_templates() {
@@ -1479,11 +1479,11 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
                     .imported_semantic_key()
                     .is_some_and(|key| key.symbol() == template.owner())
             })
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         let symbol = skeleton
             .imported_semantic_address(function.id().into())
-            .unwrap();
+            .expect("fixture `imported_semantic_address` call must succeed");
 
         let address =
             crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
@@ -1493,7 +1493,7 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
                 address,
                 &crate::CancellationToken::new(),
             )
-            .unwrap();
+            .expect("fixture `imported_executable_template_with_cancellation` call must succeed");
 
         assert!(
             !decoded.diagnostics().has_errors(),
@@ -1501,7 +1501,7 @@ fn imported_inactive_futures_retain_capture_cleanup_suspensions() {
             decoded.diagnostics()
         );
 
-        let mir = decoded.value().as_deref().unwrap();
+        let mir = decoded.value().as_deref().expect("fixture optional referent must be present");
 
         assert!(mir.is_valid());
 
@@ -1553,14 +1553,14 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
     );
 
     let bundle = export(&provider);
-    let interface = encode_package_interface(bundle).unwrap();
+    let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
 
     let implementation = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
         bundle,
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from export bundle must succeed");
 
     let dependency = super::fixtures::execution_dependency(&provider)
         .with_implementation_artifact("provider.brayimpl", std::sync::Arc::new(implementation));
@@ -1583,8 +1583,8 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
         consumer.check_diagnostics()
     );
 
-    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
-    let skeleton = skeleton.value().as_deref().unwrap();
+    let skeleton = consumer.imported_symbol_skeleton_result().expect("fixture `imported_symbol_skeleton_result` call must succeed");
+    let skeleton = skeleton.value().as_deref().expect("fixture optional referent must be present");
 
     let function = skeleton
         .functions()
@@ -1594,11 +1594,11 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
                 .member_name(function.id().into())
                 .is_some_and(|name| name.as_str() == "fail")
         })
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let symbol = skeleton
         .imported_semantic_address(function.id().into())
-        .unwrap();
+        .expect("fixture `imported_semantic_address` call must succeed");
 
     let template = bundle
         .executable_templates()
@@ -1608,13 +1608,13 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
                 .imported_semantic_key()
                 .is_some_and(|key| key.symbol() == template.owner())
         })
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let address = crate::fact::ImportedExecutableTemplateAddress::new(symbol, template.identity());
 
     let decoded = consumer
         .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
-        .unwrap();
+        .expect("fixture `imported_executable_template_with_cancellation` call must succeed");
 
     assert!(
         !decoded.diagnostics().has_errors(),
@@ -1622,11 +1622,11 @@ fn imported_incident_transfer_retains_its_selected_producer_and_payload() {
         decoded.diagnostics()
     );
 
-    let mir = decoded.value().as_deref().unwrap();
+    let mir = decoded.value().as_deref().expect("fixture optional referent must be present");
 
     assert!(mir.is_valid());
 
-    let (mir, _) = bray_ir::reconstruct_reachable(mir).unwrap();
+    let (mir, _) = bray_ir::reconstruct_reachable(mir).expect("fixture `bray_ir::reconstruct_reachable` call must succeed");
 
     assert!(mir.is_valid());
 
@@ -1715,9 +1715,9 @@ fn imported_generic_destructor_tails_retain_their_execution_context() {
 
             let lowered = consumer
                 .lowered_unit(source_function_body_key(&consumer, "root"))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
-            assert!(lowered.value().as_ref().unwrap().mir().unwrap().is_valid());
+            assert!(lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR").is_valid());
         } else {
             bray_testing::assert_goal_state_diagnostic_kind(
                 consumer.check_diagnostics(),
@@ -1894,13 +1894,13 @@ fn imported_scoped_exit_retains_its_owned_error_quiescence() {
         assert!(diagnostics.is_empty(), "{execution}: {diagnostics:?}");
 
         let key = source_function_body_key(&consumer, "caller");
-        let lowered = consumer.lowered_unit(key).unwrap();
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let lowered = consumer.lowered_unit(key).expect("fixture callable must lower successfully");
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
         let mut retained = 0;
 
         for operation in mir.operations() {
             if let MirOperationKind::Quiesce { collection, .. } = operation.kind() {
-                assert!(collection.as_ref().unwrap().retention().is_some());
+                assert!(collection.as_ref().expect("fixture optional value must be present").retention().is_some());
 
                 retained += 1;
             }
@@ -2294,8 +2294,8 @@ fn imported_async_admission_retains_the_checked_trait_selection() {
         [super::fixtures::implementation_dependency(bundle)],
     );
 
-    let skeleton = consumer.imported_symbol_skeleton_result().unwrap();
-    let skeleton = skeleton.value().as_deref().unwrap();
+    let skeleton = consumer.imported_symbol_skeleton_result().expect("fixture `imported_symbol_skeleton_result` call must succeed");
+    let skeleton = skeleton.value().as_deref().expect("fixture optional referent must be present");
 
     let function = skeleton
         .functions()
@@ -2305,7 +2305,7 @@ fn imported_async_admission_retains_the_checked_trait_selection() {
                 .member_name(function.id().into())
                 .is_some_and(|name| name.as_str() == "run_generic")
         })
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let template = bundle
         .executable_templates()
@@ -2315,18 +2315,18 @@ fn imported_async_admission_retains_the_checked_trait_selection() {
                 .imported_semantic_key()
                 .is_some_and(|key| key.symbol() == template.owner())
         })
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let address = crate::fact::ImportedExecutableTemplateAddress::new(
         skeleton
             .imported_semantic_address(function.id().into())
-            .unwrap(),
+            .expect("fixture `imported_semantic_address` call must succeed"),
         template.identity(),
     );
 
     let decoded = consumer
         .imported_executable_template_with_cancellation(address, &crate::CancellationToken::new())
-        .unwrap();
+        .expect("fixture `imported_executable_template_with_cancellation` call must succeed");
 
     assert!(
         !decoded.diagnostics().has_errors(),
@@ -2334,7 +2334,7 @@ fn imported_async_admission_retains_the_checked_trait_selection() {
         decoded.diagnostics()
     );
 
-    let mir = decoded.value().as_deref().unwrap();
+    let mir = decoded.value().as_deref().expect("fixture optional referent must be present");
 
     let selections = mir
         .operations()
@@ -2420,25 +2420,25 @@ fn imported_owners_keep_their_admitted_cleanup_storage_identity() {
                 compilation,
                 "dispose",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 
         let ty = lowered
             .value()
             .as_ref()
-            .unwrap()
+            .expect("fixture optional value must be present")
             .mir()
-            .unwrap()
+            .expect("fixture instance must retain its MIR")
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-            .unwrap()
+            .expect("fixture lookup must find its expected value")
             .ty();
 
         compilation
             .owner_outgoing_requirements(ty, &crate::CancellationToken::new())
-            .unwrap()
+            .expect("fixture `owner_outgoing_requirements` call must succeed")
     };
 
     let admitted = requirements(&provider);

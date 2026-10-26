@@ -127,7 +127,7 @@ fn failed_atomic_replacement_preserves_original_source() {
 
     let file = TemporaryFile::write("main.bray", b"module app;func main(){return;}");
     let original = read(file.path());
-    let permissions = std::fs::metadata(file.path()).unwrap().permissions();
+    let permissions = std::fs::metadata(file.path()).expect("fixture metadata must be readable").permissions();
 
     let lock = match OpenOptions::new()
         .read(true)
@@ -147,7 +147,7 @@ fn failed_atomic_replacement_preserves_original_source() {
     assert_eq!(read(file.path()), original);
 
     assert_eq!(
-        std::fs::metadata(file.path()).unwrap().permissions(),
+        std::fs::metadata(file.path()).expect("fixture metadata must be readable").permissions(),
         permissions
     );
 

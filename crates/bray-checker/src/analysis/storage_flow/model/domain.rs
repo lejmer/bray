@@ -194,14 +194,13 @@ where
             self.refinements
                 .insert_refinement(&mut incoming.refinements, refinement);
 
-            if let Some(execution) = incoming.execution.as_mut() {
-                if !self
+            if let Some(execution) = incoming.execution.as_mut()
+                && !self
                     .execution
                     .assume_patterns(execution, self.refinements.edge_facts(refinement))
                 {
                     return false;
                 }
-            }
         }
 
         if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome {

@@ -10,24 +10,24 @@ use crate::{
 
 #[test]
 fn cache_budget_evicts_the_least_recently_used_entry() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let older =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).unwrap();
+        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let newer =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).unwrap();
+        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let old_path = older.directory().to_owned();
     let new_path = newer.directory().to_owned();
 
-    std::fs::write(old_path.join("cache"), b"old").unwrap();
-    std::fs::write(new_path.join("cache"), b"new").unwrap();
+    std::fs::write(old_path.join("cache"), b"old").expect("fixture contents must be written");
+    std::fs::write(new_path.join("cache"), b"new").expect("fixture contents must be written");
     drop(older);
     drop(newer);
 
     let now = SystemTime::now();
-    let mut store = ManagedStore::open(root.path()).unwrap();
+    let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
 
     for record in store.index.entries.values_mut() {
         record.last_used = if record.owner.context.toolchain.as_deref() == Some("older") {
@@ -47,29 +47,29 @@ fn cache_budget_evicts_the_least_recently_used_entry() {
             16,
             &|| false,
         )
-        .unwrap();
+        .expect("fixture `maintain_at` call must succeed");
 
     assert!(!old_path.exists());
-    assert_eq!(std::fs::read(new_path.join("cache")).unwrap(), b"new");
+    assert_eq!(std::fs::read(new_path.join("cache")).expect("fixture contents must be readable"), b"new");
 }
 
 #[test]
 fn storage_report_marks_the_least_recently_used_cache_over_budget() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let older =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).unwrap();
+        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let newer =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).unwrap();
+        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    std::fs::write(older.directory().join("cache"), b"old").unwrap();
-    std::fs::write(newer.directory().join("cache"), b"new").unwrap();
+    std::fs::write(older.directory().join("cache"), b"old").expect("fixture contents must be written");
+    std::fs::write(newer.directory().join("cache"), b"new").expect("fixture contents must be written");
     drop(older);
     drop(newer);
 
     let now = SystemTime::now();
-    let mut store = ManagedStore::open(root.path()).unwrap();
+    let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
 
     for record in store.index.entries.values_mut() {
         record.last_used = if record.owner.context.toolchain.as_deref() == Some("older") {
@@ -79,7 +79,7 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
         };
     }
 
-    store.save().unwrap();
+    store.save().expect("fixture `save` call must succeed");
     drop(store);
 
     let rows = inspect_storage(
@@ -94,7 +94,7 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
         },
         &|| false,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
     assert_eq!(rows.len(), 2);
 
@@ -115,7 +115,7 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
 
 #[test]
 fn public_path_claims_prevent_cross_product_ownership() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
     let first = managed_library_plan(root.path(), "example.first");
     let second = managed_library_plan(root.path(), "example.second");
 
@@ -127,17 +127,17 @@ fn public_path_claims_prevent_cross_product_ownership() {
         ".bray/products/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
 
-    let mut store = ManagedStore::open(root.path()).unwrap();
+    let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
 
     let first_lease = store
         .register_product(first_store, &first, &|| false)
-        .unwrap();
+        .expect("fixture `register_product` call must succeed");
 
     drop(first_lease);
 
     let error = store
         .register_product(second_store, &second, &|| false)
-        .unwrap_err();
+        .expect_err("conflicting product ownership must be rejected");
 
     assert_eq!(error.path(), root.path().join("application.brayi"));
 
@@ -154,60 +154,60 @@ fn public_path_claims_prevent_cross_product_ownership() {
             "products/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             [],
         )
-        .unwrap();
+        .expect("fixture `reconcile_product_public_paths` call must succeed");
 
     let second_lease = store
         .register_product(second_store, &second, &|| false)
-        .unwrap();
+        .expect("fixture `register_product` call must succeed");
 
     drop(second_lease);
 
     let public = root.path().join("application.brayi");
 
-    std::fs::write(&public, b"second product").unwrap();
+    std::fs::write(&public, b"second product").expect("fixture contents must be written");
 
     let first_key = first_store
         .strip_prefix(".bray")
-        .unwrap()
+        .expect("fixture `strip_prefix` call must succeed")
         .to_str()
-        .unwrap()
+        .expect("fixture path must contain UTF-8")
         .replace('\\', "/");
 
-    store.index.entries.get_mut(&first_key).unwrap().state = super::record::EntryState::Retiring;
-    store.save().unwrap();
-    store.finish_retirement(&first_key, &|| false).unwrap();
+    store.index.entries.get_mut(&first_key).expect("fixture lookup must contain its requested mutable entry").state = super::record::EntryState::Retiring;
+    store.save().expect("fixture `save` call must succeed");
+    store.finish_retirement(&first_key, &|| false).expect("fixture `finish_retirement` call must succeed");
 
-    assert_eq!(std::fs::read(public).unwrap(), b"second product");
+    assert_eq!(std::fs::read(public).expect("fixture contents must be readable"), b"second product");
 }
 
 #[test]
 fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = managed_library_plan(root.path(), "example.expired");
 
     let relative_store = Path::new(
         ".bray/products/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
 
-    let mut store = ManagedStore::open(root.path()).unwrap();
+    let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
 
     let lease = store
         .register_product(relative_store, &plan, &|| false)
-        .unwrap();
+        .expect("fixture `register_product` call must succeed");
 
     drop(lease);
 
     let key = relative_store
         .strip_prefix(".bray")
-        .unwrap()
+        .expect("fixture `strip_prefix` call must succeed")
         .to_str()
-        .unwrap()
+        .expect("fixture path must contain UTF-8")
         .replace('\\', "/");
 
     let expired_at = SystemTime::now() - Duration::from_secs(2);
 
-    store.index.entries.get_mut(&key).unwrap().last_used = expired_at;
-    store.save().unwrap();
+    store.index.entries.get_mut(&key).expect("fixture lookup must contain its requested mutable entry").last_used = expired_at;
+    store.save().expect("fixture `save` call must succeed");
 
     let error = store
         .pin_product(
@@ -217,7 +217,7 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
                 ..StoragePolicy::default()
             },
         )
-        .unwrap_err();
+        .expect_err("expired product must be unavailable");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
     assert_eq!(store.index.entries[&key].last_used, expired_at);
@@ -225,16 +225,16 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
 
 #[test]
 fn cache_age_and_budget_never_evict_an_active_linker() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let cache =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "active", &|| false).unwrap();
+        ManagedCache::thin_lto(root.path(), &target_identity(), "active", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let path = cache.directory().join("cache");
 
-    std::fs::write(&path, b"active cache").unwrap();
+    std::fs::write(&path, b"active cache").expect("fixture contents must be written");
 
-    let mut store = ManagedStore::open(root.path()).unwrap();
+    let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
 
     let policy = StoragePolicy {
         cache_max_age: Duration::ZERO,
@@ -244,14 +244,14 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
 
     store
         .maintain_at(policy, SystemTime::now(), 16, &|| false)
-        .unwrap();
+        .expect("fixture `maintain_at` call must succeed");
 
-    assert_eq!(std::fs::read(&path).unwrap(), b"active cache");
+    assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"active cache");
     drop(cache);
 
     store
         .maintain_at(policy, SystemTime::now(), 16, &|| false)
-        .unwrap();
+        .expect("fixture `maintain_at` call must succeed");
 
     assert!(!path.exists());
     assert!(store.index.entries.is_empty());
@@ -259,7 +259,7 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
 
 #[test]
 fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
     let active = ManagedOperation::begin(
         root.path(),
@@ -267,11 +267,11 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
         &target_identity(),
         &|| false,
     )
-    .unwrap();
+    .expect("fixture operation must begin successfully");
 
     let active_path = active.directory().join("input");
 
-    std::fs::write(&active_path, b"live input").unwrap();
+    std::fs::write(&active_path, b"live input").expect("fixture contents must be written");
 
     for _ in 0..24 {
         let operation = ManagedOperation::begin(
@@ -280,9 +280,9 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
             &target_identity(),
             &|| false,
         )
-        .unwrap();
+        .expect("fixture operation must begin successfully");
 
-        std::fs::write(operation.directory().join("temporary"), b"completed output").unwrap();
+        std::fs::write(operation.directory().join("temporary"), b"completed output").expect("fixture contents must be written");
     }
 
     let next = ManagedOperation::begin(
@@ -291,7 +291,7 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
         &target_identity(),
         &|| false,
     )
-    .unwrap();
+    .expect("fixture operation must begin successfully");
 
     let rows = inspect_storage(
         root.path(),
@@ -299,9 +299,9 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
         StoragePolicy::default(),
         &|| false,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
-    assert_eq!(std::fs::read(&active_path).unwrap(), b"live input");
+    assert_eq!(std::fs::read(&active_path).expect("fixture contents must be readable"), b"live input");
     assert_eq!(rows.len(), 2);
 
     assert!(
@@ -314,9 +314,9 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
 
 #[test]
 fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed() {
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+    let mut child = std::process::Command::new(std::env::current_exe().expect("fixture `std::env::current_exe` call must succeed"))
         .args([
             "--exact",
             "storage::tests::abandoned_operation_child",
@@ -325,19 +325,19 @@ fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed()
         .env("BRAY_TEST_ABANDONED_STORAGE_ROOT", root.path())
         .stdout(std::process::Stdio::null())
         .spawn()
-        .unwrap();
+        .expect("fixture worker must start");
 
     let started = std::time::Instant::now();
 
     loop {
-        if let Some(status) = child.try_wait().unwrap() {
+        if let Some(status) = child.try_wait().expect("fixture wait must succeed") {
             assert!(status.success());
             break;
         }
 
         if started.elapsed() >= Duration::from_secs(10) {
-            child.kill().unwrap();
-            child.wait().unwrap();
+            child.kill().expect("fixture `kill` call must succeed");
+            child.wait().expect("fixture `wait` call must succeed");
             panic!("abandoned-operation subprocess exceeded its deadline");
         }
 
@@ -345,7 +345,7 @@ fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed()
     }
 
     let abandoned = std::path::PathBuf::from(
-        std::fs::read_to_string(root.path().join("abandoned-path")).unwrap(),
+        std::fs::read_to_string(root.path().join("abandoned-path")).expect("fixture text must be readable"),
     );
 
     assert!(abandoned.join("partial").exists());
@@ -356,7 +356,7 @@ fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed()
         StoragePolicy::default(),
         &|| false,
     )
-    .unwrap();
+    .expect("fixture storage must be inspectable");
 
     assert!(
         rows.iter()
@@ -369,7 +369,7 @@ fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed()
         &target_identity(),
         &|| false,
     )
-    .unwrap();
+    .expect("fixture operation must begin successfully");
 
     assert!(!abandoned.exists());
     assert!(next.directory().exists());
@@ -384,19 +384,19 @@ fn abandoned_operation_child() {
     let root = std::path::PathBuf::from(root);
 
     let operation =
-        ManagedOperation::begin(&root, &product_identity(), &target_identity(), &|| false).unwrap();
+        ManagedOperation::begin(&root, &product_identity(), &target_identity(), &|| false).expect("fixture operation must begin successfully");
 
     std::fs::write(
         operation.directory().join("partial"),
         b"interrupted operation",
     )
-    .unwrap();
+    .expect("fixture contents must be written");
 
     std::fs::write(
         root.join("abandoned-path"),
-        operation.directory().to_str().unwrap(),
+        operation.directory().to_str().expect("fixture path must contain UTF-8"),
     )
-    .unwrap();
+    .expect("fixture contents must be written");
 
     // Exit without running destructors, as an abruptly terminated build would.
     std::process::exit(0);
@@ -404,25 +404,25 @@ fn abandoned_operation_child() {
 
 #[test]
 fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
-    let root = tempfile::tempdir().unwrap();
-    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     drop(cache);
 
     let index = root.path().join(".bray/storage-index.json");
 
     let mut value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+        serde_json::from_slice(&std::fs::read(&index).expect("fixture contents must be readable")).expect("fixture data must deserialize");
 
     let record = value["entries"]
         .as_object_mut()
-        .unwrap()
+        .expect("fixture `as_object_mut` call must succeed")
         .values_mut()
         .next()
-        .unwrap();
+        .expect("fixture iterator must provide its expected item");
 
     record["owner"]["context"]["target"] = serde_json::json!("");
-    std::fs::write(&index, serde_json::to_vec(&value).unwrap()).unwrap();
+    std::fs::write(&index, serde_json::to_vec(&value).expect("fixture data must serialize")).expect("fixture contents must be written");
 
     let error = inspect_storage(
         root.path(),
@@ -430,7 +430,7 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
         StoragePolicy::default(),
         &|| false,
     )
-    .unwrap_err();
+    .expect_err("malformed product context must be rejected");
 
     assert_eq!(error.path(), index);
 
@@ -442,17 +442,17 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
         }
     ));
 
-    let root = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    std::fs::write(root.path().join(".bray"), b"unmanaged file").unwrap();
+    std::fs::write(root.path().join(".bray"), b"unmanaged file").expect("fixture contents must be written");
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
-        .unwrap_err();
+        .expect_err("unmanaged storage path must be rejected");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::UnsafePath);
 
     assert_eq!(
-        std::fs::read(root.path().join(".bray")).unwrap(),
+        std::fs::read(root.path().join(".bray")).expect("fixture contents must be readable"),
         b"unmanaged file"
     );
 }
@@ -460,27 +460,27 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
 #[cfg(unix)]
 #[test]
 fn cleanup_rejects_symlinks_without_touching_their_target() {
-    let root = tempfile::tempdir().unwrap();
-    let outside = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().expect("temporary fixture directory must be created");
+    let outside = tempfile::tempdir().expect("temporary fixture directory must be created");
     let file = outside.path().join("user-data");
 
-    std::fs::write(&file, b"keep").unwrap();
+    std::fs::write(&file, b"keep").expect("fixture contents must be written");
 
-    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).unwrap();
+    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    std::os::unix::fs::symlink(&file, cache.directory().join("link")).unwrap();
+    std::os::unix::fs::symlink(&file, cache.directory().join("link")).expect("fixture `std::os::unix::fs::symlink` call must succeed");
     drop(cache);
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
-        .unwrap_err();
+        .expect_err("symlink in managed storage must be rejected");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::UnsafePath);
-    assert_eq!(std::fs::read(&file).unwrap(), b"keep");
+    assert_eq!(std::fs::read(&file).expect("fixture contents must be readable"), b"keep");
 }
 
 fn managed_library_plan(root: &std::path::Path, package: &str) -> crate::EmissionPlan {
-    let package = bray_symbols::PackageIdentity::try_new(package).unwrap();
-    let product = bray_symbols::ProductIdentity::try_new(package.clone(), "application").unwrap();
+    let package = bray_symbols::PackageIdentity::try_new(package).expect("fixture package identity must be valid");
+    let product = bray_symbols::ProductIdentity::try_new(package.clone(), "application").expect("fixture product identity must be valid");
 
     let request = crate::EmissionRequest::try_new(
         product,
@@ -494,7 +494,7 @@ fn managed_library_plan(root: &std::path::Path, package: &str) -> crate::Emissio
         )],
         crate::ReplacementPolicy::RequireAbsent,
     )
-    .unwrap();
+    .expect("fixture emission request must be valid");
 
     let interface =
         bray_package_interface::test_support::interface_artifact_for(package, "application");
@@ -505,5 +505,5 @@ fn managed_library_plan(root: &std::path::Path, package: &str) -> crate::Emissio
         Some(interface),
     )
     .plan(request)
-    .unwrap()
+    .expect("fixture `plan` call must succeed")
 }

@@ -153,15 +153,14 @@ impl Compilation {
         let mut order_keys = BTreeMap::new();
 
         for (identity, key) in key_inputs {
-            if let Some(previous) = order_keys.insert(identity, key) {
-                if previous != key {
+            if let Some(previous) = order_keys.insert(identity, key)
+                && previous != key {
                     return Err(NativeProductPlanningError::NativeResolution(
                         bray_native_artifact::NativeResolutionError::ConflictingStatic(
                             identity.bytes(),
                         ),
                     ));
                 }
-            }
         }
 
         for entry in entries {
@@ -230,6 +229,10 @@ impl Compilation {
         ))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "executable hosts combine source and native roots, static storage, runtime capabilities, target, and cancellation"
+    )]
     pub(super) fn executable_host(
         &self,
         product: &ProductIdentity,
@@ -405,10 +408,6 @@ impl Compilation {
         })
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "native demand retains the selected product and codegen contracts"
-    )]
     fn executable_entry_result(
         &self,
         root: &ConcreteCodegenInstance,
@@ -731,25 +730,22 @@ fn order_product_statics(
     let mut order_identities = BTreeMap::new();
 
     for entry in entries {
-        if let Some(previous) = unique.get(&entry.identity()) {
-            if previous.host_symbol() != entry.host_symbol()
+        if let Some(previous) = unique.get(&entry.identity())
+            && (previous.host_symbol() != entry.host_symbol()
                 || previous.duration() != entry.duration()
-                || previous.dependencies() != entry.dependencies()
+                || previous.dependencies() != entry.dependencies())
             {
                 return Err(Error::ConflictingStatic(entry.identity().bytes()));
             }
-        }
 
         if let Some(previous) =
             order_identities.insert(order_keys[&entry.identity()], entry.identity())
-        {
-            if previous != entry.identity() {
+            && previous != entry.identity() {
                 return Err(Error::AmbiguousStaticOrder {
                     first: previous.bytes(),
                     second: entry.identity().bytes(),
                 });
             }
-        }
 
         unique.insert(entry.identity(), entry);
     }
@@ -829,7 +825,7 @@ mod tests {
 
     fn entry(id: u8, dependencies: &[u8]) -> CodegenProductHostStatic {
         CodegenProductHostStatic::new(
-            BinarySymbolName::try_new(format!("static_{id}")).unwrap(),
+            BinarySymbolName::try_new(format!("static_{id}")).expect("fixture binary symbol name must be valid"),
             NativeStaticIdentity::new([id; 32]),
             StaticStorageDuration::Product,
             0,
@@ -843,7 +839,7 @@ mod tests {
     fn native_hosts_keep_lifecycle_providers_without_hosting_unrelated_plain_storage() {
         let entry = |identity: u8, requires_host: bool, dependencies: Vec<[u8; 32]>| {
             bray_native_artifact::NativeStatic::new(
-                bray_base::NonEmptySharedStr::try_new(format!("host_{identity}")).unwrap(),
+                bray_base::NonEmptySharedStr::try_new(format!("host_{identity}")).expect("fixture non empty shared str must be valid"),
                 [identity; 32],
                 vec![identity].into(),
                 StaticStorageDuration::Product,
@@ -903,7 +899,7 @@ mod tests {
     #[test]
     fn imported_cleanup_retains_and_orders_runtime_providers_without_changing_portable_records() {
         let consumer = bray_native_artifact::NativeStatic::new(
-            bray_base::NonEmptySharedStr::try_new("consumer").unwrap(),
+            bray_base::NonEmptySharedStr::try_new("consumer").expect("fixture non empty shared str must be valid"),
             [2; 32],
             vec![2].into(),
             StaticStorageDuration::Product,
@@ -913,7 +909,7 @@ mod tests {
         );
 
         let provider = bray_native_artifact::NativeStatic::new(
-            bray_base::NonEmptySharedStr::try_new("provider").unwrap(),
+            bray_base::NonEmptySharedStr::try_new("provider").expect("fixture non empty shared str must be valid"),
             [1; 32],
             vec![1].into(),
             StaticStorageDuration::Product,
@@ -940,7 +936,7 @@ mod tests {
 
         let ordered =
             order_product_statics(vec![entry(1, &[]), entry(2, &[])], &keys, &dependencies)
-                .unwrap();
+                .expect("fixture `order_product_statics` call must succeed");
 
         assert_eq!(
             ordered
@@ -1001,7 +997,7 @@ mod tests {
             &keys,
             &BTreeMap::new(),
         )
-        .unwrap();
+        .expect("fixture `order_product_statics` call must succeed");
 
         assert_eq!(
             ordered

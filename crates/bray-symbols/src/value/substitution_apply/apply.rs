@@ -623,7 +623,7 @@ mod tests {
 
     #[test]
     fn dependency_parameter_occurrences_include_types_nested_in_constants() {
-        let store = SemanticValueStore::try_new().unwrap();
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
         let ty_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
         let unused = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let count = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(4));
@@ -631,23 +631,23 @@ mod tests {
         let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
             SymbolId::new(1),
         )))
-        .unwrap();
+        .expect("fixture generic owner id must be valid");
 
         let ty = store
             .intern_type(TypeData::TypeParameter(ty_parameter))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let value = store
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let value = store
             .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let count_term = store
             .intern_constant_term(ConstantTermData::Parameter(count))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let template = store
             .intern_dependency_contract_template(DependencyContractTemplateData::new([
@@ -667,7 +667,7 @@ mod tests {
                     )],
                 ),
             ]))
-            .unwrap();
+            .expect("fixture dependency contract must be interned");
 
         for (parameter, expected) in [
             (GenericParameterSymbolId::Type(ty_parameter), true),
@@ -677,7 +677,7 @@ mod tests {
             assert_eq!(
                 store
                     .dependency_contract_uses_parameter(template, owner, parameter)
-                    .unwrap(),
+                    .expect("fixture `dependency_contract_uses_parameter` call must succeed"),
                 expected
             );
         }

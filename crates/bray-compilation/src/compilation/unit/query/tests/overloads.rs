@@ -278,7 +278,7 @@ fn dependent_pattern_bindings_wait_for_numeric_context_before_defaulting() {
     assert!(!diagnostics.has_errors(), "{diagnostics:?}");
 
     let key = source_function_body_key(&compilation, "probe");
-    let lowered = compilation.lowered_unit(key).unwrap();
+    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
 
     assert!(
         !lowered.diagnostics().has_errors(),

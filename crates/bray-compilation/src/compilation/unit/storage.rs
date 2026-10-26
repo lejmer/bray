@@ -323,7 +323,7 @@ mod tests {
             );
 
             for _ in 0..count {
-                writeln!(source, "value = identity(value);").unwrap();
+                writeln!(source, "value = identity(value);").expect("fixture source must be constructed");
             }
 
             source.push_str("\nreturn value;\n}\n");
@@ -379,15 +379,15 @@ mod tests {
                             source,
                             "let wrapper{index} = Wrapper {{ value = Item {{}}, }};"
                         )
-                        .unwrap();
+                        .expect("fixture source must be constructed");
 
-                        writeln!(source, "let moved{index} = wrapper{index}.value;").unwrap();
+                        writeln!(source, "let moved{index} = wrapper{index}.value;").expect("fixture source must be constructed");
                     } else {
-                        writeln!(source, "let item{index} = Item {{}};").unwrap();
-                        writeln!(source, "let moved{index} = item{index};").unwrap();
+                        writeln!(source, "let item{index} = Item {{}};").expect("fixture source must be constructed");
+                        writeln!(source, "let moved{index} = item{index};").expect("fixture source must be constructed");
                     }
 
-                    writeln!(source, "take(moved{index});").unwrap();
+                    writeln!(source, "take(moved{index});").expect("fixture source must be constructed");
                 }
 
                 source.push_str("\n}\n");
@@ -401,7 +401,7 @@ mod tests {
                 );
 
                 let key = source_function_body_key(&compilation, "caller");
-                let liveness = compilation.liveness(key.clone()).unwrap();
+                let liveness = compilation.liveness(key.clone()).expect("fixture `liveness` call must succeed");
 
                 assert!(!liveness.value().is_recovered());
 
@@ -608,7 +608,7 @@ mod tests {
             );
 
             for index in 0..count {
-                writeln!(source, "let value_{index}: bool = identity(true);").unwrap();
+                writeln!(source, "let value_{index}: bool = identity(true);").expect("fixture source must be constructed");
             }
 
             source.push_str("\n}\n");
@@ -637,7 +637,7 @@ mod tests {
             let mut source = String::from("module example;\nfunc caller(\n");
 
             for index in 0..count {
-                writeln!(source, "pos value_{index}: bool,").unwrap();
+                writeln!(source, "pos value_{index}: bool,").expect("fixture source must be constructed");
             }
 
             source.push_str(
@@ -806,16 +806,16 @@ mod tests {
                 );
 
                 for index in 0..count {
-                    writeln!(source, "let value_{index}: bool = identity(true);").unwrap();
+                    writeln!(source, "let value_{index}: bool = identity(true);").expect("fixture source must be constructed");
 
                     if short_circuit {
                         writeln!(
                             source,
                             "let discarded_{index}: bool = condition && identity(value_{index});"
                         )
-                        .unwrap();
+                        .expect("fixture source must be constructed");
                     } else {
-                        writeln!(source, "if condition\n{{\nidentity(value_{index});\n}}").unwrap();
+                        writeln!(source, "if condition\n{{\nidentity(value_{index});\n}}").expect("fixture source must be constructed");
                     }
                 }
 
@@ -867,7 +867,7 @@ mod tests {
                     source,
                     "let value_{index}: bool = true;\ncatch\n{{\nidentity(value_{index});\n}};"
                 )
-                .unwrap();
+                .expect("fixture source must be constructed");
             }
 
             source.push_str("\n}\n");
@@ -930,7 +930,7 @@ mod tests {
                     source,
                     "let value_{index}: bool = true;\necho(&value_{index});"
                 )
-                .unwrap();
+                .expect("fixture source must be constructed");
             }
 
             source.push_str("\n}\n");

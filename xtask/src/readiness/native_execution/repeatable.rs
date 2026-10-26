@@ -8,6 +8,10 @@ use super::core::{
     require_evidence,
 };
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "repeatability checks retain fixture and toolchain paths, expected behavior, output identity, and object evidence"
+)]
 pub(super) fn audit_repeatable_fixture(
     root: &Path,
     target: NativeTarget,

@@ -246,7 +246,7 @@ where
                             inputs,
                             output,
                             labels,
-                            contract,
+                            contract: contract.into(),
                         })
                     }
                     None => TargetControlCheck::Invalid,
@@ -257,6 +257,7 @@ where
     }
 }
 
+#[expect(clippy::too_many_arguments, reason = "assembly validation retains independent input, output, label and continuation contracts")]
 fn assembly_contract<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[BoundExpressionId],
@@ -381,6 +382,8 @@ where
     ))
 }
 
+type CheckedAssemblyOperands = ([Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS], u8);
+
 #[expect(
     clippy::too_many_arguments,
     reason = "operand checking joins the complete structural source and target contract"
@@ -395,13 +398,7 @@ fn checked_operands<C>(
     output_type: Option<TypeId>,
     labels_type: Option<TypeId>,
     inputs_expression: BoundExpressionId,
-) -> Result<
-    Option<(
-        [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
-        u8,
-    )>,
-    CheckerQueryError<C::UpstreamError>,
->
+) -> crate::CheckerQueryResult<Option<CheckedAssemblyOperands>, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
@@ -610,9 +607,7 @@ fn literal_string<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(identity) = literals.expression(expression) else {
-        return None;
-    };
+    let identity = literals.expression(expression)?;
 
     let value = request.semantic_values().constant_value_data(identity);
 
@@ -630,9 +625,7 @@ fn literal_integer<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(identity) = literals.expression(expression) else {
-        return None;
-    };
+    let identity = literals.expression(expression)?;
 
     let value = request.semantic_values().constant_value_data(identity);
 

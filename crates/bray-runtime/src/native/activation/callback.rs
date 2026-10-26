@@ -193,7 +193,7 @@ mod tests {
         extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, context: usize) {
             assert_eq!(
                 crate::current_task_execution_context()
-                    .unwrap()
+                    .expect("fixture `crate::current_task_execution_context` call must succeed")
                     .state()
                     .raw(),
                 0
@@ -211,7 +211,7 @@ mod tests {
                 super::super::execution::with_execution(&nested, || {
                     assert_eq!(
                         crate::current_task_execution_context()
-                            .unwrap()
+                            .expect("fixture `crate::current_task_execution_context` call must succeed")
                             .state()
                             .raw(),
                         8
@@ -225,7 +225,7 @@ mod tests {
 
             assert_eq!(
                 crate::current_task_execution_context()
-                    .unwrap()
+                    .expect("fixture `crate::current_task_execution_context` call must succeed")
                     .state()
                     .raw(),
                 0
@@ -325,7 +325,7 @@ mod tests {
         );
 
         let _isolation = crate::native::test_runtime_isolation();
-        let thread = crate::bootstrap::RuntimeThreadScope::enter().unwrap();
+        let thread = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
 
         let task = crate::TaskControlBlock::start(
             crate::test_support::admit_task(),
@@ -336,21 +336,21 @@ mod tests {
             [bray_runtime_model::RuntimeCapability::CooperativeExecution],
             thread.runtime().id(),
             crate::SchedulerLimits::new(
-                std::num::NonZeroUsize::new(1).unwrap(),
-                std::num::NonZeroUsize::new(1).unwrap(),
+                std::num::NonZeroUsize::new(1).expect("fixture non zero usize must be valid"),
+                std::num::NonZeroUsize::new(1).expect("fixture non zero usize must be valid"),
             ),
         );
 
         let registration =
             crate::test_support::register_task(&scheduler, &task, thread.runtime().id());
 
-        let lane = registration.lane().unwrap();
+        let lane = registration.lane().expect("fixture `lane` call must succeed");
 
         let native_context = crate::TaskExecutionContext::new(
             task.id(),
             bray_runtime_model::ProtectedFrameStateId::new(99),
             task.cancellation_context().clone(),
-            task.output_context().clone(),
+            task.output_context(),
             lane,
             registration.wake_handle(),
         );
@@ -376,7 +376,7 @@ mod tests {
 
                 assert_eq!(
                     crate::current_task_execution_context()
-                        .unwrap()
+                        .expect("fixture `crate::current_task_execution_context` call must succeed")
                         .state()
                         .raw(),
                     99,

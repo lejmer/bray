@@ -182,8 +182,7 @@ impl Compilation {
 
                 if let (Some(expected_context), Some(provided_context)) =
                     (expected_context, arm.context)
-                {
-                    if provided_context != expected_context {
+                    && provided_context != expected_context {
                         diagnostics.add(problem_diagnostic(
                             *anchor,
                             DiagnosticKind::CheckingInvalidCallableOverloadArm,
@@ -205,7 +204,6 @@ impl Compilation {
 
                         continue;
                     }
-                }
 
                 arms.push(arm);
             }
@@ -230,7 +228,7 @@ impl Compilation {
                                 ),
                                 SemanticQueryViolation::CountOverflow {
                                     data: SemanticDataKind::OverloadComparison,
-                                    value: u64::try_from(comparisons).unwrap_or(u64::MAX),
+                                    value: comparisons,
                                 },
                             )
                         })?;
@@ -402,6 +400,10 @@ fn diagnostic_callable_context(
     Ok(context)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "overload membership validation retains family and member identities, provenance, and duplicate-report state"
+)]
 fn record_family_membership(
     diagnostics: &mut DiagnosticBag,
     memberships: &mut BTreeMap<CallableSymbolId, (CallableOverloadSymbolId, SyntaxAnchor)>,

@@ -292,7 +292,7 @@ impl ExecutionCondition {
                     .find(|(field, _)| *field == StorageProjection::NullableValue)
                     .map(|(_, value)| value.clone().component(projection))
                     .unwrap_or_else(|| {
-                        Self::component_base(&base, &fields)
+                        Self::component_base(base, fields)
                             .clone()
                             .component(ConstantProjectionKind::NullableValue)
                             .component(projection)
@@ -426,8 +426,8 @@ impl ExecutionCondition {
             )));
         }
 
-        if let [Self::Literal(left), Self::Literal(right)] = operands.as_slice() {
-            if matches!(
+        if let [Self::Literal(left), Self::Literal(right)] = operands.as_slice()
+            && matches!(
                 operator,
                 BoundOperator::Equal
                     | BoundOperator::NotEqual
@@ -435,8 +435,8 @@ impl ExecutionCondition {
                     | BoundOperator::LessEqual
                     | BoundOperator::Greater
                     | BoundOperator::GreaterEqual
-            ) {
-                if let Ok(bray_symbols::ConstantValueKind::Boolean(value)) =
+            )
+                && let Ok(bray_symbols::ConstantValueKind::Boolean(value)) =
                     crate::constant::fold_binary(
                         operator,
                         left.kind(),
@@ -446,8 +446,6 @@ impl ExecutionCondition {
                 {
                     return Self::Boolean(value);
                 }
-            }
-        }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
             if let [Self::Borrowed(subject), Self::Literal(absent)]

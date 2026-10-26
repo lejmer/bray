@@ -186,6 +186,10 @@ impl Lowerer<'_> {
         ))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "abnormal exits retain failure identity, cleanup phase, destination, and abandoned storage"
+    )]
     pub(in crate::lowering) fn finish_abnormal_cleanup(
         &mut self,
         first_phase: MirCleanupPhase,
@@ -535,12 +539,9 @@ impl Lowerer<'_> {
         scope_depth: usize,
         occurrence: Option<bray_bound_tree::BoundExecutionSite>,
     ) {
-        loop {
-            let Some(temporary) =
-                temporaries.next_if(|temporary| temporary.scope_depth >= scope_depth)
-            else {
-                break;
-            };
+        while let Some(temporary) =
+            temporaries.next_if(|temporary| temporary.scope_depth >= scope_depth)
+        {
 
             if temporary.requires_cleanup(phase) {
                 steps.push(AbnormalCleanupStep {
@@ -756,6 +757,10 @@ impl Lowerer<'_> {
         InputExit::All
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup resolution joins checked plans, pending and abandoned storage, and failure continuations"
+    )]
     pub(super) fn resolve_cleanup(
         &mut self,
         mut broadcast: MirBlockId,

@@ -184,7 +184,7 @@ mod tests {
         );
 
         let function = source_function(&compilation, "missing");
-        let definition = CallableDefinitionId::try_new(function.into()).unwrap();
+        let definition = CallableDefinitionId::try_new(function.into()).expect("fixture callable definition id must be valid");
 
         let _ = compilation.codegen_callable_template(definition, &CancellationToken::new());
     }
@@ -197,7 +197,7 @@ mod tests {
             SelectedTarget::baseline(),
         )
         .with_native_link_inputs([NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("native").unwrap(),
+            NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )]);
 
@@ -213,12 +213,12 @@ extern trusted func native_read(pos value: i32) -> i32 uses(foreign_call);
 
         let definition =
             CallableDefinitionId::try_new(source_function(&compilation, "native_read").into())
-                .unwrap();
+                .expect("fixture callable definition id must be valid");
 
         assert_eq!(
             compilation
                 .codegen_callable_template(definition, &CancellationToken::new())
-                .unwrap(),
+                .expect("fixture `codegen_callable_template` call must succeed"),
             MirUnitKey::ExternalCallable(definition)
         );
 
@@ -237,7 +237,7 @@ extern func invalid_read(pos value: i32) -> i32;
 
         let definition =
             CallableDefinitionId::try_new(source_function(&invalid, "invalid_read").into())
-                .unwrap();
+                .expect("fixture callable definition id must be valid");
 
         assert!(
             matches!(invalid.codegen_callable_template(definition, &CancellationToken::new()), Err(CodegenPreparationError::Diagnostics(diagnostics)) if diagnostics.has_errors())
@@ -257,14 +257,14 @@ extern func invalid_read(pos value: i32) -> i32;
             let compilation = compilation(&format!("module app; func {name}() {{}}"));
 
             let definition =
-                CallableDefinitionId::try_new(source_function(&compilation, name).into()).unwrap();
+                CallableDefinitionId::try_new(source_function(&compilation, name).into()).expect("fixture callable definition id must be valid");
 
             assert_eq!(compilation.compiler_provided_heap_method(definition), None);
 
             assert!(matches!(
                 compilation
                     .codegen_callable_template(definition, &CancellationToken::new())
-                    .unwrap(),
+                    .expect("fixture `codegen_callable_template` call must succeed"),
                 MirUnitKey::Bound(_)
             ));
         }

@@ -114,7 +114,7 @@ pub(crate) const fn diagnostic_memory_operation(
 }
 
 pub(crate) const fn diagnostic_checked_memory_operation(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
 ) -> DiagnosticMemoryOperation {
     if let Some(operation) = crate::atomic::diagnostic_checked_operation(kind) {
         return operation;
@@ -281,7 +281,7 @@ mod tests {
         assert_ne!(compiler, hardware);
 
         assert_eq!(
-            diagnostic_checked_memory_operation(CheckedMemoryOperationKind::Fence {
+            diagnostic_checked_memory_operation(&CheckedMemoryOperationKind::Fence {
                 compiler_only: true,
                 order: MemoryOrder::SequentiallyConsistent,
             }),
@@ -289,7 +289,7 @@ mod tests {
         );
 
         assert_eq!(
-            diagnostic_checked_memory_operation(CheckedMemoryOperationKind::Fence {
+            diagnostic_checked_memory_operation(&CheckedMemoryOperationKind::Fence {
                 compiler_only: false,
                 order: MemoryOrder::SequentiallyConsistent,
             }),

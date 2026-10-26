@@ -11,6 +11,7 @@ use crate::ExecutionCondition;
 use super::calls::selected_condition;
 use super::values::{constructed_condition, conversion_condition, pattern_condition};
 
+#[expect(clippy::too_many_arguments, reason = "expression normalization consumes independent path, pattern, evaluation and predicate facts")]
 pub(crate) fn expression_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,

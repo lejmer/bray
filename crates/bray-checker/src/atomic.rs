@@ -66,7 +66,7 @@ pub(crate) const fn diagnostic_hook(hook: ImplementationHook) -> Option<Diagnost
 }
 
 pub(crate) const fn diagnostic_checked_operation(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
 ) -> Option<DiagnosticMemoryOperation> {
     use DiagnosticMemoryOperation as Operation;
 

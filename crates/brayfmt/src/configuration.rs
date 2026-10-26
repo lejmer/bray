@@ -135,8 +135,8 @@ mod tests {
         let invalid_width =
             TemporaryFile::write("invalid-width-brayfmt.json", br#"{"maximum_line_width":0}"#);
 
-        let unknown = load_configuration(unknown.path()).unwrap_err();
-        let invalid_width = load_configuration(invalid_width.path()).unwrap_err();
+        let unknown = load_configuration(unknown.path()).expect_err("unknown formatting rule must be rejected");
+        let invalid_width = load_configuration(invalid_width.path()).expect_err("zero line width must be rejected");
 
         assert!(matches!(
             unknown,

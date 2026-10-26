@@ -98,6 +98,10 @@ pub(in crate::compilation::foreign) fn callable_surface(
     })
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native boundary checking joins source syntax, semantic surface, selected runtime role, and diagnostics"
+)]
 pub(in crate::compilation::foreign) fn validate_callable_surface(
     compilation: &Compilation,
     function: FunctionSymbolId,
@@ -1173,8 +1177,8 @@ mod tests {
 
             let signature = compilation
                 .callable_signature_template(function.into())
-                .unwrap()
-                .unwrap();
+                .expect("fixture `callable_signature_template` call must succeed")
+                .expect("successful fixture query must contain its expected result");
 
             let cancellation = crate::fact::CancellationToken::new();
             let mut diagnostics = DiagnosticBag::new();
@@ -1185,8 +1189,8 @@ mod tests {
                 &cancellation,
                 &mut diagnostics,
             )
-            .unwrap()
-            .unwrap();
+            .expect("fixture template type must resolve")
+            .expect("successful fixture query must contain its expected result");
 
             assert_eq!(
                 c_struct_matches(
@@ -1199,7 +1203,7 @@ mod tests {
                     &cancellation,
                     &mut diagnostics
                 )
-                .unwrap(),
+                .expect("fixture `c_struct_matches` call must succeed"),
                 expected,
                 "{field}"
             );

@@ -425,20 +425,20 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 &compilation,
                 "abandon",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(!lowered.diagnostics().has_errors(), "{lowered:?}");
 
         let owner = lowered
             .value()
             .as_ref()
-            .unwrap()
+            .expect("fixture optional value must be present")
             .mir()
-            .unwrap()
+            .expect("fixture instance must retain its MIR")
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-            .unwrap()
+            .expect("fixture lookup must find its expected value")
             .ty();
 
         compilation
@@ -450,11 +450,11 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     "admission consumes selected actions without generating execution: {key:?}"
                 );
             }))
-            .unwrap();
+            .expect("fixture task observer must be installed");
 
         let calls = compilation
             .owner_outgoing_calls(owner, &crate::CancellationToken::new())
-            .unwrap();
+            .expect("fixture `owner_outgoing_calls` call must succeed");
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].2, bray_symbols::CallableExecution::Asynchronous);
@@ -490,15 +490,15 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
             let key = compilation
                 .declared_unit_keys_for_test()
-                .unwrap()
+                .expect("fixture declarations must resolve their units")
                 .into_iter()
                 .find(|key| {
                     key.kind() == bray_bound_tree::BoundUnitKind::CallableBody
                         && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
                 })
-                .unwrap();
+                .expect("fixture lookup must find its expected value");
 
-            let certified = compilation.execution_properties(key).unwrap();
+            let certified = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 certified
@@ -514,16 +514,16 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     &compilation,
                     "dispose",
                 ))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert!(!disposal.diagnostics().has_errors(), "{disposal:#?}");
 
             let ty = disposal
                 .value()
                 .as_ref()
-                .unwrap()
+                .expect("fixture optional value must be present")
                 .mir()
-                .unwrap()
+                .expect("fixture instance must retain its MIR")
                 .storages()
                 .iter()
                 .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
@@ -533,7 +533,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
             assert_eq!(
                 compilation
                     .owner_outgoing_capacity(ty, &crate::CancellationToken::new())
-                    .unwrap(),
+                    .expect("fixture `owner_outgoing_capacity` call must succeed"),
                 u32::from(!total)
             );
 
@@ -542,7 +542,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     &compilation,
                     "forged",
                 ))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             bray_testing::assert_goal_state_diagnostic_kind(
                 forged.diagnostics(),
@@ -581,7 +581,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 &compilation,
                 "extract_nominal_witness",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             nominal.diagnostics(),
@@ -598,7 +598,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
             assert!(!lowered.diagnostics().has_errors(), "{name}: {lowered:#?}");
 
-            let unit = lowered.value().as_ref().unwrap().mir().unwrap();
+            let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
             let parameter = unit
                 .storages()
@@ -609,14 +609,14 @@ async func abandon(pos owner: Owner) { panic("body"); }
             assert_eq!(
                 compilation
                     .owner_outgoing_capacity(parameter.ty(), &crate::CancellationToken::new())
-                    .unwrap(),
+                    .expect("fixture `owner_outgoing_capacity` call must succeed"),
                 capacity,
                 "only the exit owner's destructor admits a local allowance"
             );
 
             for block in unit.blocks() {
                 for operation in block.operations() {
-                    let operation = unit.operation(*operation).unwrap();
+                    let operation = unit.operation(*operation).expect("fixture MIR operation must exist");
 
                     if let bray_ir::MirOperationKind::AdmitOutgoing {
                         owner: bray_ir::MirOutgoingOwner::Value(ty),
@@ -626,7 +626,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                         assert_eq!(
                             compilation
                                 .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())
-                                .unwrap(),
+                                .expect("fixture `owner_outgoing_capacity` call must succeed"),
                             0,
                             "{name} must move the existing allowance"
                         );
@@ -640,7 +640,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 &compilation,
                 "mutate_then_take",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         bray_testing::assert_goal_state_diagnostic_kind(
             mutated.diagnostics(),
@@ -660,23 +660,23 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 &compilation,
                 "take_attachment_exit",
             ))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 
-        let unit = lowered.value().as_ref().unwrap().mir().unwrap();
+        let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         for block in unit.blocks() {
             for operation in block.operations() {
                 if let bray_ir::MirOperationKind::AdmitOutgoing {
                     owner: bray_ir::MirOutgoingOwner::Value(ty),
                     ..
-                } = unit.operation(*operation).unwrap().kind()
+                } = unit.operation(*operation).expect("fixture MIR operation must exist").kind()
                 {
                     assert_eq!(
                         compilation
                             .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())
-                            .unwrap(),
+                            .expect("fixture `owner_outgoing_capacity` call must succeed"),
                         0,
                         "a raw move must transfer the stored owner's allowance"
                     );
@@ -706,7 +706,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                         &compilation,
                         name,
                     ))
-                    .unwrap();
+                    .expect("fixture callable must lower successfully");
 
                 assert!(
                     !lowered.diagnostics().has_errors(),
@@ -714,13 +714,13 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 );
 
                 if name != "prepare_attachment_cleanup" {
-                    let unit = lowered.value().as_ref().unwrap().mir().unwrap();
+                    let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
                     for operation in unit
                         .blocks()
                         .iter()
                         .flat_map(|block| block.operations())
-                        .map(|operation| unit.operation(*operation).unwrap())
+                        .map(|operation| unit.operation(*operation).expect("fixture MIR operation must exist"))
                     {
                         if let bray_ir::MirOperationKind::AdmitOutgoing {
                             owner: bray_ir::MirOutgoingOwner::Value(ty),
@@ -730,7 +730,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                             assert_eq!(
                                 compilation
                                     .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())
-                                    .unwrap(),
+                                    .expect("fixture `owner_outgoing_capacity` call must succeed"),
                                 0,
                                 "{target:?}, {name} must use existing backing"
                             );
@@ -782,7 +782,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     &compilation,
                     "probe",
                 ))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert_eq!(
                 !lowered.diagnostics().has_errors(),
@@ -810,17 +810,17 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     &compilation,
                     name,
                 ))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
             assert!(!lowered.diagnostics().has_errors(), "{name}: {lowered:#?}");
 
-            let unit = lowered.value().as_ref().unwrap().mir().unwrap();
+            let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
             for operation in unit
                 .blocks()
                 .iter()
                 .flat_map(|block| block.operations())
-                .map(|operation| unit.operation(*operation).unwrap())
+                .map(|operation| unit.operation(*operation).expect("fixture MIR operation must exist"))
             {
                 if let bray_ir::MirOperationKind::AdmitOutgoing {
                     owner: bray_ir::MirOutgoingOwner::Value(ty),
@@ -830,7 +830,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
                     assert_eq!(
                         compilation
                             .owner_outgoing_capacity(*ty, &crate::CancellationToken::new())
-                            .unwrap(),
+                            .expect("fixture `owner_outgoing_capacity` call must succeed"),
                         0,
                         "{name} must prepare explicit backing without admission"
                     );
@@ -862,9 +862,9 @@ async func abandon(pos owner: Owner) { panic("body"); }
         let ty = lowered
             .value()
             .as_ref()
-            .unwrap()
+            .expect("fixture optional value must be present")
             .mir()
-            .unwrap()
+            .expect("fixture instance must retain its MIR")
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))

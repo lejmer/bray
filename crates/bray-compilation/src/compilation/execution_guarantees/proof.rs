@@ -15,6 +15,10 @@ use bray_source::SourceSpan;
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
+type ProofAssertions = BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>;
+type ProofDependencies = BTreeSet<(SyntaxAnchor, ExecutionObligation, bray_checker::ExecutionDependencyTarget, ExecutionObligation)>;
+type CertifiedProof<Failure> = (Option<Failure>, ProofAssertions, ProofDependencies);
+
 impl Compilation {
     pub(super) fn compute_certified_execution(
         &self,
@@ -30,7 +34,7 @@ impl Compilation {
             ));
         }
 
-        let declared = self.execution_unit_declaration(&root)?;
+        let declared = self.execution_unit_declaration(root)?;
 
         // The certificate owns source diagnostics independently of the declaration query.
         let mut diagnostics = declared.diagnostics().clone();
@@ -149,6 +153,10 @@ impl Compilation {
         Ok(DiagnosticResult::new(certified, diagnostics))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "source proof selection retains declaration, required obligation, call evidence, and diagnostics"
+    )]
     fn select_source_execution_obligation(
         &self,
         body: Option<&BoundUnitKey>,
@@ -220,6 +228,10 @@ impl Compilation {
         Ok(selected)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "foreign execution proofs join callable identity, declaration property, evidence, and diagnostics"
+    )]
     fn foreign_execution_applies(
         &self,
         callable: bray_symbols::CallableInstanceData,
@@ -250,6 +262,10 @@ impl Compilation {
         Ok(foreign.value().is_some() && !foreign.diagnostics().has_errors() && applicable)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "declared dependencies retain selected callable, obligation, proof entry, graph, and assertions"
+    )]
     pub(super) fn declared_execution_dependency(
         &self,
         callable: bray_symbols::CallableInstanceData,
@@ -346,19 +362,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         predicate: bool,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Option<(SourceSpan, bool)>,
-            BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>,
-            BTreeSet<(
-                SyntaxAnchor,
-                ExecutionObligation,
-                bray_checker::ExecutionDependencyTarget,
-                ExecutionObligation,
-            )>,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<CertifiedProof<(SourceSpan, bool)>, FactQueryError> {
         let source = root.source().syntax();
 
         let (failure, assertions, dependencies) = self.certify_execution_proof(
@@ -386,19 +390,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         predicate: bool,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Option<(Option<SourceSpan>, bool)>,
-            BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>,
-            BTreeSet<(
-                SyntaxAnchor,
-                ExecutionObligation,
-                bray_checker::ExecutionDependencyTarget,
-                ExecutionObligation,
-            )>,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<CertifiedProof<(Option<SourceSpan>, bool)>, FactQueryError> {
         let source = match root_owner {
             ExecutionProofOwner::Source(source, _) => Some(source),
             _ => None,
@@ -748,7 +740,7 @@ fn execution_proof_failure(
 ) -> Option<(Option<SourceSpan>, bool)> {
     let root_key = (owner, obligation);
 
-    if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
+    if let Some(reason) = check_execution_proof_dependencies(graph).get(&root_key) {
         failure = Some(match reason {
             ExecutionProofFailure::CircularCompletion(owner) => {
                 (proof_owner_span(*owner, source), true)

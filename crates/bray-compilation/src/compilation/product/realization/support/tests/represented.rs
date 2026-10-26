@@ -80,7 +80,7 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
     "#;
 
     for imported in [false, true] {
-        let compilation = Compilation::load(standard_memory_request(source, imported)).unwrap();
+        let compilation = Compilation::load(standard_memory_request(source, imported)).expect("fixture input must load");
         let diagnostics = compilation.check_diagnostics();
 
         assert!(
@@ -90,28 +90,28 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "inspect"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         let buffer = mir
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0)))
-            .unwrap()
+            .expect("fixture lookup must find its expected value")
             .ty();
 
-        let values = compilation.semantic_value_store().unwrap();
+        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
         let cancellation = CancellationToken::new();
 
         let aggregate = values
             .intern_type(TypeData::tuple([buffer, buffer]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         assert_eq!(
             compilation
                 .owner_outgoing_capacity(buffer, &cancellation)
-                .unwrap(),
+                .expect("fixture `owner_outgoing_capacity` call must succeed"),
             1,
             "one local traversal frame is secured before buffer ownership exists"
         );
@@ -119,30 +119,30 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
         assert_eq!(
             compilation
                 .owner_outgoing_capacity(aggregate, &cancellation)
-                .unwrap(),
+                .expect("fixture `owner_outgoing_capacity` call must succeed"),
             0,
             "wrapping buffers transfers their existing allowances without readmission"
         );
 
         let boxed = compilation
             .lowered_unit(source_function_body_key(&compilation, "dispose_boxed"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
         let boxed = boxed
             .value()
             .as_ref()
-            .unwrap()
+            .expect("fixture optional value must be present")
             .mir()
-            .unwrap()
+            .expect("fixture instance must retain its MIR")
             .storages()
             .iter()
             .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0)))
-            .unwrap()
+            .expect("fixture lookup must find its expected value")
             .ty();
 
         let frames = compilation
             .owner_outgoing_calls(boxed, &cancellation)
-            .unwrap()
+            .expect("fixture `owner_outgoing_calls` call must succeed")
             .iter()
             .filter_map(
                 |(instance, _, _)| match instance.generated_lifecycle_reference() {
@@ -164,24 +164,24 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
             if suspends {
                 let lowered = compilation
                     .lowered_unit(source_function_body_key(&compilation, "node"))
-                    .unwrap();
+                    .expect("fixture callable must lower successfully");
 
                 let node = lowered
                     .value()
                     .as_ref()
-                    .unwrap()
+                    .expect("fixture optional value must be present")
                     .mir()
-                    .unwrap()
+                    .expect("fixture instance must retain its MIR")
                     .storages()
                     .iter()
                     .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0)))
-                    .unwrap()
+                    .expect("fixture lookup must find its expected value")
                     .ty();
 
                 assert_eq!(
                     compilation
                         .owner_outgoing_capacity(node, &cancellation)
-                        .unwrap(),
+                        .expect("fixture `owner_outgoing_capacity` call must succeed"),
                     0,
                     "compute the cycle from its aggregate root before requesting the recursive buffer"
                 );
@@ -189,20 +189,20 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
             let lowered = compilation
                 .lowered_unit(source_function_body_key(&compilation, function))
-                .unwrap();
+                .expect("fixture callable must lower successfully");
 
-            let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+            let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
             let ty = mir
                 .storages()
                 .iter()
                 .find(|storage| matches!(storage.kind(), MirStorageKind::Parameter(0)))
-                .unwrap()
+                .expect("fixture lookup must find its expected value")
                 .ty();
 
             let capacity = compilation
                 .owner_outgoing_capacity(ty, &cancellation)
-                .unwrap();
+                .expect("fixture `owner_outgoing_capacity` call must succeed");
 
             assert_eq!(
                 capacity > 0,
@@ -232,16 +232,16 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "dispose"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
-        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         let context = crate::compilation::product::realization::synthetic::CompilationSyntheticLoweringContext::new(
-            &compilation, None, &cancellation).unwrap();
+            &compilation, None, &cancellation).expect("fixture compilation synthetic lowering context must be valid");
 
         let destruction = bray_lowering::expand_lifecycle_continuations(&context, mir)
-            .unwrap()
-            .unwrap();
+            .expect("fixture `bray_lowering::expand_lifecycle_continuations` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         // Source guards select an ownership end. Expanded paths discharge in the
         // caller; synchronous abandoned callbacks retain their own discharge.
@@ -276,21 +276,21 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
 
         let unit = compilation
             .compiler_known_type(RepresentationRole::Unit)
-            .unwrap();
+            .expect("fixture compiler-known type must resolve");
 
-        assert_eq!(release.frame_descriptor().unwrap().result_type(), unit);
+        assert_eq!(release.frame_descriptor().expect("fixture `frame_descriptor` call must succeed").result_type(), unit);
 
         let allocated = compilation
             .lowered_unit(source_function_body_key(&compilation, "allocate_owner"))
-            .unwrap();
+            .expect("fixture callable must lower successfully");
 
-        let allocated = allocated.value().as_ref().unwrap().mir().unwrap();
+        let allocated = allocated.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
 
         let admission = allocated.operations().iter().position(|operation| matches!(operation.kind(),
-            MirOperationKind::AdmitOutgoing { owner: MirOutgoingOwner::Value(ty), .. } if *ty == buffer)).unwrap();
+            MirOperationKind::AdmitOutgoing { owner: MirOutgoingOwner::Value(ty), .. } if *ty == buffer)).expect("fixture sequence must contain the selected entry");
 
         let allocation = allocated.operations().iter().position(|operation| matches!(operation.kind(),
-            MirOperationKind::Memory(memory) if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawBufferAllocate)).unwrap();
+            MirOperationKind::Memory(memory) if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::RawBufferAllocate)).expect("fixture sequence must contain the selected entry");
 
         assert!(
             admission < allocation,

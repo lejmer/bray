@@ -42,7 +42,7 @@ pub(super) fn validate_memory_operation(
 
     let types = memory.operand_types();
 
-    let valid = match memory.kind() {
+    let valid = match *memory.kind() {
         CheckedMemoryOperationKind::UninitNew { .. }
         | CheckedMemoryOperationKind::UninitPointer { .. }
         | CheckedMemoryOperationKind::BorrowFrom { .. }
@@ -104,7 +104,7 @@ pub(super) fn validate_memory_operation(
             inputs,
             output,
             labels,
-            contract,
+            ref contract,
         } => {
             types[0] == inputs
                 && labels.is_none()

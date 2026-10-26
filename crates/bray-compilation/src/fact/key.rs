@@ -298,6 +298,10 @@ impl OptimizedMirQueryKey {
 }
 
 impl CodegenArtifactQueryKey {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "codegen fact identity retains checked unit, mappings, target, backend capability, product, options, and artifact request"
+    )]
     pub(crate) fn new(
         unit: CodegenUnitKey,
         mappings: CodegenMappings,

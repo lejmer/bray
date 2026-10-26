@@ -17,7 +17,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         self.ensure_memory_available(memory.kind())?;
 
-        match memory.kind() {
+        match *memory.kind() {
             CheckedMemoryOperationKind::UninitNew { .. } => {
                 self.translate_uninit_new(operation).map(Some)
             }
@@ -47,8 +47,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirOperation,
         memory: &MirMemoryOperation,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        match memory.kind() {
-            kind @ (CheckedMemoryOperationKind::Address { .. }
+        match *memory.kind() {
+            ref kind @ (CheckedMemoryOperationKind::Address { .. }
             | CheckedMemoryOperationKind::Null { .. }
             | CheckedMemoryOperationKind::IsNull { .. }
             | CheckedMemoryOperationKind::Offset { .. }
@@ -170,7 +170,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::CompareAddress { comparison, .. } => self
                 .translate_address_comparison(memory, comparison)
                 .map(Some),
-            kind @ (CheckedMemoryOperationKind::Fence { .. }
+            ref kind @ (CheckedMemoryOperationKind::Fence { .. }
             | CheckedMemoryOperationKind::CatastrophicAbort
             | CheckedMemoryOperationKind::DebuggerTrap
             | CheckedMemoryOperationKind::UnreachableTermination
@@ -179,8 +179,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_control_memory(kind)
             }
             CheckedMemoryOperationKind::InlineAssembly {
-                output, contract, ..
-            } => self.translate_inline_assembly(id, operation, memory, contract, output.is_none()),
+                output, ref contract, ..
+            } => self.translate_inline_assembly(id, operation, memory, **contract, output.is_none()),
             CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::AtomicLoad { .. }
             | CheckedMemoryOperationKind::AtomicStore { .. }
@@ -207,9 +207,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         operation: &MirOperation,
         memory: &MirMemoryOperation,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        match kind {
+        match *kind {
             CheckedMemoryOperationKind::Address { .. } => {
                 let [value] = memory.operands() else {
                     panic!(
@@ -350,9 +350,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn translate_control_memory(
         &mut self,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        match kind {
+        match *kind {
             CheckedMemoryOperationKind::Fence {
                 compiler_only,
                 order,
@@ -380,7 +380,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::TargetFeatureEnabled { feature } => {
                 self.translate_target_feature(feature).map(Some)
             }
-            unexpected => panic!(
+            ref unexpected => panic!(
                 "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
             ),
         }
@@ -388,7 +388,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn ensure_memory_available(
         &self,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
     ) -> Result<(), CodegenFailure> {
         let properties = self.request.target().profile().properties();
         let operations = properties.operations();
@@ -397,7 +397,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.request.target().profile().machine().architecture(),
         );
 
-        let available = match kind {
+        let available = match *kind {
             CheckedMemoryOperationKind::UninitNew { .. }
             | CheckedMemoryOperationKind::UninitPointer { .. }
             | CheckedMemoryOperationKind::UninitWrite { .. }
@@ -464,11 +464,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn atomic_memory_available(
         &self,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
     ) -> Result<bool, CodegenFailure> {
         use bray_target::TargetAtomicRepresentation as Representation;
 
-        let value = match kind {
+        let value = match *kind {
             CheckedMemoryOperationKind::AtomicInitialize { value }
             | CheckedMemoryOperationKind::AtomicLoad { value, .. }
             | CheckedMemoryOperationKind::AtomicStore { value, .. }
@@ -477,7 +477,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::AtomicFetch { value, .. }
             | CheckedMemoryOperationKind::AtomicWait { value, .. }
             | CheckedMemoryOperationKind::AtomicNotify { value, .. } => value,
-            unexpected => panic!(
+            ref unexpected => panic!(
                 "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
             ),
         };
@@ -529,7 +529,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let operations = support.operations();
 
-        Ok(match kind {
+        Ok(match *kind {
             CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::AtomicLoad { .. }
             | CheckedMemoryOperationKind::AtomicStore { .. } => operations.load_store(),
@@ -1466,16 +1466,14 @@ mod tests {
     ) -> MirOperationCommit {
         let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type);
 
-        let committed = builder
+        builder
             .push_operation(
                 block,
                 source.clone(),
                 MirOperationKind::Memory(Box::new(operation)),
                 result_type,
             )
-            .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"));
-
-        committed
+            .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"))
     }
 
     fn push_borrow(
@@ -2587,7 +2585,7 @@ mod tests {
                         role.native_symbol()
                             .expect("atomic word role has a native symbol"),
                     )
-                    .unwrap(),
+                    .expect("fixture binary symbol name must be valid"),
                     CodegenLinkage::Import,
                     CodegenCallableSignature::new(
                         parameters,

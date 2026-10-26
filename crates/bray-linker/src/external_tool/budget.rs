@@ -104,7 +104,7 @@ mod tests {
         let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
 
         let _ = std::panic::catch_unwind(|| {
-            let _active = budget.state.active.lock().unwrap();
+            let _active = budget.state.active.lock().expect("fixture mutex must not be poisoned");
 
             panic!("poison the test budget");
         });
@@ -116,7 +116,7 @@ mod tests {
     #[should_panic(expected = "a native process permit must own an active slot")]
     fn permit_retirement_requires_its_owned_slot() {
         let budget = ExternalToolProcessBudget::new(NonZeroUsize::MIN);
-        let permit = budget.acquire(&|| false).unwrap();
+        let permit = budget.acquire(&|| false).expect("fixture `acquire` call must succeed");
 
         *budget.active() = 0;
         drop(permit);

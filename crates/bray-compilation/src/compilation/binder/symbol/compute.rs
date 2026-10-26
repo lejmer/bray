@@ -130,7 +130,7 @@ impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
     > {
         let symbol = request.symbol();
 
-        if let Some(address) = context.imported_semantic_address(symbol.into())? {
+        if let Some(address) = context.imported_semantic_address(symbol)? {
             return super::imported::imported_declared_type(context, address);
         }
 

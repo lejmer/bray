@@ -490,8 +490,8 @@ mod tests {
 
     #[test]
     fn call_failure_destinations_demand_their_projection_constants() {
-        let values = SemanticValueStore::try_new().unwrap();
-        let ty = values.intern_type(TypeData::tuple([])).unwrap();
+        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let ty = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let constants = [false, true].map(|value| {
             values
@@ -499,7 +499,7 @@ mod tests {
                     ty,
                     ConstantValueKind::Boolean(value),
                 ))
-                .unwrap()
+                .expect("fixture constant value must be interned")
         });
 
         let unit = MirUnitId::new(0);

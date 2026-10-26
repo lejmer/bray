@@ -224,7 +224,7 @@ fn filesystem_publication_obeys_replacement_policy() {
 
 #[test]
 fn publication_creates_a_missing_managed_root_without_link_staging() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let output = directory.path().join("fresh").join("output");
     let plan = filesystem_plan(&output, ReplacementPolicy::ReplaceExisting);
 

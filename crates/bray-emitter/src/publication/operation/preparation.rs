@@ -62,7 +62,7 @@ impl PreparedArtifact<'_, '_> {
 }
 
 pub(in crate::publication) enum PreparedContent<'plan, 'link> {
-    Contribution(ArtifactContribution),
+    Contribution(Box<ArtifactContribution>),
     Linked(PreparedLinkedArtifact<'plan, 'link>),
 }
 
@@ -126,11 +126,11 @@ pub(super) fn prepare_contributions<'plan, 'link>(
 ) -> Result<Vec<PreparedArtifact<'plan, 'link>>, PublicationError> {
     let mut contributions: Vec<_> = contributions
         .into_iter()
-        .map(PreparedContent::Contribution)
+        .map(|contribution| PreparedContent::Contribution(Box::new(contribution)))
         .collect();
 
     if let Some(package_interface) = package_interface_contribution(plan)? {
-        contributions.push(PreparedContent::Contribution(package_interface));
+        contributions.push(PreparedContent::Contribution(Box::new(package_interface)));
     }
 
     contributions.extend(linked.into_iter().map(PreparedContent::Linked));

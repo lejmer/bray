@@ -80,16 +80,7 @@ impl Compilation {
         owner: &BoundUnitKey,
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
-    ) -> Result<
-        DiagnosticResult<
-            Vec<(
-                ExecutionCondition,
-                bray_symbols::PredicateDomain,
-                SourceSpan,
-            )>,
-        >,
-        FactQueryError,
-    > {
+    ) -> Result<DiagnosticResult<Vec<super::condition::DomainPostcondition>>, FactQueryError> {
         let bound = self.bound_unit_with_cancellation(owner.clone(), cancellation)?;
         let references = self.execution_unit_inputs(owner, cancellation)?;
         let context = self.binding_context(cancellation)?;

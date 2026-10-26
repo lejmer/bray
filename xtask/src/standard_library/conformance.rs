@@ -149,13 +149,11 @@ fn verify_native_indexes(
                 if kind == NativeUnitKind::Object
                     && artifact_kind
                         == bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
-                {
-                    if let Some(index) = package.native_artifact().map_err(|error| {
+                    && let Some(index) = package.native_artifact().map_err(|error| {
                         BuildError::conformance("native-index", format!("{error:?}"))
                     })? {
                         return Ok(index);
                     }
-                }
             }
 
             Err(BuildError::conformance(

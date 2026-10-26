@@ -169,6 +169,10 @@ impl CodegenStaticFinalization {
 
 impl CodegenStaticStorageMapping {
     /// Creates a definition without a MIR storage root, or a use with its exact root.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "static storage construction retains symbol, initializer, relocation, and lifecycle contracts"
+    )]
     pub fn new(
         owner: CodegenInstanceKey,
         storage: Option<bray_ir::MirStorageId>,

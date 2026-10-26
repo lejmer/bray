@@ -263,6 +263,10 @@ impl DirectoryEntry {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "encoded section identity retains distinct framing lengths, count, and integrity hashes"
+    )]
     pub(crate) const fn for_encoded(
         tag: InterfaceSectionTag,
         encoding: InterfaceSectionEncoding,

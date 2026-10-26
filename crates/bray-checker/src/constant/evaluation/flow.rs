@@ -84,7 +84,7 @@ where
                 match transfer.kind() {
                     BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield {
                         term,
-                        source_type: source_type,
+                        source_type,
                     }),
                     BoundControlTransferKind::Return => {
                         let result_type = self.input.result_type().unwrap_or(source_type);
@@ -337,9 +337,7 @@ where
         propagated: ConstantTermId,
         result_type: TypeId,
     ) -> Option<ConstantTermId> {
-        let Some(value) = self.term_value(propagated) else {
-            return None;
-        };
+        let value = self.term_value(propagated)?;
 
         let value = self.request.semantic_values().constant_value_data(value);
 

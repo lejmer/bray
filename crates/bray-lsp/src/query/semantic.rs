@@ -688,7 +688,7 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert!(!actions[0].is_preferred);
         assert_eq!(actions[0].kind, "quickfix");
-        assert_eq!(actions[0].diagnostics, [diagnostic.clone()]);
+        assert_eq!(actions[0].diagnostics, std::slice::from_ref(diagnostic));
 
         assert_eq!(
             actions[0].edit.changes["file:///main.bray"][0].new_text,

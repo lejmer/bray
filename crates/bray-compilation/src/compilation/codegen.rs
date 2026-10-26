@@ -90,12 +90,9 @@ impl Compilation {
         for instance in &instances {
             let mir = instance.mir();
 
-            if !identities.contains_key(&mir.unit()) {
-                identities.insert(
-                    mir.unit(),
-                    super::product::mir_content_identity(self, mir)
-                        .map_err(CodegenPreparationError::Query)?,
-                );
+            if let std::collections::btree_map::Entry::Vacant(e) = identities.entry(mir.unit()) {
+                e.insert(super::product::mir_content_identity(self, mir)
+                        .map_err(CodegenPreparationError::Query)?);
             }
         }
 
@@ -484,9 +481,9 @@ pub enum CodegenPreparationError {
         /// Closed runtime role selected by build metadata.
         role: bray_runtime_interface::RuntimeAbiRole,
         /// Target-classified ABI required by the role.
-        expected: CodegenCallableSignature,
+        expected: Box<CodegenCallableSignature>,
         /// Target-classified ABI produced by the source declaration.
-        actual: CodegenCallableSignature,
+        actual: Box<CodegenCallableSignature>,
     },
     /// A runtime source entry lacks the authority contract granted by its native boundary.
     InvalidRuntimeRoleSourceContract {

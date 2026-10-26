@@ -194,6 +194,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "runtime lifecycle emission joins the selected action and retirement with the ABI and MIR context"
+    )]
     pub(super) fn push_selected_runtime_lifecycle(
         &mut self,
         builder: &mut MirUnitBuilder,
@@ -394,6 +398,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok(block)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "owned indirection emission retains storage and target types and selected borrow and release protocols"
+    )]
     pub(super) fn push_owned_indirection_lifecycle_operations(
         &mut self,
         builder: &mut MirUnitBuilder,

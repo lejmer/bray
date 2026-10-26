@@ -278,7 +278,7 @@ impl NativeRun {
             task.task.id(),
             self.snapshot().state(),
             task.task.cancellation_context().clone(),
-            task.task.output_context().clone(),
+            task.task.output_context(),
             lane,
             task.registration.wake_handle(),
         );
@@ -392,7 +392,7 @@ impl NativeRun {
                 3 => {
                     assert_eq!(
                         progress.payload(),
-                        usize::try_from(NativeRuntimeStatus::PENDING.code()).unwrap(),
+                        usize::try_from(NativeRuntimeStatus::PENDING.code()).expect("pending runtime status fits the native progress payload"),
                         "admitted run retains capabilities required by its callbacks"
                     );
 

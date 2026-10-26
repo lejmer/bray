@@ -439,8 +439,8 @@ extern "C" fn release_rust_panic(
         .unwrap_or_else(|| unreachable!("Rust panic backing handle remains provider-owned"))
         .take();
 
-    if let Some(payload) = payload {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+    if let Some(payload) = payload
+        && let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
             let payload = match payload.downcast::<RuntimePanic>() {
                 Ok(report) => {
                     rust_panic_backings().release(index);
@@ -460,7 +460,6 @@ extern "C" fn release_rust_panic(
 
             return;
         }
-    }
 
     rust_panic_backings().release(index);
 }
@@ -690,7 +689,7 @@ mod tests {
         let mut handles = Vec::new();
 
         for _ in 0..3 {
-            backings.reserve_free(4).unwrap();
+            backings.reserve_free(4).expect("fixture `reserve_free` call must succeed");
             handles.extend((0..4).map(|_| backings.take_free()));
         }
 
@@ -714,7 +713,7 @@ mod tests {
 
         impl Drop for Release {
             fn drop(&mut self) {
-                self.1.lock().unwrap().push(self.0);
+                self.1.lock().expect("fixture mutex must not be poisoned").push(self.0);
             }
         }
 
@@ -722,7 +721,7 @@ mod tests {
         let producer_events = Arc::clone(&released);
 
         let report = std::thread::spawn(move || {
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(2).expect("fixture outgoing records must admit the supplied values");
 
             let mut report =
                 super::RuntimePanic::new(Release(1, Arc::clone(&producer_events)), &mut admitted);
@@ -732,9 +731,9 @@ mod tests {
             report.into_native()
         })
         .join()
-        .unwrap();
+        .expect("fixture worker must join successfully");
 
-        assert!(released.lock().unwrap().is_empty());
+        assert!(released.lock().expect("fixture mutex must not be poisoned").is_empty());
 
         std::thread::spawn(move || {
             let mut report = report;
@@ -743,9 +742,9 @@ mod tests {
             assert!(report.consume(false).is_success());
         })
         .join()
-        .unwrap();
+        .expect("fixture worker must join successfully");
 
-        assert_eq!(*released.lock().unwrap(), [1, 2]);
+        assert_eq!(*released.lock().expect("fixture release counter mutex must not be poisoned"), [1, 2]);
     }
 
     #[test]
@@ -783,7 +782,7 @@ mod tests {
         }
 
         let drops = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
 
         let panic = super::RuntimePanic::new(Payload(std::sync::Arc::clone(&drops)), &mut admitted);
 

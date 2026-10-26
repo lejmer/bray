@@ -13,6 +13,11 @@ pub(super) type Demands = BTreeMap<
     )>,
 >;
 
+type ParentPaths = BTreeMap<
+    bray_symbols::TypeId,
+    BTreeSet<(bray_symbols::TypeId, Arc<[bray_bound_tree::StorageProjection]>)>,
+>;
+
 impl crate::analysis::storage_flow::model::StorageFlowInput {
     pub(in crate::analysis::storage_flow) fn prepare_entry_references<
         C: CheckerRequestContext + ?Sized,
@@ -24,7 +29,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
         mut demands: Demands,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
-        let mut parents = BTreeMap::<_, BTreeSet<_>>::new();
+        let mut parents = ParentPaths::new();
 
         for (access, prepared) in &self.reference_paths {
             let Some(root) = storage
@@ -74,13 +79,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     fn close_entry_demands<C: CheckerRequestContext + ?Sized>(
         request: crate::CheckerUnitView<'_, C>,
         demands: &mut Demands,
-        mut parents: BTreeMap<
-            bray_symbols::TypeId,
-            BTreeSet<(
-                bray_symbols::TypeId,
-                Arc<[bray_bound_tree::StorageProjection]>,
-            )>,
-        >,
+        mut parents: ParentPaths,
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let components = bray_base::strongly_connected_components(parents.keys().copied(), |ty| {
             parents

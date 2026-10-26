@@ -261,13 +261,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     bray_bound_tree::BoundExecutionSite::Node(_)
                 ) || self.memory.operation(expression).is_none()
             })
-        {
-            if let Some(invalidation) =
+            && let Some(invalidation) =
                 invalidation.or_else(|| self.refinements.invalidation_at(kind.occurrence()))
             {
                 self.apply_resolved_effects(&mut state.memory, call_effects, invalidation);
             }
-        }
     }
 
     pub(super) fn capture_failure_effects(

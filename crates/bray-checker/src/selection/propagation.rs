@@ -26,7 +26,7 @@ struct ResultBoundary {
 pub(crate) fn select_propagations<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
-) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerQueryError<C::UpstreamError>>
+) -> crate::CheckerQueryResult<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -245,9 +245,7 @@ where
         }
     }
 
-    let Some(ty) = types.callable_result_type() else {
-        return None;
-    };
+    let ty = types.callable_result_type()?;
 
     is_nullable(request, ty).then_some(ResultBoundary {
         target: SelectedPropagationBoundary::Callable,
@@ -255,15 +253,15 @@ where
     })
 }
 
+type ResultBoundarySelection =
+    Result<(ResultBoundary, bray_bound_tree::SelectedConversion), Vec<TypeId>>;
+
 fn select_result_boundary<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     boundaries: &[ResultBoundary],
     error_type: TypeId,
-) -> Result<
-    Result<(ResultBoundary, bray_bound_tree::SelectedConversion), Vec<TypeId>>,
-    CheckerQueryError<C::UpstreamError>,
->
+) -> crate::CheckerQueryResult<ResultBoundarySelection, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {

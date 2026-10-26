@@ -10,6 +10,10 @@ use bray_symbols::TypeId;
 
 impl CleanupOutcome {
     /// Collects a completed finalizer's active error while retaining every failed-call outcome.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "finalizer result retention joins its producer, owner, payload types, and report policy"
+    )]
     pub(crate) fn retain_finalizer_result(
         &self,
         builder: &mut MirUnitBuilder,

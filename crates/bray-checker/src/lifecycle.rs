@@ -433,8 +433,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "borrowed or callable value cannot require owned lifecycle cleanup")]
     fn owned_cleanup_of_borrow_exposes_the_selection_bug() {
-        let context = Context(SemanticValueStore::try_new().unwrap());
-        let target = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let context = Context(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let target = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let ty = context
             .0
@@ -442,29 +442,29 @@ mod tests {
                 kind: bray_symbols::BorrowKind::Shared,
                 target,
             })
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let _ = select_lifecycle_action(&context, ty, LifecyclePhase::Destroy);
     }
 
     #[test]
     fn repeated_members_preserve_distinct_ownership_positions() {
-        let context = Context(SemanticValueStore::try_new().unwrap());
-        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let context = Context(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let ty = context
             .0
             .intern_type(TypeData::tuple([leaf, leaf, leaf]))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         assert_eq!(
-            select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).unwrap(),
+            select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).expect("fixture lifecycle action must resolve"),
             LifecycleAction::Members([leaf, leaf, leaf].into())
         );
 
         for phase in [LifecyclePhase::Cancel, LifecyclePhase::Quiesce] {
             assert_eq!(
-                select_lifecycle_action(&context, ty, phase).unwrap(),
+                select_lifecycle_action(&context, ty, phase).expect("fixture lifecycle action must resolve"),
                 LifecycleAction::Members([leaf, leaf, leaf].into())
             );
         }
@@ -472,8 +472,8 @@ mod tests {
 
     #[test]
     fn array_selection_retains_symbolic_extent_without_visiting_elements() {
-        let context = Context(SemanticValueStore::try_new().unwrap());
-        let element = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let context = Context(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let element = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         for extent in [0, 1, u64::MAX] {
             let length = context
@@ -482,15 +482,15 @@ mod tests {
                     ty: TargetSizedIntegerType::Usize,
                     value: IntegerConstant::from_u64(extent),
                 })
-                .unwrap();
+                .expect("fixture constant term must be interned");
 
             let ty = context
                 .0
                 .intern_type(TypeData::Array { element, length })
-                .unwrap();
+                .expect("fixture type must be interned");
 
             assert_eq!(
-                select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).unwrap(),
+                select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).expect("fixture lifecycle action must resolve"),
                 LifecycleAction::Array { element, length }
             );
         }
@@ -498,22 +498,22 @@ mod tests {
 
     #[test]
     fn resolution_keeps_finalization_and_destruction_as_separate_obligations() {
-        let context = Context(SemanticValueStore::try_new().unwrap());
-        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
-        let ty = context.0.intern_type(TypeData::Nullable(leaf)).unwrap();
+        let context = Context(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
+        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let ty = context.0.intern_type(TypeData::Nullable(leaf)).expect("fixture type must be interned");
 
         assert_eq!(
-            select_lifecycle_action(&context, ty, LifecyclePhase::Finalize).unwrap(),
+            select_lifecycle_action(&context, ty, LifecyclePhase::Finalize).expect("fixture lifecycle action must resolve"),
             LifecycleAction::None
         );
 
         assert_eq!(
-            select_lifecycle_action(&context, ty, LifecyclePhase::Resolve).unwrap(),
+            select_lifecycle_action(&context, ty, LifecyclePhase::Resolve).expect("fixture lifecycle action must resolve"),
             LifecycleAction::Resolve
         );
 
         assert_eq!(
-            select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).unwrap(),
+            select_lifecycle_action(&context, ty, LifecyclePhase::Destroy).expect("fixture lifecycle action must resolve"),
             LifecycleAction::Nullable(leaf)
         );
     }

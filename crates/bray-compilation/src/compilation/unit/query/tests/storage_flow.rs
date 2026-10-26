@@ -194,7 +194,7 @@ fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
 
         if local {
             assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingEscapingStorageDependency,
             );
         } else {
@@ -335,7 +335,7 @@ fn callable_reports_preserve_borrows_absent_from_the_explicit_result_type() {
 
             if local {
                 assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     DiagnosticKind::CheckingEscapingStorageDependency,
                 );
             }
@@ -455,11 +455,11 @@ fn operator_reports_preserve_the_same_operand_borrows_as_method_calls() {
                     })
                 {
                     assert_goal_state_diagnostic_kind(
-                        &diagnostics,
+                        diagnostics,
                         DiagnosticKind::CheckingEscapingStorageDependency,
                     );
                 } else {
-                    assert_goal_state_diagnostic_kind(&diagnostics, expected);
+                    assert_goal_state_diagnostic_kind(diagnostics, expected);
                 }
             }
         }
@@ -564,7 +564,7 @@ fn conversion_reports_retain_borrows_across_composite_inputs() {
 
             if local {
                 assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     DiagnosticKind::CheckingEscapingStorageDependency,
                 );
             }
@@ -645,7 +645,7 @@ fn custom_index_reports_retain_the_selector_borrow() {
     }
 
     assert_goal_state_diagnostic_kind(
-        &diagnostics,
+        diagnostics,
         DiagnosticKind::CheckingEscapingStorageDependency,
     );
 }
@@ -1220,7 +1220,7 @@ fn refinements_are_lazy_cached_and_retain_branch_conditions() {
         .dependencies(&crate::fact::CompilationFactKey::ResultDependencyComponent(
             key.clone(),
         ))
-        .unwrap()
+        .expect("fixture `dependencies` call must succeed")
         .expect("the shared component owns refinement prerequisites");
 
     assert!(dependencies.contains(&crate::fact::CompilationFactKey::BoundUnit(key.clone())));
@@ -1289,7 +1289,7 @@ fn native_callbacks_consume_only_their_implicit_report_outputs() {
                 &application,
                 "invoke",
             ))
-            .unwrap();
+            .expect("fixture `dependency_contracts` call must succeed");
 
         let calls = contracts.value().calls().values().collect::<Vec<_>>();
 
@@ -1421,12 +1421,12 @@ fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
     let key = crate::test_support::source_function_body_key(&application, "main");
-    let lowered = application.lowered_unit(key).unwrap();
+    let lowered = application.lowered_unit(key).expect("fixture callable must lower successfully");
 
     let mir = lowered
         .value()
         .as_ref()
-        .unwrap()
+        .expect("fixture optional value must be present")
         .mir()
         .expect("checked fixture produces MIR");
 
@@ -1440,7 +1440,7 @@ fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
     for block in mir.blocks() {
         if block.operations().iter().any(|operation| {
             matches!(
-                mir.operation(*operation).unwrap().kind(),
+                mir.operation(*operation).expect("fixture `iter` call must succeed").kind(),
                 bray_ir::MirOperationKind::Call(call)
                     if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. })
             )
@@ -1546,8 +1546,8 @@ fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referent
 
     for (name, borrowed) in [("borrowed", true), ("owned", false)] {
         let key = crate::test_support::source_function_body_key(&compilation, name);
-        let bound = compilation.bound_unit(key.clone()).unwrap();
-        let flow = compilation.storage_flow(key).unwrap();
+        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
 
         let assignment = bound
             .value()
@@ -1556,7 +1556,7 @@ fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referent
             .find_map(|(id, expression)| {
                 matches!(expression, bray_bound_tree::BoundExpression::Assignment(_)).then_some(id)
             })
-            .unwrap();
+            .expect("fixture selection must find its expected value");
 
         let target = flow
             .value()

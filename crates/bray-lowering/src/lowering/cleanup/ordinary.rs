@@ -14,6 +14,10 @@ use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "ordinary exits join their checked cleanup plans, destination, input exit, and retained value"
+    )]
     pub(super) fn finish_ordinary_cleanup(
         &mut self,
         current: MirBlockId,

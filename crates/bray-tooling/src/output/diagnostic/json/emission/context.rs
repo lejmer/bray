@@ -440,7 +440,7 @@ mod tests {
             },
         );
 
-        let context = serde_json::to_value(context).unwrap();
+        let context = serde_json::to_value(context).expect("fixture JSON must serialize");
 
         assert_eq!(context[0]["name"], "declaration");
         assert_eq!(context[0]["value"]["value"]["package"], "example.run");
@@ -538,7 +538,7 @@ mod tests {
                 kind: "constant_term",
             },
         ))
-        .unwrap();
+        .expect("fixture JSON must serialize");
 
         assert_eq!(
             context[0]["value"]["value"],

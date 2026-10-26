@@ -171,7 +171,7 @@ enum ExpectedDigestHasher {
 impl ExpectedDigestHasher {
     fn new(algorithm: ArtifactDigestAlgorithm) -> Self {
         match algorithm {
-            ArtifactDigestAlgorithm::Blake3 => Self::Blake3(Box::new(blake3::Hasher::new())),
+            ArtifactDigestAlgorithm::Blake3 => Self::Blake3(Box::default()),
             ArtifactDigestAlgorithm::Sha256 => Self::Sha256(Sha256::new()),
         }
     }

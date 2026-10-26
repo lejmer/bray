@@ -11,6 +11,8 @@ use crate::compilation::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
+pub(super) type DomainPostcondition = (ExecutionCondition, bray_symbols::PredicateDomain, SourceSpan);
+
 impl Compilation {
     pub(in crate::compilation) fn execution_predicate_inputs(
         &self,
@@ -399,16 +401,7 @@ impl Compilation {
         owner: &BoundUnitKey,
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
-    ) -> Result<
-        DiagnosticResult<
-            Vec<(
-                ExecutionCondition,
-                bray_symbols::PredicateDomain,
-                SourceSpan,
-            )>,
-        >,
-        FactQueryError,
-    > {
+    ) -> Result<DiagnosticResult<Vec<super::condition::DomainPostcondition>>, FactQueryError> {
         if owner.kind() == bray_bound_tree::BoundUnitKind::AnonymousCallable
             || owner.callable_type_header().is_some()
         {
@@ -493,6 +486,255 @@ impl Compilation {
         }
 
         Ok(DiagnosticResult::new(conditions, diagnostics))
+    }
+}
+
+impl Compilation {
+    pub(super) fn applicable_execution_obligation(
+        &self,
+        body: &BoundUnitKey,
+        callable: Option<bray_symbols::CallableInstanceData>,
+        declaration: &bray_checker::ExecutionDeclaration,
+        required: bray_checker::ExecutionObligation,
+        evidence: Option<&bray_checker::ExecutionCallEvidence>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Option<SourceSpan>>, FactQueryError> {
+        let bray_checker::ExecutionObligation::Property(property, selected) = required else {
+            panic!("execution-domain selection requires a property obligation");
+        };
+
+        let requirements = self.instance_execution_condition_inputs(
+            body,
+            callable,
+            declaration.requirements(),
+            cancellation,
+        )?;
+
+        if requirements.diagnostics().has_errors() {
+            return Ok(None);
+        }
+
+        let inputs = if callable.is_none() {
+            self.execution_unit_inputs(body, cancellation)?
+        } else {
+            Vec::new()
+        };
+
+        let proves = |conditions: &[ExecutionCondition]| {
+            evidence
+                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
+                .proves_trusted_with_inputs(conditions, &inputs)
+        };
+
+        let requirements = requirements
+            .into_parts()
+            .0
+            .into_iter()
+            .map(|(condition, _)| condition)
+            .collect::<Vec<_>>();
+
+        for domain in declaration.domains() {
+            let Some(obligation) = domain
+                .properties
+                .iter()
+                .find(|obligation| obligation.property == property)
+            else {
+                continue;
+            };
+
+            let clause = (!domain.guards.is_empty()).then_some(obligation.source.into());
+
+            if selected.is_some() && selected != clause {
+                continue;
+            }
+
+            let guards = self.instance_execution_condition_inputs(
+                body,
+                callable,
+                &domain.guards,
+                cancellation,
+            )?;
+
+            if guards.diagnostics().has_errors() {
+                continue;
+            }
+
+            // Domains own their conjunction of shared immutable condition terms.
+            let mut conditions = requirements.clone();
+
+            conditions.extend(
+                guards
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition),
+            );
+
+            if proves(&conditions) {
+                return Ok(Some(
+                    (!domain.guards.is_empty()).then_some(obligation.source),
+                ));
+            }
+        }
+
+        if selected.is_none()
+            && match callable {
+                Some(callable) => self.is_constant_callable(callable, cancellation)?,
+                None => self.unit_requires_constant_evaluation(body, cancellation)?,
+            }
+            && proves(&requirements)
+        {
+            return Ok(Some(None));
+        }
+
+        Ok(None)
+    }
+}
+
+impl Compilation {
+    pub(super) fn execution_call_contracts(
+        &self,
+        bound: &bray_bound_tree::BoundUnit,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        DiagnosticResult<
+            std::collections::BTreeMap<
+                bray_bound_tree::BoundExpressionId,
+                Vec<bray_checker::ExecutionCompletionContract>,
+            >,
+        >,
+        FactQueryError,
+    > {
+        let mut calls = std::collections::BTreeMap::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        for (expression, _) in bound.tree().expressions() {
+            let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                semantics.selections().expression(expression)
+            else {
+                continue;
+            };
+
+            let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target() else {
+                continue;
+            };
+
+            let contracts = self.callable_completion_contracts(callable, cancellation)?;
+
+            diagnostics.add_range(contracts.diagnostics().iter().cloned());
+
+            let contracts = contracts.into_parts().0;
+
+            calls.insert(expression, contracts);
+        }
+
+        Ok(DiagnosticResult::new(calls, diagnostics))
+    }
+
+    pub(super) fn callable_completion_contracts(
+        &self,
+        callable: bray_symbols::CallableInstanceData,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<bray_checker::ExecutionCompletionContract>>, FactQueryError>
+    {
+        let mut diagnostics = DiagnosticBag::new();
+
+        let Some(body) = self.callable_body_key(callable.definition())? else {
+            if self
+                .symbol_graph()?
+                .declaration_syntax_anchor(callable.definition().symbol())
+                .is_some()
+            {
+                return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+            }
+
+            let contract =
+                self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+            let mut completion = Vec::new();
+
+            for domain in &*contract.domains {
+                let entry = self.imported_execution_conditions(
+                    callable,
+                    domain.entry.iter().copied(),
+                    cancellation,
+                )?;
+
+                let mut postconditions = Vec::new();
+
+                for (ordinal, term) in &*domain.postconditions {
+                    let conditions =
+                        self.imported_execution_conditions(callable, [*term], cancellation)?;
+
+                    postconditions.extend(conditions.into_iter().map(|condition| {
+                        (
+                            condition,
+                            bray_checker::ExecutionClauseId::Imported(*ordinal),
+                        )
+                    }));
+                }
+
+                completion.push(bray_checker::ExecutionCompletionContract {
+                    entry,
+                    postconditions,
+                });
+            }
+
+            return Ok(DiagnosticResult::new(completion, diagnostics));
+        };
+
+        let declaration = self.execution_unit_declaration(&body)?;
+        let mut contracts = Vec::new();
+
+        for domain in declaration
+            .value()
+            .domains()
+            .iter()
+            .filter(|domain| !domain.postconditions.is_empty())
+        {
+            let anchors = declaration
+                .value()
+                .requirements()
+                .iter()
+                .chain(&domain.guards)
+                .copied()
+                .collect::<Vec<_>>();
+
+            let entry = self.instance_execution_condition_inputs(
+                &body,
+                Some(callable),
+                &anchors,
+                cancellation,
+            )?;
+
+            let posts = self.instance_execution_condition_inputs(
+                &body,
+                Some(callable),
+                &domain.postconditions,
+                cancellation,
+            )?;
+
+            diagnostics.add_range(entry.diagnostics().iter().cloned());
+            diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+            contracts.push(bray_checker::ExecutionCompletionContract {
+                entry: entry
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition)
+                    .collect(),
+                postconditions: posts
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, source)| (condition, source.into()))
+                    .collect(),
+            });
+        }
+
+        Ok(DiagnosticResult::new(contracts, diagnostics))
     }
 }
 
@@ -590,7 +832,7 @@ mod tests {
                     &compilation,
                     "close",
                 ))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             let diagnostics = checked.diagnostics();
 
@@ -995,7 +1237,7 @@ mod tests {
                     &compilation,
                     "root",
                 ))
-                .unwrap();
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 !checked.diagnostics().has_errors(),
@@ -1602,254 +1844,5 @@ mod tests {
             compilation.check_diagnostics(),
             DiagnosticKind::CheckingExecutionGuaranteeNotProven,
         );
-    }
-}
-
-impl Compilation {
-    pub(super) fn applicable_execution_obligation(
-        &self,
-        body: &BoundUnitKey,
-        callable: Option<bray_symbols::CallableInstanceData>,
-        declaration: &bray_checker::ExecutionDeclaration,
-        required: bray_checker::ExecutionObligation,
-        evidence: Option<&bray_checker::ExecutionCallEvidence>,
-        cancellation: &CancellationToken,
-    ) -> Result<Option<Option<SourceSpan>>, FactQueryError> {
-        let bray_checker::ExecutionObligation::Property(property, selected) = required else {
-            panic!("execution-domain selection requires a property obligation");
-        };
-
-        let requirements = self.instance_execution_condition_inputs(
-            body,
-            callable,
-            declaration.requirements(),
-            cancellation,
-        )?;
-
-        if requirements.diagnostics().has_errors() {
-            return Ok(None);
-        }
-
-        let inputs = if callable.is_none() {
-            self.execution_unit_inputs(body, cancellation)?
-        } else {
-            Vec::new()
-        };
-
-        let proves = |conditions: &[ExecutionCondition]| {
-            evidence
-                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-                .proves_trusted_with_inputs(conditions, &inputs)
-        };
-
-        let requirements = requirements
-            .into_parts()
-            .0
-            .into_iter()
-            .map(|(condition, _)| condition)
-            .collect::<Vec<_>>();
-
-        for domain in declaration.domains() {
-            let Some(obligation) = domain
-                .properties
-                .iter()
-                .find(|obligation| obligation.property == property)
-            else {
-                continue;
-            };
-
-            let clause = (!domain.guards.is_empty()).then_some(obligation.source.into());
-
-            if selected.is_some() && selected != clause {
-                continue;
-            }
-
-            let guards = self.instance_execution_condition_inputs(
-                body,
-                callable,
-                &domain.guards,
-                cancellation,
-            )?;
-
-            if guards.diagnostics().has_errors() {
-                continue;
-            }
-
-            // Domains own their conjunction of shared immutable condition terms.
-            let mut conditions = requirements.clone();
-
-            conditions.extend(
-                guards
-                    .into_parts()
-                    .0
-                    .into_iter()
-                    .map(|(condition, _)| condition),
-            );
-
-            if proves(&conditions) {
-                return Ok(Some(
-                    (!domain.guards.is_empty()).then_some(obligation.source),
-                ));
-            }
-        }
-
-        if selected.is_none()
-            && match callable {
-                Some(callable) => self.is_constant_callable(callable, cancellation)?,
-                None => self.unit_requires_constant_evaluation(body, cancellation)?,
-            }
-            && proves(&requirements)
-        {
-            return Ok(Some(None));
-        }
-
-        Ok(None)
-    }
-}
-
-impl Compilation {
-    pub(super) fn execution_call_contracts(
-        &self,
-        bound: &bray_bound_tree::BoundUnit,
-        semantics: &bray_bound_tree::CheckedExpressionSemantics,
-        cancellation: &CancellationToken,
-    ) -> Result<
-        DiagnosticResult<
-            std::collections::BTreeMap<
-                bray_bound_tree::BoundExpressionId,
-                Vec<bray_checker::ExecutionCompletionContract>,
-            >,
-        >,
-        FactQueryError,
-    > {
-        let mut calls = std::collections::BTreeMap::new();
-        let mut diagnostics = DiagnosticBag::new();
-
-        for (expression, _) in bound.tree().expressions() {
-            let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                semantics.selections().expression(expression)
-            else {
-                continue;
-            };
-
-            let bray_bound_tree::BoundCallableTarget::Declaration(callable) = call.target() else {
-                continue;
-            };
-
-            let contracts = self.callable_completion_contracts(callable, cancellation)?;
-
-            diagnostics.add_range(contracts.diagnostics().iter().cloned());
-
-            let contracts = contracts.into_parts().0;
-
-            calls.insert(expression, contracts);
-        }
-
-        Ok(DiagnosticResult::new(calls, diagnostics))
-    }
-
-    pub(super) fn callable_completion_contracts(
-        &self,
-        callable: bray_symbols::CallableInstanceData,
-        cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Vec<bray_checker::ExecutionCompletionContract>>, FactQueryError>
-    {
-        let mut diagnostics = DiagnosticBag::new();
-
-        let Some(body) = self.callable_body_key(callable.definition())? else {
-            if self
-                .symbol_graph()?
-                .declaration_syntax_anchor(callable.definition().symbol())
-                .is_some()
-            {
-                return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
-            }
-
-            let contract =
-                self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
-
-            let mut completion = Vec::new();
-
-            for domain in &*contract.domains {
-                let entry = self.imported_execution_conditions(
-                    callable,
-                    domain.entry.iter().copied(),
-                    cancellation,
-                )?;
-
-                let mut postconditions = Vec::new();
-
-                for (ordinal, term) in &*domain.postconditions {
-                    let conditions =
-                        self.imported_execution_conditions(callable, [*term], cancellation)?;
-
-                    postconditions.extend(conditions.into_iter().map(|condition| {
-                        (
-                            condition,
-                            bray_checker::ExecutionClauseId::Imported(*ordinal),
-                        )
-                    }));
-                }
-
-                completion.push(bray_checker::ExecutionCompletionContract {
-                    entry,
-                    postconditions,
-                });
-            }
-
-            return Ok(DiagnosticResult::new(completion, diagnostics));
-        };
-
-        let declaration = self.execution_unit_declaration(&body)?;
-        let mut contracts = Vec::new();
-
-        for domain in declaration
-            .value()
-            .domains()
-            .iter()
-            .filter(|domain| !domain.postconditions.is_empty())
-        {
-            let anchors = declaration
-                .value()
-                .requirements()
-                .iter()
-                .chain(&domain.guards)
-                .copied()
-                .collect::<Vec<_>>();
-
-            let entry = self.instance_execution_condition_inputs(
-                &body,
-                Some(callable),
-                &anchors,
-                cancellation,
-            )?;
-
-            let posts = self.instance_execution_condition_inputs(
-                &body,
-                Some(callable),
-                &domain.postconditions,
-                cancellation,
-            )?;
-
-            diagnostics.add_range(entry.diagnostics().iter().cloned());
-            diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-            contracts.push(bray_checker::ExecutionCompletionContract {
-                entry: entry
-                    .into_parts()
-                    .0
-                    .into_iter()
-                    .map(|(condition, _)| condition)
-                    .collect(),
-                postconditions: posts
-                    .into_parts()
-                    .0
-                    .into_iter()
-                    .map(|(condition, source)| (condition, source.into()))
-                    .collect(),
-            });
-        }
-
-        Ok(DiagnosticResult::new(contracts, diagnostics))
     }
 }

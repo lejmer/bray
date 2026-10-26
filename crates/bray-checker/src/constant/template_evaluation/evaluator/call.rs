@@ -82,6 +82,7 @@ where
         Ok(value)
     }
 
+    #[expect(clippy::too_many_arguments, reason = "template calls retain their callable identity, substitution and staged argument ordinals")]
     pub(super) fn evaluate_call(
         &mut self,
         owner: CheckedTemplateNodeId,
@@ -125,7 +126,7 @@ where
         };
 
         let implementation = implementation
-            .map(|(declaration, substitution)| {
+            .and_then(|(declaration, substitution)| {
                 let Some(declaration) = self
                     .resolver
                     .symbol(declaration)
@@ -142,8 +143,7 @@ where
                         substitution,
                     ))
                     .map(Some).unwrap_or_else(|error| panic!("evaluate_call must satisfy its checked construction contract: {error:?}"))
-            })
-            .flatten();
+            });
 
         let limits = self.budget.remaining_limits(self.limits);
 

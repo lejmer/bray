@@ -65,6 +65,8 @@ pub(super) struct ConcreteStaticFinalization {
     selected: Option<bray_codegen::CodegenInstanceKey>,
 }
 
+type StaticInitializerReferences = (Vec<CodegenStaticRelocation>, Vec<(ConcreteCodegenInstance, TypeId, CallableExecution)>);
+
 impl Compilation {
     fn static_finalizer_result(
         &self,
@@ -298,6 +300,10 @@ impl Compilation {
         Ok(dependencies)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "product mappings join unit, host, platform overrides, concrete roots and reachability, target, and debug policy"
+    )]
     pub(in crate::compilation::product) fn codegen_mappings_for_product(
         &self,
         product: &bray_symbols::ProductIdentity,
@@ -798,13 +804,7 @@ impl Compilation {
         root: bray_symbols::ConstantValueId,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Vec<CodegenStaticRelocation>,
-            Vec<(ConcreteCodegenInstance, TypeId, CallableExecution)>,
-        ),
-        CodegenPreparationError,
-    > {
+    ) -> Result<StaticInitializerReferences, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let mut pending = vec![root];

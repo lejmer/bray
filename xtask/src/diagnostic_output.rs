@@ -52,7 +52,7 @@ mod tests {
 
     #[test]
     fn failure_detail_preserves_cause_and_source_diagnostics() {
-        let package = PackageIdentity::try_new("fixture").unwrap();
+        let package = PackageIdentity::try_new("fixture").expect("fixture package identity must be valid");
 
         let source = SourceInput::virtual_text(
             SourceIdentity::new(0),

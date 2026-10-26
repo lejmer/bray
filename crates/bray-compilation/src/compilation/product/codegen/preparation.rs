@@ -19,6 +19,15 @@ use super::implementation::{GENERATED_HOST_UNIT, bound_template};
 use super::{ConcreteCodegenRoot, NativeDemand, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken};
 
+type ExecutableHostClosure = (
+    Option<ExecutableHostContract>,
+    Option<RuntimeArtifactPlan>,
+    Vec<super::super::realization::ProductStaticHostEntry>,
+    Vec<bray_native_artifact::NativeStatic>,
+    super::super::realization::NativeCallableEffects,
+    BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+);
+
 pub(super) struct NativeCodegenPreparation {
     pub(super) host: Option<ExecutableHostContract>,
     pub(super) runtime: Option<RuntimeArtifactPlan>,
@@ -51,20 +60,7 @@ impl Compilation {
         options: bray_codegen::CodegenOptions,
         allow_bitcode: bool,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Option<ExecutableHostContract>,
-            Option<RuntimeArtifactPlan>,
-            Vec<super::super::realization::ProductStaticHostEntry>,
-            Vec<bray_native_artifact::NativeStatic>,
-            super::super::realization::NativeCallableEffects,
-            BTreeMap<
-                bray_runtime_abi::NativeStaticIdentity,
-                Vec<bray_runtime_abi::NativeStaticIdentity>,
-            >,
-        ),
-        NativeProductPlanningError,
-    > {
+    ) -> Result<ExecutableHostClosure, NativeProductPlanningError> {
         let required_capabilities = required_capabilities.into_iter().collect::<Vec<_>>();
         let mut host_statics = Vec::new();
         let mut native_statics = Vec::new();
@@ -523,8 +519,8 @@ impl Compilation {
             // differ even when their template-local unit identities are equal.
             let identity = std::ptr::from_ref(mir);
 
-            if !identities.contains_key(&identity) {
-                identities.insert(identity, super::mir_content_identity(self, mir)?);
+            if let std::collections::btree_map::Entry::Vacant(e) = identities.entry(identity) {
+                e.insert(super::mir_content_identity(self, mir)?);
             }
         }
 
@@ -668,14 +664,14 @@ mod tests {
             .selected_target()
             .target()
             .codegen_target()
-            .unwrap();
+            .expect("fixture target must support code generation");
 
-        let semantics = compilation.product_semantics().unwrap();
+        let semantics = compilation.product_semantics().expect("fixture product semantics must resolve");
         let cancellation = &compilation.state.cancellation;
 
         let roots = compilation
             .product_root_instances(semantics.value(), None, &target, cancellation)
-            .unwrap();
+            .expect("fixture product roots must resolve");
 
         let keys = roots.iter().map(|root| root.key().clone()).collect();
 
@@ -688,11 +684,11 @@ mod tests {
                 false,
                 cancellation,
             )
-            .unwrap();
+            .expect("fixture product must resolve code-generation reachability");
 
         let product =
             bray_symbols::ProductIdentity::try_new(crate::test_support::package_identity(), "test")
-                .unwrap();
+                .expect("fixture product identity must be valid");
 
         let units = compilation
             .partition_native_codegen(
@@ -702,7 +698,7 @@ mod tests {
                 &keys,
                 cancellation,
             )
-            .unwrap();
+            .expect("fixture `partition_native_codegen` call must succeed");
 
         let frames = graph
             .graph()
@@ -723,7 +719,7 @@ mod tests {
             bray_codegen::CodegenUnit::try_from_key(
                 unit.key(),
                 unit.instances().iter().cloned(),
-                |mir| super::super::mir_content_identity(&compilation, mir).unwrap(),
+                |mir| super::super::mir_content_identity(&compilation, mir).expect("fixture `super::super::mir_content_identity` call must succeed"),
             )
             .expect("planned identity must include each concrete descriptor's actual content");
         }

@@ -138,15 +138,15 @@ mod tests {
             DependencySubject, DependencySubjectRoot,
         };
 
-        let store = SemanticValueStore::try_new().unwrap();
+        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
         let context = SelfTypeContext::Trait(TraitSymbolId::from_symbol_id(SymbolId::new(1)));
 
         let contextual = store
             .intern_type(TypeData::ContextualSelf(context))
-            .unwrap();
+            .expect("fixture type must be interned");
 
-        let replacement = store.intern_type(TypeData::tuple([])).unwrap();
-        let nested = store.intern_type(TypeData::Nullable(contextual)).unwrap();
+        let replacement = store.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let nested = store.intern_type(TypeData::Nullable(contextual)).expect("fixture type must be interned");
 
         let template = store
             .intern_dependency_contract_template(
@@ -162,14 +162,14 @@ mod tests {
                         },
                     ]),
             )
-            .unwrap();
+            .expect("fixture dependency contract must be interned");
 
         let instantiated = store
             .substitute_contextual_self_in_dependency_contract(template, context, replacement)
-            .unwrap();
+            .expect("fixture `substitute_contextual_self_in_dependency_contract` call must succeed");
 
         let data = store.dependency_contract_template_data(instantiated);
-        let expected = store.intern_type(TypeData::Nullable(replacement)).unwrap();
+        let expected = store.intern_type(TypeData::Nullable(replacement)).expect("fixture type must be interned");
 
         assert_eq!(
             data.synchronous_cleanup(),

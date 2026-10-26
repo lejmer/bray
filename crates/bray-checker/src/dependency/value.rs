@@ -233,17 +233,16 @@ impl ValueInputs {
                         pending.push(iteration.source());
                     }
                 }
-                SemanticSelection::ScopedUse(scoped) => {
+                SemanticSelection::ScopedUse(scoped)
                     if scoped.enter().1.receiver().is_some_and(|receiver| {
                         matches!(
                             receiver.mode(),
                             bray_symbols::ReceiverMode::Shared
                                 | bray_symbols::ReceiverMode::Mutable
                         )
-                    }) {
+                    }) => {
                         pending.push(scoped.initializer());
                     }
-                }
                 _ => {}
             }
         }

@@ -251,7 +251,7 @@ mod tests {
                         minimum_inclusive,
                         maximum,
                         ..
-                    } = NumericTruncation::for_roles(source, target, width).unwrap()
+                    } = NumericTruncation::for_roles(source, target, width).expect("fixture `NumericTruncation::for_roles` call must succeed")
                     else {
                         unreachable!()
                     };
@@ -261,7 +261,7 @@ mod tests {
                         minimum_inclusive: fixed_inclusive,
                         maximum: fixed_maximum,
                         ..
-                    } = NumericTruncation::for_roles(source, fixed, width).unwrap()
+                    } = NumericTruncation::for_roles(source, fixed, width).expect("fixture `NumericTruncation::for_roles` call must succeed")
                     else {
                         unreachable!()
                     };

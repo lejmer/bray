@@ -40,6 +40,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "lifecycle expansion joins the checked action and retirement with the runtime ABI and MIR context"
+    )]
     pub(super) fn expand_lifecycle_action(
         &mut self,
         builder: &mut MirUnitBuilder,
@@ -274,10 +278,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok(merge)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "union lifecycle dispatch keeps its checked type and MIR context explicit"
-    )]
     pub(super) fn push_union_lifecycle_operations(
         &mut self,
         builder: &mut MirUnitBuilder,
@@ -392,6 +392,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "child lifecycle emission retains selected outcome and retirement with the MIR context"
+    )]
     pub(super) fn push_child_lifecycle_operation(
         &mut self,
         builder: &mut MirUnitBuilder,

@@ -252,9 +252,7 @@ impl Lowerer<'_> {
             return None;
         }
 
-        let Some(value) = self.input.literal_values().expression(expression) else {
-            return None;
-        };
+        let value = self.input.literal_values().expression(expression)?;
 
         let data = self.input.semantic_values().constant_value_data(value);
 

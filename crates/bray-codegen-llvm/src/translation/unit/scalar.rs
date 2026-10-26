@@ -2,7 +2,7 @@ use super::core::UnitTranslator;
 use super::support::{
     float_predicate, int_value, integer_predicate, llvm, nonzero_integer, pointer_value,
 };
-use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
+use bray_codegen::{CodegenFailure, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
@@ -121,9 +121,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 *right,
             ),
             (IntrinsicCall::Conversion(conversion), [operand]) => {
-                let mut helpers = std::iter::empty::<&CodegenHelperMapping>();
-
-                self.translate_conversion_plan(*operand, conversion, &mut helpers)
+                self.translate_conversion_plan(*operand, conversion)
             }
             unexpected => panic!(
                 "checked MIR translation violated an established compiler contract: {unexpected:?}"

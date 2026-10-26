@@ -17,12 +17,16 @@ pub(super) struct InlineAssemblyLabel {
 }
 
 impl Lowerer<'_> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "assembly terminators join checked operands, label destinations, symbols, and source identity"
+    )]
     pub(super) fn lower_inline_assembly_terminator(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
         source: &MirSourceAnchor,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
         operands: &[MirOperand],
         labels: Option<Vec<InlineAssemblyLabel>>,
         symbols: &[MirCallableReference],
@@ -61,19 +65,19 @@ impl Lowerer<'_> {
         let output = self.builder.push_block_parameter(
             normal,
             Self::retained_source(source),
-            output_type,
+            *output_type,
         )?;
 
         self.set_terminator(
             current,
             Self::retained_source(source),
             MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
-                contract,
+                **contract,
                 // The terminator owns the sole compact MIR operand while the shared ordinary
                 // lowering path retains the operand vector through this branch.
                 inputs.clone(),
-                inputs_type,
-                output_type,
+                *inputs_type,
+                *output_type,
                 normal,
                 alternates,
                 symbols.iter().copied(),
@@ -305,7 +309,7 @@ impl Lowerer<'_> {
 }
 
 pub(super) fn lower_inline_assembly_contract(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
 ) -> (CheckedMemoryOperationKind, Vec<MirCallableReference>) {
     let CheckedMemoryOperationKind::InlineAssembly {
         inputs,
@@ -314,7 +318,7 @@ pub(super) fn lower_inline_assembly_contract(
         contract,
     } = kind
     else {
-        return (kind, Vec::new());
+        return (kind.clone(), Vec::new());
     };
 
     let symbols = contract
@@ -325,10 +329,10 @@ pub(super) fn lower_inline_assembly_contract(
 
     (
         CheckedMemoryOperationKind::InlineAssembly {
-            inputs,
-            output,
-            labels,
-            contract: contract.without_symbols(),
+            inputs: *inputs,
+            output: *output,
+            labels: *labels,
+            contract: contract.without_symbols().into(),
         },
         symbols,
     )

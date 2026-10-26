@@ -310,6 +310,47 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
     }
 }
 
+pub(in crate::catalog::english::argument) fn format_failure_detail(
+    message: &str,
+    fields: &[bray_diagnostics::DiagnosticFailureField],
+) -> String {
+    let mut output = message.to_owned();
+
+    for field in fields {
+        let label = match field.name() {
+            "host_error_message" | "report" => "host report",
+            "workers" => "requested workers",
+            "index" | "value" | "actual" | "capacity_actual" => "requested count",
+            "maximum" => "supported limit",
+            "source_byte_count" => "source bytes",
+            "requested_product" => "requested product",
+            "compilation_package" => "loaded package",
+            "compilation_product_kind" => "loaded product kind",
+            "backend_name" => "backend",
+            "backend_revision" => "backend revision",
+            "backend_toolchain_revision" => "toolchain revision",
+            "runtime_role" => "runtime role",
+            "platform_role" => "platform role",
+            "first_role" => "first role",
+            "duplicate_role" => "duplicate role",
+            _ => continue,
+        };
+
+        let value = match field.value() {
+            bray_diagnostics::DiagnosticFailureValue::Text(value)
+            | bray_diagnostics::DiagnosticFailureValue::Natural(value) => value.as_str(),
+            _ => continue,
+        };
+
+        output.push_str(". ");
+        output.push_str(label);
+        output.push_str(": ");
+        output.push_str(value);
+    }
+
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
@@ -362,45 +403,4 @@ mod tests {
         assert!(!message.contains("07070707"));
         assert!(!message.contains("internal compiler error"));
     }
-}
-
-pub(in crate::catalog::english::argument) fn format_failure_detail(
-    message: &str,
-    fields: &[bray_diagnostics::DiagnosticFailureField],
-) -> String {
-    let mut output = message.to_owned();
-
-    for field in fields {
-        let label = match field.name() {
-            "host_error_message" | "report" => "host report",
-            "workers" => "requested workers",
-            "index" | "value" | "actual" | "capacity_actual" => "requested count",
-            "maximum" => "supported limit",
-            "source_byte_count" => "source bytes",
-            "requested_product" => "requested product",
-            "compilation_package" => "loaded package",
-            "compilation_product_kind" => "loaded product kind",
-            "backend_name" => "backend",
-            "backend_revision" => "backend revision",
-            "backend_toolchain_revision" => "toolchain revision",
-            "runtime_role" => "runtime role",
-            "platform_role" => "platform role",
-            "first_role" => "first role",
-            "duplicate_role" => "duplicate role",
-            _ => continue,
-        };
-
-        let value = match field.value() {
-            bray_diagnostics::DiagnosticFailureValue::Text(value)
-            | bray_diagnostics::DiagnosticFailureValue::Natural(value) => value.as_str(),
-            _ => continue,
-        };
-
-        output.push_str(". ");
-        output.push_str(label);
-        output.push_str(": ");
-        output.push_str(value);
-    }
-
-    output
 }

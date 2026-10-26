@@ -577,13 +577,13 @@ fn lifecycle(
         (completion.predicate_guarantees(), true),
     ] {
         for predicate in predicates {
-            let condition = match predicate
+            let condition = {
+                let condition = predicate
                 .condition()
                 .map(|term| crate::execution_condition_from_term(values, term, &references))
-                .transpose()
-            {
-                Ok(condition) => condition.unwrap_or(ExecutionCondition::Unknown),
-                Err(error) => return Err(error),
+                .transpose()?;
+
+                condition.unwrap_or(ExecutionCondition::Unknown)
             };
 
             match (completion, predicate.is_trusted()) {

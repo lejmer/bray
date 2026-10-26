@@ -70,7 +70,7 @@ macro_rules! define_record_vectors {
             pub(super) fn finish(
                 self,
                 external_index: BTreeMap<crate::ExternalSymbolKey, AnySymbolId>,
-                lookups: BTreeMap<AnySymbolId, BTreeMap<crate::SymbolName, (AnySymbolId, MemberVisibility)>>,
+                lookups: super::snapshot::ImportedLookups,
                 member_names: BTreeMap<AnySymbolId, (crate::SymbolName, MemberVisibility)>,
                 relationship_index: &RelationshipIndex,
             ) -> ImportedSymbolSkeleton {

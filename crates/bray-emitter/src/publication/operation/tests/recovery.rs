@@ -7,13 +7,13 @@ use crate::{ArtifactKind, ArtifactPublisher, EmissionStatus, ReplacementPolicy};
 
 #[test]
 fn readers_recover_a_crashed_public_projection_before_consuming_files() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = current.generation().unwrap().store();
+    let store = current.generation().expect("fixture `generation` call must succeed").store();
     let public = output.path().join("application.brayd");
     let extra = output.path().join("unfinished.brayd");
     let unrelated = output.path().join("user.txt");
@@ -23,11 +23,11 @@ fn readers_recover_a_crashed_public_projection_before_consuming_files() {
         &journal,
         br#"{"revision":1,"paths":["application.brayd","unfinished.brayd"]}"#,
     )
-    .unwrap();
+    .expect("fixture contents must be written");
 
-    std::fs::write(&public, b"uncommitted").unwrap();
-    std::fs::write(&extra, b"uncommitted companion").unwrap();
-    std::fs::write(&unrelated, b"user data").unwrap();
+    std::fs::write(&public, b"uncommitted").expect("fixture contents must be written");
+    std::fs::write(&extra, b"uncommitted companion").expect("fixture contents must be written");
+    std::fs::write(&unrelated, b"user data").expect("fixture contents must be written");
 
     let resolved = crate::resolve_published_artifact(
         output.path(),
@@ -35,7 +35,7 @@ fn readers_recover_a_crashed_public_projection_before_consuming_files() {
         ArtifactKind::DependencyMetadata,
         0,
     )
-    .unwrap();
+    .expect("fixture published artifact must resolve");
 
     assert_eq!(file_bytes(resolved.path()), b"committed");
     assert!(!extra.exists());
@@ -45,17 +45,17 @@ fn readers_recover_a_crashed_public_projection_before_consuming_files() {
 
 #[test]
 fn a_committed_reference_wins_over_an_unfinished_journal() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = current.generation().unwrap().store();
+    let store = current.generation().expect("fixture `generation` call must succeed").store();
     let journal = store.join("pending-publication.json");
 
-    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).unwrap();
-    std::fs::remove_file(output.path().join("application.brayd")).unwrap();
+    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).expect("fixture contents must be written");
+    std::fs::remove_file(output.path().join("application.brayd")).expect("fixture file must be removed");
 
     let resolved = crate::resolve_published_artifact(
         output.path(),
@@ -63,7 +63,7 @@ fn a_committed_reference_wins_over_an_unfinished_journal() {
         ArtifactKind::DependencyMetadata,
         0,
     )
-    .unwrap();
+    .expect("fixture published artifact must resolve");
 
     assert_eq!(file_bytes(resolved.path()), b"committed");
     assert!(!journal.exists());
@@ -71,13 +71,13 @@ fn a_committed_reference_wins_over_an_unfinished_journal() {
 
 #[test]
 fn interrupted_publication_recovery_restarts_before_removing_uncommitted_companions() {
-    let output = tempfile::tempdir().unwrap();
+    let output = tempfile::tempdir().expect("temporary fixture directory must be created");
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
     let product = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = product.generation().unwrap().store().to_owned();
+    let store = product.generation().expect("fixture `generation` call must succeed").store().to_owned();
     let public = output.path().join("application.brayd");
     let extra = output.path().join("unfinished.brayd");
     let journal = store.join("pending-publication.json");
@@ -88,17 +88,17 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
         &journal,
         br#"{"revision":1,"paths":["application.brayd","unfinished.brayd"]}"#,
     )
-    .unwrap();
+    .expect("fixture contents must be written");
 
-    std::fs::write(&public, b"uncommitted").unwrap();
-    std::fs::write(&extra, b"unfinished").unwrap();
+    std::fs::write(&public, b"uncommitted").expect("fixture contents must be written");
+    std::fs::write(&extra, b"unfinished").expect("fixture contents must be written");
 
-    let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
+    let mut managed = crate::storage::ManagedStore::open(output.path()).expect("fixture file must open");
     let cancelled = || std::fs::read(&public).is_ok_and(|bytes| bytes == b"committed");
 
     let error = managed
         .maintain(crate::StoragePolicy::default(), &cancelled)
-        .unwrap_err();
+        .expect_err("cancelled recovery maintenance must return cancellation");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::Cancelled);
     assert!(journal.exists());
@@ -106,7 +106,7 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
 
     managed
         .maintain(crate::StoragePolicy::default(), &never_cancelled)
-        .unwrap();
+        .expect("fixture `maintain` call must succeed");
 
     assert!(!journal.exists());
     assert!(!extra.exists());

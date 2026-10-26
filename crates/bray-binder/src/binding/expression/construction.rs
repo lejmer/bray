@@ -38,7 +38,7 @@ impl ExpressionBinder {
                 )
             }),
             Err(diagnostic) => {
-                binder.add_diagnostic(diagnostic);
+                binder.add_diagnostic(*diagnostic);
                 recovered = true;
 
                 None

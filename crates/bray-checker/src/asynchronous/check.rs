@@ -668,6 +668,42 @@ fn invalid_async_operation_diagnostic(
         ))
 }
 
+fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    execution: Option<CallableExecution>,
+    expression: BoundExpressionId,
+    kind: AnalysisSuspensionKind,
+    diagnostics: &mut DiagnosticBag,
+) {
+    if kind != AnalysisSuspensionKind::Yield && execution == Some(CallableExecution::Synchronous) {
+        let span = expression_span(request, expression);
+
+        diagnostics.add(invalid_async_operation_diagnostic(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
+            span,
+        ));
+    }
+}
+
+fn scoped_deferred_call(
+    selections: &CheckedSemanticSelections,
+    occurrence: bray_bound_tree::BoundExecutionSite,
+) -> BodyBehaviorCall {
+    let expression = occurrence
+        .expression()
+        .expect("scoped suspension retains its with occurrence");
+
+    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
+        panic!("checked scoped suspension retains its lifecycle pair");
+    };
+
+    BodyBehaviorCall::new(
+        BoundCallableTarget::Declaration(scoped.invocation(occurrence).0),
+        BodyBehaviorPhase::DeferredExecution,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
@@ -1022,40 +1058,4 @@ mod tests {
             &crate::analysis::guarantee::CleanupPlan::default(),
         )
     }
-}
-
-fn add_suspension_context_diagnostic<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    execution: Option<CallableExecution>,
-    expression: BoundExpressionId,
-    kind: AnalysisSuspensionKind,
-    diagnostics: &mut DiagnosticBag,
-) {
-    if kind != AnalysisSuspensionKind::Yield && execution == Some(CallableExecution::Synchronous) {
-        let span = expression_span(request, expression);
-
-        diagnostics.add(invalid_async_operation_diagnostic(
-            diagnostic_id(diagnostics.len()),
-            DiagnosticKind::CheckingAwaitOutsideAsyncCallable,
-            span,
-        ));
-    }
-}
-
-fn scoped_deferred_call(
-    selections: &CheckedSemanticSelections,
-    occurrence: bray_bound_tree::BoundExecutionSite,
-) -> BodyBehaviorCall {
-    let expression = occurrence
-        .expression()
-        .expect("scoped suspension retains its with occurrence");
-
-    let Some(SemanticSelection::ScopedUse(scoped)) = selections.expression(expression) else {
-        panic!("checked scoped suspension retains its lifecycle pair");
-    };
-
-    BodyBehaviorCall::new(
-        BoundCallableTarget::Declaration(scoped.invocation(occurrence).0),
-        BodyBehaviorPhase::DeferredExecution,
-    )
 }

@@ -65,10 +65,7 @@ impl DiagnosticRenderer {
             .collect();
 
         RenderedDiagnostic::new(
-            diagnostic.id(),
-            diagnostic.kind(),
-            diagnostic.severity(),
-            diagnostic.primary_span(),
+            diagnostic,
             self.render_template(template, diagnostic.args()),
             labels,
             notes,

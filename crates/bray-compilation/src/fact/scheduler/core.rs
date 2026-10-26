@@ -778,9 +778,9 @@ mod tests {
                 if outer == 1 {
                     started_receiver
                         .lock()
-                        .unwrap()
+                        .expect("fixture mutex must not be poisoned")
                         .recv_timeout(Duration::from_secs(5))
-                        .unwrap();
+                        .expect("fixture channel must provide its message before the deadline");
 
                     return Vec::new();
                 }
@@ -789,11 +789,11 @@ mod tests {
                     .map_indexed(QueryPriority::Normal, 3, |index| {
                         match index {
                             0 => {
-                                started_sender.send(()).unwrap();
+                                started_sender.send(()).expect("fixture channel must accept its message");
 
                                 let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
-                                while scheduler.slots.state().unwrap().active != 1 {
+                                while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
                                     assert!(std::time::Instant::now() < deadline);
                                     std::thread::yield_now();
                                 }
@@ -801,19 +801,19 @@ mod tests {
                             1 => {
                                 second_receiver
                                     .lock()
-                                    .unwrap()
+                                    .expect("fixture mutex must not be poisoned")
                                     .recv_timeout(Duration::from_secs(5))
                                     .expect("nested work must use the newly available worker");
                             }
-                            2 => second_sender.send(()).unwrap(),
+                            2 => second_sender.send(()).expect("fixture channel must accept its message"),
                             _ => unreachable!(),
                         }
 
                         index
                     })
-                    .unwrap()
+                    .expect("fixture `map_indexed` call must succeed")
             })
-            .unwrap();
+            .expect("fixture `map_indexed` call must succeed");
 
         assert_eq!(results, [vec![0, 1, 2], Vec::new()]);
     }
@@ -838,9 +838,9 @@ mod tests {
                     if std::thread::current().id() == parent {
                         started_receiver
                             .lock()
-                            .unwrap()
+                            .expect("fixture mutex must not be poisoned")
                             .recv_timeout(Duration::from_secs(5))
-                            .unwrap();
+                            .expect("fixture channel must provide its message before the deadline");
 
                         return Vec::new();
                     }
@@ -851,12 +851,12 @@ mod tests {
                                 0 => {
                                     // Keep the parent's slot held until the child starts serially.
                                     // Otherwise nested work may already reuse that slot.
-                                    started_sender.send(()).unwrap();
+                                    started_sender.send(()).expect("fixture channel must accept its message");
 
                                     let deadline =
                                         std::time::Instant::now() + Duration::from_secs(5);
 
-                                    while scheduler.slots.state().unwrap().active != 1 {
+                                    while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
                                         assert!(std::time::Instant::now() < deadline);
                                         std::thread::yield_now();
                                     }
@@ -864,30 +864,30 @@ mod tests {
                                 1 => {
                                     second_receiver
                                         .lock()
-                                        .unwrap()
+                                        .expect("fixture mutex must not be poisoned")
                                         .recv_timeout(Duration::from_secs(5))
                                         .expect(
                                             "waiting parent must release its slot to the children",
                                         );
                                 }
-                                2 => second_sender.send(()).unwrap(),
+                                2 => second_sender.send(()).expect("fixture channel must accept its message"),
                                 _ => unreachable!(),
                             }
 
                             index
                         })
-                        .unwrap()
+                        .expect("fixture `map_indexed` call must succeed")
                 })
             })
-            .unwrap()
-            .unwrap();
+            .expect("fixture `run` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert_eq!(
             results.into_iter().flatten().collect::<Vec<_>>(),
             vec![0, 1, 2]
         );
 
-        assert_eq!(scheduler.slots.state().unwrap().active, 0);
+        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
     }
 
     #[test]
@@ -906,18 +906,18 @@ mod tests {
                     if std::thread::current().id() == parent {
                         started_receiver
                             .lock()
-                            .unwrap()
+                            .expect("fixture mutex must not be poisoned")
                             .recv_timeout(Duration::from_secs(5))
-                            .unwrap();
+                            .expect("fixture channel must provide its message before the deadline");
 
                         return;
                     }
 
-                    started_sender.send(()).unwrap();
+                    started_sender.send(()).expect("fixture channel must accept its message");
 
                     let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
-                    while scheduler.slots.state().unwrap().active != 1 {
+                    while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
                         assert!(std::time::Instant::now() < deadline);
                         std::thread::yield_now();
                     }
@@ -928,8 +928,8 @@ mod tests {
         }));
 
         assert!(panic.is_err());
-        assert_eq!(scheduler.slots.state().unwrap().active, 0);
-        assert_eq!(scheduler.run(QueryPriority::Normal, || 42).unwrap(), 42);
+        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
+        assert_eq!(scheduler.run(QueryPriority::Normal, || 42).expect("fixture `run` call must succeed"), 42);
     }
 
     #[test]
@@ -941,7 +941,7 @@ mod tests {
             .run(QueryPriority::Interactive, || {
                 scheduler.map_indexed(QueryPriority::Interactive, 3, |index| {
                     assert_eq!(
-                        scheduler.current_priority().unwrap(),
+                        scheduler.current_priority().expect("fixture `scheduler` call must succeed"),
                         Some(QueryPriority::Interactive)
                     );
 
@@ -961,11 +961,11 @@ mod tests {
                     index
                 })
             })
-            .unwrap()
-            .unwrap();
+            .expect("fixture `run` call must succeed")
+            .expect("successful fixture query must contain its expected result");
 
         assert_eq!(results, vec![0, 1, 2]);
-        assert_eq!(scheduler.slots.state().unwrap().active, 0);
+        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
     }
 
     #[test]
@@ -1010,8 +1010,7 @@ mod tests {
         });
 
         let panic = catch_unwind(|| publish_scheduled_result(&slot, 7, 42))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -1039,8 +1038,7 @@ mod tests {
     #[test]
     fn missing_scheduled_result_reports_worker_termination() {
         let panic = catch_unwind(|| collect_scheduled_results::<u32>(vec![Mutex::new(None)]))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -1053,8 +1051,7 @@ mod tests {
         let mut state = SlotState::default();
 
         let panic = catch_unwind(AssertUnwindSafe(|| unregister_waiter(&mut state, false)))
-            .err()
-            .expect("compiler invariant must panic");
+            .expect_err("compiler invariant must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

@@ -198,18 +198,18 @@ mod tests {
 
     #[test]
     fn whole_file_replacement_preserves_open_readers_and_failed_destinations() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
         let destination = directory.path().join("source.rs");
 
-        super::write_file_atomically(&destination, b"original").unwrap();
+        super::write_file_atomically(&destination, b"original").expect("fixture contents must be replaced atomically");
 
-        let mut reader = std::fs::File::open(&destination).unwrap();
+        let mut reader = std::fs::File::open(&destination).expect("fixture file must open");
 
-        super::write_file_atomically(&destination, b"replacement").unwrap();
+        super::write_file_atomically(&destination, b"replacement").expect("fixture contents must be replaced atomically");
 
         let mut original = Vec::new();
 
-        reader.read_to_end(&mut original).unwrap();
+        reader.read_to_end(&mut original).expect("fixture contents must be read completely");
 
         assert_eq!(original, b"original");
         assert_eq!(file_bytes(&destination), b"replacement");

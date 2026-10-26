@@ -1965,11 +1965,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     // rust-style: allow(function-too-large, reason = "memory operation tags and their wire fields form one exhaustive flat protocol mapping")
     fn memory_kind(
         &mut self,
-        kind: CheckedMemoryOperationKind,
+        kind: &CheckedMemoryOperationKind,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         use bray_bound_tree::CheckedMemoryOperationKind as Kind;
 
-        match kind {
+        match *kind {
             Kind::UninitFrom { element } => {
                 self.wire.write_u32(59);
                 self.ty(element)?;
@@ -2186,8 +2186,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 inputs,
                 output,
                 labels,
-                contract,
-            } => self.inline_assembly_kind(inputs, output, labels, contract)?,
+                ref contract,
+            } => self.inline_assembly_kind(inputs, output, labels, **contract)?,
             Kind::AtomicInitialize { value } => self.atomic_value_kind(40, value)?,
             Kind::AtomicLoad { value, order } => {
                 self.atomic_ordered_value_kind(41, value, order)?

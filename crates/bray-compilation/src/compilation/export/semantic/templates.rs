@@ -122,15 +122,15 @@ pub(super) fn checked_constraint_expression(
 
     let key = compilation
         .constraint_unit_key(expression.owner(), unit)
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let diagnostics = DiagnosticBag::merged_all([
         bound.result().diagnostics(),
@@ -149,14 +149,14 @@ pub(super) fn checked_constraint_expression(
 
     let values = compilation
         .semantic_value_store()
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
         values,
         generic.owner(),
         generic.parameters(),
     )
-    .map_err(|error| super::super::fact_query_export_error(error))?;
+    .map_err(super::super::fact_query_export_error)?;
 
     let (references, reference_diagnostics) = compilation
         .concrete_call_references(
@@ -168,7 +168,7 @@ pub(super) fn checked_constraint_expression(
             ConstantEvaluationLimits::default(),
             cancellation,
         )
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     if reference_diagnostics.has_errors() {
         return Err(incomplete(expression.owner()));
@@ -177,7 +177,7 @@ pub(super) fn checked_constraint_expression(
     let context = CompilationCheckerContext::new(
         compilation
             .binding_context_for(bound.result().value().key(), cancellation)
-            .map_err(|error| super::super::fact_query_export_error(error))?,
+            .map_err(super::super::fact_query_export_error)?,
     );
 
     let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
@@ -197,7 +197,7 @@ pub(super) fn checked_constraint_expression(
     );
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
-        .map_err(|error| super::super::fact_query_export_error(error))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(expression.owner()));

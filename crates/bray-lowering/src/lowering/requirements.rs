@@ -177,6 +177,10 @@ impl Lowerer<'_> {
         Ok((block, call))
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "requirement checks join selected predicates, receiver, arguments, and implementation witnesses"
+    )]
     fn lower_requirement_checks(
         &mut self,
         site: BoundExecutionSite,
@@ -269,6 +273,10 @@ impl Lowerer<'_> {
         )
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "scoped exit checks retain callable, storage, shielding, and continuation destinations"
+    )]
     pub(super) fn lower_scoped_exit_requirements(
         &mut self,
         expression: BoundExpressionId,

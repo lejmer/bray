@@ -68,6 +68,7 @@ pub(super) enum ExecutionGoal {
     NoUnwind,
 }
 
+#[expect(clippy::too_many_arguments, reason = "execution checks consume independently computed selection, storage, flow and memory facts")]
 pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,

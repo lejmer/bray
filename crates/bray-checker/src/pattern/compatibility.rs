@@ -71,9 +71,7 @@ where
             return None;
         }
 
-        let Some(evidence) = self.constant_patterns.get(&pattern) else {
-            return None;
-        };
+        let evidence = self.constant_patterns.get(&pattern)?;
 
         let term = self
             .request

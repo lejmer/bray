@@ -69,7 +69,7 @@ fn runtime_defaults_reject_provider_owned_borrows_in_every_declaration_kind() {
         let diagnostics = compilation.check_diagnostics();
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            &diagnostics,
+            diagnostics,
             bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
         );
     }
@@ -328,7 +328,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
                 assert!(!diagnostics.has_errors(), "{invocation}: {diagnostics:?}");
             } else {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
                 );
             }
@@ -581,7 +581,7 @@ fn mutable_default_results_allow_field_writes() {
                 }
             } else {
                 bray_testing::assert_goal_state_diagnostic_kind(
-                    &diagnostics,
+                    diagnostics,
                     bray_diagnostics::DiagnosticKind::CheckingMissingMutationAuthority,
                 );
             }

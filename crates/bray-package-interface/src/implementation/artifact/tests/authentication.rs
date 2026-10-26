@@ -28,28 +28,28 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
         identity.runtime_requirements().iter().cloned(),
     );
 
-    let original = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).unwrap();
+    let original = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
 
     let replacement =
-        encode_artifact(&replacement_identity, &[], &[], &[], &[], None, &[], &[]).unwrap();
+        encode_artifact(&replacement_identity, &[], &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
 
     let limits = InterfaceValidationLimits::default();
-    let parsed = PackageImplementationArtifact::try_from_bytes(original.clone(), limits).unwrap();
+    let parsed = PackageImplementationArtifact::try_from_bytes(original.clone(), limits).expect("fixture from bytes must succeed");
 
     let replacement_parsed =
-        PackageImplementationArtifact::try_from_bytes(replacement.clone(), limits).unwrap();
+        PackageImplementationArtifact::try_from_bytes(replacement.clone(), limits).expect("fixture from bytes must succeed");
 
     assert_eq!(original.len(), replacement.len());
     assert_ne!(parsed.identity(), replacement_parsed.identity());
 
-    let temporary = tempfile::tempdir().unwrap();
+    let temporary = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = temporary.path().join("changed.brayimpl");
 
-    std::fs::write(&path, &original).unwrap();
+    std::fs::write(&path, &original).expect("fixture contents must be written");
 
-    let opened = PackageImplementationArtifact::try_open(&path, limits).unwrap();
+    let opened = PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
 
-    std::fs::write(&path, &replacement).unwrap();
+    std::fs::write(&path, &replacement).expect("fixture contents must be written");
 
     assert!(matches!(
         opened.verify_digest(*blake3::hash(&replacement).as_bytes()),
@@ -61,13 +61,13 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
         original.len() - 1,
         parsed.directory[0].payload.end - 1,
     ] {
-        std::fs::write(&path, &original).unwrap();
+        std::fs::write(&path, &original).expect("fixture contents must be written");
 
-        let opened = PackageImplementationArtifact::try_open(&path, limits).unwrap();
+        let opened = PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
         let mut changed = original.to_vec();
 
         changed[offset] ^= 1;
-        std::fs::write(&path, &changed).unwrap();
+        std::fs::write(&path, &changed).expect("fixture contents must be written");
 
         let result = opened.verify_digest(*blake3::hash(&changed).as_bytes());
 
@@ -111,37 +111,37 @@ fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
         &[],
         &[],
     )
-    .unwrap();
+    .expect("fixture implementation artifact must encode");
 
     let pristine = PackageImplementationArtifact::try_from_bytes(
         Arc::clone(&bytes),
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture from bytes must succeed");
 
     let entry = pristine
         .directory
         .iter()
         .find(|entry| entry.owner.raw() == 999)
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let mut corrupt = bytes.to_vec();
 
     corrupt[entry.payload.start] ^= 1;
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
-    std::fs::write(&path, &corrupt).unwrap();
+    std::fs::write(&path, &corrupt).expect("fixture contents must be written");
 
     let artifact = crate::PackageArtifactInput::packed_file(&path, *pristine.artifact_hash())
         .load_implementation()
-        .unwrap();
+        .expect("fixture implementation must load");
 
     assert!(
         artifact
             .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
-            .unwrap()
+            .expect("fixture `constant_callable_body` call must succeed")
             .is_some()
     );
 
@@ -161,7 +161,7 @@ fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
     let last = metadata_corrupt.len() - 1;
 
     metadata_corrupt[last] ^= 1;
-    std::fs::write(&path, &metadata_corrupt).unwrap();
+    std::fs::write(&path, &metadata_corrupt).expect("fixture contents must be written");
 
     assert!(matches!(
         crate::PackageArtifactInput::file(&path, None).load_implementation(),
@@ -186,13 +186,13 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
         [],
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().unwrap();
-    let directory = tempfile::tempdir().unwrap();
+    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     assert!(matches!(
         crate::PackageArtifactInput::packed_file(&path, [0; 32]).load_implementation(),
@@ -207,12 +207,12 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
         .directory
         .iter()
         .find(|entry| entry.kind == Some(ImplementationPayloadKind::ConstantCallableBody))
-        .unwrap();
+        .expect("fixture lookup must find its expected value");
 
     let mut damaged = bytes.to_vec();
 
     damaged[entry.payload.start] ^= 1;
-    std::fs::write(&path, damaged).unwrap();
+    std::fs::write(&path, damaged).expect("fixture contents must be written");
 
     assert!(
         crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash())
@@ -243,22 +243,22 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
         [],
         InterfaceValidationLimits::default(),
     )
-    .unwrap();
+    .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().unwrap();
-    let directory = tempfile::tempdir().unwrap();
+    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
-    std::fs::write(&path, &bytes).unwrap();
+    std::fs::write(&path, &bytes).expect("fixture contents must be written");
 
     let selected = crate::PackageArtifactInput::file(&path, None)
         .load_implementation()
-        .unwrap();
+        .expect("fixture implementation must load");
 
     let mut damaged = bytes.to_vec();
 
-    *damaged.last_mut().unwrap() ^= 1;
-    std::fs::write(&path, damaged).unwrap();
+    *damaged.last_mut().expect("fixture `last_mut` call must succeed") ^= 1;
+    std::fs::write(&path, damaged).expect("fixture contents must be written");
 
     assert!(matches!(
         selected.verify_all(),
@@ -270,9 +270,9 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
     std::fs::OpenOptions::new()
         .write(true)
         .open(&path)
-        .unwrap()
+        .expect("fixture file must open")
         .set_len(bytes.len() as u64 + 1)
-        .unwrap();
+        .expect("fixture `set_len` call must succeed");
 
     assert!(matches!(
         selected.verify_all(),

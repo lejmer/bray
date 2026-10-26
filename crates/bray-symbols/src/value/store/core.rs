@@ -740,16 +740,16 @@ mod tests {
 
         // A surrounding concrete aggregate does not close an unresolved argument.
         for (element, expected) in [(ty, true), (open_type, false)] {
-            let nested = store.intern_type(TypeData::tuple([element])).unwrap();
+            let nested = store.intern_type(TypeData::tuple([element])).expect("fixture type must be interned");
 
             let data = GenericSubstitutionData::try_new(
                 owner,
                 [GenericParameterSymbolId::from(type_parameter)],
                 [GenericArgument::Type(nested)],
             )
-            .unwrap();
+            .expect("fixture generic substitution data must be valid");
 
-            let substitution = store.intern_generic_substitution(data).unwrap();
+            let substitution = store.intern_generic_substitution(data).expect("fixture generic substitution must be interned");
 
             assert_eq!(store.substitution_is_concrete(substitution), expected);
         }
@@ -765,17 +765,17 @@ mod tests {
                 ty,
                 ConstantValueKind::Integer(IntegerConstant::from_u64(1)),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let value = store
             .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let parameter = store
             .intern_constant_term(ConstantTermData::Parameter(
                 GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(92)),
             ))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         for (operand, closed) in [(value, true), (parameter, false)] {
             let sum = store
@@ -784,7 +784,7 @@ mod tests {
                     left: operand,
                     right: value,
                 })
-                .unwrap();
+                .expect("fixture constant term must be interned");
 
             assert_eq!(store.constant_term_is_closed(sum), closed);
         }
@@ -796,7 +796,7 @@ mod tests {
                     crate::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)),
                 ),
             ))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         assert!(!store.constant_term_is_closed(projection));
     }
@@ -813,15 +813,15 @@ mod tests {
                 ty,
                 ConstantValueKind::Integer(IntegerConstant::from_u64(1)),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let value = store
             .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let open = store
             .intern_constant_term(ConstantTermData::Parameter(parameter))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         for (operand, closed) in [(value, true), (open, false)] {
             let sum = store
@@ -830,7 +830,7 @@ mod tests {
                     left: operand,
                     right: value,
                 })
-                .unwrap();
+                .expect("fixture constant term must be interned");
 
             let substitution = store
                 .intern_generic_substitution(
@@ -839,16 +839,16 @@ mod tests {
                         [parameter.into()],
                         [GenericArgument::Constant(sum)],
                     )
-                    .unwrap(),
+                    .expect("fixture generic substitution data must be valid"),
                 )
-                .unwrap();
+                .expect("fixture generic substitution must be interned");
 
             let callable = store
                 .intern_callable_instance(crate::CallableInstanceData::new(
-                    crate::CallableDefinitionId::try_new(definition.into()).unwrap(),
+                    crate::CallableDefinitionId::try_new(definition.into()).expect("fixture callable definition id must be valid"),
                     substitution,
                 ))
-                .unwrap();
+                .expect("fixture callable instance must be interned");
 
             let term = store
                 .intern_constant_term(ConstantTermData::Call {
@@ -856,7 +856,7 @@ mod tests {
                     selected_implementation: None,
                     arguments: [].into(),
                 })
-                .unwrap();
+                .expect("fixture constant term must be interned");
 
             assert_eq!(store.constant_term_is_closed(term), closed);
             assert!(!store.substitution_is_concrete(substitution));
@@ -873,56 +873,56 @@ mod tests {
 
         let open = store
             .intern_type(TypeData::TypeParameter(type_parameter))
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let literal = store
             .intern_constant_term(ConstantTermData::IntegerLiteral {
                 ty: crate::TargetSizedIntegerType::Usize,
                 value: IntegerConstant::from_u64(2),
             })
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let typed = store
             .intern_constant_term(ConstantTermData::Typed {
                 term: literal,
                 ty: concrete,
             })
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let open_typed = store
             .intern_constant_term(ConstantTermData::Typed {
                 term: literal,
                 ty: open,
             })
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let parameter = store
             .intern_constant_term(ConstantTermData::Parameter(const_parameter))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let value = store
             .intern_constant_value(ConstantValueData::new(
                 concrete,
                 ConstantValueKind::Integer(IntegerConstant::from_u64(2)),
             ))
-            .unwrap();
+            .expect("fixture constant value must be interned");
 
         let materialized = store
             .intern_constant_term(ConstantTermData::Value(value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         let typed_materialized = store
             .intern_constant_term(ConstantTermData::Typed {
                 term: materialized,
                 ty: concrete,
             })
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
-        let error_value = store.intern_error_constant_value(concrete).unwrap();
+        let error_value = store.intern_error_constant_value(concrete).expect("fixture error constant value must be interned");
 
         let error = store
             .intern_constant_term(ConstantTermData::Value(error_value))
-            .unwrap();
+            .expect("fixture constant term must be interned");
 
         for (term, array_concrete, const_concrete) in [
             (literal, true, false),
@@ -938,7 +938,7 @@ mod tests {
                     element: concrete,
                     length: term,
                 })
-                .unwrap();
+                .expect("fixture type must be interned");
 
             for (parameter, argument, expected) in [
                 (
@@ -954,9 +954,9 @@ mod tests {
             ] {
                 let substitution = store
                     .intern_generic_substitution(
-                        GenericSubstitutionData::try_new(owner, [parameter], [argument]).unwrap(),
+                        GenericSubstitutionData::try_new(owner, [parameter], [argument]).expect("fixture generic substitution data must be valid"),
                     )
-                    .unwrap();
+                    .expect("fixture generic substitution must be interned");
 
                 assert_eq!(store.substitution_is_concrete(substitution), expected);
             }
@@ -1092,23 +1092,23 @@ mod tests {
     #[test]
     fn unborrowed_types_remove_only_outer_borrow_layers() {
         let values = store();
-        let unit = values.intern_type(TypeData::tuple([])).unwrap();
+        let unit = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         let shared = values
             .intern_type(TypeData::Borrow {
                 kind: crate::BorrowKind::Shared,
                 target: unit,
             })
-            .unwrap();
+            .expect("fixture type must be interned");
 
         let mutable = values
             .intern_type(TypeData::Borrow {
                 kind: crate::BorrowKind::Mutable,
                 target: shared,
             })
-            .unwrap();
+            .expect("fixture type must be interned");
 
-        let nullable = values.intern_type(TypeData::Nullable(shared)).unwrap();
+        let nullable = values.intern_type(TypeData::Nullable(shared)).expect("fixture type must be interned");
 
         for ty in [unit, shared, mutable] {
             assert_eq!(values.unborrowed_type(ty), unit);
@@ -1116,7 +1116,7 @@ mod tests {
 
         assert_eq!(values.unborrowed_type(nullable), nullable);
 
-        let foreign = store().intern_type(TypeData::tuple([])).unwrap();
+        let foreign = store().intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(

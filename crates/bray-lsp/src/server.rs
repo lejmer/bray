@@ -234,6 +234,10 @@ fn spawn_task(task: PendingTask, sender: Sender<Event>) {
     });
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "protocol dispatch joins workspace, output, pending tasks, request and diagnostic lifetimes, and client state"
+)]
 fn handle_message(
     message: IncomingMessage,
     workspace: &mut Workspace,

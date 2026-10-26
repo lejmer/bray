@@ -28,7 +28,7 @@ fn terminal_destructor_rejects_installation_of_graceful_owner() {
     );
 
     assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingDestructorOwnershipIntroduction,
     );
 }
@@ -70,7 +70,7 @@ fn terminal_destructor_rejects_helper_installation_before_abnormal_exit() {
     );
 
     assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingDestructorOwnershipIntroduction,
     );
 }
@@ -166,7 +166,7 @@ fn terminal_destructor_rejects_new_currently_completed_owner() {
     );
 
     assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingDestructorOwnershipIntroduction,
     );
 }
@@ -203,7 +203,7 @@ fn terminal_destructor_distinguishes_graceful_dependencies_from_external_ownersh
             assert!(diagnostics.is_empty(), "{diagnostics:?}");
         } else {
             assert_goal_state_diagnostic_kind(
-                &diagnostics,
+                diagnostics,
                 DiagnosticKind::CheckingDestructorOwnershipIntroduction,
             );
         }
@@ -273,7 +273,7 @@ fn terminal_destructor_retains_introduction_even_if_helper_consumes_it_later() {
     );
 
     assert_goal_state_diagnostic_kind(
-        &compilation.check_diagnostics(),
+        compilation.check_diagnostics(),
         DiagnosticKind::CheckingDestructorOwnershipIntroduction,
     );
 }

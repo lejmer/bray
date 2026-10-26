@@ -17,16 +17,15 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     product: &ProductIdentity,
     target: &str,
 ) -> Diagnostic {
-    let diagnostic = Diagnostic::new(
+
+    Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::NativeProductPreparationFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target))
-    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
-
-    diagnostic
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure))
 }
 
 pub(super) fn native_product_failure_kind(

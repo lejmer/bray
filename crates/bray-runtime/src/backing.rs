@@ -1,3 +1,4 @@
+#[cfg(test)]
 use std::alloc::Layout;
 
 use bray_runtime_abi::{NativeCleanupStorageLease, NativeCleanupStorageShape, NativeRuntimeStatus};
@@ -10,6 +11,7 @@ pub(crate) struct Backing {
 }
 
 impl Backing {
+    #[cfg(test)]
     pub(crate) fn admit(size: usize, alignment: usize) -> Result<Self, NativeRuntimeStatus> {
         Layout::from_size_align(size, alignment)
             .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
@@ -51,6 +53,7 @@ impl Backing {
     }
 
     /// Transfers the exact lease to the generated incident's final release callback.
+    #[cfg(test)]
     pub(crate) fn transfer(mut self) -> NativeCleanupStorageLease {
         std::mem::replace(&mut self.lease, NativeCleanupStorageLease::empty())
     }

@@ -570,7 +570,7 @@ mod tests {
                 },
                 None,
             )
-            .unwrap();
+            .expect("fixture operation must fit its identity space");
 
         builder.set_terminator(
             cancelled,
@@ -656,7 +656,7 @@ mod tests {
 
         let other = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, report.ty())
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let other = MirPlace::new(other, [], report.ty());
 
@@ -695,7 +695,7 @@ mod tests {
         let blocks = std::array::from_fn(|_| {
             builder
                 .push_block(source.clone(), MirBlockKind::Ordinary)
-                .unwrap()
+                .expect("fixture block must fit its identity space")
         });
 
         let [entry, completed, panicked, cancelled] = blocks;
@@ -704,7 +704,7 @@ mod tests {
 
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, ty)
-            .unwrap();
+            .expect("fixture storage must fit its identity space");
 
         let report = MirPlace::new(storage, [], ty);
 
@@ -721,7 +721,7 @@ mod tests {
                 },
                 None,
             )
-            .unwrap();
+            .expect("fixture operation must fit its identity space");
 
         let terminators = [
             MirTerminatorKind::CheckCallOutcome {

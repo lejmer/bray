@@ -291,6 +291,52 @@ pub(super) fn invoke_runtime<'context>(
         .map(Some)
 }
 
+pub(crate) fn call_void_intrinsic<'context>(
+    module: &inkwell::module::Module<'context>,
+    context: &'context Context,
+    builder: &Builder<'context>,
+    name: &str,
+) -> Result<(), CodegenFailure> {
+    let function = module.get_function(name).unwrap_or_else(|| {
+        module.add_function(name, context.void_type().fn_type(&[], false), None)
+    });
+
+    builder
+        .build_call(function, &[], "")
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
+}
+
+pub(crate) fn declare_callback<'context>(
+    module: &inkwell::module::Module<'context>,
+    name: &str,
+    block_name: &str,
+    ty: FunctionType<'context>,
+    target: &CodegenTarget,
+) -> FunctionValue<'context> {
+    let callback = module.add_function(name, ty, None);
+
+    callback.set_linkage(inkwell::module::Linkage::WeakODR);
+
+    callback
+        .as_global_value()
+        .set_visibility(inkwell::GlobalVisibility::Hidden);
+
+    crate::comdat::attach_any(
+        module,
+        callback.as_global_value(),
+        name,
+        target.machine().object_format(),
+    );
+
+    module
+        .get_context()
+        .append_basic_block(callback, block_name);
+
+    callback
+}
+
 #[cfg(test)]
 mod tests {
     use super::{invoke_runtime, runtime_function_type};
@@ -311,7 +357,7 @@ mod tests {
         builder.position_at_end(context.append_basic_block(wrapper, "entry"));
 
         let role = RuntimeAbiRole::CurrentNativeThreadIdentity;
-        let function = declare_runtime_function(&module, &context, &target, role).unwrap();
+        let function = declare_runtime_function(&module, &context, &target, role).expect("fixture `declare_runtime_function` call must succeed");
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = invoke_runtime(
@@ -372,7 +418,7 @@ mod tests {
                         Some(context.i64_type().into())
                     );
 
-                    return_frame_state(&context, &builder, 1, 2).unwrap();
+                    return_frame_state(&context, &builder, 1, 2).expect("fixture `return_frame_state` call must succeed");
 
                     frame_state_type(&context)
                 } else {
@@ -397,7 +443,7 @@ mod tests {
                         operation,
                         value.into(),
                     )
-                    .unwrap();
+                    .expect("fixture `return_frame_result` call must succeed");
 
                     logical
                 };
@@ -426,8 +472,8 @@ mod tests {
                 let result = invoke_function(
                     &context, &builder, &target, &key, function, &arguments, "callback",
                 )
-                .unwrap()
-                .unwrap();
+                .expect("fixture `invoke_function` call must succeed")
+                .expect("successful fixture query must contain its expected result");
 
                 assert_eq!(
                     result.get_type(),
@@ -435,7 +481,7 @@ mod tests {
                     "{native:?} {operation:?}"
                 );
 
-                builder.build_return(None).unwrap();
+                builder.build_return(None).expect("fixture `build_return` call must succeed");
             }
 
             let resolution = frame_operation_type(
@@ -470,14 +516,14 @@ mod tests {
 
             let progress =
                 runtime_function_type(&context, &target, RuntimeAbiRole::SuspensionRegistration)
-                    .unwrap();
+                    .expect("fixture `runtime_function_type` call must succeed");
 
             let lane =
                 runtime_function_type(&context, &target, RuntimeAbiRole::CompatibleLaneSelection)
-                    .unwrap();
+                    .expect("fixture `runtime_function_type` call must succeed");
 
             let root =
-                runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution).unwrap();
+                runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution).expect("fixture `runtime_function_type` call must succeed");
 
             let expected_root_parameters = match native {
                 NativeTarget::X86_64WindowsMsvc => vec![
@@ -532,14 +578,14 @@ mod tests {
                     continue;
                 };
 
-                let function = declare_runtime_function(&module, &context, &target, role).unwrap();
+                let function = declare_runtime_function(&module, &context, &target, role).expect("fixture `declare_runtime_function` call must succeed");
 
                 let arguments = signature
                     .parameters()
                     .iter()
                     .map(|kind| {
                         runtime_value_type(&context, &target, *kind)
-                            .unwrap()
+                            .expect("fixture `runtime_value_type` call must succeed")
                             .const_zero()
                             .into()
                     })
@@ -554,7 +600,7 @@ mod tests {
                     &arguments,
                     role.as_str(),
                 )
-                .unwrap();
+                .expect("fixture `invoke_runtime` call must succeed");
 
                 assert_eq!(
                     value.map(|value| value.get_type()),
@@ -563,7 +609,7 @@ mod tests {
                 );
             }
 
-            builder.build_return(None).unwrap();
+            builder.build_return(None).expect("fixture `build_return` call must succeed");
 
             module
                 .verify()
@@ -583,7 +629,7 @@ mod tests {
                     continue;
                 };
 
-                let symbol = format!("@{}(", role.native_symbol().unwrap());
+                let symbol = format!("@{}(", role.native_symbol().expect("fixture runtime role must have a native symbol"));
 
                 if native == NativeTarget::X86_64WindowsMsvc {
                     let name = format!("%{}.argument", role.as_str());
@@ -621,12 +667,12 @@ mod tests {
                 let declaration = ir
                     .lines()
                     .find(|line| line.starts_with("declare ") && line.contains(&symbol))
-                    .unwrap();
+                    .expect("fixture lookup must find its expected value");
 
                 let call = ir
                     .lines()
                     .find(|line| line.contains(" call ") && line.contains(&symbol))
-                    .unwrap();
+                    .expect("fixture lookup must find its expected value");
 
                 assert_eq!(
                     declaration.matches("zeroext").count(),
@@ -669,50 +715,4 @@ mod tests {
             }
         }
     }
-}
-
-pub(crate) fn call_void_intrinsic<'context>(
-    module: &inkwell::module::Module<'context>,
-    context: &'context Context,
-    builder: &Builder<'context>,
-    name: &str,
-) -> Result<(), CodegenFailure> {
-    let function = module.get_function(name).unwrap_or_else(|| {
-        module.add_function(name, context.void_type().fn_type(&[], false), None)
-    });
-
-    builder
-        .build_call(function, &[], "")
-        .map_err(CodegenFailure::backend_library)?;
-
-    Ok(())
-}
-
-pub(crate) fn declare_callback<'context>(
-    module: &inkwell::module::Module<'context>,
-    name: &str,
-    block_name: &str,
-    ty: FunctionType<'context>,
-    target: &CodegenTarget,
-) -> FunctionValue<'context> {
-    let callback = module.add_function(name, ty, None);
-
-    callback.set_linkage(inkwell::module::Linkage::WeakODR);
-
-    callback
-        .as_global_value()
-        .set_visibility(inkwell::GlobalVisibility::Hidden);
-
-    crate::comdat::attach_any(
-        module,
-        callback.as_global_value(),
-        name,
-        target.machine().object_format(),
-    );
-
-    module
-        .get_context()
-        .append_basic_block(callback, block_name);
-
-    callback
 }

@@ -41,6 +41,7 @@ impl OperationEffects {
         &self.value_inputs
     }
 
+    #[expect(clippy::too_many_arguments, reason = "liveness consumes independently computed dependency, storage, memory and cleanup tables")]
     pub(crate) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
         semantics: &bray_bound_tree::CheckedExpressionSemantics,

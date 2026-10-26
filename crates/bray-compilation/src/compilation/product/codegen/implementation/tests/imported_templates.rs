@@ -396,14 +396,14 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().unwrap();
+    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
     let cancellation = &compilation.state.cancellation;
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let reachability = compilation
         .codegen_reachability(
@@ -414,7 +414,7 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
             false,
             cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let mut checked = 0;
 
@@ -435,7 +435,7 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
             .states()
             .iter()
             .find(|state| state.state() == completion)
-            .unwrap();
+            .expect("fixture lookup must find its expected value");
 
         assert!(state.retention().is_completion_cleanup());
 
@@ -908,13 +908,13 @@ fn imported_generic_destructors_retain_their_receiver_continuations() {
         .selected_target()
         .target()
         .codegen_target()
-        .unwrap();
+        .expect("fixture target must support code generation");
 
-    let semantics = consumer.product_semantics().unwrap();
+    let semantics = consumer.product_semantics().expect("fixture product semantics must resolve");
 
     let roots = consumer
         .product_root_instances(semantics.value(), None, &target, &cancellation)
-        .unwrap();
+        .expect("fixture product roots must resolve");
 
     let reachability = consumer
         .codegen_reachability(
@@ -925,7 +925,7 @@ fn imported_generic_destructors_retain_their_receiver_continuations() {
             false,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture product must resolve code-generation reachability");
 
     let destructor = reachability
         .graph()
@@ -949,7 +949,7 @@ fn imported_generic_destructors_retain_their_receiver_continuations() {
             None,
             &cancellation,
         )
-        .unwrap();
+        .expect("fixture `codegen_mir_for_plan` call must succeed");
 
     assert!(template.is_valid());
     assert!(template.cleanup_continuation().is_some());

@@ -79,6 +79,9 @@ pub(in crate::implementation) struct ImplementationDirectoryEntry {
     pub(in crate::implementation) payload: Range<usize>,
 }
 
+type DecodedPayload = OnceLock<Result<Arc<[u8]>, InterfaceValidationError>>;
+type NativeIndex = OnceLock<Result<Option<bray_native_artifact::NativeArtifactIndex>, super::native::PackageNativeArtifactError>>;
+
 /// An immutable package implementation artifact associated with one semantic interface.
 #[derive(Clone, Debug)]
 pub struct PackageImplementationArtifact {
@@ -87,15 +90,8 @@ pub struct PackageImplementationArtifact {
     pub(super) content_hash: [u8; 32],
     pub(super) artifact_hash: [u8; 32],
     pub(in crate::implementation) directory: Arc<[ImplementationDirectoryEntry]>,
-    pub(super) decoded: Arc<[OnceLock<Result<Arc<[u8]>, InterfaceValidationError>>]>,
-    pub(super) native_indexes: Arc<
-        [OnceLock<
-            Result<
-                Option<bray_native_artifact::NativeArtifactIndex>,
-                super::native::PackageNativeArtifactError,
-            >,
-        >; 3],
-    >,
+    pub(super) decoded: Arc<[DecodedPayload]>,
+    pub(super) native_indexes: Arc<[NativeIndex; 3]>,
     pub(super) allocation: Arc<Mutex<crate::decode::DecodeBudget>>,
     pub(super) limits: InterfaceValidationLimits,
 }

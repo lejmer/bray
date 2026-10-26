@@ -72,9 +72,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 _ => None,
             };
 
-            let Some(receiver) = receiver else {
-                return None;
-            };
+            let receiver = receiver?;
 
             let ty = self.types.expression(receiver).unwrap_or_else(|| {
                 panic!("checked scoped receiver {receiver:?} must retain its expression type")
