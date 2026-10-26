@@ -42,24 +42,26 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let cleanup = self.requirement(ty)?;
 
+        if matches!(cleanup, AsyncStorageCleanupRequirement::Recovered(_)) {
+            return Ok(false);
+        }
+
         if expansion == CleanupExpansion::FullDisposal {
             self.expanded_types.insert(ty);
 
-            let definition = match self.request.semantic_values().type_data(ty).as_ref() {
-                TypeData::Named { definition, .. } => Some(*definition),
-                _ => None,
-            };
-
-            let repeated = path.iter().any(|projection| projection.source_type() == ty
-                || definition.is_some_and(|definition|
-                    matches!(self.request.semantic_values().type_data(projection.source_type()).as_ref(),
-                        TypeData::Named { definition: previous, .. } if *previous == definition)));
+            let repeated = path.iter().any(|projection| projection.source_type() == ty);
 
             if repeated {
                 self.recursive_cleanup = true;
 
                 return Ok(true);
             }
+        }
+
+        if path.len() >= self.request.context().maximum_recursion_depth() {
+            self.report_recursion_limit(path.len().saturating_add(1));
+
+            return Ok(false);
         }
 
         if expansion == CleanupExpansion::FullDisposal

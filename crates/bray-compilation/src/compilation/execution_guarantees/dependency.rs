@@ -188,6 +188,11 @@ impl Compilation {
                     return Ok(None);
                 };
 
+                // An opaque callable contract supplies no selected target for a new termination proof.
+                if property == ExecutionProperty::Total {
+                    return Ok(None);
+                }
+
                 if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Callable(callable)
                     if callable.phase_behaviors().invocation().execution_properties().contains(&property))
                 {

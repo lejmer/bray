@@ -48,14 +48,14 @@ fn recursive_cleanup_limit_identifies_the_callable_and_recovery() {
 
     assert_eq!(
         rendered.message(),
-        "cleanup checking for 'discard' reached 257 nested calls, exceeding the limit of 256"
+        "cleanup checking for 'discard' reached 257 nested cleanup steps, exceeding the limit of 256"
     );
 
     assert_eq!(rendered.primary_span(), diagnostic.primary_span());
 
     assert_eq!(
         rendered.labels()[0].message(),
-        "recursive cleanup calls exceed the configured limit here"
+        "recursive cleanup exceeds the configured limit here"
     );
 
     assert_eq!(
@@ -65,7 +65,7 @@ fn recursive_cleanup_limit_identifies_the_callable_and_recovery() {
 
     assert_eq!(
         rendered.notes()[0].message(),
-        "reduce recursive generic nesting in the calls that retain these values"
+        "reduce recursive generic nesting in these types or calls"
     );
 }
 

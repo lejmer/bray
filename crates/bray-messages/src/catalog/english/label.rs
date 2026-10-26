@@ -58,7 +58,7 @@ const EXPECTED_EXPRESSION: &[MessageTemplatePart] = &[
 ];
 
 const CLEANUP_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "recursive cleanup calls exceed the configured limit here",
+    "recursive cleanup exceeds the configured limit here",
 )];
 
 const NESTING_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[MessageTemplatePart::Text(

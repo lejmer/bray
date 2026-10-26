@@ -966,7 +966,7 @@ const CHECKING_CLEANUP_RECURSION_LIMIT_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
     MessageTemplatePart::Text(" reached "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
-    MessageTemplatePart::Text(" nested calls, exceeding the limit of "),
+    MessageTemplatePart::Text(" nested cleanup steps, exceeding the limit of "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 
@@ -1935,7 +1935,7 @@ const NOTE_CONSTANT_EVALUATION_MUST_FIT_LIMITS: &[MessageTemplatePart] =
     )];
 
 const NOTE_SIMPLIFY_RECURSIVE_CLEANUP: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
-    "reduce recursive generic nesting in the calls that retain these values",
+    "reduce recursive generic nesting in these types or calls",
 )];
 
 const NOTE_TYPE_LAYOUT_DIRECTIVE_FORMS: &[MessageTemplatePart] = &[MessageTemplatePart::Text(

@@ -5,6 +5,7 @@ mod box_storage;
 mod call_result_lowering;
 mod callbacks;
 mod cleanup;
+mod cleanup_shapes;
 mod condition_refinements;
 mod constant_patterns;
 mod construction;

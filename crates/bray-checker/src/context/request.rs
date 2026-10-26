@@ -98,6 +98,9 @@ pub trait CheckerRequestContext: Sync {
     /// Exact failure type owned by the coordinating query layer.
     type UpstreamError;
 
+    /// Returns the configured maximum active semantic analysis depth.
+    fn maximum_recursion_depth(&self) -> usize;
+
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;
 

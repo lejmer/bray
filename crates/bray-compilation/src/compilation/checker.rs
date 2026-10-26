@@ -316,6 +316,10 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
     type UpstreamError = FactQueryError;
 
+    fn maximum_recursion_depth(&self) -> usize {
+        self.binding_context.compilation().semantic_recursion_limit()
+    }
+
     fn generic_constraint_scope(
         &self,
         context: &bray_checker::SemanticUnitContext,

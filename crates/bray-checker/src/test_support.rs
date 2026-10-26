@@ -111,6 +111,10 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn maximum_recursion_depth(&self) -> usize {
+        256
+    }
+
     fn generic_constraint_scope(
         &self,
         context: &SemanticUnitContext,

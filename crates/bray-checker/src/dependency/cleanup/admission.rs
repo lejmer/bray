@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticResult, SeverityKind,
-};
+use bray_diagnostics::{DiagnosticKind, DiagnosticResult};
 use bray_symbols::{
     CallableContractsQuery, DependencyCallOutput, DependencyRequirement, GenericArgument,
     GenericSubstitutionData,
@@ -21,7 +18,6 @@ pub(crate) fn check_synchronous_cleanup<C, F>(
     request: CheckerUnitView<'_, C>,
     mut cleanup: CleanupShapeResolver<'_, C>,
     requirements: &[DependencyRequirement],
-    maximum_depth: usize,
     completed: &mut F,
 ) -> Result<DiagnosticResult<()>, CheckerQueryError<C::UpstreamError>>
 where
@@ -30,6 +26,7 @@ where
         bray_bound_tree::LifecycleCallable,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>>,
 {
+    let maximum_depth = request.context().maximum_recursion_depth();
     let mut exact = BTreeSet::new();
     let mut checked = BTreeSet::new();
     let mut schemes = Vec::<super::induction::CleanupScheme>::new();
@@ -122,9 +119,14 @@ where
         }
 
         if depth > maximum_depth {
-            report_limit(
+            let owner = request
+                .symbols()
+                .runtime_default_subject(selected.owner())
+                .unwrap_or(selected.owner());
+
+            crate::diagnostic::report_cleanup_recursion_limit(
                 request,
-                selected,
+                Some(owner),
                 depth,
                 maximum_depth,
                 &mut cleanup.diagnostics,
@@ -338,53 +340,4 @@ pub(super) fn selected_key<C: CheckerRequestContext + ?Sized>(
         contextual_self,
         output: DependencyCallOutput::SynchronousCleanup,
     })))
-}
-
-fn report_limit<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    key: CleanupKey,
-    actual: usize,
-    maximum: usize,
-    diagnostics: &mut DiagnosticBag,
-) {
-    let source = request.unit().key().source().syntax();
-    let span = bray_source::SourceSpan::new(source.source_id(), source.full_range());
-
-    let owner = request
-        .symbols()
-        .runtime_default_subject(key.owner())
-        .unwrap_or(key.owner());
-
-    let name = request.symbols().member_name(owner).map_or_else(
-        || {
-            DiagnosticArg::new(
-                bray_diagnostics::DiagnosticArgName::DeclarationName,
-                bray_diagnostics::DiagnosticArgValue::SyntaxKind(source.syntax_kind()),
-            )
-        },
-        |name| DiagnosticArg::declaration_name(name.as_str()),
-    );
-
-    diagnostics.add(
-        Diagnostic::new(
-            crate::diagnostic::diagnostic_id(diagnostics.len()),
-            DiagnosticKind::CheckingCleanupRecursionLimitExceeded,
-            SeverityKind::Error,
-        )
-        .with_primary_span(span)
-        .with_label(DiagnosticLabel::primary(
-            DiagnosticLabelKind::CleanupRecursionLimitExceeded,
-            span,
-        ))
-        .with_arg(name)
-        .with_arg(DiagnosticArg::actual_count(
-            u64::try_from(actual).expect("cleanup depth fits diagnostic count"),
-        ))
-        .with_arg(DiagnosticArg::maximum_count(
-            u64::try_from(maximum).expect("semantic recursion limit fits diagnostic count"),
-        ))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::SimplifyRecursiveCleanup,
-        )),
-    );
 }
