@@ -83,7 +83,7 @@ impl StorageFlowInput {
         }
 
         for operation in memory.operations() {
-            match operation.kind() {
+            match *operation.kind() {
                 CheckedMemoryOperationKind::Write { pointee }
                 | CheckedMemoryOperationKind::VolatileWrite { pointee, .. }
                 | CheckedMemoryOperationKind::Copy { pointee, .. } => {

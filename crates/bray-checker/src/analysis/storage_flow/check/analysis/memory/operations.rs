@@ -54,7 +54,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             MemoryOperationStatus::Unreachable
         } else if state.recovered {
             MemoryOperationStatus::Recovered
-        } else if crate::memory::execution::requires_trust(&operation.kind())
+        } else if crate::memory::execution::requires_trust(operation.kind())
             && proven.is_none()
             && !refinements
                 .clone()
@@ -153,7 +153,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let result = || self.expression_result_storage(operation.expression());
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::UninitNew { .. }
             | CheckedMemoryOperationKind::UninitFrom { .. }
             | CheckedMemoryOperationKind::UninitPointer { .. }
@@ -265,7 +265,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let allocation = state.memory.fresh(result.clone(), operation.expression());
 
-                if operation.kind() == CheckedMemoryOperationKind::RawBufferAllocate {
+                if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferAllocate) {
                     self.retain_allocated_buffer_pointer(state, &result, allocation);
                 }
             }
@@ -325,7 +325,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let arguments = operation.arguments();
         let result = || self.expression_result_storage(operation.expression());
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::UninitNew { element } => {
                 if let Some(result) = result() {
                     state.memory.uninit(

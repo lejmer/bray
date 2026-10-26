@@ -135,7 +135,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .flatten()
             .is_some_and(|operation| {
-                crate::memory::execution::storage_effect(&operation.kind())
+                crate::memory::execution::storage_effect(operation.kind())
                     == crate::memory::execution::StorageEffect::Contents
             });
 

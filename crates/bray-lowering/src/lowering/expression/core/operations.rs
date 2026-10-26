@@ -927,7 +927,6 @@ impl Lowerer<'_> {
             .input
             .storage_flow()
             .checked_memory_operation(id)
-            .cloned()
         {
             return self.lower_memory_call(id, current, source, &selection, operation);
         }

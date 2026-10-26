@@ -14,7 +14,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         operation: &MirMemoryOperation,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::AtomicInitialize { value: value_type } => {
                 let [value_operand] = operation.operands() else {
                     panic!(
@@ -103,7 +103,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            unexpected => panic!(
+            ref unexpected => panic!(
                 "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
             ),
         }

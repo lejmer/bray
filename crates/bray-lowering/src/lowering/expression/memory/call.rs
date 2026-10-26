@@ -17,13 +17,13 @@ impl Lowerer<'_> {
         mut current: MirBlockId,
         source: MirSourceAnchor,
         selection: &bray_bound_tree::SelectedCall,
-        operation: CheckedMemoryOperation,
+        operation: &CheckedMemoryOperation,
     ) -> Result<LoweredExpression, LoweringError> {
         let kind = operation.kind();
 
         let (kind, inline_assembly_symbols) = lower_inline_assembly_contract(kind);
 
-        let selected_arguments = ordered_memory_arguments(id, selection, &operation);
+        let selected_arguments = ordered_memory_arguments(id, selection, operation);
 
         let mut arguments = Vec::with_capacity(operation.arguments().len());
         let mut inline_assembly_labels = None;
@@ -382,7 +382,7 @@ impl Lowerer<'_> {
                 current,
                 Self::retained_source(source),
                 MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
-                    memory.kind(),
+                    memory.kind().clone(),
                     arguments.into_iter().map(MirOperand::Copy),
                     memory.operand_types().iter().copied(),
                     None,

@@ -15,7 +15,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     )> {
         use bray_bound_tree::MemoryReadKind;
 
-        let (index, element, purpose) = match operation.kind() {
+        let (index, element, purpose) = match *operation.kind() {
             CheckedMemoryOperationKind::Read {
                 pointee: element,
                 kind: MemoryReadKind::Move,
@@ -67,13 +67,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         let operation = self.memory.operation(expression)?;
 
-        if crate::memory::execution::storage_effect(&operation.kind())
+        if crate::memory::execution::storage_effect(operation.kind())
             == crate::memory::execution::StorageEffect::None
         {
             return Some(Vec::new());
         }
 
-        match operation.kind() {
+        match *operation.kind() {
             CheckedMemoryOperationKind::RawBufferPush { element } => {
                 return self.buffer_prefix_effects(
                     state,

@@ -942,8 +942,8 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             assert_eq!(
                 memory,
                 [
-                    CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
-                    CheckedMemoryOperationKind::SequenceLength
+                    &CheckedMemoryOperationKind::RawBufferInitializedSliceMut,
+                    &CheckedMemoryOperationKind::SequenceLength
                 ]
             );
 

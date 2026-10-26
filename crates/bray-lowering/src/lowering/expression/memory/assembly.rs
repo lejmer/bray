@@ -309,7 +309,7 @@ impl Lowerer<'_> {
 }
 
 pub(super) fn lower_inline_assembly_contract(
-    kind: CheckedMemoryOperationKind,
+    kind: &CheckedMemoryOperationKind,
 ) -> (CheckedMemoryOperationKind, Vec<MirCallableReference>) {
     let CheckedMemoryOperationKind::InlineAssembly {
         inputs,
@@ -318,7 +318,7 @@ pub(super) fn lower_inline_assembly_contract(
         contract,
     } = kind
     else {
-        return (kind, Vec::new());
+        return (kind.clone(), Vec::new());
     };
 
     let symbols = contract
@@ -329,9 +329,9 @@ pub(super) fn lower_inline_assembly_contract(
 
     (
         CheckedMemoryOperationKind::InlineAssembly {
-            inputs,
-            output,
-            labels,
+            inputs: *inputs,
+            output: *output,
+            labels: *labels,
             contract: contract.without_symbols().into(),
         },
         symbols,

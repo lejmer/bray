@@ -290,7 +290,7 @@ fn buffer_traversal_admits_local_work_and_retains_it_after_borrowed_release() {
             MirOperationKind::AdmitOutgoing { owner: MirOutgoingOwner::Value(ty), .. } if *ty == buffer)).expect("fixture sequence must contain the selected entry");
 
         let allocation = allocated.operations().iter().position(|operation| matches!(operation.kind(),
-            MirOperationKind::Memory(memory) if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawBufferAllocate)).expect("fixture sequence must contain the selected entry");
+            MirOperationKind::Memory(memory) if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::RawBufferAllocate)).expect("fixture sequence must contain the selected entry");
 
         assert!(
             admission < allocation,

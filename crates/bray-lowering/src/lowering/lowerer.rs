@@ -1284,7 +1284,7 @@ mod tests {
             assert!(matches!(
                 mir.operations()[0].kind(),
                 MirOperationKind::Memory(operation)
-                    if operation.kind() == kind
+                    if operation.kind() == &kind
                         && operation.operands().len() == argument_count
                         && operation.result_type().is_some() == kind.produces_value()
             ));

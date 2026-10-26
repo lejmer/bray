@@ -144,7 +144,7 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         .iter()
         .find_map(|operation| match operation.kind() {
             bray_ir::MirOperationKind::Memory(memory)
-                if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::SequenceLength =>
+                if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::SequenceLength =>
             {
                 Some(memory)
             }

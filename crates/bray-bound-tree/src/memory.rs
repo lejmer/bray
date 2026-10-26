@@ -1459,8 +1459,8 @@ impl CheckedMemoryOperation {
     }
 
     /// Returns the exact memory behavior selected for the call.
-    pub fn kind(&self) -> CheckedMemoryOperationKind {
-        self.kind.clone()
+    pub const fn kind(&self) -> &CheckedMemoryOperationKind {
+        &self.kind
     }
 
     /// Returns evaluated source arguments in declaration-parameter order.

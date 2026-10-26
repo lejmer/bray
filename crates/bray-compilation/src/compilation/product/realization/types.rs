@@ -71,7 +71,7 @@ impl Compilation {
                     bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
                         contract,
                         ..
-                    } => Some(*contract),
+                    } => Some(**contract),
                     _ => None,
                 },
                 _ => None,

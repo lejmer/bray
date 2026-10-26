@@ -50,8 +50,8 @@ trusted func main() uses(manual_alloc)
     assert_eq!(
         kinds,
         [
-            CheckedMemoryOperationKind::RawAllocate,
-            CheckedMemoryOperationKind::RawDeallocate,
+            &CheckedMemoryOperationKind::RawAllocate,
+            &CheckedMemoryOperationKind::RawDeallocate,
         ]
     );
 }

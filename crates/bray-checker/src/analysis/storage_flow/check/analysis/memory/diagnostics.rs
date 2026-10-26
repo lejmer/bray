@@ -116,7 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             span,
         ))
         .with_arg(DiagnosticArg::memory_operation(
-            crate::memory_diagnostics::diagnostic_checked_memory_operation(&operation.kind()),
+            crate::memory_diagnostics::diagnostic_checked_memory_operation(operation.kind()),
         ));
 
         for (kind, origins) in origins {

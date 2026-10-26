@@ -57,7 +57,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if let ([owner], Some(result)) = (source.as_slice(), destination) {
             // This closed intrinsic exposes the owned allocation, not the owner's bytes.
-            let ty = match operation.kind() {
+            let ty = match *operation.kind() {
                 CheckedMemoryOperationKind::RawBufferSparePointer { element } => self
                     .request
                     .semantic_values()

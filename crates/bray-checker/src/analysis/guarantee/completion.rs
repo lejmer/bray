@@ -169,7 +169,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                             .and_then(|expression| memory.operation(expression))
                             .is_some_and(|operation| {
                                 crate::memory::execution::guarantees(
-                                    &operation.kind(),
+                                    operation.kind(),
                                     crate::ExecutionProperty::Pure,
                                 )
                             })
