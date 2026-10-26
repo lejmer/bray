@@ -391,12 +391,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         let value = self.storage_path_value(state, path);
-        let source = self.deferred_invocation(value.owner_identity())?;
 
+        let ExecutionCondition::Expression(source) = value.owner_identity() else {
+            return None;
+        };
+
+        // Capture disposal is selected at construction, even when the body has
+        // no deferred effects. The creator table retains that independent fact.
         self.disposal
             .plan
             .future_cleanup
-            .get(&source)
+            .get(source)
             .map(|(captures, _)| captures.as_slice())
     }
 

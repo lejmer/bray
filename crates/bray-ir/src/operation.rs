@@ -575,6 +575,15 @@ pub enum MirAsyncOperation {
         /// Selected private broadcast ABI role.
         runtime: MirRuntimeReference,
     },
+    /// Resolve an inactive future admitted at a synchronous ownership end.
+    /// Its concrete captures must finish cleanup without suspension. The retained
+    /// descriptor selects capture cleanup without entering the computation body.
+    ResolveInactiveFrame {
+        /// Inactive owner consumed exactly once with its backing and providers.
+        frame: MirOperand,
+        /// Selected synchronous lifecycle ABI role.
+        runtime: MirRuntimeReference,
+    },
     /// Destroy quiescent captures and release their inactive computation's storage.
     DestroyInactiveFrame {
         /// Quiescent owner consumed exactly once.

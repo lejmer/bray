@@ -173,7 +173,10 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         MirOperationKind::Async(MirAsyncOperation::BroadcastInactiveFrame { .. }) => {
             block_kind == MirBlockKind::CleanupBroadcast
         }
-        MirOperationKind::Async(MirAsyncOperation::DestroyInactiveFrame { .. }) => {
+        MirOperationKind::Async(
+            MirAsyncOperation::ResolveInactiveFrame { .. }
+            | MirAsyncOperation::DestroyInactiveFrame { .. },
+        ) => {
             block_kind != MirBlockKind::CleanupBroadcast
         }
         MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation { .. }) => {
@@ -298,6 +301,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
                     | MirAsyncOperation::PublishTerminalState { .. }
                     | MirAsyncOperation::BroadcastInactiveFrame { .. }
                     | MirAsyncOperation::DestroyInactiveFrame { .. }
+                    | MirAsyncOperation::ResolveInactiveFrame { .. }
                     | MirAsyncOperation::TransferCleanupIncident { .. }
                     | MirAsyncOperation::DestroyTerminalTask { .. }
             )
@@ -959,6 +963,10 @@ fn validate_async_operation(
         MirAsyncOperation::BroadcastInactiveFrame { frame, runtime } => {
             validate_operand(unit, frame, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::InactiveFrameBroadcast)?;
+        }
+        MirAsyncOperation::ResolveInactiveFrame { frame, runtime } => {
+            validate_operand(unit, frame, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::InactiveFrameResolution)?;
         }
         MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
             validate_operand(unit, frame, block, Some(operation_id))?;

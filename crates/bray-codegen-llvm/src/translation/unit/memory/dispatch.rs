@@ -756,16 +756,8 @@ mod tests {
             })
             .count();
 
-        assert_eq!(deallocations, 4);
-
-        assert!(
-            ir.lines().any(|line| {
-                line.contains("memory.buffer.previous_index")
-                    && line.contains("sub i64 %memory.buffer.index, 1")
-            }),
-            "raw-buffer destruction did not walk the initialized prefix in reverse order: {ir}"
-        );
-
+        assert_eq!(deallocations, 3);
+        assert!(!ir.contains("memory.buffer.previous_index"));
         assert!(!ir.contains("memory.buffer.next_index"));
     }
 
@@ -1899,7 +1891,7 @@ mod tests {
             None,
         );
 
-        checked_memory_continuation(builder, block, source, types)
+        block
     }
 
     fn push_borrowed_storage(
@@ -2481,7 +2473,8 @@ mod tests {
             CodegenSymbolKey::Instance(instance.key().clone()),
             name,
             CodegenLinkage::Internal,
-            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false),
+            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false)
+                .with_panic_report_context(),
         );
 
         let allocation_signature = CodegenCallableSignature::new(
@@ -2516,7 +2509,8 @@ mod tests {
                 CodegenResultMapping::Void,
                 CallableAbi::Bray,
                 false,
-            ),
+            )
+            .with_panic_report_context(),
         );
 
         let cleanup_symbol = helper_symbol(

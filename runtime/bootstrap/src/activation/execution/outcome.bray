@@ -246,9 +246,13 @@ trusted internal func take_terminal(
     return (incidents, progress);
 }
 
-// Commit only a detached, already quiescent frame whose captures have been resolved.
-trusted internal func commit(pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor)
-    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor))
+// Commit a detached frame only after its selected synchronous capture cleanup.
+// The caller retains the original inactive or quiescent state through the callback.
+trusted internal func commit(pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor, pos phase: u32)
+    requires(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        phase == bray.runtime.bootstrap.activation.INACTIVE || phase == bray.runtime.bootstrap.activation.RETAINED,
+    )
     ensures(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
         trusted retiring(pointer = cursor.pointer),
@@ -257,7 +261,7 @@ trusted internal func commit(pos cursor: &mut bray.runtime.bootstrap.activation.
 {
     let header = trusted access(cursor);
 
-    if header.phase != bray.runtime.bootstrap.activation.RETAINED || header.parent != 0 || header.child != 0
+    if header.phase != phase || header.parent != 0 || header.child != 0
     {
         trusted core.target.abort();
     }

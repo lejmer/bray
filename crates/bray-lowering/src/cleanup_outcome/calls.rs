@@ -12,6 +12,7 @@ impl CleanupOutcome {
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
+        reports: bool,
     ) -> Result<MirBlockId, MirCapacityError> {
         if builder.borrow_cleanup_collection(block, &self.collection()) {
             let continuation = builder.push_block(source.clone(), builder.block_kind(block))?;
@@ -25,8 +26,10 @@ impl CleanupOutcome {
             return Ok(continuation);
         }
 
+        // Cleanup runtimes can complete with incidents even without a panic or
+        // cancellation. Own that report just as for their failing outcomes.
         let (completed, _, continuation) =
-            self.check_completion(builder, block, source, None, false)?;
+            self.check_completion(builder, block, source, None, reports)?;
 
         builder.set_terminator(
             completed,

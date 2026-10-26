@@ -2103,6 +2103,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 task: self.operand()?,
             }),
             14 => Ok(Operation::ObserveFrameCancellation),
+            15 => Ok(Operation::ResolveInactiveFrame {
+                frame: self.operand()?,
+                runtime: self.runtime_reference()?,
+            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

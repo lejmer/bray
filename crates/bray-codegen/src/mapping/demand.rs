@@ -361,6 +361,7 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
         | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
         MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::ResolveInactiveFrame { frame, .. }
         | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
             collect_operand_value(frame, demands);
         }

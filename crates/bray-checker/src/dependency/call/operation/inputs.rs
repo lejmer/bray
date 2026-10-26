@@ -251,6 +251,9 @@ pub(super) fn evaluation_dependencies(
 
     for requirement in requirements {
         match requirement {
+            DependencyRequirement::CleanupDependencies { ty, requirements } => result.push(
+                DependencyRequirement::cleanup_dependencies(*ty, evaluation_dependencies(requirements, escaping)?),
+            ),
             DependencyRequirement::Direct { subject, kind }
                 if subject.subject_root() == DependencySubjectRoot::EvaluationStorage =>
             {

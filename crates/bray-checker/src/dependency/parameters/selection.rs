@@ -79,7 +79,7 @@ impl SelectionParameters {
             );
         }
 
-        solve_parameters(request, &nodes, &mut self.relevant)
+        solve_parameters(request, &nodes, &mut self.relevant, None)
     }
 }
 
@@ -93,6 +93,11 @@ fn selection_requirements(
     )>,
 ) -> Result<Vec<DependencyRequirement>, SemanticValueStoreError> {
     super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
+        if let DependencyRequirement::CleanupDependencies { requirements, .. } = item {
+            // Cleanup presence changes retained reports, not implementation selection.
+            return Some(selection_requirements(values, requirements, pending, edges));
+        }
+
         let (callable, requirement, inputs, output) = match item {
             DependencyRequirement::ResultCall {
                 output,

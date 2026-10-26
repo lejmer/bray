@@ -388,7 +388,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         unreachable!("lifecycle handled below")
                     };
 
-                    let effect = if self.cleanup_preserves_inputs(state, access) {
+                    // Inactive cleanup can retain reports even when its captures
+                    // leave every ordinary input observation unchanged.
+                    let effect = if self.cleanup_preserves_inputs(state, access)
+                        && crate::representation::type_representation(self.request, *ty)
+                            != Some(bray_compiler_known::RepresentationRole::Future)
+                    {
                         CleanupMutation::Unchanged
                     } else {
                         CleanupMutation::Opaque {

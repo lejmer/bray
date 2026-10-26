@@ -9,7 +9,8 @@ using internal bray.runtime.bootstrap.activation;
 
 // The compiler-bound caller owns the exact inactive token and its disjoint empty
 // outcome slot. Its provider and captured dependencies remain live through return.
-// Destroy consumes a quiescent owner. Broadcast retains the complete owner.
+// Destroy consumes a quiescent owner. Dispose resolves synchronously admitted
+// captures after broadcast. Broadcast retains the complete owner.
 trusted internal predicate entry(
     token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
@@ -91,7 +92,7 @@ trusted internal func resolve(
     pos mut cursor: bray.runtime.bootstrap.activation.run.Cursor,
     pos callback: bray.runtime.bootstrap.activation.callback.Invoke,
     pos ready: bray.runtime.bootstrap.activation.callback.Ready,
-    pos destroying: bool,
+    pos cleanup_exit: usize,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
 ) -> bray.runtime.bootstrap.ReportOutcome
     requires(
@@ -99,6 +100,7 @@ trusted internal func resolve(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted destination(output = outcome),
+        cleanup_exit == 0 || cleanup_exit == 6 || cleanup_exit == 5,
     )
     ensures(
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report),
@@ -109,14 +111,15 @@ trusted internal func resolve(
 {
     let header = trusted bray.runtime.bootstrap.activation.execution.read(&mut cursor);
 
-    if header.parent != 0 || header.child != 0 || (destroying && header.phase !=
-        bray.runtime.bootstrap.activation.RETAINED) || (!destroying && header.phase !=
-        bray.runtime.bootstrap.activation.INACTIVE && header.phase != bray.runtime.bootstrap.activation.RETAINED)
+    if header.parent != 0 || header.child != 0 || (cleanup_exit == 5 && header.phase !=
+        bray.runtime.bootstrap.activation.RETAINED) || (cleanup_exit == 0 && header.phase !=
+        bray.runtime.bootstrap.activation.INACTIVE && header.phase != bray.runtime.bootstrap.activation.RETAINED) ||
+        (cleanup_exit == 6 && (header.phase != bray.runtime.bootstrap.activation.INACTIVE || header.broadcasted == 0))
     {
         trusted core.target.abort();
     }
 
-    if !destroying && (header.phase == bray.runtime.bootstrap.activation.RETAINED || header.broadcasted != 0)
+    if cleanup_exit == 0 && (header.phase == bray.runtime.bootstrap.activation.RETAINED || header.broadcasted != 0)
     {
         return
         {
@@ -126,9 +129,15 @@ trusted internal func resolve(
         };
     }
 
-    let (mut progress, status) = if destroying
+    let (mut progress, status) = if cleanup_exit != 0
     {
-        yield trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(&mut cursor, callback, ready, 3, 5);
+        yield trusted bray.runtime.bootstrap.activation.execution.invoke_retaining(
+            &mut cursor,
+            callback,
+            ready,
+            3,
+            cleanup_exit
+        );
     }
     else
     {
@@ -142,7 +151,7 @@ trusted internal func resolve(
 
     let report = trusted bray.runtime.bootstrap.activation.execution.take_report(&mut progress);
 
-    if !destroying
+    if cleanup_exit == 0
     {
         let resident = trusted bray.runtime.bootstrap.activation.execution.access(&mut cursor);
 
@@ -156,7 +165,16 @@ trusted internal func resolve(
         };
     }
 
-    trusted bray.runtime.bootstrap.activation.execution.commit(&mut cursor);
+    let phase = if cleanup_exit == 6
+    {
+        yield bray.runtime.bootstrap.activation.INACTIVE;
+    }
+    else
+    {
+        yield bray.runtime.bootstrap.activation.RETAINED;
+    };
+
+    trusted bray.runtime.bootstrap.activation.execution.commit(&mut cursor, phase);
 
     let (mut released, remaining, mut incidents, release_status, consumed) =
         trusted bray.runtime.bootstrap.activation.execution.invoke(&mut cursor, callback, ready, 5, 0);
@@ -203,7 +221,7 @@ trusted internal func execute(
     pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
     pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos destroying: bool,
+    pos cleanup_exit: usize,
 )
     requires(
         trusted entry(token = pointer, outcome = outcome),
@@ -217,6 +235,7 @@ trusted internal func execute(
         trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
+        cleanup_exit == 0 || cleanup_exit == 6 || cleanup_exit == 5,
     )
     uses(layout_reinterpret, raw_memory, unchecked_init)
 {
@@ -239,7 +258,7 @@ trusted internal func execute(
 
     trusted output(pointer, outcome);
 
-    let result = trusted resolve(cursor, invoke, admission, destroying, outcome);
+    let result = trusted resolve(cursor, invoke, admission, cleanup_exit, outcome);
 
     trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(outcome, result);
 }
@@ -265,7 +284,7 @@ trusted internal func broadcast(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
 {
-    trusted execute(pointer, callback, ready, outcome, false);
+    trusted execute(pointer, callback, ready, outcome, 0);
 }
 
 @abi(c)
@@ -289,5 +308,29 @@ trusted internal func destroy(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
     )
 {
-    trusted execute(pointer, callback, ready, outcome, true);
+    trusted execute(pointer, callback, ready, outcome, 5);
+}
+
+@abi(c)
+trusted internal func dispose(
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos callback: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>,
+    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+)
+    requires(
+        trusted entry(token = pointer, outcome = outcome),
+        trusted bray.runtime.bootstrap.activation.producer_slot(pointer = pointer),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+            pointer = callback
+        ),
+        trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(pointer = ready),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+    )
+{
+    trusted execute(pointer, callback, ready, outcome, 6);
 }

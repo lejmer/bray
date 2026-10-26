@@ -19,7 +19,7 @@ trusted internal func advance(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         operation < 4,
-        operation != 3 || argument < 6,
+        operation != 3 || argument < 7,
     )
     ensures(
         trusted selected(cursor = &cursor),

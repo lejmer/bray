@@ -1016,6 +1016,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         while let Some(requirement) = pending.pop() {
             match &requirement.value {
+                InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
+                    self.enqueue(PendingRecord::Type(ty.raw()));
+                    pending.extend(requirements.iter());
+                }
                 InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
                 | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
                     self.enqueue(PendingRecord::Type(ty.raw()));

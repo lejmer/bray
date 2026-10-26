@@ -168,6 +168,13 @@ pub enum DependencyRequirement {
     SynchronousCleanup(super::TypeId),
     /// A pending finalizer body must satisfy its synchronous callee obligations.
     FinalizerBodyCleanup(super::TypeId),
+    /// Report dependencies retained only for capture types with cleanup work.
+    CleanupDependencies {
+        /// The capture type selected by generic specialization.
+        ty: super::TypeId,
+        /// Dependencies carried by a report from that capture's cleanup.
+        requirements: Arc<[DependencyRequirement]>,
+    },
     /// Cleanup performed while evaluating one exact declaration-owned default.
     DefaultCleanup {
         /// The selected parameter or field provider.
@@ -265,6 +272,14 @@ impl DependencyCallInput {
 }
 
 impl DependencyRequirement {
+    /// Retains report dependencies until specialization can discharge trivial captures.
+    pub fn cleanup_dependencies(
+        ty: super::TypeId,
+        requirements: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        Self::CleanupDependencies { ty, requirements: sorted_unique_shared_slice(requirements) }
+    }
+
     /// Creates a finite group of dependency equations.
     pub fn fixed_point(
         definitions: impl IntoIterator<Item = impl IntoIterator<Item = DependencyRequirement>>,

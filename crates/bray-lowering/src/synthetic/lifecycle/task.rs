@@ -92,7 +92,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )?;
 
         outcome
-            .check(builder, block, source)
+            .check(builder, block, source, false)
             .map_err(|cause| self.capacity_error(cause))
     }
 }

@@ -3360,7 +3360,7 @@ fn inactive_cleanup_retains_only_its_independent_native_destination() {
                     trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
                 )
             {{
-                _ = trusted resolve(cursor, callback, ready, false, outcome);
+                _ = trusted resolve(cursor, callback, ready, 0, outcome);
             }}
             "#,
         );

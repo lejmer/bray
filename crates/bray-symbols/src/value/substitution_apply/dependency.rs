@@ -318,6 +318,13 @@ impl SemanticValueStore {
         substitution: &Substitution<'_>,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
+            DependencyRequirement::CleanupDependencies { ty, requirements } => Ok(
+                DependencyRequirement::cleanup_dependencies(
+                    self.substitute_type_data(*ty, substitution)?,
+                    requirements.iter().map(|nested| self.substitute_dependency_requirement(nested, substitution))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+            ),
             DependencyRequirement::SynchronousCleanup(ty) => {
                 Ok(DependencyRequirement::SynchronousCleanup(
                     self.substitute_type_data(*ty, substitution)?,

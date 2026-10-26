@@ -89,8 +89,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         .as_global_value()
         .as_pointer_value();
 
-        // Native disposal owns a fresh empty destination, independent of an incoming outcome.
-        let outcome = self.allocate_panic_report_context()?;
+        // Inactive disposal obeys the same checked-call outcome contract as its
+        // enclosing source or generated helper, including an incoming destination.
+        let outcome = self.checked_call_panic_report_context()?;
 
         self.invoke_native_runtime(
             runtime,

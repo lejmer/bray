@@ -209,7 +209,7 @@ impl CleanupOutcome {
             None,
         )?;
 
-        let broadcast = self.check(builder, broadcast, source)?;
+        let broadcast = self.check(builder, broadcast, source, false)?;
 
         builder.set_terminator(
             broadcast,
@@ -232,6 +232,6 @@ impl CleanupOutcome {
 
         // Quiescence retains storage on every outcome. Its incidents remain owned
         // by the enclosing cleanup before destruction or payload transfer proceeds.
-        self.check(builder, resolution, source)
+        self.check(builder, resolution, source, false)
     }
 }

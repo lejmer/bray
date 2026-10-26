@@ -494,6 +494,8 @@ impl NativeFrameExit {
     pub const QUIESCENCE: Self = Self(4);
     /// Synchronously destroy captures whose child work has already quiesced.
     pub const RETAINED_DESTRUCTION: Self = Self(5);
+    /// Resolve checked inactive captures synchronously without a task continuation.
+    pub const SYNCHRONOUS_DISPOSAL: Self = Self(6);
 }
 
 /// Requirements for one continuation and callback operation, using activation's
