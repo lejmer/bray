@@ -174,7 +174,7 @@ impl Compilation {
             }
 
             if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
-                // TODO(BRA-500): Preserve checked guard domains and provenance on opaque foreign assertions.
+                // TODO(BRA-646): Preserve checked guard domains and provenance on opaque foreign assertions.
                 if declared
                     .value()
                     .domains()
