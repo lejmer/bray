@@ -20,6 +20,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
     request: CheckerUnitView<'_, C>,
     nodes: &BTreeMap<K, ParameterNode<K>>,
     relevant: &mut BTreeMap<K, Parameters>,
+    cleanup_parameters: Option<&BTreeMap<K, Parameters>>,
 ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
     let values = request.semantic_values();
 
@@ -39,10 +40,36 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
             let local = values.dependency_contract_template_data(node.local);
 
             // Extend this node's immutable local terms with the current callee approximation.
-            let mut requirements = local.requirements().to_vec();
+            let mut requirements = if cleanup_parameters.is_some() {
+                super::cleanup::exact_requirements(request, local.requirements())?
+            } else {
+                local.requirements().to_vec()
+            };
 
             for (callable, target) in &node.edges {
-                let callable = retain_parameters(values, *callable, relevant.get(target))
+                let mut retained = cleanup_parameters.map(|_| relevant.get(target)
+                    .into_iter().flatten().copied().collect::<Parameters>());
+
+                if let (Some(retained), Some(all)) = (retained.as_mut(), cleanup_parameters.and_then(|all| all.get(target))) {
+                    let selected = values.generic_substitution_data(callable.substitution());
+
+                    for binding in selected.bindings() {
+                        if !all.contains(&binding.parameter()) || retained.contains(&binding.parameter()) {
+                            continue;
+                        }
+
+                        match binding.argument() {
+                            bray_symbols::GenericArgument::Type(ty) => {
+                                requirements.extend(super::cleanup::exact_predicate_requirements(request, ty)?);
+                            }
+                            // Cleanup presence is independent of constant arguments.
+                            // Type projections that need them remain exact above.
+                            _ => {}
+                        }
+                    }
+                }
+
+                let callable = retain_parameters(values, *callable, retained.as_ref().or_else(|| relevant.get(target)))
                     .and_then(|callable| values.intern_callable_instance(callable)).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in solve_parameters: {error:?}"));
 
                 requirements.push(DependencyRequirement::result_call(

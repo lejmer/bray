@@ -690,6 +690,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             MirAsyncOperation::BroadcastInactiveFrame { frame, runtime }
+            | MirAsyncOperation::ResolveInactiveFrame { frame, runtime }
             | MirAsyncOperation::DestroyInactiveFrame { frame, runtime } => {
                 self.cleanup_inactive_frame(frame, *runtime)?;
 

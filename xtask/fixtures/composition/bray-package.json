@@ -26,6 +26,10 @@
       "path": "cleanup"
     },
     {
+      "name": "inactive-futures",
+      "path": "inactive-futures"
+    },
+    {
       "name": "selected-entry",
       "path": "selected-entry"
     },
@@ -101,6 +105,20 @@
       "tested_library": "library",
       "source_roots": [
         "cleanup"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "inactive-futures",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "inactive-futures"
       ],
       "targets": [
         "native"

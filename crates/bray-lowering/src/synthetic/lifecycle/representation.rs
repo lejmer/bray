@@ -131,7 +131,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
 
                 outcome
-                    .check(builder, block, source)
+                    .check(builder, block, source, true)
                     .map_err(|cause| self.capacity_error(cause))
             }
             LifecycleAction::Members(members) => {
@@ -481,7 +481,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
 
                 let abandoned = outcome
-                    .check(builder, abandoned, source)
+                    .check(builder, abandoned, source, false)
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 let ordinary = if retirement.is_some() {
@@ -501,7 +501,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     )?;
 
                     outcome
-                        .check(builder, ordinary, source)
+                        .check(builder, ordinary, source, false)
                         .map_err(|cause| self.capacity_error(cause))?
                 };
 
@@ -532,7 +532,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         self.push_lifecycle_operation(builder, block, source, operation)?;
 
         outcome
-            .check(builder, block, source)
+            .check(builder, block, source, false)
             .map_err(|cause| self.capacity_error(cause))
     }
 

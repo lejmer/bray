@@ -290,6 +290,7 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
         | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
         MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::ResolveInactiveFrame { frame, .. }
         | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
             visit_operand(frame, visit);
         }

@@ -407,6 +407,7 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         | MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
         MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::ResolveInactiveFrame { frame, .. }
         | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => {
             collect_operand_types(frame, types);
         }

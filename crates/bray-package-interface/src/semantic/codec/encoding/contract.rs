@@ -261,6 +261,15 @@ pub(super) fn encode_dependency_requirement(
     requirement: &InterfaceDependencyRequirement,
 ) {
     match &requirement.value {
+        InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
+            encoder.write_u32(10);
+            encoder.write_u32(ty.raw());
+            write_count(encoder, requirements.len());
+
+            for nested in requirements.iter() {
+                encode_dependency_requirement(encoder, nested);
+            }
+        }
         InterfaceDependencyRequirementValue::SynchronousCleanup(ty) => {
             encoder.write_u32(7);
             encoder.write_u32(ty.raw());

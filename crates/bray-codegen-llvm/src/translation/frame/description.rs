@@ -291,6 +291,19 @@ fn callback_entry<'context>(
         )
         .map_err(CodegenFailure::backend_library)?;
 
+    let inactive = builder
+        .build_int_compare(
+            inkwell::IntPredicate::EQ,
+            argument,
+            argument.get_type().const_int(6, false),
+            "frame.inactive.disposal",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let failure = builder
+        .build_or(failure, inactive, "frame.abandoned")
+        .map_err(CodegenFailure::backend_library)?;
+
     let abandon = builder
         .build_and(resolve, failure, "frame.resolve.cleanup")
         .map_err(CodegenFailure::backend_library)?;

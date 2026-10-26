@@ -22,18 +22,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR place translation requires an established mapping or value");
 
         for projection in place.projections() {
-            if projection.source_type() != source_type {
-                panic!("checked MIR place translation violated an established compiler contract");
-            }
+            assert_eq!(
+                projection.source_type(),
+                source_type,
+                "checked MIR projection must start at its storage type: unit={:?}, place={place:?}",
+                self.unit.key(),
+            );
 
             pointer = self.project_place(pointer, source_type, projection)?;
 
             source_type = projection.result_type();
         }
 
-        if source_type != place.ty() {
-            panic!("checked MIR place translation violated an established compiler contract");
-        }
+        assert_eq!(
+            source_type,
+            place.ty(),
+            "checked MIR projections must reach the selected place type: unit={:?}, place={place:?}",
+            self.unit.key(),
+        );
 
         Ok(pointer)
     }

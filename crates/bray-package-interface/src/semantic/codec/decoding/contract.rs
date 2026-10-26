@@ -436,6 +436,12 @@ pub(super) fn decode_dependency_requirement(
     let raw = read_u32(reader)?;
 
     match raw {
+        10 => {
+            let ty = crate::InterfaceTypeId::new(read_u32(reader)?);
+            let requirements = decode_dependency_requirements(reader, limits, context, depth.saturating_add(1))?;
+
+            Ok(InterfaceDependencyRequirement::cleanup_dependencies(ty, requirements))
+        }
         7 => Ok(InterfaceDependencyRequirement::synchronous_cleanup(
             crate::InterfaceTypeId::new(read_u32(reader)?),
         )),

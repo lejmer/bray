@@ -127,6 +127,90 @@ fn normal_reports_follow_calls_and_consumed_futures() {
 }
 
 #[test]
+fn inactive_generic_cleanup_discharges_trivial_capture_report_dependencies() {
+    let application = compilation(r#"
+        module app;
+        async func hold<T>(pos value: T) {}
+        func discard<T>(pos value: T) { let pending = hold<T>(value); }
+        func caller() {
+            let value: bool = true;
+            discard<(&bool)>(&value);
+        }
+    "#);
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}; discard={:#?}; caller={:#?}",
+        crate::compilation::result_dependencies::source_function_dependencies(&application, "discard"),
+        crate::compilation::result_dependencies::source_function_dependencies(&application, "caller"));
+}
+
+#[test]
+fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
+    let application = compilation(r#"
+        module app;
+        struct Wrapper<T> { value: T; }
+        async func hold<T>(pos value: T) {}
+        func discard<T>(pos value: T, pos stop: bool) {
+            if stop {
+                let pending = hold<T>(value);
+                return;
+            }
+            let wrapped: Wrapper<T> = { value = value };
+            discard<Wrapper<T>>(wrapped, stop);
+        }
+        func caller() { discard<i32>(1, true); }
+    "#);
+
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
+fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
+    for local in [false, true] {
+        let source = r#"
+            module app;
+            struct Incident { value: &bool; }
+            struct Resource {
+                value: &bool;
+                finalize() -> Result<unit, Incident> {
+                    return Error(Incident { value = self.value });
+                }
+            }
+            async func hold<T>(pos value: T) {}
+            func discard<T>(pos value: T) { let pending = hold<T>(value); }
+            func caller(pos input: &bool) {
+                Prologue
+                discard<Resource>(Resource { value = Argument });
+            }
+        "#
+        .replace("Prologue", if local { "let local: bool = true;" } else { "" })
+        .replace("Argument", if local { "&local" } else { "input" });
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        if local {
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        } else {
+            assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+            let summary = crate::compilation::result_dependencies::source_function_dependencies(
+                &application,
+                "caller",
+            );
+
+            assert!(summary.completion_reports().is_some_and(|requirements| !requirements.is_empty()));
+        }
+    }
+}
+
+#[test]
 fn retained_scoped_exit_errors_keep_borrowed_origins_alive() {
     for (parameter, escapes) in [("Resource", true), ("&Resource", false)] {
         let source = r#"

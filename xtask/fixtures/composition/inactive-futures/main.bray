@@ -1,0 +1,279 @@
+module composition.inactive_futures;
+
+using composition.api;
+using core.atomic;
+
+static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct SynchronousCapture
+{
+    finalize()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 1);
+    }
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 2);
+    }
+}
+
+struct CompletedCapture<const Ready: bool>
+{
+    value: SynchronousCapture;
+
+    async finalize()
+        when(Ready)
+        {
+            executes(pure, total)
+        } {}
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 3);
+    }
+}
+
+struct CleanupError
+{
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 6);
+    }
+}
+
+struct FailingCapture
+{
+    finalize() -> Result<unit, CleanupError>
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 4);
+
+        return Error(
+            CleanupError
+            {
+            }
+        );
+    }
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + 5);
+    }
+}
+
+async func hold_inactive<T>(pos value: T)
+{
+    panic("inactive computation body");
+}
+
+func discard_local<T>(pos value: T, pos failing: bool)
+{
+    let initial = hold_inactive<T>(value);
+    let pending = initial;
+
+    if failing
+    {
+        panic("inactive owner exit");
+    }
+}
+
+func abandon_local<T>(pos value: T)
+{
+    let pending = hold_inactive<T>(value);
+
+    panic("inactive owner exit");
+}
+
+func verify_local<T>(pos value: T, pos allowed: bool)
+    requires(allowed, allowed == true)
+{
+    discard_local<T>(value, false);
+}
+
+@test
+func run()
+{
+    let scalar = hold_inactive<i32>(3);
+
+    discard_local<i32>(1, false);
+    composition.api.discard_inactive<i32>(1, false);
+
+    {
+        let value: bool = true;
+
+        discard_local<(&bool)>(&value, false);
+        composition.api.discard_inactive<(&bool)>(&value, false);
+    };
+
+    check_inactive_capture(false, false);
+    check_inactive_capture(false, true);
+    check_inactive_capture(true, false);
+    check_inactive_capture(true, true);
+    check_inactive_requirements(false, false);
+    check_inactive_requirements(false, true);
+    check_inactive_requirements(true, false);
+    check_inactive_requirements(true, true);
+    check_inactive_incident(false, false);
+    check_inactive_incident(false, true);
+    check_inactive_incident(true, false);
+    check_inactive_incident(true, true);
+}
+
+func check_inactive_requirements(pos imported: bool, pos allowed: bool)
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let result = catch
+    {
+        if imported
+        {
+            composition.api.verify_inactive<SynchronousCapture>(
+                SynchronousCapture
+                {
+                },
+                allowed
+            );
+        }
+        else
+        {
+            verify_local<SynchronousCapture>(
+                SynchronousCapture
+                {
+                },
+                allowed
+            );
+        }
+
+        yield unit;
+    };
+
+    assert((result matches Error(_)) == !allowed);
+    assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+}
+
+func check_inactive_incident(pos imported: bool, pos abandoning: bool)
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    {
+        let result = catch
+        {
+            if !abandoning
+            {
+                if imported
+                {
+                    composition.api.discard_inactive<FailingCapture>(
+                        FailingCapture
+                        {
+                        },
+                        false
+                    );
+                }
+                else
+                {
+                    discard_local<FailingCapture>(
+                        FailingCapture
+                        {
+                        },
+                        false
+                    );
+                }
+
+                assert(core.atomic.load<usize, 1>(&COUNT) == 45);
+                panic("after inactive disposal");
+            }
+            else if imported
+            {
+                composition.api.abandon_inactive<FailingCapture>(
+                    FailingCapture
+                    {
+                    }
+                );
+            }
+            else
+            {
+                abandon_local<FailingCapture>(
+                    FailingCapture
+                    {
+                    }
+                );
+            }
+
+            yield unit;
+        };
+
+        assert(result matches Error(_));
+        assert(core.atomic.load<usize, 1>(&COUNT) == 45);
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 456);
+}
+
+func check_inactive_capture(pos imported: bool, pos failing: bool)
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let synchronous = catch
+    {
+        if imported
+        {
+            composition.api.discard_inactive<SynchronousCapture>(
+                SynchronousCapture
+                {
+                },
+                failing
+            );
+        }
+        else
+        {
+            discard_local<SynchronousCapture>(
+                SynchronousCapture
+                {
+                },
+                failing
+            );
+        }
+
+        yield unit;
+    };
+
+    assert((synchronous matches Error(_)) == failing);
+    assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let completed = catch
+    {
+        let capture: CompletedCapture<true> =
+        {
+            value = SynchronousCapture
+            {
+            }
+        };
+
+        if imported
+        {
+            composition.api.discard_inactive<CompletedCapture<true>>(capture, failing);
+        }
+        else
+        {
+            discard_local<CompletedCapture<true>>(capture, failing);
+        }
+
+        yield unit;
+    };
+
+    assert((completed matches Error(_)) == failing);
+    assert(core.atomic.load<usize, 1>(&COUNT) == 312);
+}

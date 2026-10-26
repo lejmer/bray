@@ -1,0 +1,30 @@
+module api;
+
+async func hold_inactive<T>(pos value: T)
+{
+    panic("inactive computation body");
+}
+
+func discard_inactive<T>(pos value: T, pos failing: bool)
+{
+    let initial = hold_inactive<T>(value);
+    let pending = initial;
+
+    if failing
+    {
+        panic("inactive owner exit");
+    }
+}
+
+func abandon_inactive<T>(pos value: T)
+{
+    let pending = hold_inactive<T>(value);
+
+    panic("inactive owner exit");
+}
+
+func verify_inactive<T>(pos value: T, pos allowed: bool)
+    requires(allowed, allowed == true)
+{
+    discard_inactive<T>(value, false);
+}

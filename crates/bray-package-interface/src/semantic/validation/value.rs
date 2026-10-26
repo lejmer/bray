@@ -545,6 +545,13 @@ impl InterfaceSemantics {
         limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
 
         match &requirement.value {
+            InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
+                validate_index(ty.to_index(), self.types.len())?;
+
+                for nested in requirements.iter() {
+                    self.validate_dependency_requirement(nested, symbol_count, dependency_count, depth.saturating_add(1), limits, scopes)?;
+                }
+            }
             InterfaceDependencyRequirementValue::SynchronousCleanup(_)
             | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(_)
             | InterfaceDependencyRequirementValue::DefaultCleanup { .. } => {

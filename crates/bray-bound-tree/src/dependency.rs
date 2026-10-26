@@ -457,6 +457,7 @@ where
             panic!("cleanup requirements are admitted separately from value lifetime contracts")
         }
         DependencyRequirement::ResultCall { .. }
+        | DependencyRequirement::CleanupDependencies { .. }
         | DependencyRequirement::FixedPoint { .. }
         | DependencyRequirement::Variable { .. } => {
             Err(DependencyContractInstantiationError::UnresolvedWitness)

@@ -219,6 +219,9 @@ impl<'a> SemanticExporter<'a> {
         requirement: &DependencyRequirement,
     ) -> Result<InterfaceDependencyRequirement, PackageInterfaceExportError> {
         match requirement {
+            DependencyRequirement::CleanupDependencies { ty, requirements } => Ok(
+                InterfaceDependencyRequirement::cleanup_dependencies(self.type_id(*ty)?, self.dependency_requirements(requirements)?),
+            ),
             DependencyRequirement::SynchronousCleanup(ty) => Ok(
                 InterfaceDependencyRequirement::synchronous_cleanup(self.type_id(*ty)?),
             ),

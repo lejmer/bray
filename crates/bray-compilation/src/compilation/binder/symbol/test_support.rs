@@ -89,6 +89,7 @@ pub(super) fn assert_parameter_dependency_contract(
             | DependencyRequirement::FixedPoint { .. }
             | DependencyRequirement::SynchronousCleanup(_)
             | DependencyRequirement::FinalizerBodyCleanup(_)
+            | DependencyRequirement::CleanupDependencies { .. }
             | DependencyRequirement::DefaultCleanup { .. }
             | DependencyRequirement::Variable { .. } => None,
         })

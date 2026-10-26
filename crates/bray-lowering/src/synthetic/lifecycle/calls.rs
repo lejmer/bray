@@ -83,7 +83,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )?;
 
         let end = outcome
-            .check(builder, block, source)
+            .check(builder, block, source, false)
             .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, end, source, &outcome, &mut None)

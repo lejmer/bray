@@ -265,7 +265,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
 
                 let block = outcome
-                    .check(builder, block, source)
+                    .check(builder, block, source, false)
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
@@ -290,7 +290,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
 
                 let block = outcome
-                    .check(builder, block, source)
+                    .check(builder, block, source, false)
                     .map_err(|cause| self.capacity_error(cause))?;
 
                 return self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None);
@@ -442,7 +442,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         }
 
         let block = outcome
-            .check(builder, block, source)
+            .check(builder, block, source, false)
             .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, block, source, &outcome, &mut None)

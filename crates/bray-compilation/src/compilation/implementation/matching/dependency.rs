@@ -94,6 +94,14 @@ impl HeaderMatcher<'_> {
     ) -> Result<bool, SemanticValueStoreError> {
         match (pattern, actual) {
             (
+                DependencyRequirement::CleanupDependencies { ty: pattern, requirements: a },
+                DependencyRequirement::CleanupDependencies { ty: actual, requirements: b },
+            ) => {
+                if !self.match_type(*pattern, *actual)? { return Ok(false); }
+
+                self.match_dependency_requirements(a, b)
+            }
+            (
                 DependencyRequirement::Variable {
                     depth: a,
                     ordinal: b,

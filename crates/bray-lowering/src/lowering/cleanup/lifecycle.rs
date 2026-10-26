@@ -67,11 +67,25 @@ impl Lowerer<'_> {
 
         if release.is_none()
             && phase == MirCleanupPhase::LifecycleResolution
-            && self.input.unit_kind().protected_frame().is_some()
             && self.type_representation(owner)
                 == Some(bray_compiler_known::RepresentationRole::Future)
         {
-            return self.push_inactive_cleanup(block, source, place);
+            return if self.input.unit_kind().protected_frame().is_some() {
+                self.push_inactive_cleanup(block, source, place)
+            } else {
+                // Checking admits the selected captures at this synchronous boundary,
+                // including deferred generic instances. Preserve that choice in imported MIR.
+                self.resolve_structural_cleanup(
+                    block,
+                    source,
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame {
+                        frame: MirOperand::Move(place),
+                        runtime: self.runtime_reference(
+                            bray_runtime_interface::RuntimeAbiRole::InactiveFrameResolution,
+                        ),
+                    }),
+                )
+            };
         }
 
         if release.is_none()
@@ -90,7 +104,7 @@ impl Lowerer<'_> {
             self.push_storage_protocol_call(block, source, &place, release, true)?;
 
             return if let Some(outcome) = &self.cleanup_outcome {
-                Ok(outcome.check(&mut self.builder, block, source)?)
+                Ok(outcome.check(&mut self.builder, block, source, false)?)
             } else {
                 Ok(self
                     .check_ordinary_cleanup(block, source, Some(owner), false, None, None)?
@@ -145,9 +159,12 @@ impl Lowerer<'_> {
 
         let outcome = outcome.with_retention(retention);
 
+        let reports = matches!(operation,
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }));
+
         self.push_operation(block, Self::retained_source(source), operation, None)?;
 
-        let completed = outcome.check(&mut self.builder, block, source)?;
+        let completed = outcome.check(&mut self.builder, block, source, reports)?;
 
         if local {
             self.finish_finalizer_outcome(completed, source, &outcome)
@@ -297,7 +314,7 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        let block = outcome.check(&mut self.builder, block, source)?;
+        let block = outcome.check(&mut self.builder, block, source, false)?;
 
         if local {
             self.finish_finalizer_outcome(block, source, &outcome)

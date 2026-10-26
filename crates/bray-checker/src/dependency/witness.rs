@@ -153,8 +153,8 @@ struct EquationFrame {
 
 struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     request: CheckerUnitView<'a, C>,
-    active: std::collections::BTreeSet<super::parameters::ResultKey>,
-    results: std::collections::BTreeMap<super::parameters::ResultKey, Vec<DependencyRequirement>>,
+    active: std::collections::BTreeSet<super::parameters::ResultIdentity>,
+    results: std::collections::BTreeMap<super::parameters::ResultIdentity, Vec<DependencyRequirement>>,
     changed: bool,
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
@@ -201,7 +201,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let key = self.parameters.key(self.request, key)?;
 
-        if !self.active.insert(key) {
+        // Active membership and the stored approximation share immutable condition truths.
+        if !self.active.insert((key.0, key.1.as_ref().map(std::sync::Arc::clone))) {
             // Recursive calls read the preceding approximation while this result is recomputed.
             return Ok(self.results.get(&key).cloned().unwrap_or_default());
         }
@@ -213,7 +214,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let template = instantiate_template(request, template, selected)?;
 
-        let requirements = template.output_requirements(key.output);
+        let requirements = template.output_requirements(selected.output);
         let result = DependencyContractTemplateData::new(self.requirements(requirements)?);
 
         self.active.remove(&key);
@@ -357,6 +358,17 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             }
 
             match item {
+                DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                    if !request.semantic_values().type_is_concrete(*ty) {
+                        result.push(DependencyRequirement::cleanup_dependencies(*ty, self.requirements(requirements)?));
+                    } else {
+                        let mut cleanup = crate::asynchronous::CleanupShapeResolver::new(request);
+
+                        if cleanup.requirement(*ty)? != bray_bound_tree::AsyncStorageCleanupRequirement::None {
+                            result.extend(self.requirements(requirements)?);
+                        }
+                    }
+                }
                 DependencyRequirement::FixedPoint {
                     definitions,
                     result: roots,

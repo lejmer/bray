@@ -2600,6 +2600,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(frame)?;
                 self.runtime_reference(*runtime);
             }
+            Operation::ResolveInactiveFrame { frame, runtime } => {
+                self.wire.write_u32(15);
+                self.operand(frame)?;
+                self.runtime_reference(*runtime);
+            }
             Operation::DestroyInactiveFrame { frame, runtime } => {
                 self.wire.write_u32(11);
                 self.operand(frame)?;

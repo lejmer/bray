@@ -190,6 +190,13 @@ impl MirPlace {
         }
 
         if let Some(replacement) = replacement {
+            // A specialized receiver tail can use a concrete type while its caller
+            // retains the equivalent symbolic type. Continue from the caller's path.
+            match Arc::make_mut(&mut self.projections).first_mut() {
+                Some(projection) => projection.source_type = replacement.ty(),
+                None => self.ty = replacement.ty(),
+            }
+
             // Each instruction owns its complete path into the caller's shared record.
             self.projections = replacement
                 .projections()

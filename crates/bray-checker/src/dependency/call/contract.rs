@@ -330,6 +330,7 @@ pub(super) fn concrete_requirements(
     requirements
         .iter()
         .flat_map(|requirement| match requirement {
+            DependencyRequirement::CleanupDependencies { requirements, .. } => concrete_requirements(requirements),
             // Contracts own their lists and share immutable subject paths.
             DependencyRequirement::Direct { .. } => vec![requirement.clone()],
             DependencyRequirement::Guarded(guarded) => vec![DependencyRequirement::guarded(

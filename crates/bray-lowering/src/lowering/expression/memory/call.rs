@@ -354,7 +354,7 @@ impl Lowerer<'_> {
                 None,
             )?;
 
-            current = outcome.check(&mut self.builder, current, source)?;
+            current = outcome.check(&mut self.builder, current, source, false)?;
 
             if let Some(next) = next {
                 self.set_terminator(

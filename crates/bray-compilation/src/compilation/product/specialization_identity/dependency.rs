@@ -305,6 +305,15 @@ impl StructuralValueEncoder<'_, '_> {
         requirement: &DependencyRequirement,
     ) -> Result<(), FactQueryError> {
         match requirement {
+            DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                self.tag(9);
+                self.ty(*ty)?;
+                self.length(requirements.len());
+
+                for nested in requirements.iter() {
+                    self.dependency_requirement(nested)?;
+                }
+            }
             DependencyRequirement::SynchronousCleanup(ty) => {
                 self.tag(6);
                 self.ty(*ty)?;

@@ -345,6 +345,7 @@ fn remap_async_operation(operation: &mut MirAsyncOperation, mappings: &impl MirL
         MirAsyncOperation::ObserveFrameCancellation
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. } => {}
         MirAsyncOperation::BroadcastInactiveFrame { frame, .. }
+        | MirAsyncOperation::ResolveInactiveFrame { frame, .. }
         | MirAsyncOperation::DestroyInactiveFrame { frame, .. } => frame.remap_local_ids(mappings),
     }
 }

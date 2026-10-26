@@ -363,6 +363,7 @@ fn validate_call_outcome_check(
             crate::MirOperationKind::Async(
                 crate::MirAsyncOperation::CommitAwaitedCompletion { .. }
                 | crate::MirAsyncOperation::BroadcastInactiveFrame { .. }
+                | crate::MirAsyncOperation::ResolveInactiveFrame { .. }
                 | crate::MirAsyncOperation::DestroyInactiveFrame { .. },
             )
             | crate::MirOperationKind::AdmitOutgoing { .. }

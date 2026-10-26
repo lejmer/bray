@@ -33,7 +33,7 @@ trusted internal func read(
 {
     let descriptor = trusted bray.runtime.bootstrap.activation.description(token);
 
-    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 6)
+    if state >= descriptor.states || operation >= 6 || (operation == 3 && argument >= 7)
     {
         return none;
     }

@@ -14,10 +14,16 @@ pub(in crate::dependency) struct ResultKey {
     pub(in crate::dependency) output: bray_symbols::DependencyCallOutput,
 }
 
+pub(in crate::dependency) type ResultIdentity = (
+    ResultKey,
+    Option<std::sync::Arc<[(bray_symbols::GenericParameterSymbolId, bool)]>>,
+);
+
 #[derive(Default)]
 pub(in crate::dependency) struct ResultParameters {
     selection: super::selection::SelectionParameters,
     relevant: BTreeMap<ResultKey, Parameters>,
+    exact: BTreeMap<ResultKey, Parameters>,
 }
 
 impl ResultParameters {
@@ -25,7 +31,7 @@ impl ResultParameters {
         &mut self,
         request: CheckerUnitView<'_, C>,
         selected: ResultKey,
-    ) -> Result<ResultKey, CheckerQueryError<C::UpstreamError>> {
+    ) -> Result<ResultIdentity, CheckerQueryError<C::UpstreamError>> {
         // Reuse a relevance graph only when its implementation-selection arguments agree.
         let node = ResultKey {
             callable: self
@@ -38,16 +44,50 @@ impl ResultParameters {
             self.discover(request, node, selected.callable)?;
         }
 
+        let values = request.semantic_values();
+        let relevant = &self.relevant[&node];
+        let mut retained = None;
+        let mut conditions = Vec::new();
+        let mut cleanup = None;
+
+        if let Some(exact) = self.exact.get(&node)
+            && exact != relevant
+        {
+            let retained = retained.get_or_insert_with(Parameters::new);
+            let substitution = values.generic_substitution_data(selected.callable.substitution());
+
+            for binding in substitution.bindings() {
+                if !relevant.contains(&binding.parameter()) {
+                    continue;
+                }
+
+                if exact.contains(&binding.parameter()) {
+                    retained.insert(binding.parameter());
+                    continue;
+                }
+
+                if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
+                    if values.type_is_concrete(ty) {
+                        let cleanup = cleanup.get_or_insert_with(|| crate::asynchronous::CleanupShapeResolver::new(request));
+
+                        conditions.push((binding.parameter(), cleanup.requirement(ty)? != bray_bound_tree::AsyncStorageCleanupRequirement::None));
+                    } else {
+                        retained.insert(binding.parameter());
+                    }
+                }
+            }
+        }
+
         let callable = retain_parameters(
             request.semantic_values(),
             selected.callable,
-            self.relevant.get(&node),
+            retained.as_ref().or(Some(relevant)),
         ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in key: {error:?}"));
 
-        Ok(ResultKey {
+        Ok((ResultKey {
             callable,
             ..selected
-        })
+        }, (!conditions.is_empty()).then(|| bray_base::shared_slice(conditions))))
     }
 
     fn discover<C: CheckerRequestContext + ?Sized>(
@@ -97,7 +137,15 @@ impl ResultParameters {
             );
         }
 
-        solve_parameters(request, &nodes, &mut self.relevant)
+        solve_parameters(request, &nodes, &mut self.relevant, None)?;
+
+        if nodes.values().any(|node|
+            super::cleanup::has_conditions(values.dependency_contract_template_data(node.local).requirements())
+                || node.edges.iter().any(|(_, target)| self.exact.contains_key(target))) {
+            solve_parameters(request, &nodes, &mut self.exact, Some(&self.relevant))?;
+        }
+
+        Ok(())
     }
 
     fn local_requirements<C: CheckerRequestContext + ?Sized>(

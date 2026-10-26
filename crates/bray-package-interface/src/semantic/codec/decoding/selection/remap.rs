@@ -598,6 +598,13 @@ fn remap_dependency_requirement(
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
     match &mut requirement.value {
+        InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
+            *ty = maps.type_id(*ty)?;
+
+            for nested in std::sync::Arc::make_mut(requirements) {
+                remap_dependency_requirement(nested, maps)?;
+            }
+        }
         InterfaceDependencyRequirementValue::SynchronousCleanup(ty)
         | InterfaceDependencyRequirementValue::FinalizerBodyCleanup(ty) => {
             *ty = maps.type_id(*ty)?;

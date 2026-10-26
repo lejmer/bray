@@ -12,6 +12,7 @@ pub(super) const CASES: &[&str] = &[
     "standard-library",
     "runtime-role",
     "cleanup",
+    "inactive-futures",
     "selected-entry",
     "typed-error",
 ];

@@ -462,6 +462,7 @@ pub(crate) fn result_inputs(
             DependencyRequirement::Direct { subject, .. } => {
                 inputs.extend(call.input_site(expression, subject.subject_root()));
             }
+            DependencyRequirement::CleanupDependencies { requirements, .. } => pending.extend(requirements.iter()),
             DependencyRequirement::Guarded(guarded) => {
                 let subject = match guarded.guard() {
                     bray_symbols::DependencyGuard::NullablePresent(subject)

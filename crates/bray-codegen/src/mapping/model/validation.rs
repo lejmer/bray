@@ -217,6 +217,7 @@ fn operation_runtime_references(
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
         MirOperationKind::Async(
             MirAsyncOperation::BroadcastInactiveFrame { runtime, .. }
+            | MirAsyncOperation::ResolveInactiveFrame { runtime, .. }
             | MirAsyncOperation::DestroyInactiveFrame { runtime, .. },
         ) => [
             Some(*runtime),
