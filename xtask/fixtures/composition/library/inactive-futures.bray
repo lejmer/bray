@@ -5,7 +5,7 @@ async func hold_inactive<T>(pos value: T)
     panic("inactive computation body");
 }
 
-public func discard_inactive<T>(pos value: T, pos failing: bool)
+func discard_inactive<T>(pos value: T, pos failing: bool)
 {
     let initial = hold_inactive<T>(value);
     let pending = initial;
@@ -16,14 +16,14 @@ public func discard_inactive<T>(pos value: T, pos failing: bool)
     }
 }
 
-public func abandon_inactive<T>(pos value: T)
+func abandon_inactive<T>(pos value: T)
 {
     let pending = hold_inactive<T>(value);
 
     panic("inactive owner exit");
 }
 
-public func verify_inactive<T>(pos value: T, pos allowed: bool)
+func verify_inactive<T>(pos value: T, pos allowed: bool)
     requires(allowed, allowed == true)
 {
     discard_inactive<T>(value, false);

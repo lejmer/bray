@@ -988,7 +988,7 @@ fn inactive_generic_scalar_future_emits_native_units() {
         module app;
         async func hold<T>(pos value: T) {}
         func discard<T>(pos value: T) { let pending = hold<T>(value); }
-        public func root() { discard<i32>(1); }
+        func root() { discard<i32>(1); }
     "#,
         crate::BuildConfiguration::Development,
     );
@@ -1011,7 +1011,7 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
         func discard<T>(pos value: T) {
             let pending = hold<T>(value);
         }
-        public func root() {
+        func root() {
             discard<i32>(1);
             discard<Synchronous>(Synchronous {});
             let completed: Completed<true> = { value = Synchronous {} };
@@ -1042,7 +1042,7 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
             r#"
             module consumer;
             using example.dependency.app.root;
-            public func forwarded() {
+            func forwarded() {
                 example.dependency.app.root();
             }
             "#,
