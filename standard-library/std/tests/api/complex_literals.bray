@@ -18,11 +18,13 @@ func complex_literals_preserve_context_defaults_and_component_signs()
     let real_component: r64 = 1.0;
     let imaginary_component: r64 = 2.0;
     let explicit: c128 = (real_component, imaginary_component) as c128;
+    let small_real: r32 = 1.0;
+    let small_imaginary: r32 = 2.0;
 
     assert(POSITIVE == small_plus);
     assert(NEGATIVE == minus);
-    assert(small_plus == (1.0, 2.0) as c64);
-    assert(small_minus == (1.0, -2.0) as c64);
+    assert(small_plus == (small_real, small_imaginary) as c64);
+    assert(small_minus == (small_real, -small_imaginary) as c64);
     assert(plus == explicit);
     assert(signed == (-1.0, 2.0) as c128);
     assert(minus == (1.0, -2.0) as c128);

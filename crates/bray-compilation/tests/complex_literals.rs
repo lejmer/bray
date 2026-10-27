@@ -355,3 +355,56 @@ fn typed_real_operands_still_require_explicit_complex_construction() {
             .is_valid()
     );
 }
+
+#[test]
+fn complex_literal_context_flows_from_calls_and_returns() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        func identity(pos value: c64) -> c64
+        {
+            return value;
+        }
+
+        func make() -> c64
+        {
+            return 1.0 + 2.0i;
+        }
+
+        func sample()
+        {
+            let value = identity(1.0 - 2.0i);
+            let second = make();
+        }
+    "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    for name in ["make", "sample"] {
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, name))
+            .expect("contextual complex source lowers");
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+
+        assert!(
+            lowered
+                .value()
+                .as_ref()
+                .expect("contextual complex body lowers")
+                .mir()
+                .expect("contextual complex body has MIR")
+                .is_valid()
+        );
+    }
+}
