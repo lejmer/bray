@@ -75,3 +75,11 @@ pub(crate) const fn captured_stream(standard_error: bool) -> &'static str {
         "captured stdout"
     }
 }
+
+pub(crate) fn host_exit_code(identity: &str, code: i32) -> String {
+    format!("Test {identity}: host exited with code {code}")
+}
+
+pub(crate) fn host_signal(identity: &str, signal: i64) -> String {
+    format!("Test {identity}: host terminated by signal {signal}")
+}

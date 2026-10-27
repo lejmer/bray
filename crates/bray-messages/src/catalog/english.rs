@@ -41,6 +41,7 @@ pub(crate) use test_report::{
     activity_operation as test_report_activity_operation,
     captured_stream as test_report_captured_stream, fields as test_report_fields,
     heading as test_report_heading, result_operation as test_report_result_operation,
+    host_exit_code as test_report_host_exit_code, host_signal as test_report_host_signal,
     summary_counts as test_report_summary_counts,
     summary_operation as test_report_summary_operation,
 };

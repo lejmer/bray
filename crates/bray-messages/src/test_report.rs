@@ -131,11 +131,32 @@ impl TestReportMessageRenderer {
     pub fn captured_stream(self, standard_error: bool) -> &'static str {
         self.catalog.test_report_captured_stream(standard_error)
     }
+
+    /// Renders an observed native exit code for the affected test.
+    pub fn host_exit_code(self, identity: &str, code: i32) -> String {
+        self.catalog.test_report_host_exit_code(identity, code)
+    }
+
+    /// Renders an observed native signal for the affected test.
+    pub fn host_signal(self, identity: &str, signal: i64) -> String {
+        self.catalog.test_report_host_signal(identity, signal)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{TestReportMessageRenderer, TestReportOutcome, TestReportSummaryStatus};
+
+    #[test]
+    fn native_host_causes_identify_the_affected_test_and_termination() {
+        let renderer = TestReportMessageRenderer::english();
+
+        assert_eq!(renderer.host_exit_code("example/tests::app.crash", -1),
+            "Test example/tests::app.crash: host exited with code -1");
+
+        assert_eq!(renderer.host_signal("example/tests::app.crash", 6),
+            "Test example/tests::app.crash: host terminated by signal 6");
+    }
 
     #[test]
     fn test_workflow_text_renders_through_the_selected_catalog() {

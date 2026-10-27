@@ -11,7 +11,7 @@ use bray_messages::{
 };
 use bray_test_protocol::{
     CapturedStream, CapturedStreamPolicy, TestCancellationSource, TestCommandReport,
-    TestInfrastructureFailureKind, TestInvocationResult, TestOutcome, TestPanicCause,
+    TestHostTermination, TestInfrastructureFailureKind, TestInvocationResult, TestOutcome, TestPanicCause,
     TestProductReport, TestSourceAnchor,
 };
 use bray_tooling::OutputFormat;
@@ -150,6 +150,20 @@ pub(super) fn render_details(report: &TestCommandReport, show_output: bool) -> S
         .iter()
         .flat_map(TestProductReport::results)
     {
+        if let TestOutcome::InfrastructureFailed(failure) = result.outcome()
+            && let Some(termination) = failure.host_termination()
+        {
+            let identity = result.identity().to_string();
+
+            let detail = match termination {
+                TestHostTermination::ExitCode { code } => renderer.host_exit_code(&identity, code),
+                TestHostTermination::Signal { signal } => renderer.host_signal(&identity, signal),
+            };
+
+            output.push_str(&detail);
+            output.push('\n');
+        }
+
         if show_output || !matches!(result.outcome(), TestOutcome::Passed) {
             append_captured_stream(&mut output, &renderer, result.standard_output(), false);
             append_captured_stream(&mut output, &renderer, result.standard_error(), true);
@@ -509,6 +523,7 @@ enum JsonTestOutcome<'report> {
     InfrastructureFailed {
         failure: &'static str,
         detail_code: Option<u64>,
+        host_termination: Option<TestHostTermination>,
     },
 }
 
@@ -547,6 +562,7 @@ impl<'report> From<&'report TestOutcome> for JsonTestOutcome<'report> {
             TestOutcome::InfrastructureFailed(failure) => Self::InfrastructureFailed {
                 failure: infrastructure_failure(failure.kind()),
                 detail_code: failure.detail_code(),
+                host_termination: failure.host_termination(),
             },
         }
     }

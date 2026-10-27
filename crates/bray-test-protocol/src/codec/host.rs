@@ -7,7 +7,7 @@ use crate::{
     AssertionFailure, CapturedStream, CapturedStreamPolicy, ExplicitTestFailure,
     TestCancellationSource, TestCaptureLimits, TestCapturePolicy, TestCatalogDigest,
     TestCatalogEntryId, TestDuration, TestErrorTypeIdentity, TestHostCommand, TestHostCommandId,
-    TestHostControl, TestHostResult, TestInfrastructureFailure, TestInfrastructureFailureKind,
+    TestHostControl, TestHostResult, TestHostTermination, TestInfrastructureFailure, TestInfrastructureFailureKind,
     TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor, TestStreamFailure,
     TestStreamFailureKind, TestTimeoutPolicy,
 };
@@ -498,6 +498,18 @@ fn encode_infrastructure_failure(encoder: &mut Encoder, failure: TestInfrastruct
         }
         None => encoder.u8(0),
     }
+
+    match failure.host_termination() {
+        None => encoder.u8(0),
+        Some(TestHostTermination::ExitCode { code }) => {
+            encoder.u8(1);
+            encoder.u32(code.cast_unsigned());
+        }
+        Some(TestHostTermination::Signal { signal }) => {
+            encoder.u8(2);
+            encoder.u64(signal.cast_unsigned());
+        }
+    }
 }
 
 fn decode_infrastructure_failure(
@@ -520,7 +532,14 @@ fn decode_infrastructure_failure(
         _ => return Err(TestProtocolError::Malformed),
     };
 
-    Ok(TestInfrastructureFailure::new(kind, detail))
+    let termination = match decoder.u8()? {
+        0 => return Ok(TestInfrastructureFailure::new(kind, detail)),
+        1 => TestHostTermination::ExitCode { code: decoder.u32()?.cast_signed() },
+        2 => TestHostTermination::Signal { signal: decoder.u64()?.cast_signed() },
+        _ => return Err(TestProtocolError::Malformed),
+    };
+
+    Ok(TestInfrastructureFailure::new(kind, detail).with_host_termination(termination))
 }
 
 #[cfg(test)]
@@ -534,6 +553,33 @@ mod tests {
         TestPanicCause, TestPanicReport, TestSourceAnchor, TestTimeoutPolicy,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
+
+    #[test]
+    fn infrastructure_failures_preserve_typed_native_termination() {
+        for termination in [
+            crate::TestHostTermination::ExitCode { code: 0 },
+            crate::TestHostTermination::ExitCode { code: i32::MIN },
+            crate::TestHostTermination::Signal { signal: 6 },
+        ] {
+            let result = TestHostResult::after_cleanup(
+                TestHostCommandId::from_bytes([3; 32]),
+                TestCatalogDigest::from_bytes([4; 32]),
+                TestOutcome::InfrastructureFailed(crate::TestInfrastructureFailure::new(
+                    crate::TestInfrastructureFailureKind::Host, None,
+                ).with_host_termination(termination)),
+                CapturedStream::captured(b"startup".iter().copied(), 9, None),
+                CapturedStream::discarded(),
+            );
+
+            let mut bytes = Vec::new();
+
+            super::write_host_result(&mut bytes, &result).expect("encode native failure result");
+
+            let decoded = super::read_host_result(&mut bytes.as_slice()).expect("decode native failure result");
+
+            assert_eq!(decoded, result);
+        }
+    }
 
     #[test]
     fn host_commands_and_results_round_trip_through_bounded_frames() {

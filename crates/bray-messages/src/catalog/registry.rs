@@ -180,6 +180,18 @@ impl MessageCatalog {
         }
     }
 
+    pub(crate) fn test_report_host_exit_code(self, identity: &str, code: i32) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_host_exit_code(identity, code),
+        }
+    }
+
+    pub(crate) fn test_report_host_signal(self, identity: &str, signal: i64) -> String {
+        match self.locale {
+            DiagnosticLocale::English => super::english::test_report_host_signal(identity, signal),
+        }
+    }
+
     pub(crate) const fn diagnostic_template(self, kind: DiagnosticKind) -> MessageTemplate {
         match self.locale {
             DiagnosticLocale::English => english_diagnostic_template(kind),

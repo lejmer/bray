@@ -1195,8 +1195,9 @@ impl OutcomeExpectation {
                 NativeOutcome::InfrastructureFailed {
                     failure,
                     detail_code,
+                    host_termination,
                 },
-            ) => failure == "forced_termination" && detail_code.is_none(),
+            ) => failure == "forced_termination" && detail_code.is_none() && host_termination.is_none(),
             _ => false,
         };
 
