@@ -80,7 +80,19 @@ fn evaluate(
     }
 
     if b.is_zero() && a.cmp(&zero).is_some_and(|order| order > 0) && d.is_zero() {
-        let real = a.pow(c, precision, ROUND, constants);
+        let real = if c.is_inf() {
+            let above_one = a.cmp(&one).is_some_and(|order| order > 0);
+            let positive_exponent = c.sign() == Some(Sign::Pos);
+
+            if above_one == positive_exponent {
+                INF_POS
+            } else {
+                BigFloat::from_u8(0, precision)
+            }
+        } else {
+            a.pow(c, precision, ROUND, constants)
+        };
+
         let mut imaginary = zero;
         let negative = (b.sign() == Some(Sign::Neg)) != (c.sign() == Some(Sign::Neg));
 
@@ -89,14 +101,14 @@ fn evaluate(
         return [real, imaginary];
     }
 
+    if c.is_inf() || d.is_inf() {
+        return [NAN, NAN];
+    }
+
     if d.is_zero()
         && let Some(result) = axis_power(a, b, c, precision, constants)
     {
         return result;
-    }
-
-    if c.is_inf() || d.is_inf() {
-        return [NAN, NAN];
     }
 
     let phase = argument(a, b, precision, constants);
@@ -535,6 +547,57 @@ mod tests {
 mod boundary_tests {
     use super::power;
     use crate::BinaryFormat;
+
+    #[test]
+    fn positive_real_powers_follow_infinite_exponent_limits_in_every_format() {
+        use astro_float_num::BigFloat;
+
+        for format in [
+            BinaryFormat::Binary16,
+            BinaryFormat::Binary32,
+            BinaryFormat::Binary64,
+            BinaryFormat::Binary128,
+        ] {
+            let one = format.encode(&BigFloat::from_u8(1, 128));
+            let two = format.encode(&BigFloat::from_u8(2, 128));
+
+            let half = format.encode(&BigFloat::from_u8(1, 128).div(
+                &BigFloat::from_u8(2, 128),
+                128,
+                astro_float_num::RoundingMode::ToEven,
+            ));
+
+            let negative = format.sign_mask();
+            let infinity = format.infinity();
+
+            for (base, exponent, expected_real) in [
+                (two, infinity, infinity),
+                (two, infinity | negative, 0),
+                (half, infinity, 0),
+                (half, infinity | negative, infinity),
+                (infinity, infinity, infinity),
+                (infinity, infinity | negative, 0),
+            ] {
+                for imaginary in [0, negative] {
+                    let expected_imaginary = imaginary ^ (exponent & negative);
+
+                    assert_eq!(
+                        power(format, [base, imaginary], [exponent, 0]),
+                        [expected_real, expected_imaginary],
+                        "{format:?}: {base:x}, {imaginary:x}, {exponent:x}"
+                    );
+                }
+            }
+
+            for exponent in [infinity, infinity | negative] {
+                assert_eq!(power(format, [one, negative], [exponent, 0]), [one, 0]);
+
+                for base in [[two | negative, 0], [0, one], [two, one]] {
+                    assert_eq!(power(format, base, [exponent, 0]), [format.nan(); 2]);
+                }
+            }
+        }
+    }
 
     #[test]
     fn powers_define_zero_infinity_and_nan_boundaries() {

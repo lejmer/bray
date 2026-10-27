@@ -103,6 +103,15 @@ trusted func complex_division_and_power_preserve_extreme_values_and_branch_cuts(
     assert(real == 0x3fd18884016cf327);
     assert(imaginary == 0x3fe2adad36b098a9);
 
+    let two: c128 = 2.0 + 0.0i;
+    let positive_axis: c128 = 1.7976931348623157e308 + 0.0i;
+    let axis_infinity = multiply_128(positive_axis, two);
+
+    assert(power_128(two, axis_infinity) == axis_infinity);
+    assert(power_128(half, axis_infinity) == zero);
+    assert(power_128(two, -axis_infinity) == zero);
+    assert(power_128(half, -axis_infinity) == axis_infinity);
+
     let tiny_numerator: c128 = 4.440892098500626e-16 + 5e-324i;
     let huge_denominator: c128 = 8.98846567431158e307 + 8.98846567431158e307i;
     let rounded = divide_128(tiny_numerator, huge_denominator);
