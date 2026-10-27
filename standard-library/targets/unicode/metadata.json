@@ -1,7 +1,7 @@
 {
   "format": 1,
   "unicode_version": "17.0.0",
-  "generator_revision": 2,
+  "generator_revision": 1,
   "inputs": [
     {
       "name": "DerivedCoreProperties.txt",
