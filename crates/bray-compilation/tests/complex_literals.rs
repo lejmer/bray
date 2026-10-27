@@ -109,6 +109,12 @@ fn complex_literals_preserve_component_types_through_selection_and_lowering() {
             continue;
         }
 
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
         let key = source_function_body_key(&compilation, "sample");
 
         let bound = compilation
@@ -204,6 +210,12 @@ fn complex_literal_constants_preserve_addition_and_subtraction_bits() {
         const negative: c128 = 1.0 - 2.0i;
         const signed_zero: c128 = -0.0 - 0.0i;
     "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
     );
 
     let graph = compilation
