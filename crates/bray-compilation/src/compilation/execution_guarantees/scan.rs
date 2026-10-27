@@ -88,6 +88,14 @@ impl Compilation {
 
                 let declaration = self.execution_unit_declaration(&key)?;
 
+                if key.kind() == bray_bound_tree::BoundUnitKind::CallableBody {
+                    diagnostics.add_range(self.check_execution_declaration_conditions(
+                        &key,
+                        declaration.value(),
+                        cancellation,
+                    )?);
+                }
+
                 let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
 
                 if !declaration.value().clauses().is_empty()
@@ -418,6 +426,48 @@ mod tests {
             "{:#?}",
             checked.check_diagnostics()
         );
+    }
+
+    #[test]
+    fn declaration_guards_can_call_const_functions_without_signature_query_cycles() {
+        for declarations in [
+            r#"
+                const func ready() -> bool when(ready()) { executes(pure, total) }
+                { return true; }
+                callable Action = func() when(ready()) { executes(pure) };
+            "#,
+            r#"
+                const func first() -> bool when(second()) { executes(pure, total) }
+                { return true; }
+                const func second() -> bool when(first()) { executes(pure, total) }
+                { return true; }
+            "#,
+            r#"
+                struct Ready {
+                    const func ready() -> bool when(self.ready()) { executes(pure, total) }
+                    { return true; }
+                }
+            "#,
+        ] {
+            let source = format!("module app; {declarations}");
+            let checked = compilation(&source);
+
+            assert!(
+                !checked.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+        }
+
+        let checked = compilation(
+            r#"
+            module app;
+            func ready() -> bool when(ready()) { executes(pure, total) }
+            { return true; }
+        "#,
+        );
+
+        assert!(checked.check_diagnostics().has_errors());
     }
 
     #[test]

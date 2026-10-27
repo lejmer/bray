@@ -196,17 +196,10 @@ impl Compilation {
 
         diagnostics.add_range(predicates.diagnostics().iter().cloned());
 
-        let execution_domains = self.callable_declared_execution_domains(
-            instance.definition().symbol(),
-            diagnostics,
-            binding_context.cancellation(),
-        )?;
-
         let signature = signature
-            .with_declared_contracts(
+            .with_predicate_contracts(
                 binding_context.semantic_values(),
                 predicates.value(),
-                &execution_domains,
                 instance.substitution(),
             )
             .map_err(FactQueryError::from)?;

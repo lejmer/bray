@@ -293,10 +293,30 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let invocation = self.phase_behavior(contract.invocation_behavior())?;
+        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
-        let deferred = contract
-            .deferred_execution_behavior()
+        let domains = self
+            .compilation
+            .callable_declared_execution_domains(
+                owner,
+                &mut diagnostics,
+                &self.compilation.state.cancellation,
+            )
+            .map_err(super::super::fact_query_export_error)?;
+
+        if diagnostics.has_errors() {
+            return Err(super::templates::incomplete(owner));
+        }
+
+        let phases = contract
+            .phase_behaviors()
+            .clone()
+            .with_execution_domains(domains);
+
+        let invocation = self.phase_behavior(phases.invocation())?;
+
+        let deferred = phases
+            .deferred_execution()
             .map(|behavior| self.phase_behavior(behavior))
             .transpose()?;
 
