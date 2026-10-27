@@ -11,7 +11,11 @@ use crate::compilation::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
-pub(super) type DomainPostcondition = (ExecutionCondition, bray_symbols::PredicateDomain, SourceSpan);
+pub(super) type DomainPostcondition = (
+    ExecutionCondition,
+    bray_symbols::PredicateDomain,
+    SourceSpan,
+);
 
 impl Compilation {
     pub(in crate::compilation) fn execution_predicate_inputs(
@@ -514,11 +518,7 @@ impl Compilation {
             return Ok(None);
         }
 
-        let inputs = if callable.is_none() {
-            self.execution_unit_inputs(body, cancellation)?
-        } else {
-            Vec::new()
-        };
+        let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
             evidence
@@ -640,15 +640,38 @@ impl Compilation {
     {
         let mut diagnostics = DiagnosticBag::new();
 
-        let Some(body) = self.callable_body_key(callable.definition())? else {
-            if self
-                .symbol_graph()?
-                .declaration_syntax_anchor(callable.definition().symbol())
-                .is_some()
-            {
-                return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
-            }
+        let body = match self.callable_body_key(callable.definition())? {
+            Some(body) => Some(body),
+            None => match callable.definition().callable_symbol() {
+                bray_symbols::CallableSymbolId::Function(function)
+                    if self
+                        .symbol_graph()?
+                        .declaration_syntax_anchor(function.into())
+                        .is_some() =>
+                {
+                    let foreign =
+                        self.foreign_callable_contract_with_cancellation(function, cancellation)?;
 
+                    diagnostics.add_range(foreign.diagnostics().iter().cloned());
+
+                    if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
+                        self.execution_contract_owner(function.into())?
+                    } else {
+                        return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+                    }
+                }
+                _ if self
+                    .symbol_graph()?
+                    .declaration_syntax_anchor(callable.definition().symbol())
+                    .is_some() =>
+                {
+                    return Ok(DiagnosticResult::new(Vec::new(), diagnostics));
+                }
+                _ => None,
+            },
+        };
+
+        let Some(body) = body else {
             let contract =
                 self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
 
@@ -684,7 +707,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(completion, diagnostics));
         };
 
-        let declaration = self.execution_unit_declaration(&body)?;
+        let declaration = self.execution_declaration(body.source().syntax())?;
         let mut contracts = Vec::new();
 
         for domain in declaration

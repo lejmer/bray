@@ -483,10 +483,6 @@ define_diagnostic_kinds! {
     CheckingForeignCallableExecutionUnsupported,
     /// A variadic callable does not satisfy the language's foreign boundary shape.
     CheckingVariadicCallableContractUnsupported,
-    /// An execution guarantee cannot yet be verified.
-    // TODO(BRA-646): Remove this diagnostic once callable-type contracts and guarded foreign
-    // assertions are checked.
-    CheckingExecutionGuaranteeUnsupported,
     /// An execution property name is outside the language vocabulary.
     CheckingUnknownExecutionProperty,
     /// A body or selected dependency cannot establish an execution promise.
@@ -925,7 +921,6 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableRequiresCapability => 7055,
             Self::CheckingForeignCallableExecutionUnsupported => 7056,
             Self::CheckingVariadicCallableContractUnsupported => 7104,
-            Self::CheckingExecutionGuaranteeUnsupported => 7117,
             Self::CheckingUnknownExecutionProperty => 7118,
             Self::CheckingExecutionGuaranteeNotProven => 7119,
             Self::CheckingUnresolvedFinalization => 7125,
@@ -1393,9 +1388,6 @@ impl DiagnosticKind {
             }
             Self::CheckingCircularExecutionGuarantee => "checking_circular_execution_guarantee",
             Self::CheckingCallableResultRequired => "checking_callable_result_required",
-            Self::CheckingExecutionGuaranteeUnsupported => {
-                "checking_execution_guarantee_unsupported"
-            }
             Self::CheckingCallableAddressTypeUnsupported => {
                 "checking_callable_address_type_unsupported"
             }

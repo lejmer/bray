@@ -415,11 +415,12 @@ impl CallableSignature {
         }
     }
 
-    /// Retains checked caller predicates and completion facts independently of body-effect queries.
-    pub fn with_predicate_contracts(
+    /// Retains declared predicates and conditional promises independently of body-effect queries.
+    pub fn with_declared_contracts(
         mut self,
         values: &SemanticValueStore,
         clauses: &[crate::CallableContractClause],
+        execution_domains: &[crate::CallableExecutionDomain<crate::PredicateSemanticSummary>],
         substitution: crate::GenericSubstitutionId,
     ) -> Result<Self, crate::SemanticValueStoreError> {
         let data = values.type_data(self.callable_type);
@@ -454,11 +455,37 @@ impl CallableSignature {
             }
         }
 
-        if !requirements.is_empty() || !guarantees.is_empty() {
+        let execution_domains = execution_domains
+            .iter()
+            .map(|domain| {
+                domain.try_map(|predicate| {
+                    Ok::<_, crate::SemanticValueStoreError>(
+                        crate::PredicateSemanticSummary::new(
+                            values.substitute_dependency_contract(
+                                predicate.dependency_contract(),
+                                substitution,
+                            )?,
+                        )
+                        .with_condition(
+                            predicate
+                                .condition()
+                                .map(|condition| {
+                                    values.substitute_constant_term(condition, substitution)
+                                })
+                                .transpose()?,
+                            predicate.domain(),
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if !requirements.is_empty() || !guarantees.is_empty() || !execution_domains.is_empty() {
             let phases = callable
                 .phase_behaviors()
                 .clone()
-                .with_predicates(requirements, guarantees);
+                .with_predicates(requirements, guarantees)
+                .with_execution_domains(execution_domains);
 
             self.callable_type = values.intern_type(TypeData::Callable(
                 callable.clone().with_phase_behaviors(phases),

@@ -763,6 +763,116 @@ mod tests {
         assert_eq!(identities.len(), 3);
     }
     #[test]
+    fn guarded_callable_identities_are_independent_of_domain_and_store_order() {
+        let mut by_store_order = Vec::new();
+
+        for order in [[false, true], [true, false]] {
+            let compilation = crate::test_support::compilation("module app;");
+
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture semantic store");
+
+            let context = compilation
+                .binding_context(&compilation.state.cancellation)
+                .expect("fixture binding context");
+
+            let result = values
+                .intern_type(TypeData::Tuple([].into()))
+                .expect("fixture result type");
+
+            let boolean = compilation
+                .target_property_type(bray_target::TargetPropertyKind::ScalarBool)
+                .expect("fixture boolean type");
+
+            let dependency = values
+                .empty_dependency_contract_template()
+                .expect("fixture empty dependencies");
+
+            let mut terms = std::collections::BTreeMap::new();
+
+            for flag in order {
+                let value = values
+                    .intern_constant_value(bray_symbols::ConstantValueData::new(
+                        boolean,
+                        bray_symbols::ConstantValueKind::Boolean(flag),
+                    ))
+                    .expect("fixture boolean");
+
+                terms.insert(
+                    flag,
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                        .expect("fixture boolean term"),
+                );
+            }
+
+            let mut identities = Vec::new();
+
+            for reversed in [false, true] {
+                let mut domains = [false, true]
+                    .into_iter()
+                    .map(|flag| bray_symbols::CallableExecutionDomain {
+                        ordinal: bray_symbols::SymbolOrdinal::new(0),
+                        entry: [bray_symbols::PredicateSemanticSummary::new(dependency)
+                            .with_condition(
+                                Some(terms[&flag]),
+                                bray_symbols::PredicateDomain::Value,
+                            )]
+                        .into(),
+                        properties: [if flag {
+                            ExecutionProperty::Pure
+                        } else {
+                            ExecutionProperty::Total
+                        }]
+                        .into(),
+                        postconditions: Default::default(),
+                    })
+                    .collect::<Vec<_>>();
+
+                if reversed {
+                    domains.reverse();
+                }
+
+                for (index, domain) in domains.iter_mut().enumerate() {
+                    domain.ordinal = bray_symbols::SymbolOrdinal::new(
+                        u32::try_from(index).expect("fixture ordinal"),
+                    );
+                }
+
+                let dependencies = CallableDependencyContracts::synchronous(dependency);
+
+                let phases =
+                    CallablePhaseBehaviors::empty(dependencies).with_execution_domains(domains);
+
+                let ty = values
+                    .intern_type(TypeData::Callable(
+                        CallableTypeData::new(
+                            [],
+                            result,
+                            CallableConstness::Runtime,
+                            CallableTrust::Safe,
+                            CallableAbi::Bray,
+                            dependencies,
+                        )
+                        .with_phase_behaviors(phases),
+                    ))
+                    .expect("fixture callable");
+
+                identities.push(
+                    structural_type_identity(values, &context, ty)
+                        .expect("guarded callable identity"),
+                );
+            }
+
+            assert_eq!(identities[0], identities[1]);
+            by_store_order.push(identities[0]);
+        }
+
+        assert_eq!(by_store_order[0], by_store_order[1]);
+    }
+
+    #[test]
     fn callable_predicate_identities_cover_condition_domain_and_phase_independently_of_interning() {
         let mut by_interning_order = Vec::new();
 

@@ -398,6 +398,29 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn callable_execution_domains(
+        &self,
+        callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Arc<[bray_symbols::CallableExecutionDomain<bray_symbols::PredicateSemanticSummary>]>,
+        >,
+    > {
+        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+
+        let domains = self
+            .binding_context
+            .compilation()
+            .callable_declared_execution_domains(
+                callable.into_any(),
+                &mut diagnostics,
+                self.binding_context.cancellation(),
+            )
+            .map_err(checker_query_error)?;
+
+        Ok(DiagnosticResult::new(domains.into(), diagnostics))
+    }
+
     fn callable_result_dependencies(
         &self,
         callable: bray_symbols::CallableSymbolId,

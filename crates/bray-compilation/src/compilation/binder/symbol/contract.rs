@@ -665,6 +665,17 @@ fn bind_callable_contracts(
             .map(|behavior| behavior.result().value()),
     );
 
+    let execution_domains = context.compilation().callable_declared_execution_domains(
+        owner.into_any(),
+        &mut diagnostics,
+        context.cancellation(),
+    ).map_err(super::binding::binder_error)?;
+
+    match deferred_execution_behavior.take() {
+        Some(deferred) => deferred_execution_behavior = Some(deferred.with_execution_domains(execution_domains)),
+        None => invocation_behavior = invocation_behavior.with_execution_domains(execution_domains),
+    }
+
     if owner.into_any().kind() == bray_symbols::SymbolKind::Destructor
         && let Some(key) = &body_key {
             let body = context

@@ -1,8 +1,6 @@
-use std::collections::HashSet;
-
-use bray_declarations::{ContainerKind, DeclarationKind, SyntaxAnchor};
+use bray_declarations::{DeclarationKind, SyntaxAnchor};
 use bray_diagnostics::DiagnosticBag;
-use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
+use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent};
 
 use crate::compilation::{Compilation, ProductSourceGraph};
 
@@ -30,12 +28,9 @@ impl Compilation {
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<DiagnosticBag, crate::fact::FactQueryError> {
         if self.syntax_tree_result().diagnostics().has_errors() {
-            return Ok(
-                self.unhandled_execution_guarantee_diagnostics(source_graph, &Default::default())
-            );
+            return Ok(DiagnosticBag::new());
         }
 
-        let mut checked_clauses = std::collections::BTreeSet::new();
         let mut diagnostics = DiagnosticBag::new();
 
         for root in self.declared_unit_keys()? {
@@ -93,8 +88,6 @@ impl Compilation {
 
                 let declaration = self.execution_unit_declaration(&key)?;
 
-                checked_clauses.extend(declaration.value().clauses().iter().copied());
-
                 let declared_const = self.unit_requires_constant_evaluation(&key, cancellation)?;
 
                 if !declaration.value().clauses().is_empty()
@@ -125,30 +118,11 @@ impl Compilation {
 
                 diagnostics.add_range(declared.diagnostics().iter().cloned());
 
-                for domain in declared.value().domains() {
-                    let anchors = declared
-                        .value()
-                        .requirements()
-                        .iter()
-                        .chain(&domain.guards)
-                        .copied()
-                        .collect::<Vec<_>>();
-
-                    let conditions =
-                        self.execution_condition_inputs(&owner, &anchors, cancellation)?;
-
-                    diagnostics.add_range(conditions.into_parts().1);
-
-                    let posts = self.execution_condition_inputs(
-                        &owner,
-                        &domain.postconditions,
-                        cancellation,
-                    )?;
-
-                    diagnostics.add_range(posts.into_parts().1);
-                }
-
-                checked_clauses.extend(declared.value().clauses().iter().copied());
+                diagnostics.add_range(self.check_execution_declaration_conditions(
+                    &owner,
+                    declared.value(),
+                    cancellation,
+                )?);
             }
 
             let Some(bray_symbols::AnySymbolId::Function(function)) = self
@@ -168,116 +142,158 @@ impl Compilation {
                 declared.value(),
                 cancellation,
             )? {
-                checked_clauses.extend(declared.value().clauses().iter().copied());
                 diagnostics.add_range(declared.into_parts().1);
                 continue;
             }
 
             if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
-                // TODO(BRA-646): Preserve checked guard domains and provenance on opaque foreign assertions.
-                if declared
-                    .value()
-                    .domains()
-                    .iter()
-                    .any(|domain| !domain.guards.is_empty())
-                {
-                    continue;
+                if let Some(owner) = self.execution_contract_owner(function.into())? {
+                    diagnostics.add_range(self.check_execution_declaration_conditions(
+                        &owner,
+                        declared.value(),
+                        cancellation,
+                    )?);
                 }
 
-                checked_clauses.extend(declared.value().clauses().iter().copied());
                 diagnostics.add_range(declared.into_parts().1);
             }
         }
 
-        diagnostics.add_range(
-            self.unhandled_execution_guarantee_diagnostics(source_graph, &checked_clauses),
-        );
+        diagnostics
+            .add_range(self.callable_type_guarantee_diagnostics(source_graph, cancellation)?);
 
         Ok(diagnostics)
     }
 
-    pub(in crate::compilation) fn unhandled_execution_guarantee_diagnostics(
+    fn check_execution_declaration_conditions(
         &self,
-        source_graph: &ProductSourceGraph,
-        checked_clauses: &std::collections::BTreeSet<SyntaxAnchor>,
-    ) -> DiagnosticBag {
+        owner: &bray_bound_tree::BoundUnitKey,
+        declared: &bray_checker::ExecutionDeclaration,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<DiagnosticBag, crate::fact::FactQueryError> {
         let mut diagnostics = DiagnosticBag::new();
 
-        // Source roots share the completed declaration set and add independently checked callable types.
-        let mut checked_clauses = checked_clauses.clone();
-        let declarations = source_graph.declarations();
+        let anchors = declared
+            .requirements()
+            .iter()
+            .copied()
+            .chain(
+                declared
+                    .domains()
+                    .iter()
+                    .flat_map(|domain| domain.guards.iter().chain(&domain.postconditions).copied()),
+            )
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
 
-        let roots: HashSet<_> = declarations
+        diagnostics.add_range(
+            self.execution_condition_inputs(owner, &anchors, cancellation)?
+                .into_parts()
+                .1,
+        );
+
+        for anchor in anchors {
+            let key = bray_bound_tree::BoundUnitKey::contract_clause(
+                owner.declared_owner().clone(),
+                self.bound_source(anchor)?,
+            )
+            .expect("declaration conditions retain contract clause keys");
+
+            diagnostics.add_range(self.check_predicate_eligibility(&key, cancellation)?);
+        }
+
+        Ok(diagnostics)
+    }
+
+    fn callable_type_guarantee_diagnostics(
+        &self,
+        source_graph: &ProductSourceGraph,
+        cancellation: &crate::fact::CancellationToken,
+    ) -> Result<DiagnosticBag, crate::fact::FactQueryError> {
+        let context = self.binding_context(cancellation)?;
+        let symbols = self.symbol_graph()?;
+
+        let anchors = source_graph
+            .declarations()
+            .declarations()
+            .iter()
+            .map(|declaration| declaration.syntax_anchor())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        for declaration in source_graph
+            .declarations()
             .declarations()
             .iter()
             .filter(|declaration| declaration.kind() != DeclarationKind::Module)
-            .filter(|declaration| {
-                declarations
-                    .container(declaration.owning_container())
-                    .is_some_and(|container| container.kind() == ContainerKind::Module)
-            })
-            .map(|declaration| declaration.syntax_anchor())
-            .collect();
+        {
+            cancellation.check()?;
 
-        walk_syntax_tree(self.syntax_tree(), |event| {
-            if let SyntaxWalkEvent::EnterNode(node) = event
-                && roots.contains(&SyntaxAnchor::from_node(&node))
-            {
-                check_callable_type_clauses(&node, &mut checked_clauses, &mut diagnostics);
+            let Some(owner) = symbols.symbol_for_declaration(declaration.id()) else {
+                continue;
+            };
 
-                diagnostics.add_range(bray_checker::check_execution_guarantees(
-                    &node,
-                    &checked_clauses,
-                ));
+            let owner = if matches!(
+                declaration.kind(),
+                DeclarationKind::CallableParameter | DeclarationKind::PredicateParameter
+            ) {
+                symbols
+                    .containing_symbol(owner)
+                    .expect("signature parameter retains its callable owner")
+            } else {
+                owner
+            };
 
-                return SyntaxWalkControl::SkipChildren;
+            let root = declaration.syntax_anchor();
+            let node = self.execution_declaration_node(root)?;
+            let mut failure = None;
+
+            bray_syntax::walk_syntax_node(&node, |event| {
+                let SyntaxWalkEvent::EnterNode(node) = event else {
+                    return SyntaxWalkControl::Continue;
+                };
+
+                let anchor = SyntaxAnchor::from_node(&node);
+
+                if anchor != root && anchors.contains(&anchor) {
+                    return SyntaxWalkControl::SkipChildren;
+                }
+
+                if node.kind() == bray_syntax::SyntaxKind::TypeExpression
+                    && node
+                        .tokens()
+                        .any(|token| token.kind() == bray_syntax::SyntaxKind::FuncKeyword)
+                {
+                    let syntax = node
+                        .cast::<bray_syntax::TypeExpressionSyntax>()
+                        .expect("callable type has its typed syntax");
+
+                    let result = crate::compilation::binder::type_binder(&context, owner)
+                        .and_then(|binder| binder.bind_type_expression(&syntax));
+
+                    match result {
+                        Ok(checked) => diagnostics.add_range(checked.into_parts().1),
+                        Err(error) => {
+                            failure = Some(crate::compilation::binder::binding_query_error(error));
+
+                            return SyntaxWalkControl::Stop;
+                        }
+                    }
+                }
+
+                SyntaxWalkControl::Continue
+            });
+
+            if let Some(error) = failure {
+                return Err(error);
             }
+        }
 
-            SyntaxWalkControl::Continue
-        });
-
-        diagnostics
+        Ok(diagnostics)
     }
-}
 
-fn check_callable_type_clauses(
-    root: &impl bray_syntax::SyntaxWalkRoot,
-    checked: &mut std::collections::BTreeSet<SyntaxAnchor>,
-    diagnostics: &mut DiagnosticBag,
-) {
-    bray_syntax::walk_syntax_node(root, |event| {
-        let SyntaxWalkEvent::EnterNode(node) = event else {
-            return SyntaxWalkControl::Continue;
-        };
-
-        if node.kind() != bray_syntax::SyntaxKind::TypeExpression
-            || !node
-                .tokens()
-                .any(|token| token.kind() == bray_syntax::SyntaxKind::FuncKeyword)
-        {
-            return SyntaxWalkControl::Continue;
-        }
-
-        let declared = bray_checker::declared_execution_properties(node);
-
-        if declared
-            .value()
-            .domains()
-            .iter()
-            .all(|domain| domain.properties.is_empty())
-            || (!declared.value().has_requirements()
-                && declared
-                    .value()
-                    .domains()
-                    .iter()
-                    .all(|domain| domain.guards.is_empty() && domain.postconditions.is_empty()))
-        {
-            checked.extend(declared.value().clauses().iter().copied());
-            diagnostics.add_range(declared.into_parts().1);
-        }
-
-        SyntaxWalkControl::Continue
-    });
 }
 
 #[cfg(test)]
@@ -348,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn execution_guarantees_in_nested_and_bodyless_callables_are_rejected() {
+    fn callable_types_check_requirements_and_execution_guarantees() {
         for declaration in [
             r#"
                 callable Action = func() requires(true)
@@ -374,12 +390,7 @@ mod tests {
 
             let diagnostics = compilation.check_diagnostics();
 
-            assert!(
-                diagnostics.iter().any(|diagnostic| {
-                    diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeUnsupported
-                }),
-                "{declaration}: {diagnostics:?}"
-            );
+            assert!(!diagnostics.has_errors(), "{declaration}: {diagnostics:?}");
         }
     }
 
@@ -406,6 +417,379 @@ mod tests {
             !checked.check_diagnostics().has_errors(),
             "{:#?}",
             checked.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn callable_entry_guards_do_not_expose_the_completion_result() {
+        for contract in [
+            "requires(result) executes(pure)",
+            "when(result) { executes(pure) }",
+            "when(result) { executes(pure) ensures(result) }",
+            "when(result) { ensures(result) }",
+        ] {
+            let source = format!("module app; callable Action = func() -> bool {contract};");
+
+            assert_goal_state_diagnostic_kind(
+                compilation(&source).check_diagnostics(),
+                DiagnosticKind::BindingUnresolvedName,
+            );
+        }
+    }
+
+    #[test]
+    fn callable_guards_use_their_own_parameters_and_completion_result() {
+        let checked = compilation(
+            r#"
+            module app;
+
+            callable Action = func(pos flag: bool) -> bool
+                requires(flag)
+                when(flag)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                };
+
+            struct Holder
+            {
+                action: func(pos flag: bool) -> bool
+                    when(flag) { executes(pure) ensures(result) };
+            }
+
+            func outer(pos flag: i32, action: func(pos flag: bool) -> bool
+                when(flag) { executes(pure) ensures(result) }) {}
+        "#,
+        );
+
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:?}",
+            checked.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn callable_guards_reject_invalid_names_and_property_names_even_when_unused() {
+        for (clause, kind) in [
+            (
+                "when(missing) { executes(pure) }",
+                DiagnosticKind::BindingUnresolvedName,
+            ),
+            (
+                "executes(magic)",
+                DiagnosticKind::CheckingUnknownExecutionProperty,
+            ),
+        ] {
+            for declaration in [
+                "callable Action = func(pos flag: bool) -> bool CLAUSE;",
+                "struct Holder { action: func(pos flag: bool) -> bool CLAUSE; }",
+                "func outer(pos flag: i32, action: func(pos input: bool) -> bool CLAUSE) {}",
+            ] {
+                let source = format!("module app;\n{}", declaration.replace("CLAUSE", clause));
+                let checked = compilation(&source);
+
+                assert_goal_state_diagnostic_kind(checked.check_diagnostics(), kind);
+            }
+        }
+    }
+
+    #[test]
+    fn callable_and_foreign_guards_reject_non_predicate_expressions() {
+        for guard in ["42", "runtime_value()"] {
+            let callable = format!(
+                r#"
+                module app;
+                func runtime_value() -> bool {{ return true; }}
+                callable Action = func() when({guard}) {{ executes(pure) }};
+            "#
+            );
+
+            assert!(
+                compilation(&callable).check_diagnostics().has_errors(),
+                "{callable}"
+            );
+
+            let foreign = format!(
+                r#"
+                trusted module app;
+                func runtime_value() -> bool {{ return true; }}
+                @link(name = "c") @abi(c) @symbol(name = "native_value")
+                extern trusted func native_value() -> bool uses(foreign_call)
+                    when({guard}) {{ executes(total) }};
+            "#
+            );
+
+            assert!(
+                foreign_compilation(&foreign)
+                    .check_diagnostics()
+                    .has_errors(),
+                "{foreign}"
+            );
+        }
+    }
+
+    #[test]
+    fn callable_const_guard_substitution_stays_conservative() {
+        for (generic, argument, entry, valid) in [
+            ("", "true", "executes(pure)", true),
+            ("", "false", "executes(pure)", false),
+            ("<const enabled: bool>", "enabled", "executes(pure)", false),
+            (
+                "<const enabled: bool>",
+                "enabled",
+                "when(enabled) { executes(pure) }",
+                true,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                callable Action<const enabled: bool> = func() when(enabled) {{ executes(pure) }};
+                func root{generic}(pos action: Action<{argument}>) {entry} {{ action(); }}
+            "#
+            );
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn indirect_purity_requires_a_proven_callable_guard() {
+        for (entry, argument, valid) in [
+            ("", "true", true),
+            ("", "false", false),
+            ("", "flag", false),
+            ("requires(flag)", "flag", true),
+        ] {
+            let source = r#"
+                module app;
+                callable Action = func(pos flag: bool) -> bool
+                    when(flag) { executes(pure) };
+
+                func root(pos action: Action, pos flag: bool) -> bool
+                    ENTRY
+                    executes(pure)
+                {
+                    return action(ARGUMENT);
+                }
+            "#
+            .replace("ENTRY", entry)
+            .replace("ARGUMENT", argument);
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+
+            if !valid {
+                assert_goal_state_diagnostic_kind(
+                    checked.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn indirect_guarded_postconditions_follow_call_entry() {
+        for (argument, valid) in [("true", true), ("false", false), ("flag", false)] {
+            let source = format!(
+                r#"
+                module app;
+                callable Action = func(pos flag: bool) -> bool
+                    when(flag) {{ executes(pure) ensures(result) }};
+                func root(pos flag: bool, pos action: Action) -> bool
+                    executes(pure) ensures(result)
+                {{ return action({argument}); }}
+            "#
+            );
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn guarded_callable_conversions_forget_but_cannot_invent_promises() {
+        for (source_contract, target_contract, valid) in [
+            ("executes(pure)", "when(flag) { executes(pure) }", true),
+            ("when(flag) { executes(pure) }", "", true),
+            (
+                "when(flag) { executes(pure) }",
+                "when(flag && other) { executes(pure) }",
+                true,
+            ),
+            (
+                "when(flag) { executes(pure) }",
+                "requires(flag) executes(pure)",
+                true,
+            ),
+            ("when(true) { executes(pure) }", "executes(pure)", true),
+            (
+                "when(flag && other) { executes(pure) }",
+                "when(flag) { executes(pure) }",
+                false,
+            ),
+            ("when(flag) { executes(pure) }", "executes(pure)", false),
+            ("", "when(flag) { executes(pure) }", false),
+            ("requires(flag) executes(pure)", "executes(pure)", false),
+        ] {
+            let source = r#"
+                module app;
+                callable Source = func(pos flag: bool, pos other: bool) -> bool SOURCE;
+                callable Target = func(pos flag: bool, pos other: bool) -> bool TARGET;
+
+                func convert(pos action: Source) -> Target
+                {
+                    return action as Target;
+                }
+            "#
+            .replace("SOURCE", source_contract)
+            .replace("TARGET", target_contract);
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn named_callable_values_preserve_declared_guard_domains() {
+        for (guard, valid) in [("flag", true), ("true", true), ("!flag", false)] {
+            let source = r#"
+                module app;
+                callable Action = func(pos flag: bool) -> bool
+                    when(flag) { executes(pure) };
+
+                func supplied(pos flag: bool) -> bool
+                    when(GUARD) { executes(pure) }
+                {
+                    return flag;
+                }
+
+                func root() -> bool executes(pure)
+                {
+                    let action: Action = supplied;
+                    return action(true);
+                }
+            "#
+            .replace("GUARD", guard);
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+        }
+    }
+
+    fn foreign_compilation(source: &str) -> crate::Compilation {
+        let options = crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("c").expect("fixture native link has a name"),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )]);
+
+        crate::test_support::compilation_with_options(source, options)
+    }
+
+    #[test]
+    fn foreign_guards_require_entry_evidence_and_preserve_assertion_provenance() {
+        for (argument, valid) in [("true", true), ("false", false), ("flag", false)] {
+            let source = r#"
+                trusted module app;
+
+                @link(name = "c")
+                @symbol(name = "native_value")
+                @abi(c)
+                extern trusted func native_value(pos flag: bool) -> bool
+                    uses(foreign_call)
+                    when(flag) { executes(total) ensures(result) };
+
+                trusted func root(pos flag: bool) -> bool
+                    uses(foreign_call)
+                    executes(total)
+                    ensures(result)
+                {
+                    return native_value(ARGUMENT);
+                }
+            "#
+            .replace("ARGUMENT", argument);
+
+            let checked = foreign_compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                checked.check_diagnostics()
+            );
+
+            if valid {
+                let key = crate::test_support::source_function_body_key(&checked, "root");
+
+                let evidence = checked
+                    .execution_properties(key)
+                    .expect("root execution evidence is available");
+
+                assert_eq!(evidence.value().foreign_assertions.len(), 1);
+            } else {
+                assert_goal_state_diagnostic_kind(
+                    checked.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn unused_foreign_guard_domains_are_checked_in_their_declaration_context() {
+        let checked = foreign_compilation(
+            r#"
+            trusted module app;
+
+            @link(name = "c")
+            @symbol(name = "native_value")
+            @abi(c)
+            extern trusted func native_value(pos flag: bool) -> bool
+                uses(foreign_call)
+                when(missing) { executes(total) };
+        "#,
+        );
+
+        assert_goal_state_diagnostic_kind(
+            checked.check_diagnostics(),
+            DiagnosticKind::BindingUnresolvedName,
         );
     }
 }

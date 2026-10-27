@@ -266,6 +266,8 @@ pub struct InterfaceCallablePhaseBehavior {
     pub(crate) predicate_requirements: Arc<[InterfacePredicateSummary]>,
     pub(crate) predicate_guarantees: Arc<[InterfacePredicateSummary]>,
     pub(crate) execution_properties: Arc<[bray_symbols::ExecutionProperty]>,
+    pub(crate) execution_domains:
+        Arc<[bray_symbols::CallableExecutionDomain<InterfacePredicateSummary>]>,
     pub(crate) effects: Arc<[InterfaceSymbolReference]>,
     pub(crate) capabilities: Arc<[InterfaceSymbolReference]>,
     pub(crate) trusted_capabilities: Arc<[InterfaceTrustedCapabilityRequirement]>,
@@ -324,6 +326,7 @@ impl InterfaceCallablePhaseBehavior {
             predicate_requirements: Arc::from([]),
             predicate_guarantees: Arc::from([]),
             execution_properties: Arc::from([]),
+            execution_domains: Arc::from([]),
             dependency_contract,
             current_run_cancellation,
             may_unwind: true,
@@ -366,6 +369,25 @@ impl InterfaceCallablePhaseBehavior {
     /// Returns the declared execution promises in semantic order.
     pub fn execution_properties(&self) -> &[bray_symbols::ExecutionProperty] {
         &self.execution_properties
+    }
+
+    /// Retains conditional execution promises in callable input coordinates.
+    pub fn with_execution_domains(
+        mut self,
+        domains: impl IntoIterator<
+            Item = bray_symbols::CallableExecutionDomain<InterfacePredicateSummary>,
+        >,
+    ) -> Self {
+        self.execution_domains = domains.into_iter().collect();
+
+        self
+    }
+
+    /// Returns execution promises that require additional entry predicates.
+    pub fn execution_domains(
+        &self,
+    ) -> &[bray_symbols::CallableExecutionDomain<InterfacePredicateSummary>] {
+        &self.execution_domains
     }
 
     /// Returns checked effects in canonical semantic order.

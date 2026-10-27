@@ -349,6 +349,13 @@ impl InternState {
         )
         .with_may_unwind(input.may_unwind)
         .with_execution_properties(input.execution_properties.iter().copied())
+        .with_execution_domains(
+            input
+                .execution_domains
+                .iter()
+                .map(|domain| domain.try_map(|predicate| self.convert_predicate(predicate)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
         .with_predicates(
             input
                 .predicate_requirements

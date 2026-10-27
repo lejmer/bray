@@ -561,6 +561,13 @@ impl<'a> SemanticExporter<'a> {
         )
         .with_may_unwind(behavior.may_unwind())
         .with_execution_properties(behavior.execution_properties().iter().copied())
+        .with_execution_domains(
+            behavior
+                .execution_domains()
+                .iter()
+                .map(|domain| domain.try_map(|predicate| self.predicate_summary(predicate)))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
         .with_predicates(
             behavior
                 .predicate_requirements()

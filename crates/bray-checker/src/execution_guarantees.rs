@@ -7,7 +7,6 @@ mod normalize;
 mod place;
 mod portable;
 mod trusted_implication;
-mod unsupported;
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::ExecutionCondition;
@@ -31,7 +30,6 @@ pub(crate) use normalize::{
 pub use normalize::{execution_conditions, predicate_conditions, predicate_conditions_with_inputs};
 pub(crate) use place::ExecutionInput;
 pub use place::ExecutionPlace;
-pub use unsupported::check_execution_guarantees;
 
 pub use portable::{
     execution_condition_from_term, execution_condition_from_type_term, execution_condition_term,

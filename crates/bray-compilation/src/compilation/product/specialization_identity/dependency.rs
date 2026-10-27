@@ -28,6 +28,31 @@ impl StructuralValueEncoder<'_, '_> {
             });
         }
 
+        let mut domains = Vec::with_capacity(behavior.execution_domains().len());
+
+        for domain in behavior.execution_domains() {
+            let mut encoder = StructuralValueEncoder {
+                values: self.values,
+                binding_context: self.binding_context,
+                digest: StableDigestHasher::new(),
+                allow_static_address: self.allow_static_address,
+            };
+
+            encoder.predicate_summaries(&domain.entry)?;
+            encoder.length(domain.properties.len());
+
+            for property in &*domain.properties {
+                encoder.tag(match property {
+                    bray_symbols::ExecutionProperty::Pure => 0,
+                    bray_symbols::ExecutionProperty::Total => 1,
+                });
+            }
+
+            domains.push(encoder.digest.finalize());
+        }
+
+        self.unordered_identities(domains);
+
         self.length(behavior.effects().len());
 
         for requirement in behavior.effects() {

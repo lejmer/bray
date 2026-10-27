@@ -9,29 +9,9 @@ pub(super) fn encode_execution_contract(
     encoder: &mut WireEncoder,
     contract: &InterfaceCallableExecutionContract,
 ) {
-    write_count(encoder, contract.domains.len());
-
-    for domain in &*contract.domains {
-        encoder.write_u32(domain.ordinal.raw());
-        write_count(encoder, domain.entry.len());
-
-        for term in &*domain.entry {
-            encoder.write_u32(term.raw());
-        }
-
-        write_count(encoder, domain.properties.len());
-
-        for property in &*domain.properties {
-            encoder.write_u32(property.to_wire());
-        }
-
-        write_count(encoder, domain.postconditions.len());
-
-        for (ordinal, term) in &*domain.postconditions {
-            encoder.write_u32(ordinal.raw());
-            encoder.write_u32(term.raw());
-        }
-    }
+    encode_execution_domains(encoder, &contract.domains, |encoder, term| {
+        encoder.write_u32(term.raw())
+    });
 
     write_count(encoder, contract.evidence.len());
 
@@ -62,6 +42,36 @@ pub(super) fn encode_execution_contract(
             }
 
             encode_obligation(encoder, *obligation);
+        }
+    }
+}
+
+pub(super) fn encode_execution_domains<T>(
+    encoder: &mut WireEncoder,
+    domains: &[bray_symbols::CallableExecutionDomain<T>],
+    mut encode_term: impl FnMut(&mut WireEncoder, &T),
+) {
+    write_count(encoder, domains.len());
+
+    for domain in domains {
+        encoder.write_u32(domain.ordinal.raw());
+        write_count(encoder, domain.entry.len());
+
+        for term in &*domain.entry {
+            encode_term(encoder, term);
+        }
+
+        write_count(encoder, domain.properties.len());
+
+        for property in &*domain.properties {
+            encoder.write_u32(property.to_wire());
+        }
+
+        write_count(encoder, domain.postconditions.len());
+
+        for (ordinal, term) in &*domain.postconditions {
+            encoder.write_u32(ordinal.raw());
+            encode_term(encoder, term);
         }
     }
 }

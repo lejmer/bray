@@ -268,6 +268,19 @@ fn remap_callable_behavior(
             .collect::<Result<Vec<_>, _>>()?,
     );
 
+    behavior.execution_domains = behavior
+        .execution_domains
+        .iter()
+        .map(|domain| {
+            domain.try_map(|mut predicate| {
+                remap_predicate(&mut predicate, remap)?;
+
+                Ok::<_, InterfaceSemanticCommitError>(predicate)
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into();
+
     behavior.dependency_contract = remap.dependency_contract(behavior.dependency_contract)?;
 
     Ok(())

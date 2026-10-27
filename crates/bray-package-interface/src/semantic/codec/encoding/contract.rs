@@ -254,6 +254,12 @@ pub(super) fn encode_callable_behavior(
     for property in &*behavior.execution_properties {
         encoder.write_u32(property.to_wire());
     }
+
+    super::execution::encode_execution_domains(
+        encoder,
+        &behavior.execution_domains,
+        |encoder, predicate| encode_predicate_summary(encoder, *predicate),
+    );
 }
 
 pub(super) fn encode_dependency_requirement(

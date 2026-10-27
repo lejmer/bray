@@ -166,6 +166,8 @@ pub fn callable_contract_conversion_is_valid(
         && source.trust() == target.trust()
         && source.abi() == target.abi()
         && phase_contract_is_compatible(
+            values,
+            source.parameters().len(),
             source.phase_behaviors().invocation(),
             target.phase_behaviors().invocation(),
         )
@@ -173,13 +175,20 @@ pub fn callable_contract_conversion_is_valid(
             source.phase_behaviors().deferred_execution(),
             target.phase_behaviors().deferred_execution(),
         ) {
-            (Some(source), Some(target)) => phase_contract_is_compatible(source, target),
+            (Some(source_phase), Some(target_phase)) => phase_contract_is_compatible(
+                values,
+                source.parameters().len(),
+                source_phase,
+                target_phase,
+            ),
             (None, None) => true,
             _ => false,
         }
 }
 
 fn phase_contract_is_compatible(
+    values: &bray_symbols::SemanticValueStore,
+    parameter_count: usize,
     source: &bray_symbols::CallablePhaseBehavior,
     target: &bray_symbols::CallablePhaseBehavior,
 ) -> bool {
@@ -189,12 +198,14 @@ fn phase_contract_is_compatible(
         .clone()
         .with_may_unwind(true)
         .with_execution_properties([])
+        .with_execution_domains([])
         .with_predicates([], [])
         .with_trusted_capabilities([])
         == target
             .clone()
             .with_may_unwind(true)
             .with_execution_properties([])
+            .with_execution_domains([])
             .with_predicates([], [])
             .with_trusted_capabilities([])
         && (target.may_unwind() || !source.may_unwind())
@@ -210,10 +221,62 @@ fn phase_contract_is_compatible(
                     && candidate.domain() == condition.domain()
             })
         })
-        && target
-            .execution_properties()
-            .iter()
-            .all(|property| source.execution_properties().contains(property))
+        && phase_execution_promises_are_compatible(values, parameter_count, source, target)
+}
+
+fn phase_execution_promises_are_compatible(
+    values: &bray_symbols::SemanticValueStore,
+    parameter_count: usize,
+    source: &bray_symbols::CallablePhaseBehavior,
+    target: &bray_symbols::CallablePhaseBehavior,
+) -> bool {
+    use crate::execution_guarantees::ExecutionCondition;
+
+    let decode = |predicate: &bray_symbols::PredicateSemanticSummary| {
+        predicate
+            .condition()
+            .map(|term| {
+                crate::execution_guarantees::execution_condition_from_type_term(
+                    values,
+                    term,
+                    parameter_count,
+                )
+                .expect("published callable predicates retain valid semantic identities")
+            })
+            .unwrap_or(ExecutionCondition::Unknown)
+    };
+
+    let promised = |entry: &[bray_symbols::PredicateSemanticSummary], property| {
+        if source.execution_properties().contains(&property) {
+            return true;
+        }
+
+        let mut known = std::collections::BTreeSet::new();
+
+        for predicate in target.predicate_requirements().iter().chain(entry) {
+            decode(predicate).assume(true, &mut known);
+        }
+
+        source.execution_domains().iter().any(|domain| {
+            domain.properties.contains(&property)
+                && domain.entry.iter().all(|predicate| {
+                    decode(predicate).prove(&known, &mut {
+                        bray_symbols::EXECUTION_CONDITION_WORK_LIMIT
+                    }) == Some(true)
+                })
+        })
+    };
+
+    target
+        .execution_properties()
+        .iter()
+        .all(|property| promised(&[], *property))
+        && target.execution_domains().iter().all(|domain| {
+            domain
+                .properties
+                .iter()
+                .all(|property| promised(&domain.entry, *property))
+        })
 }
 
 fn scalar_conversion_is_valid<C>(request: &C, source: TypeId, target: TypeId) -> bool
@@ -425,7 +488,10 @@ mod tests {
         use bray_symbols::{CallablePhaseBehavior, PredicateDomain, PredicateSemanticSummary};
 
         let values = crate::test_support::semantic_values();
-        let dependency = values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
+
+        let dependency = values
+            .empty_dependency_contract_template()
+            .expect("fixture `empty_dependency_contract_template` call must succeed");
 
         for source in [
             PredicateDomain::Value,

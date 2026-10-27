@@ -142,6 +142,22 @@ pub trait CheckerRequestContext: Sync {
         ))
     }
 
+    /// Returns guarded execution promises checked independently of callable body effects.
+    fn callable_execution_domains(
+        &self,
+        _callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Arc<[bray_symbols::CallableExecutionDomain<bray_symbols::PredicateSemanticSummary>]>,
+        >,
+        Self::UpstreamError,
+    > {
+        Ok(DiagnosticResult::new(
+            Arc::new([]),
+            bray_diagnostics::DiagnosticBag::new(),
+        ))
+    }
+
     /// Returns the inferred contract retained by one callable's returned value.
     fn callable_result_dependencies(
         &self,

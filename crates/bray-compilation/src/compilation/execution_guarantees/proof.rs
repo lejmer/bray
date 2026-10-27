@@ -16,7 +16,12 @@ use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
 type ProofAssertions = BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>;
-type ProofDependencies = BTreeSet<(SyntaxAnchor, ExecutionObligation, bray_checker::ExecutionDependencyTarget, ExecutionObligation)>;
+type ProofDependencies = BTreeSet<(
+    SyntaxAnchor,
+    ExecutionObligation,
+    bray_checker::ExecutionDependencyTarget,
+    ExecutionObligation,
+)>;
 type CertifiedProof<Failure> = (Option<Failure>, ProofAssertions, ProofDependencies);
 
 impl Compilation {
@@ -171,25 +176,14 @@ impl Compilation {
             let callable =
                 callable.expect("source declaration without a body retains its selected callable");
 
-            let (
-                bray_symbols::CallableSymbolId::Function(function),
-                ExecutionObligation::Property(property, None),
-            ) = (callable.definition().callable_symbol(), required)
-            else {
-                return Ok(None);
-            };
-
-            return Ok(self
-                .foreign_execution_applies(
-                    callable,
-                    function,
-                    declaration,
-                    property,
-                    evidence,
-                    diagnostics,
-                    cancellation,
-                )?
-                .then_some(required));
+            return self.select_foreign_execution_obligation(
+                callable,
+                declaration,
+                required,
+                evidence,
+                diagnostics,
+                cancellation,
+            );
         };
 
         let selected = match required {
@@ -228,38 +222,85 @@ impl Compilation {
         Ok(selected)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "foreign execution proofs join callable identity, declaration property, evidence, and diagnostics"
-    )]
-    fn foreign_execution_applies(
+    fn select_foreign_execution_obligation(
         &self,
         callable: bray_symbols::CallableInstanceData,
-        function: bray_symbols::FunctionSymbolId,
         declaration: &bray_checker::ExecutionDeclaration,
-        property: bray_checker::ExecutionProperty,
+        required: ExecutionObligation,
         evidence: Option<&bray_checker::ExecutionCallEvidence>,
         diagnostics: &mut DiagnosticBag,
         cancellation: &CancellationToken,
-    ) -> Result<bool, FactQueryError> {
+    ) -> Result<Option<ExecutionObligation>, FactQueryError> {
+        let bray_symbols::CallableSymbolId::Function(function) =
+            callable.definition().callable_symbol()
+        else {
+            return Ok(None);
+        };
+
         let foreign = self.foreign_callable_contract_with_cancellation(function, cancellation)?;
 
         diagnostics.add_range(foreign.diagnostics().iter().cloned());
 
-        let applicable = if let Some(owner) = self.execution_contract_owner(function.into())? {
-            self.applicable_execution_obligation(
-                &owner,
-                Some(callable),
-                declaration,
-                ExecutionObligation::Property(property, None),
-                evidence,
-                cancellation,
-            )? == Some(None)
-        } else {
-            false
+        if foreign.value().is_none() || foreign.diagnostics().has_errors() {
+            return Ok(None);
+        }
+
+        let Some(owner) = self.execution_contract_owner(function.into())? else {
+            return Ok(None);
         };
 
-        Ok(foreign.value().is_some() && !foreign.diagnostics().has_errors() && applicable)
+        match required {
+            ExecutionObligation::Property(property, _) => Ok(self
+                .applicable_execution_obligation(
+                    &owner,
+                    Some(callable),
+                    declaration,
+                    required,
+                    evidence,
+                    cancellation,
+                )?
+                .map(|guard| ExecutionObligation::Property(property, guard.map(Into::into)))),
+            ExecutionObligation::Postcondition(bray_checker::ExecutionClauseId::Source(source)) => {
+                let Some(domain) = declaration.domains().iter().find(|domain| {
+                    domain
+                        .postconditions
+                        .iter()
+                        .any(|anchor| source_span(*anchor) == source)
+                }) else {
+                    return Ok(None);
+                };
+
+                let anchors = declaration
+                    .requirements()
+                    .iter()
+                    .chain(&domain.guards)
+                    .copied()
+                    .collect::<Vec<_>>();
+
+                let entry = self.execution_condition_inputs(&owner, &anchors, cancellation)?;
+
+                diagnostics.add_range(entry.diagnostics().iter().cloned());
+
+                if entry.diagnostics().has_errors() {
+                    return Ok(None);
+                }
+
+                let conditions = entry
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition)
+                    .collect::<Vec<_>>();
+
+                let inputs = self.execution_unit_inputs(&owner, cancellation)?;
+
+                Ok(evidence
+                    .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
+                    .proves_trusted_with_inputs(&conditions, &inputs)
+                    .then_some(required))
+            }
+            _ => Ok(None),
+        }
     }
 
     #[expect(
@@ -338,16 +379,14 @@ impl Compilation {
         };
 
         if body.is_none() {
-            let ExecutionObligation::Property(property, None) = selected else {
-                panic!("foreign execution proof selects an unconditional property");
-            };
+            if let ExecutionObligation::Property(property, _) = selected {
+                assertions.insert((anchor, property));
+            }
 
             graph.insert(
                 (ExecutionProofOwner::Source(anchor, None), selected),
                 BTreeSet::new(),
             );
-
-            assertions.insert((anchor, property));
         }
 
         let owner = ExecutionProofOwner::Source(anchor, body.as_ref().map(|_| callable));

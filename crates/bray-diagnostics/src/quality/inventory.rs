@@ -1131,10 +1131,6 @@ impl DiagnosticKind {
             Self::CheckingCircularExecutionGuarantee => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
-            Self::CheckingExecutionGuaranteeUnsupported => Self::quality_source(
-                &[ActualSyntaxKind],
-                primary_components!(&[ActualSyntaxKind]),
-            ),
             Self::CheckingCallableAddressTypeUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }

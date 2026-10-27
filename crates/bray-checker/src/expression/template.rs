@@ -302,11 +302,13 @@ where
             .expect("declaration candidate must be callable");
 
         let predicates = request.context().callable_predicate_contracts(owner)?;
+        let domains = request.context().callable_execution_domains(owner)?;
 
         diagnostics.add_range(predicates.diagnostics().iter().cloned());
+        diagnostics.add_range(domains.diagnostics().iter().cloned());
 
         signature = signature
-            .with_predicate_contracts(values, predicates.value(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
+            .with_declared_contracts(values, predicates.value(), domains.value(), callable_substitution).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in resolve_declaration_candidate_with_arguments: {error:?}"));
 
         signature = crate::normalize_numeric_requirements(request.context(), signature)?;
     }

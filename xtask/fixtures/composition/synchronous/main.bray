@@ -10,6 +10,7 @@ func run()
     custom_runtime_defaults();
     assert(identity(true));
     assert(conditional_completion());
+    assert(guarded_callable_completion());
     replace_owner();
     assert(failure() matches Error(false));
     assert(branch_result(true));
@@ -251,4 +252,29 @@ func conditional_completion() -> bool
     let moved = original;
 
     return moved;
+}
+
+callable GuardedAction<T> = func(pos flag: bool, pos value: T) -> T
+    requires(flag)
+    when(flag)
+    {
+        executes(pure)
+    };
+
+func guarded_value<T>(pos flag: bool, pos value: T) -> T
+    requires(flag)
+    when(flag)
+    {
+        executes(pure)
+    }
+{
+    return value;
+}
+
+func guarded_callable_completion() -> bool
+    executes(pure)
+{
+    let action: GuardedAction<bool> = guarded_value<bool>;
+
+    return action(true, true);
 }
