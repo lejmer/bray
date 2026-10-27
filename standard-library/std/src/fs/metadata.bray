@@ -78,7 +78,9 @@ func create_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
 trusted internal func create_directory_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
-    return checked_platform_status(trusted platform_path_create_directory(platform_path(path)));
+    return checked_platform_status(
+        trusted path_create_directory_implementation(platform_path(path), already_terminated = true)
+    );
 }
 
 async func create_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
@@ -96,7 +98,9 @@ func remove_file(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
 trusted internal func remove_file_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
-    return checked_platform_status(trusted platform_path_remove_file(platform_path(path)));
+    return checked_platform_status(
+        trusted path_remove_file_implementation(platform_path(path), already_terminated = true)
+    );
 }
 
 async func remove_file_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
@@ -114,7 +118,9 @@ func remove_directory(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
 trusted internal func remove_directory_path(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
-    return checked_platform_status(trusted platform_path_remove_directory(platform_path(path)));
+    return checked_platform_status(
+        trusted path_remove_directory_implementation(platform_path(path), already_terminated = true)
+    );
 }
 
 async func remove_directory_async(pos path: &std.path.Path) -> Result<unit, std.io.IoError>
@@ -137,7 +143,12 @@ trusted internal func rename_path(
 {
     let native_source: PlatformPath = platform_path(source);
     let native_destination: PlatformPath = platform_path(destination);
-    let status: std.platform.PlatformStatus = trusted platform_path_rename(native_source, native_destination);
+
+    let status: std.platform.PlatformStatus = trusted path_rename_implementation(
+        native_source,
+        native_destination,
+        already_terminated = true
+    );
 
     return checked_platform_status(status);
 }

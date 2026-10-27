@@ -42,7 +42,7 @@ struct Directory
         }
 
         let handle: u64 = try trusted platform_directory_open(
-            platform_path(path),
+            path,
             state = trusted std.memory.initialized_slice_mut<u64>(&mut state),
         );
 

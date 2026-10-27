@@ -5,6 +5,8 @@ using std.fs;
 using internal std.fs.FileReader;
 using internal std.fs.FileWriter;
 using std.io;
+using std.memory;
+using internal std.platform;
 using std.io.IoErrorKindEquatable;
 using internal std.io.BufferedReaderSourceReader;
 using internal std.io.BufferedWriterSinkWriter;
@@ -421,5 +423,44 @@ module bray.standard_library_tests.filesystem
         std.testing.assert_ok<unit, std.io.IoError>(file.close());
         assert(file.is_complete());
         std.testing.assert_ok<unit, std.io.IoError>(std.fs.remove_file(&path));
+    }
+}
+
+@test
+trusted func length_delimited_native_paths_remain_supported()
+{
+    let bytes: bytes<4> = [65, 0, 66, 0];
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+    let length: usize = if width == 2 { yield 4; } else { yield 1; };
+    let path: internal std.fs.PlatformPath =
+    {
+        address = std.memory.address_of<u8>(&bytes[0]),
+        length = length as u64,
+    };
+    let original: u64 = trusted internal std.platform.pointer_handle(path.address);
+    let prepared: internal std.fs.PreparedPath = std.testing.assert_ok<
+        internal std.fs.PreparedPath,
+        internal std.platform.PlatformStatus
+    >(trusted internal std.fs.prepare_native_path(path, already_terminated = false));
+
+    assert(trusted internal std.platform.pointer_handle(prepared.pointer) !=
+        original);
+    assert(trusted std.memory.read<u8>(prepared.pointer) == 65);
+    assert(trusted std.memory.read<u8>(std.memory.byte_offset<u8>(prepared.pointer, bytes = length as isize)) == 0);
+
+    if width == 2
+    {
+        assert(trusted internal std.platform.pointer_handle(prepared.pointer) % 2 == 0);
+        assert(trusted std.memory.read<u8>(std.memory.byte_offset<u8>(prepared.pointer, bytes = 5)) == 0);
+
+        let odd: internal std.fs.PlatformPath =
+        {
+            address = std.memory.address_of<u8>(&bytes[0]),
+            length = 1,
+        };
+
+        _ = std.testing.assert_error<internal std.fs.PreparedPath, internal std.platform.PlatformStatus>(
+            trusted internal std.fs.prepare_native_path(odd, already_terminated = false),
+        );
     }
 }

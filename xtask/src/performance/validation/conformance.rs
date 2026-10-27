@@ -172,21 +172,21 @@ mod tests {
             scope: crate::performance::model::STORAGE_OBSERVATION_SCOPE.to_owned(),
         };
 
-        workload.observations.allocation_count = measured(5);
-        workload.observations.allocated_bytes = measured(371);
-        workload.observations.copied_bytes = measured(112);
+        workload.observations.allocation_count = measured(3);
+        workload.observations.allocated_bytes = measured(313);
+        workload.observations.copied_bytes = measured(56);
 
         let failures = conformance_failures(&report).expect("Windows runtime identity");
 
         assert_eq!(failures.len(), 1);
-        assert!(failures[0].contains("allocated_bytes: 486"));
+        assert!(failures[0].contains("allocated_bytes: 371"));
 
         assert!(failures[0].contains(
-            "measured allocations Some(5), allocated bytes Some(371), copied bytes Some(112)"
+            "measured allocations Some(3), allocated bytes Some(313), copied bytes Some(56)"
         ));
 
-        report.workloads[0].observations.allocated_bytes = measured(486);
-        report.workloads[0].observations.copied_bytes = measured(168);
+        report.workloads[0].observations.allocated_bytes = measured(371);
+        report.workloads[0].observations.copied_bytes = measured(56);
 
         assert!(
             conformance_failures(&report)

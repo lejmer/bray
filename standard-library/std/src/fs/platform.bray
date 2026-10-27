@@ -6,6 +6,7 @@ using std.io;
 using std.path;
 using internal std.platform;
 using std.memory;
+using std.numeric;
 
 @layout(c)
 internal struct PlatformPath
@@ -103,13 +104,12 @@ trusted internal func directory_entry_path(
 
     trusted std.memory.set_initialized_count<u8>(&mut storage, count = initialized);
 
-    let native: std.path.NativeText =
+    let buffer: std.bytes.Buffer =
     {
-        bytes = std.bytes.Buffer
-        {
-            storage = storage
-        },
+        storage = storage
     };
+
+    let native: std.path.NativeText = internal std.path.native_text_from_buffer(buffer);
 
     match std.path.Path.from_native(native)
     {
@@ -164,7 +164,12 @@ trusted internal func platform_file_open(
     )
     uses(raw_memory, unchecked_init)
 {
-    let prepared: Result<File, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
+    let prepared: Result<File, std.platform.PlatformStatus> = trusted internal prepare_file_open(
+        path,
+        options,
+        opened,
+        already_terminated = false
+    );
 
     match consume prepared
     {
@@ -181,22 +186,47 @@ trusted internal func platform_file_open(
     }
 }
 
-trusted internal func prepare_rename_source(
-    pos source: &PlatformPath,
-    pos new_path: &PlatformPath,
-) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = source.address, count = source.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = source.address, count = source.length as usize),
-        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
-    )
-    ensures(
-        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
-    )
+internal static EMPTY_PATH_TERMINATOR: u16 = 0;
+
+// Owns a temporary only for callers of the length-delimited platform ABI.
+internal struct PreparedPath
 {
-    let terminator_bytes: usize = if target.identity.SYSTEM == "windows"
+    pointer: DataPointer<u8>;
+    storage: std.memory.RawBuffer<u8>?;
+}
+
+// An already terminated input must come from platform_path and remain borrowed for the call.
+trusted internal func prepare_native_path(
+    pos path: PlatformPath,
+    already_terminated: bool,
+) -> Result<PreparedPath, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    if already_terminated
+    {
+        if path.length == 0
+        {
+            return Ok(
+                {
+                    pointer = std.memory.byte_address<u16>(std.memory.address_of<u16>(&EMPTY_PATH_TERMINATOR)),
+                    storage = none,
+                }
+            );
+        }
+
+        return Ok(
+            {
+                pointer = path.address,
+                storage = none
+            }
+        );
+    }
+
+    let width: usize = if target.identity.SYSTEM == "windows"
     {
         yield 2;
     }
@@ -205,14 +235,77 @@ trusted internal func prepare_rename_source(
         yield 1;
     };
 
-    if source.length % terminator_bytes as u64 != 0
+    let count: usize = path.length as usize;
+
+    let extra: usize = if width == 2
+    {
+        yield 3;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    if count as u64 != path.length || count % width != 0 || count > std.numeric.USIZE_MAX - extra || (count > 0 &&
+        std.memory.is_null<u8>(path.address))
     {
         return Error(internal std.platform.invalid_input_status());
     }
 
-    return trusted internal std.platform.terminated_native_text(
-        source.address,
-        length = source.length,
-        terminator_bytes = terminator_bytes,
+    let capacity: usize = count + extra;
+
+    let mut buffer: std.memory.RawBuffer<u8> = trusted internal std.memory.allocate_buffer<u8>(
+        capacity = capacity,
+        bytes = capacity,
+        align = 1,
+    );
+
+    if count > 0
+    {
+        let initialized: usize = trusted internal std.memory.copy_spare_raw_bytes(
+            &mut buffer,
+            source = path.address,
+            count = count,
+        );
+
+        trusted std.memory.set_initialized_count<u8>(&mut buffer, count = initialized);
+    }
+
+    let mut start: usize = 0;
+
+    if width == 2 && trusted internal std.platform.pointer_handle(buffer.pointer) % 2 != 0
+    {
+        trusted internal std.memory.initialize_spare<u8>(&mut buffer, 0);
+
+        let bytes: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut buffer);
+        let mut index: usize = count;
+
+        while index > 0
+        {
+            bytes[index] = bytes[index - 1];
+            index -= 1;
+        }
+
+        start = 1;
+    }
+
+    trusted internal std.memory.initialize_spare<u8>(&mut buffer, 0);
+
+    if width == 2
+    {
+        trusted internal std.memory.initialize_spare<u8>(&mut buffer, 0);
+    }
+
+    let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&buffer);
+    let pointer: DataPointer<u8> = std.memory.address_of<u8>(&bytes[start]);
+    let mut storage: std.memory.RawBuffer<u8>? = none;
+
+    storage = buffer;
+
+    return Ok(
+        {
+            pointer = pointer,
+            storage = storage
+        }
     );
 }

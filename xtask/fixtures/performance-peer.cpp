@@ -64,13 +64,17 @@
 #include <thread>
 #endif
 
-#if BRAY_WORKLOAD == 4
+#if BRAY_WORKLOAD == 4 || BRAY_WORKLOAD == 26
 #include <filesystem>
 #if defined(_WIN32)
 #include <windows.h>
 #else
 #include <sys/stat.h>
 #endif
+#endif
+
+#if BRAY_WORKLOAD == 26
+#include <fstream>
 #endif
 
 #if BRAY_WORKLOAD == 11
@@ -637,6 +641,29 @@ bool workload()
 
         retain_work(metadata);
 #endif
+    }
+
+    return true;
+}
+#elif BRAY_WORKLOAD == 26
+bool workload()
+{
+    const std::filesystem::path source = "bray-performance-path-a";
+    const std::filesystem::path destination = "bray-performance-path-b";
+    const std::filesystem::path directory = "bray-performance-path-dir";
+    std::error_code error;
+
+    for (std::size_t index = 0; index < 8; ++index)
+    {
+        if (!std::filesystem::create_directory(directory, error) || error)
+            return false;
+        { std::filesystem::directory_iterator listing(directory, error); if (error) return false; }
+        { std::ofstream file(source); if (!file) return false; }
+        (void)std::filesystem::status(source, error);
+        if (error) return false;
+        std::filesystem::rename(source, destination, error);
+        if (error || !std::filesystem::remove(destination, error) || error ||
+            !std::filesystem::remove(directory, error) || error) return false;
     }
 
     return true;

@@ -24,6 +24,31 @@ impl Workload {
         &self,
         target: bray_target::NativeTarget,
     ) -> Option<StorageExpectation> {
+        if self.id == "filesystem_reused_paths" {
+            let windows = target.object_format() == bray_target::ObjectFormat::Coff;
+
+            let lengths = "bray-performance-path-a".len()
+                + "bray-performance-path-b".len()
+                + "bray-performance-path-dir".len();
+
+            let directory_length = "bray-performance-path-dir".len() as u64;
+            let lengths = lengths as u64;
+
+            return Some(if windows {
+                StorageExpectation {
+                    allocation_count: 6 + 8 * 2,
+                    allocated_bytes: 4 * lengths + 9 + 8 * (608 + 2 * (directory_length + 3)),
+                    copied_bytes: 2 * lengths,
+                }
+            } else {
+                StorageExpectation {
+                    allocation_count: 6,
+                    allocated_bytes: 2 * lengths + 3,
+                    copied_bytes: 2 * lengths,
+                }
+            });
+        }
+
         if self.id != "file_output" {
             return self.storage;
         }
@@ -40,12 +65,14 @@ impl Workload {
 
         let path_bytes = path.len() as u64 * unit_bytes;
 
-        // One native path, three terminated paths (remove/open/remove), and the 256-byte writer.
-        // UTF-8 path construction copies bytes. UTF-16 construction encodes scalars directly.
+        // Native path construction reserves its terminator once; filesystem calls reuse it.
+        // UTF-8 construction copies the input, and reserving copies the encoded native text.
+        let terminator_reserve = if unit_bytes == 2 { 3 } else { 1 };
+
         Some(StorageExpectation {
-            allocation_count: 5,
-            allocated_bytes: 256 + path_bytes + 3 * (path_bytes + unit_bytes),
-            copied_bytes: 3 * path_bytes + if unit_bytes == 1 { path_bytes } else { 0 },
+            allocation_count: 3,
+            allocated_bytes: 256 + 2 * path_bytes + terminator_reserve,
+            copied_bytes: path_bytes + if unit_bytes == 1 { path_bytes } else { 0 },
         })
     }
 }

@@ -543,6 +543,32 @@ fn workload() -> bool {
     true
 }
 
+#[cfg(peer_workload = "filesystem_reused_paths")]
+fn workload() -> bool {
+    let source = std::path::Path::new("bray-performance-path-a");
+    let destination = std::path::Path::new("bray-performance-path-b");
+    let directory = std::path::Path::new("bray-performance-path-dir");
+
+    for _ in 0..8 {
+        if std::fs::create_dir(directory).is_err() { return false; }
+
+        let Ok(listing) = std::fs::read_dir(directory) else { return false; };
+
+        drop(listing);
+
+        let Ok(file) = std::fs::OpenOptions::new().write(true).create_new(true).open(source) else { return false; };
+
+        drop(file);
+
+        if std::fs::metadata(source).is_err() || std::fs::rename(source, destination).is_err()
+            || std::fs::remove_file(destination).is_err() || std::fs::remove_dir(directory).is_err() {
+            return false;
+        }
+    }
+
+    true
+}
+
 #[cfg(peer_workload = "file_output")]
 fn workload() -> bool {
     const PATH: &str = "bray-performance-file-output";
