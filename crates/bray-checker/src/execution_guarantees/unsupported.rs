@@ -23,7 +23,8 @@ pub fn check_execution_guarantees(
         };
 
         let keyword = match node.kind() {
-            // TODO(BRA-500): Validate guarantees on callable types and trait declarations.
+            // TODO(BRA-646): Check callable-type execution guarantees with requirements, guards,
+            // or postconditions.
             SyntaxKind::ExecutesClause => SyntaxKind::ExecutesKeyword,
             SyntaxKind::WhenClause => SyntaxKind::WhenKeyword,
             _ => return SyntaxWalkControl::Continue,
