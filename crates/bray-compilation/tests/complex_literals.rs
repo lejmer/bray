@@ -522,7 +522,8 @@ fn complex_arithmetic_constants_cover_every_advertised_operation() {
                 real: bray_symbols::RealConstantBits::Binary64(bits[0]),
                 imaginary: bray_symbols::RealConstantBits::Binary64(bits[1]),
             },
-            "{name}"
+            "{}",
+            name.as_str()
         );
 
         count += 1;
