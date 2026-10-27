@@ -64,3 +64,9 @@ unwrap_used = "deny"
 # Keep compiler development archives within COFF's 32-bit member offsets.
 [profile.dev.package.bray-compilation]
 debug = 1
+
+# Keep release optimization and its codegen-unit count while enabling incremental reuse.
+[profile.tooling]
+inherits = "release"
+incremental = true
+codegen-units = 16

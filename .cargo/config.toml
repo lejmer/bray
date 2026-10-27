@@ -4,6 +4,7 @@ build-dir = "{workspace-root}/target/cargo"
 [alias]
 llvm = "run --package bray-llvm-toolchain --release --"
 xtask = "run --package xtask --release --"
+xtask-incremental = "run --package xtask --profile tooling --"
 
 [env]
 BRAY_LLVM_PREFIX = { value = "target/toolchains/llvm/active", relative = true }
