@@ -995,6 +995,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             14 => Ok(MirBinaryOperator::ShiftLeft),
             15 => Ok(MirBinaryOperator::ShiftRight),
             16 => Ok(MirBinaryOperator::Exponentiate),
+            17 => Ok(MirBinaryOperator::ComplexMultiply),
+            18 => Ok(MirBinaryOperator::ComplexDivide),
+            19 => Ok(MirBinaryOperator::ComplexExponentiate),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

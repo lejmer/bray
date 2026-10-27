@@ -1,0 +1,25 @@
+module bray.standard_library_tests.complex_arithmetic;
+
+func generic_complex_product<Value>(pos left: Value, pos right: Value) -> Value(Multiply<Value>).Output
+    with(Value: Multiply<Value>)
+{
+    return left * right;
+}
+
+func generic_complex_quotient<Value>(pos left: Value, pos right: Value) -> Value(Divide<Value>).Output
+    with(Value: Divide<Value>)
+{
+    return left / right;
+}
+
+func generic_complex_power<Value>(pos left: Value, pos right: Value) -> Value(Exponentiate<Value>).Output
+    with(Value: Exponentiate<Value>)
+{
+    return left ** right;
+}
+
+func generic_complex_negation<Value>(pos value: Value) -> Value(Negate).Output
+    with(Value: Negate)
+{
+    return -value;
+}

@@ -248,8 +248,8 @@ fn bound_binary_operator(operator: MirBinaryOperator) -> BoundOperator {
     match operator {
         MirBinaryOperator::Add => BoundOperator::Add,
         MirBinaryOperator::Subtract => BoundOperator::Subtract,
-        MirBinaryOperator::Multiply => BoundOperator::Multiply,
-        MirBinaryOperator::Divide => BoundOperator::Divide,
+        MirBinaryOperator::Multiply | MirBinaryOperator::ComplexMultiply => BoundOperator::Multiply,
+        MirBinaryOperator::Divide | MirBinaryOperator::ComplexDivide => BoundOperator::Divide,
         MirBinaryOperator::Remainder => BoundOperator::Remainder,
         MirBinaryOperator::Equal => BoundOperator::Equal,
         MirBinaryOperator::NotEqual => BoundOperator::NotEqual,
@@ -262,6 +262,6 @@ fn bound_binary_operator(operator: MirBinaryOperator) -> BoundOperator {
         MirBinaryOperator::BitwiseXor => BoundOperator::BitwiseXor,
         MirBinaryOperator::ShiftLeft => BoundOperator::ShiftLeft,
         MirBinaryOperator::ShiftRight => BoundOperator::ShiftRight,
-        MirBinaryOperator::Exponentiate => BoundOperator::Exponentiate,
+        MirBinaryOperator::Exponentiate | MirBinaryOperator::ComplexExponentiate => BoundOperator::Exponentiate,
     }
 }

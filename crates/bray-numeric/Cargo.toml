@@ -1,0 +1,13 @@
+[package]
+name = "bray-numeric"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Software transcendentals support binary128 without a host libm ABI. Disable RNG and serialization.
+astro-float-num = { version = "0.3.6", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true

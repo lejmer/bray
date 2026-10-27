@@ -77,6 +77,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "astro-float-num"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc7f6a0312e8f5845f84241b21bd2394d49940b6bc333c6a84f992e6dc9ebb85"
+dependencies = [
+ "itertools 0.10.5",
+ "lazy_static",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -206,6 +216,7 @@ dependencies = [
  "bray-compiler-known",
  "bray-declarations",
  "bray-diagnostics",
+ "bray-numeric",
  "bray-parser",
  "bray-source",
  "bray-symbols",
@@ -486,6 +497,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-numeric"
+version = "0.0.0"
+dependencies = [
+ "astro-float-num",
+]
+
+[[package]]
 name = "bray-package-interface"
 version = "0.0.0"
 dependencies = [
@@ -580,6 +598,7 @@ dependencies = [
 name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
+ "bray-numeric",
  "bray-platform",
  "bray-runtime-abi",
  "bray-runtime-model",
@@ -1236,6 +1255,15 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
+version = "0.10.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
@@ -1524,7 +1552,7 @@ checksum = "f9df7c3781f364f2651e1ac702f1f144c4fa00d6bb6ca578ab522b517054d56e"
 dependencies = [
  "crossbeam-channel",
  "crossbeam-utils",
- "itertools",
+ "itertools 0.15.0",
  "jod-thread",
  "libc",
  "miow",
@@ -1539,7 +1567,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "638f9a96d169dc03330fd2aaaa2ec000253525f882401cff75567e70d51e7cc1"
 dependencies = [
  "either",
- "itertools",
+ "itertools 0.15.0",
  "ra_ap_parser",
  "ra_ap_stdx",
  "rowan",

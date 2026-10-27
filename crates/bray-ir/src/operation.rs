@@ -58,6 +58,12 @@ pub enum MirBinaryOperator {
     Exponentiate,
     /// Numeric division.
     Divide,
+    /// Complex multiplication through the deterministic numeric helper.
+    ComplexMultiply,
+    /// Complex division through the deterministic numeric helper.
+    ComplexDivide,
+    /// Principal complex exponentiation through the deterministic numeric helper.
+    ComplexExponentiate,
     /// Numeric remainder.
     Remainder,
     /// Equality comparison.
@@ -82,6 +88,30 @@ pub enum MirBinaryOperator {
     ShiftLeft,
     /// Right shift.
     ShiftRight,
+}
+
+impl MirBinaryOperator {
+    /// Selects the representation-specific complex arithmetic implementation.
+    pub const fn for_complex(self) -> Self {
+        match self {
+            Self::Multiply => Self::ComplexMultiply,
+            Self::Divide => Self::ComplexDivide,
+            Self::Exponentiate => Self::ComplexExponentiate,
+            operator => operator,
+        }
+    }
+
+    /// Returns the linked numeric helper required by this operation.
+    pub const fn runtime_role(self) -> Option<bray_runtime_interface::RuntimeAbiRole> {
+        use bray_runtime_interface::RuntimeAbiRole;
+
+        match self {
+            Self::ComplexMultiply => Some(RuntimeAbiRole::ComplexMultiply),
+            Self::ComplexDivide => Some(RuntimeAbiRole::ComplexDivide),
+            Self::ComplexExponentiate => Some(RuntimeAbiRole::ComplexPower),
+            _ => None,
+        }
+    }
 }
 
 /// One explicit numeric conversion selected by a standard-library operation.

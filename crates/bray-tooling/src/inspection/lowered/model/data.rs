@@ -2847,6 +2847,9 @@ fn binary_operator(operator: MirBinaryOperator) -> &'static str {
         MirBinaryOperator::ShiftLeft => "shift_left",
         MirBinaryOperator::ShiftRight => "shift_right",
         MirBinaryOperator::Exponentiate => "exponentiate",
+        MirBinaryOperator::ComplexMultiply => "complex_multiply",
+        MirBinaryOperator::ComplexDivide => "complex_divide",
+        MirBinaryOperator::ComplexExponentiate => "complex_exponentiate",
     }
 }
 

@@ -14,6 +14,7 @@ mod fixtures;
 mod host;
 #[doc(hidden)]
 pub mod implementation;
+mod numeric;
 mod outgoing;
 mod run;
 mod state;

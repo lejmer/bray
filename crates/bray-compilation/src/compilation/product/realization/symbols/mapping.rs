@@ -69,6 +69,7 @@ impl Compilation {
         unit: &CodegenUnit,
         operations: &[CodegenOperationMapping],
         static_storages: &[bray_codegen::CodegenStaticStorageMapping],
+        callables: &[bray_codegen::CodegenCallableMapping],
         executable_host: Option<&ExecutableHostContract>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         target: &CodegenTarget,
@@ -176,7 +177,7 @@ impl Compilation {
             symbols.push(symbol);
         }
 
-        for reference in mapped_runtime_references(unit, &symbols) {
+        for reference in mapped_runtime_references(unit, &symbols, callables) {
             let symbol_name = bray_runtime_interface::selected_runtime_role_symbol(
                 executable_host,
                 reference.role(),

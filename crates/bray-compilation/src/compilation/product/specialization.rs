@@ -823,7 +823,25 @@ impl Compilation {
 
             let intrinsic = match intrinsic {
                 bray_ir::MirCallIntrinsic::Unary(operator) => IntrinsicCall::Unary(operator),
-                bray_ir::MirCallIntrinsic::Binary(operator) => IntrinsicCall::Binary(operator),
+                bray_ir::MirCallIntrinsic::Binary(operator) => {
+                    let data = values.type_data(subject);
+
+                    let operand = match data.as_ref() {
+                        bray_symbols::TypeData::Borrow { target, .. } => *target,
+                        _ => subject,
+                    };
+
+                    let complex = self
+                        .available_compiler_known_symbols()
+                        .type_representation(values, operand)
+                        .is_some_and(|role| role.complex_component().is_some());
+
+                    IntrinsicCall::Binary(if complex {
+                        operator.for_complex()
+                    } else {
+                        operator
+                    })
+                }
                 bray_ir::MirCallIntrinsic::Comparison {
                     less,
                     equal,

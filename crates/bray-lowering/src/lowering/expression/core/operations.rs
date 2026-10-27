@@ -632,6 +632,15 @@ impl Lowerer<'_> {
                     )
                 });
 
+                let operator = if self
+                    .type_representation(operand_type)
+                    .is_some_and(|role| role.complex_component().is_some())
+                {
+                    operator.for_complex()
+                } else {
+                    operator
+                };
+
                 let value = self.push_typed_value_operation(
                     id,
                     current,

@@ -1622,6 +1622,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirBinaryOperator::ShiftLeft => 14,
             MirBinaryOperator::ShiftRight => 15,
             MirBinaryOperator::Exponentiate => 16,
+            MirBinaryOperator::ComplexMultiply => 17,
+            MirBinaryOperator::ComplexDivide => 18,
+            MirBinaryOperator::ComplexExponentiate => 19,
         });
     }
 

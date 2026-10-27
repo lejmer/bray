@@ -54,23 +54,25 @@ pub(super) fn fold_complex_binary(
 
             Ok(ConstantValueKind::Complex { real, imaginary })
         }
-        BoundOperator::Multiply => {
-            let real = arithmetic(
-                BoundOperator::Subtract,
-                arithmetic(BoundOperator::Multiply, left_real, right_real)?,
-                arithmetic(BoundOperator::Multiply, left_imaginary, right_imaginary)?,
-            )?;
+        BoundOperator::Multiply | BoundOperator::Divide | BoundOperator::Exponentiate => {
+            let (format, role) = complex_format(left_real);
 
-            let imaginary = arithmetic(
-                BoundOperator::Add,
-                arithmetic(BoundOperator::Multiply, left_real, right_imaginary)?,
-                arithmetic(BoundOperator::Multiply, left_imaginary, right_real)?,
-            )?;
+            let operation = match operator {
+                BoundOperator::Multiply => bray_numeric::multiply,
+                BoundOperator::Divide => bray_numeric::divide,
+                BoundOperator::Exponentiate => bray_numeric::power,
+                _ => unreachable!("complex helper operator is established above"),
+            };
 
-            Ok(ConstantValueKind::Complex { real, imaginary })
-        }
-        BoundOperator::Divide => {
-            divide_complex(left_real, left_imaginary, right_real, right_imaginary)
+            let left = [real_bits(left_real), real_bits(left_imaginary)];
+            let right = [real_bits(right_real), real_bits(right_imaginary)];
+
+            let [real, imaginary] = operation(format, left, right);
+
+            Ok(ConstantValueKind::Complex {
+                real: encode_real(role, real)?,
+                imaginary: encode_real(role, imaginary)?,
+            })
         }
         BoundOperator::Equal | BoundOperator::NotEqual => {
             let equal = compare(BoundOperator::Equal, left_real, right_real)?
@@ -88,43 +90,24 @@ pub(super) fn fold_complex_binary(
     }
 }
 
-fn divide_complex(
-    left_real: RealConstantBits,
-    left_imaginary: RealConstantBits,
-    right_real: RealConstantBits,
-    right_imaginary: RealConstantBits,
-) -> Result<ConstantValueKind, ConstantOperationError> {
-    if is_zero(right_real) && is_zero(right_imaginary) {
-        return Err(ConstantOperationError::DivisionByZero);
+fn complex_format(bits: RealConstantBits) -> (bray_numeric::BinaryFormat, RepresentationRole) {
+    use bray_numeric::BinaryFormat;
+
+    match bits {
+        RealConstantBits::Binary16(_) => (BinaryFormat::Binary16, RepresentationRole::ScalarR16),
+        RealConstantBits::Binary32(_) => (BinaryFormat::Binary32, RepresentationRole::ScalarR32),
+        RealConstantBits::Binary64(_) => (BinaryFormat::Binary64, RepresentationRole::ScalarR64),
+        RealConstantBits::Binary128(_) => (BinaryFormat::Binary128, RepresentationRole::ScalarR128),
     }
+}
 
-    let denominator = arithmetic(
-        BoundOperator::Add,
-        arithmetic(BoundOperator::Multiply, right_real, right_real)?,
-        arithmetic(BoundOperator::Multiply, right_imaginary, right_imaginary)?,
-    )?;
-
-    let real = arithmetic(
-        BoundOperator::Divide,
-        arithmetic(
-            BoundOperator::Add,
-            arithmetic(BoundOperator::Multiply, left_real, right_real)?,
-            arithmetic(BoundOperator::Multiply, left_imaginary, right_imaginary)?,
-        )?,
-        denominator,
-    )?;
-
-    let imaginary = arithmetic(
-        BoundOperator::Divide,
-        arithmetic(
-            BoundOperator::Subtract,
-            arithmetic(BoundOperator::Multiply, left_imaginary, right_real)?,
-            arithmetic(BoundOperator::Multiply, left_real, right_imaginary)?,
-        )?,
-        denominator,
-    )?;
-
-    Ok(ConstantValueKind::Complex { real, imaginary })
+fn real_bits(bits: RealConstantBits) -> u128 {
+    match bits {
+        RealConstantBits::Binary16(bits) => u128::from(bits),
+        RealConstantBits::Binary32(bits) => u128::from(bits),
+        RealConstantBits::Binary64(bits) => u128::from(bits),
+        RealConstantBits::Binary128(bits) => u128::from_be_bytes(bits),
+    }
 }
 
 fn arithmetic(
@@ -149,15 +132,6 @@ fn compare(
     };
 
     Ok(result)
-}
-
-fn is_zero(value: RealConstantBits) -> bool {
-    match value {
-        RealConstantBits::Binary16(bits) => Half::from_bits(u128::from(bits)).is_zero(),
-        RealConstantBits::Binary32(bits) => Single::from_bits(u128::from(bits)).is_zero(),
-        RealConstantBits::Binary64(bits) => Double::from_bits(u128::from(bits)).is_zero(),
-        RealConstantBits::Binary128(bits) => Quad::from_bits(u128::from_be_bytes(bits)).is_zero(),
-    }
 }
 
 fn fold_float<F>(
@@ -415,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn real_and_complex_division_reject_zero_divisors() {
+    fn real_division_rejects_zero_and_complex_division_produces_infinity() {
         let zero = RealConstantBits::Binary32(0);
         let one = RealConstantBits::Binary32(0x3f80_0000);
 
@@ -423,7 +397,11 @@ mod tests {
         let complex = fold_complex_binary(BoundOperator::Divide, one, one, zero, zero);
 
         assert_eq!(real, Err(ConstantOperationError::DivisionByZero));
-        assert_eq!(complex, Err(ConstantOperationError::DivisionByZero));
+
+        assert_eq!(complex, Ok(ConstantValueKind::Complex {
+            real: RealConstantBits::Binary32(0x7f80_0000),
+            imaginary: RealConstantBits::Binary32(0x7f80_0000),
+        }));
     }
 
     #[test]

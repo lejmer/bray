@@ -176,6 +176,7 @@ pub fn mapped_symbol_runtime_roles(
 pub fn mapped_runtime_references(
     unit: &CodegenUnit,
     symbols: &[CodegenSymbolMapping],
+    callables: &[crate::CodegenCallableMapping],
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
 
@@ -202,6 +203,16 @@ pub fn mapped_runtime_references(
             .map(Some)
             .chain([None])
             .flat_map(|entry| mapped_symbol_runtime_roles(entry, panic_report_context))
+            .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
+    );
+
+    references.extend(
+        callables
+            .iter()
+            .filter_map(|callable| match callable.intrinsic_operation() {
+                Some(crate::IntrinsicCall::Binary(operator)) => operator.runtime_role(),
+                _ => None,
+            })
             .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
     );
 
@@ -235,6 +246,11 @@ fn operation_runtime_references(
 
             std::array::from_fn(|_| roles.next().map(|role| MirRuntimeReference::new(role, abi)))
         }
+        MirOperationKind::Binary { operator, .. } => [
+            operator.runtime_role().map(|role| MirRuntimeReference::new(role, abi)),
+            None,
+            None,
+        ],
         MirOperationKind::Call(call) if call.is_cleanup() => [
             Some(MirRuntimeReference::new(
                 bray_runtime_interface::RuntimeAbiRole::OutgoingActivation,
@@ -310,7 +326,6 @@ fn operation_runtime_references(
         | MirOperationKind::TraitView { .. }
         | MirOperationKind::TraitViewMethod { .. }
         | MirOperationKind::Unary { .. }
-        | MirOperationKind::Binary { .. }
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
@@ -439,7 +454,7 @@ mod tests {
             symbol.signature().clone(),
         );
 
-        let references = mapped_runtime_references(request.unit(), std::slice::from_ref(&direct));
+        let references = mapped_runtime_references(request.unit(), std::slice::from_ref(&direct), &[]);
 
         assert!(
             !references
@@ -453,7 +468,7 @@ mod tests {
             CodegenLinkage::Export,
         ));
 
-        let references = mapped_runtime_references(request.unit(), &[callback]);
+        let references = mapped_runtime_references(request.unit(), &[callback], &[]);
 
         for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
             assert!(references.iter().any(|reference| reference.role() == role));
@@ -508,7 +523,7 @@ mod tests {
             symbol.signature().clone().with_panic_report_context(),
         );
 
-        let references = mapped_runtime_references(request.unit(), &[direct]);
+        let references = mapped_runtime_references(request.unit(), &[direct], &[]);
 
         assert!(
             references

@@ -324,11 +324,14 @@ impl Compilation {
         let native_storages =
             self.codegen_native_static_storages(unit, reachability, cancellation)?;
 
+        let callables = self.codegen_callables(unit, target, reachability, cancellation)?;
+
         let symbols = self.codegen_symbols(
             product,
             unit,
             &operations,
             &static_storages,
+            &callables,
             executable_host,
             platform_overrides,
             target,
@@ -336,8 +339,6 @@ impl Compilation {
             reachability,
             cancellation,
         )?;
-
-        let callables = self.codegen_callables(unit, target, reachability, cancellation)?;
 
         let (constant_terms, terminators) = self.codegen_constant_terms(unit, reachability)?;
 
