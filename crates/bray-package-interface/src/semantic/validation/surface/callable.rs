@@ -57,6 +57,33 @@ impl InterfaceSemantics {
                 })?;
         }
 
+        for ty in &*self.types {
+            if let crate::InterfaceType::Callable {
+                parameters,
+                invocation_behavior,
+                deferred_execution_behavior,
+                ..
+            } = ty
+            {
+                for behavior in std::iter::once(invocation_behavior.as_ref())
+                    .chain(deferred_execution_behavior.as_deref())
+                {
+                    for domain in &*behavior.execution_domains {
+                        for predicate in &*domain.entry {
+                            if let Some(term) = predicate.condition {
+                                self.validate_execution_term(
+                                    term,
+                                    parameters.len(),
+                                    false,
+                                    surface,
+                                )?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         self.validate_execution_contracts(surface)?;
 
         self.validate_callable_parameter_defaults(surface)
@@ -493,6 +520,22 @@ impl InterfaceSemantics {
             }
         }
 
+        for (index, domain) in behavior.execution_domains.iter().enumerate() {
+            if usize::try_from(domain.ordinal.raw()).ok() != Some(index)
+                || domain.properties.is_empty()
+                || !is_strictly_sorted(&domain.properties)
+                || !domain.postconditions.is_empty()
+            {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
+            }
+
+            for predicate in &*domain.entry {
+                self.validate_predicate_summary(*predicate)?;
+            }
+        }
+
         for requirements in [
             &behavior.effects,
             &behavior.capabilities,
@@ -583,13 +626,15 @@ mod tests {
         use bray_symbols::{PredicateDomain, SymbolOrdinal};
 
         let key = bray_symbols::SymbolKey::compiler_known_declaration(
-            bray_compiler_known::CompilerKnownDeclarationKey::try_new("BlockingExecution").expect("fixture compiler known declaration key must be valid"),
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("BlockingExecution")
+                .expect("fixture compiler known declaration key must be valid"),
             bray_symbols::SymbolKind::Predicate,
         )
         .expect("fixture `bray_symbols::SymbolKey::compiler_known_declaration` call must succeed");
 
         let predicate = crate::InterfaceSymbolReference::CompilerKnown(
-            crate::CompilerKnownSymbolReference::try_new(key).expect("fixture compiler known symbol reference must be valid"),
+            crate::CompilerKnownSymbolReference::try_new(key)
+                .expect("fixture compiler known symbol reference must be valid"),
         );
 
         let semantics = crate::InterfaceSemantics::new().with_values(

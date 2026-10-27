@@ -173,12 +173,50 @@ impl Compilation {
                     *instance,
                     &mut diagnostics,
                 )?
-                && !bray_checker::callable_contract_conversion_is_valid(
-                    binding_context.semantic_values(),
+            {
+                let values = binding_context.semantic_values();
+                let mut actual = actual;
+                let expected_type = values.type_data(expected.ty());
+
+                let needs_execution_promises = match expected_type.as_ref() {
+                    bray_symbols::TypeData::Callable(callable) => {
+                        std::iter::once(callable.phase_behaviors().invocation())
+                            .chain(callable.phase_behaviors().deferred_execution())
+                            .any(|phase| {
+                                !phase.execution_properties().is_empty()
+                                    || !phase.execution_domains().is_empty()
+                            })
+                    }
+                    _ => false,
+                };
+
+                if needs_execution_promises
+                    && !bray_checker::callable_contract_conversion_is_valid(
+                        values,
+                        actual.callable_type(),
+                        expected.ty(),
+                    )
+                {
+                    let domains = self.callable_declared_execution_domains(
+                        instance.definition().symbol(),
+                        &mut diagnostics,
+                        cancellation,
+                    )?;
+
+                    actual = actual
+                        .with_execution_domains(values, &domains, instance.substitution())
+                        .map_err(FactQueryError::from)?;
+                }
+
+                if bray_checker::callable_contract_conversion_is_valid(
+                    values,
                     actual.callable_type(),
                     expected.ty(),
-                )
-            {
+                ) {
+                    entries.push(SemanticSelectionEntry::new(expression, selection));
+                    continue;
+                }
+
                 let anchor = name.origin().source_anchor().syntax();
                 let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
 

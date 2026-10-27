@@ -245,6 +245,107 @@ impl Compilation {
         ))
     }
 
+    pub(in crate::compilation) fn callable_declared_execution_domains(
+        &self,
+        symbol: AnySymbolId,
+        diagnostics: &mut DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Vec<bray_symbols::CallableExecutionDomain<bray_symbols::PredicateSemanticSummary>>,
+        FactQueryError,
+    > {
+        let values = self.semantic_value_store()?;
+        let mut domains = Vec::new();
+
+        if let Some(owner) = self.execution_contract_owner(symbol)? {
+            let declared = self.execution_declaration(owner.source().syntax())?;
+
+            if declared
+                .value()
+                .domains()
+                .iter()
+                .all(|domain| domain.guards.is_empty() || domain.properties.is_empty())
+            {
+                diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+                return Ok(domains);
+            }
+
+            let inputs = self.execution_callable_inputs(symbol, cancellation)?;
+            let boolean = self.target_property_type(bray_target::TargetPropertyKind::ScalarBool)?;
+            let dependency = values.empty_dependency_contract_template()?;
+
+            diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+            for domain in declared
+                .value()
+                .domains()
+                .iter()
+                .filter(|domain| !domain.guards.is_empty() && !domain.properties.is_empty())
+            {
+                let checked =
+                    self.predicate_condition_inputs(&owner, &domain.guards, cancellation)?;
+
+                diagnostics.add_range(checked.diagnostics().iter().cloned());
+
+                let entry = checked
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, domain, _)| {
+                        let term = bray_checker::execution_condition_term(
+                            values, &condition, &inputs, boolean,
+                        )?;
+
+                        Ok::<_, FactQueryError>(
+                            bray_symbols::PredicateSemanticSummary::new(dependency)
+                                .with_condition(term, domain),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                domains.push(bray_symbols::CallableExecutionDomain {
+                    ordinal: bray_symbols::SymbolOrdinal::new(
+                        u32::try_from(domains.len()).expect("callable domains fit ordinals"),
+                    ),
+                    entry: entry.into(),
+                    properties: bray_base::sorted_unique_shared_slice(
+                        domain.properties.iter().map(|property| property.property),
+                    ),
+                    postconditions: Default::default(),
+                });
+            }
+        } else if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
+            let context = self.binding_context(cancellation)?;
+
+            if context
+                .imported_semantic_address(symbol)
+                .map_err(crate::compilation::binder::binding_query_error)?
+                .is_none()
+            {
+                return Ok(domains);
+            }
+
+            let contract = context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<bray_symbols::CallableContractsQuery>::new(callable),
+                )
+                .map_err(crate::compilation::binder::binding_query_error)?;
+
+            diagnostics.add_range(contract.diagnostics().iter().cloned());
+
+            domains.extend_from_slice(
+                contract
+                    .value()
+                    .deferred_execution_behavior()
+                    .unwrap_or_else(|| contract.value().invocation_behavior())
+                    .execution_domains(),
+            );
+        }
+
+        Ok(domains)
+    }
+
     fn execution_contract_input_mapping(
         &self,
         source: AnySymbolId,

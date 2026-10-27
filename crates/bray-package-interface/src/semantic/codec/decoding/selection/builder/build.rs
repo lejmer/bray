@@ -72,7 +72,8 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
             signature.callable_type.to_index().and_then(|index| semantics.types.get(index)),
             Some(InterfaceType::Callable { invocation_behavior, deferred_execution_behavior, .. })
                 if !invocation_behavior.execution_properties.is_empty()
-                    || deferred_execution_behavior.as_ref().is_some_and(|behavior| !behavior.execution_properties.is_empty())
+                    || !invocation_behavior.execution_domains.is_empty()
+                    || deferred_execution_behavior.as_ref().is_some_and(|behavior| !behavior.execution_properties.is_empty() || !behavior.execution_domains.is_empty())
         )
     }) {
         return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
@@ -344,6 +345,17 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         for ty in &*behavior.receiver_cleanup {
             self.enqueue(PendingRecord::Type(ty.raw()));
+        }
+
+        for domain in &*behavior.execution_domains {
+            for predicate in domain.entry.iter().copied().chain(
+                domain
+                    .postconditions
+                    .iter()
+                    .map(|(_, predicate)| *predicate),
+            ) {
+                self.include_predicate(predicate);
+            }
         }
 
         for predicate in behavior

@@ -466,6 +466,25 @@ fn remap_behavior(
         }
     }
 
+    behavior.execution_domains = behavior
+        .execution_domains
+        .iter()
+        .map(|domain| {
+            domain.try_map(|mut predicate| {
+                predicate.dependency_contract =
+                    maps.dependency_contract_id(predicate.dependency_contract)?;
+
+                predicate.condition = predicate
+                    .condition
+                    .map(|term| maps.constant_term_id(term))
+                    .transpose()?;
+
+                Ok::<_, InterfaceValidationError>(predicate)
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into();
+
     behavior.dependency_contract = maps.dependency_contract_id(behavior.dependency_contract)?;
 
     Ok(())

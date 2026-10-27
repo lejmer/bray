@@ -98,7 +98,16 @@ impl SemanticValueStore {
                 .collect::<Result<Vec<_>, _>>()?,
         );
 
-        Ok(phase_behaviors)
+        Ok(phase_behaviors.with_execution_domains(
+            body.execution_domains()
+                .iter()
+                .map(|domain| {
+                    domain.try_map(|predicate| {
+                        self.substitute_predicate_data(predicate, substitution)
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 
     /// Applies one generic substitution throughout a dependency contract.
@@ -318,13 +327,15 @@ impl SemanticValueStore {
         substitution: &Substitution<'_>,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
-            DependencyRequirement::CleanupDependencies { ty, requirements } => Ok(
-                DependencyRequirement::cleanup_dependencies(
+            DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                Ok(DependencyRequirement::cleanup_dependencies(
                     self.substitute_type_data(*ty, substitution)?,
-                    requirements.iter().map(|nested| self.substitute_dependency_requirement(nested, substitution))
+                    requirements
+                        .iter()
+                        .map(|nested| self.substitute_dependency_requirement(nested, substitution))
                         .collect::<Result<Vec<_>, _>>()?,
-                ),
-            ),
+                ))
+            }
             DependencyRequirement::SynchronousCleanup(ty) => {
                 Ok(DependencyRequirement::SynchronousCleanup(
                     self.substitute_type_data(*ty, substitution)?,
@@ -507,7 +518,9 @@ mod tests {
 
     #[test]
     fn type_replacement_preserves_predicate_domains_and_value_subjects() {
-        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let store =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
         let source_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
         let target_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let formal = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(4));
@@ -525,7 +538,8 @@ mod tests {
         )
         .expect("fixture callable definition id must be valid");
 
-        let owner = GenericOwnerId::try_new(definition.symbol()).expect("fixture generic owner id must be valid");
+        let owner = GenericOwnerId::try_new(definition.symbol())
+            .expect("fixture generic owner id must be valid");
 
         let argument = store
             .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
@@ -610,7 +624,9 @@ mod tests {
                 .with_receiver_cleanup([target]);
 
             assert_eq!(
-                store.replace_phase_types(&phases, &replacements).expect("fixture `replace_phase_types` call must succeed"),
+                store
+                    .replace_phase_types(&phases, &replacements)
+                    .expect("fixture `replace_phase_types` call must succeed"),
                 expected_phases
             );
         }

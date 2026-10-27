@@ -188,15 +188,77 @@ impl Compilation {
                     return Ok(None);
                 };
 
-                // An opaque callable contract supplies no selected target for a new termination proof.
-                if property == ExecutionProperty::Total {
+                if property != ExecutionProperty::Pure {
                     return Ok(None);
                 }
 
-                if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Callable(callable)
-                    if callable.phase_behaviors().invocation().execution_properties().contains(&property))
-                {
+                let data = values.type_data(ty);
+
+                let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
                     return Ok(None);
+                };
+
+                let behavior = callable.phase_behaviors().invocation();
+
+                let promises = behavior.execution_properties().contains(&property)
+                    || behavior
+                        .execution_domains()
+                        .iter()
+                        .any(|domain| domain.properties.contains(&property));
+
+                if !promises {
+                    return Ok(None);
+                }
+
+                if let ExecutionProofEntry::Invocation(evidence) = entry {
+                    let decode = |predicates: &[bray_symbols::PredicateSemanticSummary]| {
+                        predicates
+                            .iter()
+                            .map(|predicate| {
+                                predicate
+                                    .condition()
+                                    .map(|term| {
+                                        bray_checker::execution_condition_from_type_term(
+                                            values,
+                                            term,
+                                            callable.parameters().len(),
+                                        )
+                                    })
+                                    .transpose()
+                                    .map(|condition| {
+                                        condition
+                                            .unwrap_or(bray_checker::ExecutionCondition::Unknown)
+                                    })
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    };
+
+                    let empty = ExecutionCallEvidence::default();
+                    let evidence = evidence.unwrap_or(&empty);
+                    let requirements = decode(behavior.predicate_requirements())?;
+
+                    if !evidence.proves_trusted(&requirements) {
+                        return Ok(None);
+                    }
+
+                    if !behavior.execution_properties().contains(&property) {
+                        let mut applicable = false;
+
+                        for domain in behavior
+                            .execution_domains()
+                            .iter()
+                            .filter(|domain| domain.properties.contains(&property))
+                        {
+                            if evidence.proves_trusted(&decode(&domain.entry)?) {
+                                applicable = true;
+                                break;
+                            }
+                        }
+
+                        if !applicable {
+                            return Ok(None);
+                        }
+                    }
                 }
 
                 let owner = ExecutionProofOwner::Indirect(ty);

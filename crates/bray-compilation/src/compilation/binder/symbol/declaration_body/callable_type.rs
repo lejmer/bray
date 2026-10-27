@@ -179,12 +179,10 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
             }
         }
 
-        diagnostics.add_range(
-            DiagnosticBag::merged_all([
-                computation.result().diagnostics(),
-                checked.result().diagnostics(),
-            ]),
-        );
+        diagnostics.add_range(DiagnosticBag::merged_all([
+            computation.result().diagnostics(),
+            checked.result().diagnostics(),
+        ]));
     }
 
     let capabilities = super::super::contract::bind_trusted_capability_clauses(
@@ -217,10 +215,21 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         &mut diagnostics,
     )?;
 
+    let execution_domains = if selected_clauses.is_none() {
+        let domains = checked_callable_execution_domains(context, owner, syntax, template)?;
+
+        diagnostics.add_range(domains.diagnostics().iter().cloned());
+
+        domains.into_parts().0
+    } else {
+        Vec::new()
+    };
+
     let phases = callable
         .phase_behaviors()
         .clone()
         .with_predicates(requirements, guarantees)
+        .with_execution_domains(execution_domains)
         .with_trusted_capabilities(
             capabilities
                 .value()
@@ -239,6 +248,59 @@ pub(in crate::compilation) fn checked_callable_type_contracts(
         normalized.unwrap_or(phases),
         diagnostics,
     ))
+}
+
+fn checked_callable_execution_domains(
+    context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
+    syntax: SyntaxNodeView<'_>,
+    template: &TypeExpressionTemplate,
+) -> BindingQueryResult<
+    DiagnosticResult<Vec<bray_symbols::CallableExecutionDomain<PredicateSemanticSummary>>>,
+> {
+    let declared = bray_checker::declared_execution_properties(syntax);
+    let mut diagnostics = declared.diagnostics().clone();
+    let mut execution_domains = Vec::new();
+
+    for domain in declared
+        .value()
+        .domains()
+        .iter()
+        .filter(|domain| !domain.guards.is_empty())
+    {
+        let checked = checked_callable_type_contracts(
+            context,
+            owner,
+            syntax,
+            template,
+            Some(&domain.guards),
+        )?;
+
+        diagnostics.add_range(checked.diagnostics().iter().cloned());
+
+        if domain.properties.is_empty() {
+            continue;
+        }
+
+        execution_domains.push(bray_symbols::CallableExecutionDomain {
+            ordinal: bray_symbols::SymbolOrdinal::new(
+                u32::try_from(execution_domains.len())
+                    .expect("callable execution domains fit ordinals"),
+            ),
+            entry: checked
+                .value()
+                .invocation()
+                .predicate_requirements()
+                .to_vec()
+                .into(),
+            properties: bray_base::sorted_unique_shared_slice(
+                domain.properties.iter().map(|property| property.property),
+            ),
+            postconditions: Default::default(),
+        });
+    }
+
+    Ok(DiagnosticResult::new(execution_domains, diagnostics))
 }
 
 type CallableTypeClause = (

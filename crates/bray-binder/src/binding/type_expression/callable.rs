@@ -300,6 +300,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             has_contracts |= matches!(
                 child.kind(),
                 bray_syntax::SyntaxKind::RequiresClause
+                    | bray_syntax::SyntaxKind::ExecutesClause
                     | bray_syntax::SyntaxKind::UsesClause
                     | bray_syntax::SyntaxKind::EnsuresClause
                     | bray_syntax::SyntaxKind::WhenClause

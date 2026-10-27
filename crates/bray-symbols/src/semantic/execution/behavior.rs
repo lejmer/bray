@@ -57,6 +57,7 @@ pub struct CallablePhaseBehavior {
     predicate_requirements: Arc<[crate::PredicateSemanticSummary]>,
     predicate_guarantees: Arc<[crate::PredicateSemanticSummary]>,
     execution_properties: Arc<[crate::ExecutionProperty]>,
+    execution_domains: Arc<[crate::CallableExecutionDomain<crate::PredicateSemanticSummary>]>,
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
     trusted_capabilities: Arc<[TrustedCapabilityRequirement]>,
@@ -83,6 +84,7 @@ impl CallablePhaseBehavior {
             predicate_requirements: Arc::new([]),
             predicate_guarantees: Arc::new([]),
             execution_properties: Arc::new([]),
+            execution_domains: Arc::new([]),
             effects: sorted_unique_shared_slice(effects),
             capabilities: sorted_unique_shared_slice(capabilities),
             trusted_capabilities: sorted_unique_shared_slice(trusted_capabilities),
@@ -137,6 +139,25 @@ impl CallablePhaseBehavior {
     /// Returns the execution promises on this phase's valid input domain.
     pub fn execution_properties(&self) -> &[crate::ExecutionProperty] {
         &self.execution_properties
+    }
+
+    /// Attaches execution promises whose additional entry predicates must be established by callers.
+    pub fn with_execution_domains(
+        mut self,
+        domains: impl IntoIterator<
+            Item = crate::CallableExecutionDomain<crate::PredicateSemanticSummary>,
+        >,
+    ) -> Self {
+        self.execution_domains = domains.into_iter().collect();
+
+        self
+    }
+
+    /// Returns conditional execution promises in portable callable input coordinates.
+    pub fn execution_domains(
+        &self,
+    ) -> &[crate::CallableExecutionDomain<crate::PredicateSemanticSummary>] {
+        &self.execution_domains
     }
 
     /// Creates behavior with no requirements other than its dependency template.
@@ -276,6 +297,23 @@ impl CallablePhaseBehaviors {
             .unwrap_or(&mut self.invocation);
 
         Arc::make_mut(body).execution_properties = sorted_unique_shared_slice(properties);
+
+        self
+    }
+
+    /// Attaches conditional promises to the phase that executes the callable body.
+    pub fn with_execution_domains(
+        mut self,
+        domains: impl IntoIterator<
+            Item = crate::CallableExecutionDomain<crate::PredicateSemanticSummary>,
+        >,
+    ) -> Self {
+        let body = self
+            .deferred_execution
+            .as_mut()
+            .unwrap_or(&mut self.invocation);
+
+        Arc::make_mut(body).execution_domains = domains.into_iter().collect();
 
         self
     }

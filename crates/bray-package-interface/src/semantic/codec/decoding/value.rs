@@ -1464,6 +1464,93 @@ mod tests {
         );
     }
 
+    #[test]
+    fn guarded_callable_type_domains_roundtrip_and_reject_result_entry_terms() {
+        for (argument, valid) in [(0, true), (1, false)] {
+            let (surface, mut semantics) = fixture();
+
+            let term = crate::InterfaceConstantTermId::new(
+                u32::try_from(semantics.constant_terms.len()).expect("fixture term count fits"),
+            );
+
+            semantics.constant_terms = semantics
+                .constant_terms
+                .iter()
+                .cloned()
+                .chain([InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(
+                    argument,
+                ))])
+                .collect();
+
+            let mut ty = semantics.types[3].clone();
+
+            let InterfaceType::Callable {
+                invocation_behavior,
+                deferred_execution_behavior,
+                ..
+            } = &mut ty
+            else {
+                panic!("fixture type is callable")
+            };
+
+            *invocation_behavior = std::sync::Arc::new(
+                invocation_behavior
+                    .as_ref()
+                    .clone()
+                    .with_execution_domains([bray_symbols::CallableExecutionDomain {
+                        ordinal: SymbolOrdinal::new(0),
+                        entry: [InterfacePredicateSummary::new(
+                            InterfaceDependencyContractId::new(0),
+                        )
+                        .with_condition(Some(term), bray_symbols::PredicateDomain::Value)]
+                        .into(),
+                        properties: [bray_symbols::ExecutionProperty::Pure].into(),
+                        postconditions: Default::default(),
+                    }]),
+            );
+
+            *deferred_execution_behavior = None;
+            semantics.types = semantics.types.iter().cloned().chain([ty]).collect();
+
+            let encoded =
+                encode_semantics(&semantics, &surface, InterfaceValidationLimits::default());
+
+            assert_eq!(encoded.is_ok(), valid, "argument {argument}: {encoded:?}");
+
+            if let Ok(sections) = encoded {
+                let decoded = decode_semantics(
+                    &encoded_section_views(&sections),
+                    &surface,
+                    InterfaceValidationLimits::default(),
+                )
+                .expect("guarded callable domains decode");
+
+                assert_eq!(decoded, semantics);
+
+                let store = SemanticValueStore::try_new().expect("fixture semantic store");
+
+                let imported = decoded
+                    .intern(&store, &resolver(&surface))
+                    .expect("guarded callable domains intern");
+
+                let ty = store.type_data(*imported.types().last().expect("new callable type"));
+
+                let TypeData::Callable(callable) = ty.as_ref() else {
+                    panic!("imported type stays callable")
+                };
+
+                assert_eq!(
+                    callable
+                        .phase_behaviors()
+                        .invocation()
+                        .execution_domains()
+                        .len(),
+                    1
+                );
+            }
+        }
+    }
+
     fn fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = semantic_surface([]);
         let semantics = semantics(&surface);

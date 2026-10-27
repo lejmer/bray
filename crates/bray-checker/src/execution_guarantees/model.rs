@@ -416,7 +416,7 @@ impl ExecutionCallEvidence {
         self.proves_from(conditions, &self.trusted_assumptions, &[])
     }
 
-    /// Checks an anonymous declaration's own inputs against captured receiver-first arguments.
+    /// Checks a declaration's own inputs against captured receiver-first arguments.
     pub fn proves_trusted_with_inputs(
         &self,
         conditions: &[super::ExecutionCondition],
@@ -459,13 +459,22 @@ impl ExecutionCallEvidence {
                             let mut argument =
                                 super::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
                                     u32::try_from(ordinal)
-                                        .expect("anonymous parameter ordinal fits"),
+                                        .expect("callable parameter ordinal fits"),
                                 ));
 
                             // The captured argument retains this immutable component path.
                             argument.projections = std::sync::Arc::clone(&input.projections);
 
                             argument.value_in(&self.arguments)
+                        })
+                        .or_else(|| match input.reference() {
+                            Some(bray_bound_tree::BoundReferenceTarget::Surface(
+                                bray_symbols::AnySymbolId::GenericConstParameter(_),
+                            )) => {
+                                // Generic substitution has already mapped this immutable compile-time input into the caller.
+                                Some(super::ExecutionCondition::Input(input.clone()))
+                            }
+                            _ => None,
                         })
                         .unwrap_or(super::ExecutionCondition::Unknown)
                 },
@@ -480,6 +489,7 @@ impl ExecutionCallEvidence {
             }) == Some(true)
         })
     }
+
 }
 
 /// Local execution candidates keyed by property and guarded declaration, when present.

@@ -59,7 +59,12 @@ impl Compilation {
             }
 
             if !trusted {
-                for domain in declared.value().domains() {
+                for domain in declared
+                    .value()
+                    .domains()
+                    .iter()
+                    .filter(|domain| !domain.postconditions.is_empty())
+                {
                     let guards =
                         self.predicate_condition_inputs(key, &domain.guards, cancellation)?;
 

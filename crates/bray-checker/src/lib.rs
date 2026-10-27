@@ -72,11 +72,11 @@ pub use execution_guarantees::{
     ExecutionCertification, ExecutionClauseId, ExecutionCleanup, ExecutionCompletionContract,
     ExecutionCompletionDependency, ExecutionCondition, ExecutionDeclaration, ExecutionDependency,
     ExecutionDependencyTarget, ExecutionDomain, ExecutionObligation, ExecutionPlace,
-    ExecutionProperty, check_execution_guarantees, declared_execution_properties,
-    execution_condition_from_term, execution_condition_from_type_term,
-    execution_condition_is_implied, execution_condition_term, execution_conditions,
-    map_execution_condition_references, predicate_conditions, predicate_conditions_with_inputs,
-    remap_execution_condition_inputs, substitute_execution_condition,
+    ExecutionProperty, declared_execution_properties, execution_condition_from_term,
+    execution_condition_from_type_term, execution_condition_is_implied, execution_condition_term,
+    execution_conditions, map_execution_condition_references, predicate_conditions,
+    predicate_conditions_with_inputs, remap_execution_condition_inputs,
+    substitute_execution_condition,
 };
 pub use expression::{
     NestedCallableEvidence, call_result, check_generic_arguments, generic_constraint_outcome,

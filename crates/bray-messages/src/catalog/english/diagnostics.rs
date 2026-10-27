@@ -2537,12 +2537,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
                 "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
             )])
         }
-        // TODO(BRA-646): Remove this message once callable-type contracts and guarded foreign
-        // assertions are checked.
-        DiagnosticKind::CheckingExecutionGuaranteeUnsupported => MessageTemplate::new(&[
-            MessageTemplatePart::Text("Bray cannot yet support guarantees declared with the "),
-            MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
-        ]),
         DiagnosticKind::CheckingCallableAddressTypeUnsupported => {
             MessageTemplate::new(CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED)
         }

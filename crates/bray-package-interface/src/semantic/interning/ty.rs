@@ -144,6 +144,9 @@ impl InternState {
                                 .predicate_requirements
                                 .iter()
                                 .chain(behavior.predicate_guarantees.iter())
+                                .chain(behavior.execution_domains.iter().flat_map(|domain| {
+                                    domain.entry.iter().chain(domain.postconditions.iter().map(|(_, predicate)| predicate))
+                                }))
                                 .any(|predicate| {
                                     self.dependency_contract_id(predicate.dependency_contract)
                                         .is_none()

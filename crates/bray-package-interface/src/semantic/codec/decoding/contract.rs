@@ -422,6 +422,14 @@ pub(super) fn decode_callable_behavior(
     // Retain wire ordering so validation can reject duplicate or unordered promises.
     behavior.execution_properties = execution_properties.into();
 
+    behavior.execution_domains = super::execution::decode_execution_domains(
+        reader,
+        limits,
+        context,
+        decode_predicate_summary,
+    )?
+    .into();
+
     Ok(behavior)
 }
 
@@ -438,9 +446,14 @@ pub(super) fn decode_dependency_requirement(
     match raw {
         10 => {
             let ty = crate::InterfaceTypeId::new(read_u32(reader)?);
-            let requirements = decode_dependency_requirements(reader, limits, context, depth.saturating_add(1))?;
 
-            Ok(InterfaceDependencyRequirement::cleanup_dependencies(ty, requirements))
+            let requirements =
+                decode_dependency_requirements(reader, limits, context, depth.saturating_add(1))?;
+
+            Ok(InterfaceDependencyRequirement::cleanup_dependencies(
+                ty,
+                requirements,
+            ))
         }
         7 => Ok(InterfaceDependencyRequirement::synchronous_cleanup(
             crate::InterfaceTypeId::new(read_u32(reader)?),
@@ -800,11 +813,14 @@ mod tests {
             let mut reader = WireReader::new(&bytes);
 
             assert_eq!(
-                super::decode_predicate_summary(&mut reader).expect("fixture `super::decode_predicate_summary` call must succeed"),
+                super::decode_predicate_summary(&mut reader)
+                    .expect("fixture `super::decode_predicate_summary` call must succeed"),
                 predicate
             );
 
-            reader.finish().expect("fixture operation must finish successfully");
+            reader
+                .finish()
+                .expect("fixture operation must finish successfully");
 
             let end = bytes.len();
 
@@ -834,7 +850,9 @@ mod tests {
     #[test]
     fn synchronous_cleanup_types_decode_with_bounded_counts() {
         let limits = InterfaceValidationLimits::default();
-        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits).expect("fixture encoded words must decode");
+
+        let decoded = decode_words(&[1, 7, 3, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 5], limits)
+            .expect("fixture encoded words must decode");
 
         assert_eq!(
             decoded,
@@ -892,7 +910,8 @@ mod tests {
             5, // No reference relations, returned input, result observation or carriers. Unknown effects and input escapes.
         ];
 
-        let decoded = decode_words(&words, InterfaceValidationLimits::default()).expect("fixture encoded words must decode");
+        let decoded = decode_words(&words, InterfaceValidationLimits::default())
+            .expect("fixture encoded words must decode");
 
         let expected =
             InterfaceDependencyContract::new([InterfaceDependencyRequirement::result_call(

@@ -144,6 +144,8 @@ impl Compilation {
 
         let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
+        let inputs = self.execution_callable_inputs(callable.definition().symbol(), cancellation)?;
+
         match required {
             ExecutionObligation::FiniteIteration => Ok(contract
                 .evidence
@@ -186,7 +188,7 @@ impl Compilation {
 
                     if evidence
                         .unwrap_or(&ExecutionCallEvidence::default())
-                        .proves_trusted(&entry)
+                        .proves_trusted_with_inputs(&entry, &inputs)
                     {
                         return Ok(Some(ExecutionObligation::Property(
                             property,

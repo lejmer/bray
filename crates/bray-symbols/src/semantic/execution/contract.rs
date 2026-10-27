@@ -72,6 +72,32 @@ impl<T: Ord> CallableExecutionDomain<T> {
     }
 }
 
+impl<T: Copy> CallableExecutionDomain<T> {
+    /// Rewrites condition identities while preserving the domain and its declared promises.
+    pub fn try_map<U, E>(
+        &self,
+        mut term: impl FnMut(T) -> Result<U, E>,
+    ) -> Result<CallableExecutionDomain<U>, E> {
+        Ok(CallableExecutionDomain {
+            ordinal: self.ordinal,
+            entry: self
+                .entry
+                .iter()
+                .copied()
+                .map(&mut term)
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+            properties: Arc::clone(&self.properties),
+            postconditions: self
+                .postconditions
+                .iter()
+                .map(|(ordinal, value)| term(*value).map(|value| (*ordinal, value)))
+                .collect::<Result<Vec<_>, _>>()?
+                .into(),
+        })
+    }
+}
+
 /// The authority supplying a declared execution promise.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableExecutionOrigin {
@@ -157,27 +183,7 @@ impl<T: Copy, D: Copy> CallableExecutionContract<T, D> {
         let domains = self
             .domains
             .iter()
-            .map(|domain| {
-                Ok(CallableExecutionDomain {
-                    ordinal: domain.ordinal,
-                    entry: domain
-                        .entry
-                        .iter()
-                        .copied()
-                        .map(|value| term(context, value))
-                        .collect::<Result<Vec<_>, X>>()?
-                        .into(),
-                    properties: Arc::clone(&domain.properties),
-                    postconditions: domain
-                        .postconditions
-                        .iter()
-                        .map(|(ordinal, value)| {
-                            term(context, *value).map(|value| (*ordinal, value))
-                        })
-                        .collect::<Result<Vec<_>, X>>()?
-                        .into(),
-                })
-            })
+            .map(|domain| domain.try_map(|value| term(context, value)))
             .collect::<Result<Vec<_>, X>>()?;
 
         let evidence = self

@@ -166,6 +166,8 @@ pub fn callable_contract_conversion_is_valid(
         && source.trust() == target.trust()
         && source.abi() == target.abi()
         && phase_contract_is_compatible(
+            values,
+            source.parameters().len(),
             source.phase_behaviors().invocation(),
             target.phase_behaviors().invocation(),
         )
@@ -173,13 +175,20 @@ pub fn callable_contract_conversion_is_valid(
             source.phase_behaviors().deferred_execution(),
             target.phase_behaviors().deferred_execution(),
         ) {
-            (Some(source), Some(target)) => phase_contract_is_compatible(source, target),
+            (Some(source_phase), Some(target_phase)) => phase_contract_is_compatible(
+                values,
+                source.parameters().len(),
+                source_phase,
+                target_phase,
+            ),
             (None, None) => true,
             _ => false,
         }
 }
 
 fn phase_contract_is_compatible(
+    values: &bray_symbols::SemanticValueStore,
+    parameter_count: usize,
     source: &bray_symbols::CallablePhaseBehavior,
     target: &bray_symbols::CallablePhaseBehavior,
 ) -> bool {
@@ -189,12 +198,14 @@ fn phase_contract_is_compatible(
         .clone()
         .with_may_unwind(true)
         .with_execution_properties([])
+        .with_execution_domains([])
         .with_predicates([], [])
         .with_trusted_capabilities([])
         == target
             .clone()
             .with_may_unwind(true)
             .with_execution_properties([])
+            .with_execution_domains([])
             .with_predicates([], [])
             .with_trusted_capabilities([])
         && (target.may_unwind() || !source.may_unwind())
@@ -204,16 +215,99 @@ fn phase_contract_is_compatible(
                     && candidate.domain() == condition.domain()
             })
         })
-        && target.predicate_guarantees().iter().all(|condition| {
-            source.predicate_guarantees().iter().any(|candidate| {
-                candidate.condition() == condition.condition()
-                    && candidate.domain() == condition.domain()
+        && phase_guarantees_are_compatible(values, parameter_count, source, target)
+}
+
+fn phase_guarantees_are_compatible(
+    values: &bray_symbols::SemanticValueStore,
+    parameter_count: usize,
+    source: &bray_symbols::CallablePhaseBehavior,
+    target: &bray_symbols::CallablePhaseBehavior,
+) -> bool {
+    use crate::execution_guarantees::ExecutionCondition;
+
+    let decode = |predicate: &bray_symbols::PredicateSemanticSummary| {
+        predicate
+            .condition()
+            .map(|term| {
+                crate::execution_guarantees::execution_condition_from_type_term(
+                    values,
+                    term,
+                    parameter_count,
+                )
+                .expect("published callable predicates retain valid semantic identities")
             })
+            .unwrap_or(ExecutionCondition::Unknown)
+    };
+
+    let promised = |entry: &[bray_symbols::PredicateSemanticSummary], property| {
+        if source.execution_properties().contains(&property) {
+            return true;
+        }
+
+        let mut known = std::collections::BTreeSet::new();
+
+        for predicate in target.predicate_requirements().iter().chain(entry) {
+            decode(predicate).assume(true, &mut known);
+        }
+
+        source.execution_domains().iter().any(|domain| {
+            domain.properties.contains(&property)
+                && domain.entry.iter().all(|predicate| {
+                    decode(predicate).prove(&known, &mut {
+                        bray_symbols::EXECUTION_CONDITION_WORK_LIMIT
+                    }) == Some(true)
+                })
         })
+    };
+
+    let entry_facts = std::collections::BTreeSet::new();
+
+    let completion = |predicate| {
+        // Conversion has no captured invocation inputs. Exit facts must not prove an
+        // entry guard, even when both snapshots name the same formal parameter.
+        decode(predicate).capture_entry(
+            &|_| ExecutionCondition::Unknown,
+            &entry_facts,
+            &entry_facts,
+            &mut { bray_symbols::EXECUTION_CONDITION_WORK_LIMIT },
+        )
+    };
+
+    let postconditions = target.predicate_guarantees().iter().all(|condition| {
+        if source.predicate_guarantees().iter().any(|candidate| {
+            candidate.condition() == condition.condition()
+                && candidate.domain() == condition.domain()
+        }) {
+            return true;
+        }
+
+        let mut known = std::collections::BTreeSet::new();
+
+        for candidate in source
+            .predicate_guarantees()
+            .iter()
+            .filter(|candidate| candidate.domain() == condition.domain())
+        {
+            completion(candidate).assume(true, &mut known);
+        }
+
+        completion(condition).prove(&known, &mut {
+            bray_symbols::EXECUTION_CONDITION_WORK_LIMIT
+        }) == Some(true)
+    });
+
+    postconditions
         && target
             .execution_properties()
             .iter()
-            .all(|property| source.execution_properties().contains(property))
+            .all(|property| promised(&[], *property))
+        && target.execution_domains().iter().all(|domain| {
+            domain
+                .properties
+                .iter()
+                .all(|property| promised(&domain.entry, *property))
+        })
 }
 
 fn scalar_conversion_is_valid<C>(request: &C, source: TypeId, target: TypeId) -> bool
@@ -425,37 +519,53 @@ mod tests {
         use bray_symbols::{CallablePhaseBehavior, PredicateDomain, PredicateSemanticSummary};
 
         let values = crate::test_support::semantic_values();
-        let dependency = values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
 
-        for source in [
-            PredicateDomain::Value,
-            PredicateDomain::Trusted,
-            PredicateDomain::Execution,
-        ] {
-            for target in [
+        let dependency = values
+            .empty_dependency_contract_template()
+            .expect("fixture `empty_dependency_contract_template` call must succeed");
+
+        let result = values
+            .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(
+                bray_symbols::SymbolOrdinal::new(0),
+            ))
+            .expect("fixture completion result term must be valid");
+
+        for condition in [None, Some(result)] {
+            for source in [
                 PredicateDomain::Value,
                 PredicateDomain::Trusted,
                 PredicateDomain::Execution,
             ] {
-                for guarantee in [false, true] {
-                    let phase = |domain| {
-                        let condition =
-                            PredicateSemanticSummary::new(dependency).with_condition(None, domain);
+                for target in [
+                    PredicateDomain::Value,
+                    PredicateDomain::Trusted,
+                    PredicateDomain::Execution,
+                ] {
+                    for guarantee in [false, true] {
+                        let phase = |domain| {
+                            let condition = PredicateSemanticSummary::new(dependency)
+                                .with_condition(condition, domain);
 
-                        let (requirements, guarantees) = if guarantee {
-                            (Vec::new(), vec![condition])
-                        } else {
-                            (vec![condition], Vec::new())
+                            let (requirements, guarantees) = if guarantee {
+                                (Vec::new(), vec![condition])
+                            } else {
+                                (vec![condition], Vec::new())
+                            };
+
+                            CallablePhaseBehavior::empty(dependency)
+                                .with_predicates(requirements, guarantees)
                         };
 
-                        CallablePhaseBehavior::empty(dependency)
-                            .with_predicates(requirements, guarantees)
-                    };
-
-                    assert_eq!(
-                        super::phase_contract_is_compatible(&phase(source), &phase(target)),
-                        source == target
-                    );
+                        assert_eq!(
+                            super::phase_contract_is_compatible(
+                                values,
+                                0,
+                                &phase(source),
+                                &phase(target)
+                            ),
+                            source == target
+                        );
+                    }
                 }
             }
         }

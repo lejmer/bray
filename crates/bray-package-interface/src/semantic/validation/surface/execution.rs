@@ -79,10 +79,14 @@ impl InterfaceSemantics {
         if contract.execution_contract.domains.is_empty()
             && contract.execution_contract.evidence.is_empty()
             && contract.invocation_behavior.execution_properties.is_empty()
+            && contract.invocation_behavior.execution_domains.is_empty()
             && contract
                 .deferred_execution_behavior
                 .as_ref()
-                .is_none_or(|behavior| behavior.execution_properties.is_empty())
+                .is_none_or(|behavior| {
+                    behavior.execution_properties.is_empty()
+                        && behavior.execution_domains.is_empty()
+                })
         {
             return Ok(());
         }
@@ -97,6 +101,18 @@ impl InterfaceSemantics {
             .ok_or_else(invalid)?;
 
         let input_count = signature.parameters.len() + usize::from(signature.receiver.is_some());
+
+        for behavior in std::iter::once(&contract.invocation_behavior)
+            .chain(contract.deferred_execution_behavior.as_ref())
+        {
+            for domain in &*behavior.execution_domains {
+                for predicate in &*domain.entry {
+                    if let Some(term) = predicate.condition {
+                        self.validate_execution_term(term, input_count, false, surface)?;
+                    }
+                }
+            }
+        }
 
         let execution = &contract.execution_contract;
         let mut declared = BTreeSet::new();
@@ -245,9 +261,12 @@ impl InterfaceSemantics {
                         };
 
                         if *required != Obligation::Property(ExecutionProperty::Pure, None)
-                            || !invocation_behavior
+                            || !(invocation_behavior
                                 .execution_properties
                                 .contains(&ExecutionProperty::Pure)
+                                || invocation_behavior.execution_domains.iter().any(|domain| {
+                                    domain.properties.contains(&ExecutionProperty::Pure)
+                                }))
                         {
                             return Err(invalid());
                         }
@@ -322,6 +341,37 @@ impl InterfaceSemantics {
             }
         }
 
+        let requirements = contract
+            .invocation_preconditions
+            .iter()
+            .filter_map(|clause| {
+                clause
+                    .predicate()
+                    .and_then(|predicate| predicate.condition())
+            })
+            .collect::<BTreeSet<_>>();
+
+        for behavior in std::iter::once(&contract.invocation_behavior)
+            .chain(contract.deferred_execution_behavior.as_ref())
+        {
+            for promise in &*behavior.execution_domains {
+                let mut entry = requirements.clone();
+
+                for predicate in &*promise.entry {
+                    entry.insert(predicate.condition.ok_or_else(invalid)?);
+                }
+
+                for property in &*promise.properties {
+                    if !execution.domains.iter().any(|domain| {
+                        domain.properties.contains(property)
+                            && domain.entry.iter().copied().collect::<BTreeSet<_>>() == entry
+                    }) {
+                        return Err(invalid());
+                    }
+                }
+            }
+        }
+
         let public = supplied
             .into_iter()
             .filter(|obligation| !obligation.is_internal())
@@ -357,10 +407,11 @@ impl InterfaceSemantics {
             .map(|index| &self.callable_contracts[index])
         else {
             return if invocation_behavior.execution_properties.is_empty()
-                && deferred_execution_behavior
-                    .as_ref()
-                    .is_none_or(|behavior| behavior.execution_properties.is_empty())
-            {
+                && invocation_behavior.execution_domains.is_empty()
+                && deferred_execution_behavior.as_ref().is_none_or(|behavior| {
+                    behavior.execution_properties.is_empty()
+                        && behavior.execution_domains.is_empty()
+                }) {
                 Ok(())
             } else {
                 Err(invalid())
@@ -378,6 +429,22 @@ impl InterfaceSemantics {
                     .map(|behavior| &behavior.execution_properties)
         {
             return Err(invalid());
+        }
+
+        for (signature_phase, contract_phase) in
+            std::iter::once((invocation_behavior.as_ref(), &contract.invocation_behavior)).chain(
+                deferred_execution_behavior
+                    .as_deref()
+                    .zip(contract.deferred_execution_behavior.as_ref()),
+            )
+        {
+            if signature_phase
+                .execution_domains
+                .iter()
+                .any(|domain| !contract_phase.execution_domains.contains(domain))
+            {
+                return Err(invalid());
+            }
         }
 
         let behavior = contract

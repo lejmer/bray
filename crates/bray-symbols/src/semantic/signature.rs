@@ -468,6 +468,60 @@ impl CallableSignature {
         Ok(self)
     }
 
+    /// Retains conditional execution promises on an exposed callable value.
+    pub fn with_execution_domains(
+        mut self,
+        values: &SemanticValueStore,
+        execution_domains: &[crate::CallableExecutionDomain<crate::PredicateSemanticSummary>],
+        substitution: crate::GenericSubstitutionId,
+    ) -> Result<Self, crate::SemanticValueStoreError> {
+        if execution_domains.is_empty() {
+            return Ok(self);
+        }
+
+        let data = values.type_data(self.callable_type);
+
+        let TypeData::Callable(callable) = data.as_ref() else {
+            panic!("checked callable signature must retain its callable type");
+        };
+
+        let execution_domains = execution_domains
+            .iter()
+            .map(|domain| {
+                domain.try_map(|predicate| {
+                    Ok::<_, crate::SemanticValueStoreError>(
+                        crate::PredicateSemanticSummary::new(
+                            values.substitute_dependency_contract(
+                                predicate.dependency_contract(),
+                                substitution,
+                            )?,
+                        )
+                        .with_condition(
+                            predicate
+                                .condition()
+                                .map(|condition| {
+                                    values.substitute_constant_term(condition, substitution)
+                                })
+                                .transpose()?,
+                            predicate.domain(),
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let phases = callable
+            .phase_behaviors()
+            .clone()
+            .with_execution_domains(execution_domains);
+
+        self.callable_type = values.intern_type(TypeData::Callable(
+            callable.clone().with_phase_behaviors(phases),
+        ))?;
+
+        Ok(self)
+    }
+
     /// Transforms every type in the signature while preserving declaration identities and modes.
     pub fn try_map_types<E>(
         self,

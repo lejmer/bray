@@ -1905,3 +1905,268 @@ fn checked_total_calls_support_imported_static_termination() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn guarded_callable_types_preserve_generic_inputs_across_interfaces() {
+    let provider = compilation(
+        r#"
+        module api;
+        callable Action<T> = func(pos flag: bool, pos value: T) -> T
+            when(flag) { executes(pure) };
+        func supplied<T>(pos flag: bool, pos value: T) -> T
+            when(flag) { executes(pure) }
+        { return value; }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let original = export(&provider);
+    let artifact = encode_package_interface(&original).expect("guarded callable interface encodes");
+
+    let validated = ValidatedPackageInterface::try_new(
+        artifact.bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+    .expect("guarded callable interface validates");
+
+    let decoded = validated
+        .decode_semantics(original.surface())
+        .expect("guarded callable semantics decode");
+
+    assert_eq!(decoded.types(), original.semantics().types());
+
+    for (argument, valid) in [("true", true), ("false", false), ("flag", false)] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func root(pos flag: bool, pos action: example.package.api.Action<bool>) -> bool
+                executes(pure)
+            {{ return action({argument}, true); }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+
+    for (argument, valid) in [("true", true), ("false", false), ("flag", false)] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func root(pos flag: bool) -> bool executes(pure) {{
+                let action: example.package.api.Action<bool> = example.package.api.supplied<bool>;
+                return action({argument}, true);
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_guarded_callables_cannot_gain_execution_evidence_from_raw_addresses() {
+    let provider = compilation(
+        r#"
+        module api;
+        callable Callback = @abi(c) func(pos flag: bool) -> bool
+            when(true) { executes(pure, total) };
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        trusted module app;
+        using core.memory;
+        using example.package.api;
+        trusted func reconstruct(pos pointer: FunctionPointer<example.package.api.Callback>)
+            -> example.package.api.Callback
+            uses(layout_reinterpret)
+            requires(trusted core.memory.callable_address_valid<example.package.api.Callback>(pointer = pointer))
+        { return trusted core.memory.callable_from_pointer<example.package.api.Callback>(pointer); }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        consumer.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
+}
+
+#[test]
+fn imported_callable_postconditions_can_weaken_but_cannot_strengthen() {
+    let provider = compilation(
+        r#"
+        module api;
+        callable Unconditional = func(pos flag: bool) -> bool
+            executes(pure) ensures(result);
+        callable Guarded = func(pos flag: bool) -> bool
+            when(flag) { executes(pure) ensures(result) };
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (source_type, target_type, valid) in [
+        ("Unconditional", "Guarded", true),
+        ("Guarded", "Unconditional", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func convert(pos action: example.package.api.{source_type})
+                -> example.package.api.{target_type}
+            {{ return action as example.package.api.{target_type}; }}
+        "#,
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn imported_callable_conversion_keeps_entry_guards_separate_from_exit_facts() {
+    for (parameter, observation) in [
+        ("mut flag: bool", "flag"),
+        ("flag: &mut Flag", "flag.value"),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            struct Flag
+            {{
+                mut value: bool;
+            }}
+            callable Source = func(pos {parameter}) -> bool ensures(!{observation});
+            callable Target = func(pos {parameter}) -> bool
+                when({observation}) {{ ensures(result) }};
+            func change(pos {parameter}) -> bool ensures(!{observation})
+            {{
+                {observation} = false;
+                return false;
+            }}
+        "#
+        ));
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{parameter}: {:?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func convert(pos action: example.package.api.Source)
+                -> example.package.api.Target
+            {
+                return action as example.package.api.Target;
+            }
+        "#,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            consumer.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
+        );
+    }
+}
+
+#[test]
+fn guarded_foreign_assertions_and_postconditions_match_imported_behavior() {
+    let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+        [r#"
+            trusted module api;
+            @link(name = "c") @abi(c) @symbol(name = "foreign_truth")
+            extern trusted func asserted(pos flag: bool) -> bool
+                uses(foreign_call)
+                when(flag) { executes(total) ensures(result) };
+        "#],
+        ProductKind::Library,
+        [],
+        WorkerBudget::default(),
+        None,
+        [bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("c").expect("native link name"),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )],
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .flat_map(|c| &*c.execution_contract().evidence)
+            .all(|e| e.origin == bray_symbols::CallableExecutionOrigin::ForeignAssertion)
+    );
+
+    for (argument, requirement, valid) in [
+        ("true", "", true),
+        ("false", "", false),
+        ("flag", "", false),
+        ("flag", "requires(flag)", true),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using example.package.api;
+            trusted func root(pos flag: bool) -> bool
+                uses(foreign_call) {requirement} executes(total) ensures(result)
+            {{ return example.package.api.asserted({argument}); }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}

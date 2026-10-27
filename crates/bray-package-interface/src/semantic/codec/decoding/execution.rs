@@ -17,42 +17,9 @@ pub(super) fn decode_execution_contract(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCallableExecutionContract, InterfaceValidationError> {
-    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-    let mut domains = context.allocate_items(reader, count)?;
-
-    for _ in 0..count {
-        let ordinal = SymbolOrdinal::new(read_u32(reader)?);
-        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-        let mut entry = context.allocate_items(reader, count)?;
-
-        for _ in 0..count {
-            entry.push(InterfaceConstantTermId::new(read_u32(reader)?));
-        }
-
-        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-        let mut properties = context.allocate_items(reader, count)?;
-
-        for _ in 0..count {
-            properties.push(decode_tag(read_u32(reader)?)?);
-        }
-
-        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
-        let mut postconditions = context.allocate_items(reader, count)?;
-
-        for _ in 0..count {
-            postconditions.push((
-                SymbolOrdinal::new(read_u32(reader)?),
-                InterfaceConstantTermId::new(read_u32(reader)?),
-            ));
-        }
-
-        domains.push(CallableExecutionDomain {
-            ordinal,
-            entry: entry.into(),
-            properties: properties.into(),
-            postconditions: postconditions.into(),
-        });
-    }
+    let domains = decode_execution_domains(reader, limits, context, |reader| {
+        Ok(InterfaceConstantTermId::new(read_u32(reader)?))
+    })?;
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
     let mut evidence = context.allocate_items(reader, count)?;
@@ -101,6 +68,49 @@ pub(super) fn decode_execution_contract(
         domains: domains.into(),
         evidence: evidence.into(),
     })
+}
+
+pub(super) fn decode_execution_domains<T>(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+    mut decode_term: impl FnMut(&mut WireReader<'_>) -> Result<T, InterfaceValidationError>,
+) -> Result<Vec<CallableExecutionDomain<T>>, InterfaceValidationError> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut domains = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut entry = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            entry.push(decode_term(reader)?);
+        }
+
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut properties = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            properties.push(decode_tag(read_u32(reader)?)?);
+        }
+
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut postconditions = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            postconditions.push((SymbolOrdinal::new(read_u32(reader)?), decode_term(reader)?));
+        }
+
+        domains.push(CallableExecutionDomain {
+            ordinal,
+            entry: entry.into(),
+            properties: properties.into(),
+            postconditions: postconditions.into(),
+        });
+    }
+
+    Ok(domains)
 }
 
 fn decode_obligation(

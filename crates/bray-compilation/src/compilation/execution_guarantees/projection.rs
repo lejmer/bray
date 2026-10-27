@@ -302,6 +302,31 @@ using core.atomic;
     }
 
     #[test]
+    fn raw_code_addresses_cannot_create_guarded_execution_evidence() {
+        for property in ["pure", "total"] {
+            for guard in ["true", "flag"] {
+                let source = format!(
+                    r#"
+                    trusted module app;
+                    using core.memory;
+                    callable Callback = @abi(c) func(pos flag: bool) -> bool
+                        when({guard}) {{ executes({property}) }};
+                    trusted func reconstruct(pos pointer: FunctionPointer<Callback>) -> Callback
+                        uses(layout_reinterpret)
+                        requires(trusted core.memory.callable_address_valid<Callback>(pointer = pointer))
+                    {{ return trusted core.memory.callable_from_pointer<Callback>(pointer); }}
+                "#,
+                );
+
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    compilation(&source).check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
     fn pointer_projection_certificates_do_not_create_callable_authority() {
         let compilation = compilation(
             r#"
