@@ -1,6 +1,6 @@
 use crate::performance::model::WorkloadCategory;
 
-pub(in crate::performance) const CORPUS_REVISION: u32 = 2;
+pub(in crate::performance) const CORPUS_REVISION: u32 = 1;
 pub(in crate::performance) const CALIBRATION_SEED_INNER_ITERATIONS: u64 = 1_000_000;
 pub(in crate::performance) const CALIBRATION_SAMPLE_COUNT: u32 = 3;
 pub(in crate::performance) const CALIBRATION_TARGET_NANOSECONDS: u64 = 100_000_000;

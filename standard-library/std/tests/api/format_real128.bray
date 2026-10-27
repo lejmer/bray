@@ -21,10 +21,17 @@ trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
         trusted std.format.write_to<r128, std.format.FixedSink, std.format.FixedSinkError>(
-            &mut sink, std.format.Argument<r128>(&value, options = std.format.Options(precision = 2))));
+            &mut sink,
+            std.format.Argument<r128>(&value, options = std.format.Options(precision = 2))
+        )
+    );
+
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
         trusted std.format.write_to<c256, std.format.FixedSink, std.format.FixedSinkError>(
-            &mut sink, std.format.Argument<c256>(&complex)));
+            &mut sink,
+            std.format.Argument<c256>(&complex)
+        )
+    );
 
     let length: usize = std.format.finish_fixed(sink);
 

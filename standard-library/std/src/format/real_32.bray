@@ -1,0 +1,37 @@
+module std.format;
+
+using core.memory;
+using std.memory;
+
+// These concrete numeric representations have equal size and alignment and no padding.
+trusted internal func real32_pointer(pos value: &r32) -> DataPointer<u32>
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = result),
+        trusted core.memory.initialized_as<u32>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<u32, r32>(std.memory.address_of<r32>(value));
+}
+
+trusted internal func real32_bits(pos value: &r32) -> u128
+    uses(raw_memory)
+{
+    let pointer: DataPointer<u32> = real32_pointer(value);
+    let bits: u32 = trusted std.memory.read<u32>(pointer);
+
+    return bits as u128;
+}
+
+impl R32Format = r32(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
+{
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
+    {
+        let value: RealRendering = make_real_rendering(real32_bits(&self), 23, 8, options);
+
+        return write_real_rendering<Destination, Failure>(destination, &value, options);
+    }
+}

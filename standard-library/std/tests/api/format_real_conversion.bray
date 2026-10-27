@@ -3,6 +3,7 @@ module bray.standard_library_tests.format_real_conversion;
 using std.bytes;
 using std.format;
 using std.format.FixedSinkFormatting;
+using std.format.CountingSinkFormatting;
 using std.numeric;
 using std.string;
 using std.testing;
@@ -284,24 +285,106 @@ func fixed_decimal_conversion_covers_the_full_ieee_storage_bound()
     assert(value_0.scale == 16494);
     assert(internal std.format.real_coefficient_digits(&value_0.coefficient) == 11529);
     assert(real_coefficient_checksum(&value_0.coefficient) == 3234639345196462509);
+
     let value_1 = internal std.format.fixed_real_decimal(5192296858534827628530496329220095, -16494, 16494);
 
     assert(value_1.scale == 16494);
     assert(internal std.format.real_coefficient_digits(&value_1.coefficient) == 11563);
     assert(real_coefficient_checksum(&value_1.coefficient) == 9859851418744684235);
+
     let value_2 = internal std.format.fixed_real_decimal(10384593717069655257060992658440191, 16271, 0);
 
     assert(value_2.scale == 0);
     assert(internal std.format.real_coefficient_digits(&value_2.coefficient) == 4933);
     assert(real_coefficient_checksum(&value_2.coefficient) == 2304088591483079409);
+
     let value_3 = internal std.format.fixed_real_decimal(1, -16494, 5000);
 
     assert(value_3.scale == 5000);
     assert(internal std.format.real_coefficient_digits(&value_3.coefficient) == 35);
     assert(real_coefficient_checksum(&value_3.coefficient) == 1221831715824903);
+
     let value_4 = internal std.format.fixed_real_decimal(9007199254740991, -1074, 1074);
 
     assert(value_4.scale == 1074);
     assert(internal std.format.real_coefficient_digits(&value_4.coefficient) == 767);
     assert(real_coefficient_checksum(&value_4.coefficient) == 5790737589827659129);
+}
+
+@test
+trusted func every_ieee_width_formats_finite_decimal_and_radix_values()
+{
+    let widths: [u32; 4] = [10, 23, 52, 112];
+    let exponents: [u32; 4] = [5, 8, 11, 15];
+    let one: u128 = 1;
+    let mut index: usize = 0;
+
+    while index < 4
+    {
+        let fraction: u32 = widths[index];
+        let exponent: u32 = exponents[index];
+        let bias: u128 = (one << (exponent - 1) as u128) - 1;
+        let value: u128 = (bias << fraction as u128) | (one << (fraction - 1) as u128);
+
+        assert_binary_real_format(value, fraction, exponent, "1.5");
+        assert_binary_real_format(value, fraction, exponent, "1.50", options = std.format.Options(precision = 2));
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0b1.1p0",
+            options = std.format.Options(radix = std.format.Radix.Binary)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0o1.4p0",
+            options = std.format.Options(radix = std.format.Radix.Octal)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0X1.8P0",
+            options = std.format.Options(radix = std.format.Radix.HexadecimalUppercase)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0x1p1",
+            options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, precision = 0)
+        );
+
+        index += 1;
+    }
+
+    let maximum: u128 = (32767 * (one << 112)) - 1;
+
+    assert_binary_real_format(
+        maximum,
+        112,
+        15,
+        "0x1.ffffffffffffffffffffffffffffp16383",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase)
+    );
+
+    let options: std.format.Options = std.format.Options(radix = std.format.Radix.Binary);
+    let rendering = internal std.format.make_real_rendering(maximum, 112, 15, &options);
+    let mut sink: std.format.CountingSink = std.format.CountingSink();
+
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(
+        internal std.format.write_real_rendering<std.format.CountingSink, std.format.CountingSinkError>(
+            &mut sink,
+            &rendering,
+            &options
+        )
+    );
+
+    assert(std.format.formatted_length(&sink) == 122);
 }
