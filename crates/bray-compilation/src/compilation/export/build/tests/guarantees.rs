@@ -1985,6 +1985,36 @@ fn guarded_callable_types_preserve_generic_inputs_across_interfaces() {
 }
 
 #[test]
+fn imported_guarded_callables_cannot_gain_execution_evidence_from_raw_addresses() {
+    let provider = compilation(
+        r#"
+        module api;
+        callable Callback = @abi(c) func(pos flag: bool) -> bool
+            when(true) { executes(pure, total) };
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        trusted module app;
+        using core.memory;
+        using example.package.api;
+        trusted func reconstruct(pos pointer: FunctionPointer<example.package.api.Callback>)
+            -> example.package.api.Callback
+            uses(layout_reinterpret)
+            requires(trusted core.memory.callable_address_valid<example.package.api.Callback>(pointer = pointer))
+        { return trusted core.memory.callable_from_pointer<example.package.api.Callback>(pointer); }
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        consumer.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
+}
+
+#[test]
 fn imported_callable_postconditions_can_weaken_but_cannot_strengthen() {
     let provider = compilation(
         r#"

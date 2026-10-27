@@ -567,27 +567,36 @@ where
 
     if hook == ImplementationHook::CallableFromPointer
         && let bray_symbols::TypeData::Callable(callable) = data.as_ref()
-        && let Some(property) = callable
-            .phase_behaviors()
-            .invocation()
-            .execution_properties()
-            .first()
     {
-        diagnostics.add(
-            Diagnostic::new(
-                crate::diagnostic::diagnostic_id(diagnostics.len()),
-                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
-                SeverityKind::Error,
-            )
-            .with_primary_span(span)
-            .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::ExecutionGuaranteeFailure,
-                span,
-            ))
-            .with_arg(DiagnosticArg::referenced_name(property.as_str())),
-        );
+        let behavior = callable.phase_behaviors().invocation();
 
-        return Ok(false);
+        if let Some(property) = behavior
+            .execution_properties()
+            .iter()
+            .chain(
+                behavior
+                    .execution_domains()
+                    .iter()
+                    .flat_map(|domain| domain.properties.iter()),
+            )
+            .next()
+        {
+            diagnostics.add(
+                Diagnostic::new(
+                    crate::diagnostic::diagnostic_id(diagnostics.len()),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                    SeverityKind::Error,
+                )
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::ExecutionGuaranteeFailure,
+                    span,
+                ))
+                .with_arg(DiagnosticArg::referenced_name(property.as_str())),
+            );
+
+            return Ok(false);
+        }
     }
 
     Ok(validate_function_pointer_target(
@@ -1162,44 +1171,84 @@ mod tests {
     #[test]
     fn raw_pointers_cannot_supply_execution_evidence() {
         with_request(|request| {
+            let values = semantic_values();
+
+            let boolean = crate::representation::representation_type(
+                request,
+                bray_compiler_known::RepresentationRole::ScalarBool,
+            );
+
+            let truth = values
+                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                    boolean,
+                    bray_symbols::ConstantValueKind::Boolean(true),
+                ))
+                .expect("fixture Boolean value must be valid");
+
+            let truth = values
+                .intern_constant_term(bray_symbols::ConstantTermData::Value(truth))
+                .expect("fixture Boolean term must be valid");
+
             for property in [
                 bray_symbols::ExecutionProperty::Pure,
                 bray_symbols::ExecutionProperty::Total,
             ] {
-                let phases = crate::test_support::empty_callable_phase_behaviors()
-                    .with_execution_properties([property]);
-
-                let callable = bray_symbols::CallableTypeData::new(
-                    [],
-                    error_type(),
-                    bray_symbols::CallableConstness::Runtime,
-                    bray_symbols::CallableTrust::Safe,
+                for abi in [
                     bray_symbols::CallableAbi::C,
-                    phases.dependency_contracts(),
-                )
-                .with_phase_behaviors(phases);
+                    bray_symbols::CallableAbi::System,
+                ] {
+                    for guarded in [false, true] {
+                        let phases = crate::test_support::empty_callable_phase_behaviors();
 
-                let ty = semantic_values()
-                    .intern_type(TypeData::Callable(callable))
-                    .unwrap_or_else(|error| panic!("callable must intern: {error:?}"));
+                        let phases = if guarded {
+                            let predicate = bray_symbols::PredicateSemanticSummary::new(
+                                phases.dependency_contracts().invocation(),
+                            )
+                            .with_condition(Some(truth), bray_symbols::PredicateDomain::Value);
 
-                let mut diagnostics = DiagnosticBag::new();
+                            phases.with_execution_domains([bray_symbols::CallableExecutionDomain {
+                                ordinal: bray_symbols::SymbolOrdinal::new(0),
+                                entry: [predicate].into(),
+                                properties: [property].into(),
+                                postconditions: Default::default(),
+                            }])
+                        } else {
+                            phases.with_execution_properties([property])
+                        };
 
-                let operation = classify_operation(
-                    request,
-                    ImplementationHook::CallableFromPointer,
-                    &[GenericArgument::Type(ty)],
-                    first_expression(request),
-                    &mut BTreeMap::new(),
-                    &mut diagnostics,
-                );
+                        let callable = bray_symbols::CallableTypeData::new(
+                            [],
+                            error_type(),
+                            bray_symbols::CallableConstness::Runtime,
+                            bray_symbols::CallableTrust::Safe,
+                            abi,
+                            phases.dependency_contracts(),
+                        )
+                        .with_phase_behaviors(phases);
 
-                assert_eq!(operation, Ok(None));
+                        let ty = semantic_values()
+                            .intern_type(TypeData::Callable(callable))
+                            .unwrap_or_else(|error| panic!("callable must intern: {error:?}"));
 
-                assert_goal_state_diagnostic_kind(
-                    &diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
-                );
+                        let mut diagnostics = DiagnosticBag::new();
+
+                        let operation = classify_operation(
+                            request,
+                            ImplementationHook::CallableFromPointer,
+                            &[GenericArgument::Type(ty)],
+                            first_expression(request),
+                            &mut BTreeMap::new(),
+                            &mut diagnostics,
+                        );
+
+                        assert_eq!(operation, Ok(None));
+
+                        assert_goal_state_diagnostic_kind(
+                            &diagnostics,
+                            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                        );
+                    }
+                }
             }
         });
     }
