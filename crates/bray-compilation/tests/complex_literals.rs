@@ -444,6 +444,9 @@ fn complex_arithmetic_constants_cover_every_advertised_operation() {
         const shrink_positive: c128 = (0.5 + 0.0i) ** AXIS_INFINITY;
         const shrink_negative: c128 = (2.0 + 0.0i) ** -AXIS_INFINITY;
         const grow_negative: c128 = (0.5 + 0.0i) ** -AXIS_INFINITY;
+        const root_above_infinity: c128 = AXIS_INFINITY ** (0.5 + 0.0i);
+        const root_below_infinity: c128 =
+            ((1.7976931348623157e308 - 0.0i) ** (2.0 + 0.0i)) ** (0.5 + 0.0i);
     "#,
     );
 
@@ -478,7 +481,15 @@ fn complex_arithmetic_constants_cover_every_advertised_operation() {
         ("grow_positive", [0x7ff0_0000_0000_0000, 0]),
         ("shrink_positive", [0, 0]),
         ("shrink_negative", [0, 0x8000_0000_0000_0000]),
-        ("grow_negative", [0x7ff0_0000_0000_0000, 0x8000_0000_0000_0000]),
+        (
+            "grow_negative",
+            [0x7ff0_0000_0000_0000, 0x8000_0000_0000_0000],
+        ),
+        ("root_above_infinity", [0x7ff0_0000_0000_0000, 0]),
+        (
+            "root_below_infinity",
+            [0x7ff0_0000_0000_0000, 0x8000_0000_0000_0000],
+        ),
     ];
 
     let mut count = 0;

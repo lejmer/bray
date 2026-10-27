@@ -410,11 +410,13 @@ fn square_root(real: &BigFloat, imaginary: &BigFloat, precision: usize) -> [BigF
     .div(&two, precision, ROUND)
     .sqrt(precision, ROUND);
 
-    let small = if large.is_inf() {
+    let mut small = if large.is_inf() {
         zero
     } else {
         imaginary.div(&two.mul(&large, precision, ROUND), precision, ROUND)
     };
+
+    small.set_sign(imaginary.sign().expect("non-NaN input has a sign"));
 
     if negative_real {
         let mut real = small;
@@ -547,6 +549,88 @@ mod tests {
 mod boundary_tests {
     use super::power;
     use crate::BinaryFormat;
+
+    #[test]
+    fn square_roots_preserve_zero_signs_and_infinite_limits_in_every_format() {
+        use astro_float_num::BigFloat;
+
+        for format in [
+            BinaryFormat::Binary16,
+            BinaryFormat::Binary32,
+            BinaryFormat::Binary64,
+            BinaryFormat::Binary128,
+        ] {
+            let bits = |value| format.encode(&BigFloat::from_u8(value, 128));
+            let one = bits(1);
+            let two = bits(2);
+            let three = bits(3);
+            let four = bits(4);
+
+            let half = format.encode(&BigFloat::from_u8(1, 128).div(
+                &BigFloat::from_u8(2, 128),
+                128,
+                super::ROUND,
+            ));
+
+            let negative = format.sign_mask();
+            let infinity = format.infinity();
+
+            for sign in [0, negative] {
+                for (base, expected) in [
+                    ([infinity, sign], [infinity, sign]),
+                    ([infinity, one | sign], [infinity, sign]),
+                    ([infinity | negative, sign], [0, infinity | sign]),
+                    ([infinity | negative, one | sign], [0, infinity | sign]),
+                    ([one, infinity | sign], [infinity, infinity | sign]),
+                    (
+                        [one | negative, infinity | sign],
+                        [infinity, infinity | sign],
+                    ),
+                    ([infinity, infinity | sign], [infinity, infinity | sign]),
+                    (
+                        [infinity | negative, infinity | sign],
+                        [infinity, infinity | sign],
+                    ),
+                    ([four, sign], [two, sign]),
+                    ([four | negative, sign], [0, two | sign]),
+                    ([0, sign], [0, sign]),
+                    ([negative, sign], [0, sign]),
+                    ([three, four | sign], [two, one | sign]),
+                ] {
+                    assert_eq!(
+                        power(format, base, [half, 0]),
+                        expected,
+                        "{format:?}: {base:x?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn zero_magnitudes_preserve_principal_power_directions() {
+        let format = BinaryFormat::Binary64;
+        let negative = format.sign_mask();
+        let infinity = format.infinity();
+        let three_quarters = 0x3fe8_0000_0000_0000;
+
+        for (base, exponent, expected) in [
+            ([negative, 0], three_quarters, [negative, 0]),
+            ([negative, negative], three_quarters, [negative, negative]),
+            (
+                [negative, 0],
+                three_quarters | negative,
+                [infinity | negative; 2],
+            ),
+            (
+                [negative, negative],
+                three_quarters | negative,
+                [infinity | negative, infinity],
+            ),
+        ] {
+            assert_eq!(power(format, base, [exponent, 0]), expected);
+        }
+    }
 
     #[test]
     fn positive_real_powers_follow_infinite_exponent_limits_in_every_format() {
