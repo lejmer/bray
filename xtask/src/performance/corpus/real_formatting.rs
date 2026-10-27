@@ -256,9 +256,7 @@ func main()
 
     {
         let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
-        let value_part_real: r64 = 1.25;
-        let value_part_imaginary: r64 = -2.5;
-        let value: c128 = (value_part_real, value_part_imaginary) as c128;
+        let value: c128 = 1.25 - 2.5i;
         let mut index: usize = 0;
 
         while index < 1024

@@ -13,9 +13,8 @@ using std.testing;
 trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
 {
     let value: r128 = 1.5;
-    let complex_part_real: r128 = 1.5;
-    let complex_part_imaginary: r128 = -2.25;
-    let complex: c256 = (complex_part_real, complex_part_imaginary) as c256;
+    let complex: c256 = 1.5 - 2.25i;
+    let positive: c256 = 1.5 + 2.25i;
     let mut storage: bytes<64> = [0; 64];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
@@ -33,7 +32,14 @@ trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
         )
     );
 
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<c256, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink,
+            std.format.Argument<c256>(&positive)
+        )
+    );
+
     let length: usize = std.format.finish_fixed(sink);
 
-    assert(std.bytes.equals(&storage[0..length], "1.501.5-2.25i".as_bytes()));
+    assert(std.bytes.equals(&storage[0..length], "1.501.5-2.25i1.5+2.25i".as_bytes()));
 }

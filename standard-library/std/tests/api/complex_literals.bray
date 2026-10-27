@@ -1,0 +1,32 @@
+module bray.standard_library_tests.complex_literals;
+
+const POSITIVE: c64 = 1.0 + 2.0i;
+
+const NEGATIVE: c128 = 1.0 - 2.0i;
+
+@test
+func complex_literals_preserve_context_defaults_and_component_signs()
+{
+    let small_plus: c64 = 1.0 + 2.0i;
+    let small_minus: c64 = 1.0 - 2.0i;
+    let plus: c128 = 1.0 + 2.0i;
+    let minus: c128 = 1.0 - 2.0i;
+    let default_plus = 1.0 + 2.0i;
+    let default_minus = 1.0 - 2.0i;
+    let imaginary = 2.0i;
+    let signed: c128 = -1.0 + 2.0i;
+    let real_component: r64 = 1.0;
+    let imaginary_component: r64 = 2.0;
+    let explicit: c128 = (real_component, imaginary_component) as c128;
+
+    assert(POSITIVE == small_plus);
+    assert(NEGATIVE == minus);
+    assert(small_plus == (1.0, 2.0) as c64);
+    assert(small_minus == (1.0, -2.0) as c64);
+    assert(plus == explicit);
+    assert(signed == (-1.0, 2.0) as c128);
+    assert(minus == (1.0, -2.0) as c128);
+    assert(default_plus == plus);
+    assert(default_minus == minus);
+    assert(imaginary == (0.0, 2.0) as c128);
+}

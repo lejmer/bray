@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind, BoundOperator};
+use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundLiteralKind};
 use bray_compiler_known::{NumericRepresentationKind, RepresentationRole};
 use bray_symbols::TypeId;
 
@@ -208,39 +208,12 @@ fn complex_literal<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let BoundExpression::Binary(binary) = request.view().expression(expression)? else {
-        return None;
-    };
-
-    if !matches!(
-        binary.operator(),
-        BoundOperator::Add | BoundOperator::Subtract
-    ) {
-        return None;
-    }
-
-    let [real, imaginary] = binary.operands() else {
-        return None;
-    };
-
-    let BoundExpression::Literal(real_literal) = request.view().expression(*real)? else {
-        return None;
-    };
-
-    let BoundExpression::Literal(imaginary_literal) = request.view().expression(*imaginary)? else {
-        return None;
-    };
-
-    if real_literal.kind() != BoundLiteralKind::Real
-        || imaginary_literal.kind() != BoundLiteralKind::Imaginary
-    {
-        return None;
-    }
+    let [real, imaginary] = request.view().complex_literal_components(expression)?;
 
     Some((
         *variables.get(&expression)?,
-        *variables.get(real)?,
-        *variables.get(imaginary)?,
+        *variables.get(&real)?,
+        *variables.get(&imaginary)?,
     ))
 }
 
@@ -248,7 +221,8 @@ fn complex_component_type<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Opt
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let component = type_representation(request, ty).and_then(RepresentationRole::complex_component)?;
+    let component =
+        type_representation(request, ty).and_then(RepresentationRole::complex_component)?;
 
     Some(representation_type(request, component))
 }

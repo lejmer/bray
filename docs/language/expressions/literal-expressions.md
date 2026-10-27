@@ -147,8 +147,8 @@ complex type.
 let z: c128 = 1.0 + 2.0i;
 ```
 
-A real literal plus an imaginary literal can form a complex value by literal adaptation when the expected type is a
-built-in complex type.
+A real literal plus or minus an imaginary literal forms a complex value by literal adaptation. The expected built-in
+complex type selects the component types. Without an expected type, the expression defaults to `c128`.
 
 Already-typed non-literal real values require explicit complex construction.
 
@@ -177,6 +177,16 @@ The real component literal adapts to the complex component type.
 The imaginary component literal adapts to the complex component type.
 
 The expression produces a value of the expected complex type.
+
+The real literal may have a unary sign. Subtraction negates the imaginary component:
+
+```bray
+let z: c128 = -1.0 - 2.0i;
+```
+
+Available optional `c32` and `c256` types select `r16` and `r128` components respectively. Without a contextual type,
+complex literal expressions default to `c128` with `r64` components.
+
 
 For `c128`:
 

@@ -222,20 +222,17 @@ trusted func real_special_values_preserve_sign_and_canonicalize_nan_payloads()
 @test
 trusted func complex_components_reuse_real_policy_and_share_outer_padding()
 {
-    let small_part_real: r32 = 1.0;
-    let small_part_imaginary: r32 = 2.0;
-    let small: c64 = (small_part_real, small_part_imaginary) as c64;
-    let value_part_real: r64 = 1.25;
-    let value_part_imaginary: r64 = -2.5;
-    let value: c128 = (value_part_real, value_part_imaginary) as c128;
-    let negative_zero: r64 = -0.0;
-    let zero: c128 = (negative_zero, negative_zero) as c128;
+    let small: c64 = 1.0 + 2.0i;
+    let value: c128 = 1.25 - 2.5i;
+    let imaginary_zero: c128 = 1.0 - 0.0i;
+    let zero: c128 = -0.0 - 0.0i;
     let infinity: r64 = real64_value(0x7ff0000000000000);
     let negative_nan: r64 = real64_value(0xfff8000000000123);
     let exceptional: c128 = (infinity, negative_nan) as c128;
 
     assert_real_format<c64>(&small, "1+2i");
     assert_real_format<c128>(&value, "1.25-2.5i");
+    assert_real_format<c128>(&imaginary_zero, "1-0i");
 
     assert_real_format<c128>(
         &value,
@@ -269,9 +266,7 @@ trusted func huge_real_precision_and_width_use_bulk_sink_operations()
     assert(std.format.formatted_length(&sink) == 1000002);
 
     let mut wide: std.format.CountingSink = std.format.CountingSink();
-    let complex_part_real: r64 = 1.25;
-    let complex_part_imaginary: r64 = -2.5;
-    let complex: c128 = (complex_part_real, complex_part_imaginary) as c128;
+    let complex: c128 = 1.25 - 2.5i;
     let maximum: usize = ~0;
 
     std.testing.assert_ok<unit, std.format.CountingSinkError>(
@@ -364,9 +359,7 @@ impl PartialRealSinkFormatting = PartialRealSink(std.format.Sink<RealFormatFailu
 @test
 trusted func real_and_complex_partial_output_keeps_the_original_failure()
 {
-    let complex_part_real: r64 = 1.25;
-    let complex_part_imaginary: r64 = -2.5;
-    let complex: c128 = (complex_part_real, complex_part_imaginary) as c128;
+    let complex: c128 = 1.25 - 2.5i;
 
     let mut sink: PartialRealSink =
     {
