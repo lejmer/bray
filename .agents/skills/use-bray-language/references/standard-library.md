@@ -16,6 +16,37 @@ Bray's standard library is the ordinary `std` package. It provides public module
 | Foreign interoperability and dynamic loading        | `std.ffi`, `std.ffi.c`, `std.dynamic`                                                                                               | [Extern declarations and FFI](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md), [foreign data and symbols](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/foreign-data-and-symbols.md), and [I/O and platform services][io-platform]                                                                                                                                                            |
 | Target-specific operating-system access             | `std.os.windows`, `std.os.linux`, `std.os.darwin`                                                                                   | Generated raw declarations are exact-target bindings. See [foreign and platform interoperability](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/foreign-standard-library.md#target-specific-modules).                                                                                                                                                                                                                                                                           |
 
+For numeric formatting, activate `std.format.R32Format`, `R64Format`, `C64Format`, or `C128Format`. The corresponding
+`R16Format`, `R128Format`, `C32Format`, and `C256Format` implementations follow target availability. Omitted real precision
+selects shortest round-trip decimal output, while explicit precision counts fractional digits and rounds ties to even.
+Binary, octal, and hexadecimal use normalized `p` exponent notation. Complex values share real conversion and apply
+width to the whole `real+imaginaryi` value. See the authoritative [real and complex formatting contract](https://github.com/lejmer/bray/blob/develop/docs/language/core-data-standard-library.md#real-and-complex-values).
+
+```bray
+using std.format;
+using std.format.C128Format;
+using std.format.FixedSinkFormatting;
+using std.format.R64Format;
+
+func write_numbers(pos destination: &mut [u8]) -> Result<usize, std.format.FixedSinkError>
+    requires(blocking_execution())
+{
+    let real: r64 = 1.25;
+    let complex_part_real: r64 = 1.0;
+    let complex_part_imaginary: r64 = -2.0;
+    let complex: c128 = (complex_part_real, complex_part_imaginary) as c128;
+    let mut sink: std.format.FixedSink = std.format.FixedSink(destination);
+    let precision: std.format.Options = std.format.Options(precision = 2);
+
+    try std.format.write_to<r64, std.format.FixedSink, std.format.FixedSinkError>(
+        &mut sink, std.format.Argument<r64>(&real, options = precision));
+    try std.format.write_to<c128, std.format.FixedSink, std.format.FixedSinkError>(
+        &mut sink, std.format.Argument<c128>(&complex));
+
+    return Ok(std.format.finish_fixed(sink));
+}
+```
+
 For text output, pass string directly to print or print_line and handle their IoError result only when needed. Call `writer.write_all`, `reader.read_exact`, or their async methods to complete an entire borrowed byte range with exact failure progress. These are default trait methods over the individual partial-transfer operations. Buffered streams coalesce small writes, bypass empty buffers for transfers at least as large as their capacity, and flush only when requested. I/O that can block requires blocking_execution(). See [I/O and platform services][io-platform] for detailed transfer, synchronization, and cleanup rules.
 
 Use `string` methods for text: `length`, `is_empty`, `get`, `slice`, `characters`, and `as_bytes`. Construct validated text with `string.from_utf8`. Characters provide `code_point`, `char.from_code_point`, `encode_utf8`, and Unicode classification methods. `encode_utf8` returns `std.character.Utf8Encoding`. Borrow its initialized bytes with `as_slice`.

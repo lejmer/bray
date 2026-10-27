@@ -96,7 +96,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 20)
+    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 25)
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -829,6 +829,8 @@ bool workload()
 
     return written == sizeof(bytes) && status == 0;
 }
+#elif BRAY_WORKLOAD >= 21 && BRAY_WORKLOAD <= 25
+bool workload();
 #else
 #error "unsupported performance peer workload"
 #endif

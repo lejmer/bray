@@ -1,0 +1,52 @@
+@target(target.scalar.C256)
+module std.format;
+
+using core.memory;
+using std.memory;
+
+// Complex storage holds its real component followed by its imaginary component.
+// A Boolean selects exactly one initialized component of the concrete scalar.
+trusted internal func complex256_pointer(pos value: &c256, pos imaginary: bool) -> DataPointer<u128>
+    ensures(
+        trusted core.memory.valid_read<u128>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<u128>(pointer = result),
+        trusted core.memory.initialized_as<u128>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    let pointer: DataPointer<u128> = trusted std.memory.reinterpret<u128, c256>(std.memory.address_of<c256>(value));
+
+    let offset: isize = if imaginary
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    return std.memory.offset<u128>(pointer, elements = offset);
+}
+
+trusted internal func complex256_bits(pos value: &c256) -> (u128, u128)
+    uses(raw_memory)
+{
+    let real_pointer: DataPointer<u128> = complex256_pointer(value, false);
+    let imaginary_pointer: DataPointer<u128> = complex256_pointer(value, true);
+    let real: u128 = trusted std.memory.read<u128>(real_pointer);
+    let imaginary: u128 = trusted std.memory.read<u128>(imaginary_pointer);
+
+    return (real, imaginary);
+}
+
+impl C256Format = c256(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
+{
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
+    {
+        let (real, imaginary): (u128, u128) = complex256_bits(&self);
+
+        return write_complex_bits<Destination, Failure>(destination, real, imaginary, 112, 15, options);
+    }
+}

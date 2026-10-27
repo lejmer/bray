@@ -1,0 +1,480 @@
+module std.format;
+
+using std.numeric;
+
+internal union RealBody
+{
+    Decimal(pos value: RealDecimal, pos scientific: bool);
+    Fixed(pos value: RealFixed);
+    Radix(pos value: RealRadix);
+    Special(pos nan: bool);
+}
+
+internal struct RealRendering
+{
+    negative: bool;
+    body: RealBody;
+}
+
+internal func real_exponent_length(pos exponent: i32) -> usize
+{
+    if exponent < 0
+    {
+        return 2 + unsigned_digit_count(std.numeric.truncate_to<u128>(-exponent), 10);
+    }
+
+    return 1 + unsigned_digit_count(std.numeric.truncate_to<u128>(exponent), 10);
+}
+
+internal func real_decimal_length(pos value: &RealDecimal, pos scientific: bool) -> usize
+{
+    let digits: usize = unsigned_digit_count(value.coefficient, 10);
+
+    if scientific
+    {
+        let exponent: i32 = value.exponent + std.numeric.truncate_to<i32>(digits) - 1;
+        let mut length: usize = digits + real_exponent_length(exponent);
+
+        if digits > 1
+        {
+            length += 1;
+        }
+
+        return length;
+    }
+
+    if value.exponent >= 0
+    {
+        return digits + std.numeric.truncate_to<usize>(value.exponent);
+    }
+
+    let fraction: usize = std.numeric.truncate_to<usize>(-value.exponent);
+
+    if fraction < digits
+    {
+        return digits + 1;
+    }
+
+    return fraction + 2;
+}
+
+internal func decimal_real_body(pos value: RealDecimal) -> RealBody
+{
+    let scientific: bool = real_decimal_length(&value, true) < real_decimal_length(&value, false);
+
+    return RealBody.Decimal(value, scientific);
+}
+
+internal func make_real_rendering(
+    pos bits: u128,
+    pos fraction_bits: u32,
+    pos exponent_bits: u32,
+    pos options: &Options,
+) -> RealRendering
+{
+    let one: u128 = 1;
+    let fraction: u128 = bits & ((one << fraction_bits as u128) - 1);
+    let maximum_exponent: u128 = (one << exponent_bits as u128) - 1;
+    let exponent: u32 = std.numeric.truncate_to<u32>((bits >> fraction_bits as u128) & maximum_exponent);
+    let negative: bool = ((bits >> (fraction_bits + exponent_bits) as u128) & 1) != 0;
+
+    if exponent as u128 == maximum_exponent
+    {
+        return RealRendering
+        {
+            negative = negative,
+            body = RealBody.Special(fraction != 0)
+        };
+    }
+
+    let bias: i32 = std.numeric.truncate_to<i32>(maximum_exponent / 2);
+    let mut binary_exponent: i32 = 1 - bias - std.numeric.truncate_to<i32>(fraction_bits);
+    let mut significand: u128 = fraction;
+
+    if exponent != 0
+    {
+        binary_exponent = std.numeric.truncate_to<i32>(exponent) - bias - std.numeric.truncate_to<i32>(fraction_bits);
+        significand |= one << fraction_bits as u128;
+    }
+
+    if options.radix matches Decimal
+    {
+        if let ?precision = options.precision
+        {
+            return RealRendering
+            {
+                negative = negative,
+                body = RealBody.Fixed(fixed_real_decimal(significand, binary_exponent, precision)),
+            };
+        }
+
+        let mut decimal: RealDecimal =
+        {
+            coefficient = 0,
+            exponent = 0
+        };
+
+        if significand != 0
+        {
+            decimal = shortest_real_decimal(fraction, exponent, fraction_bits, exponent_bits);
+        }
+
+        return RealRendering
+        {
+            negative = negative,
+            body = decimal_real_body(decimal)
+        };
+    }
+
+    let mut group: u32 = 4;
+
+    if options.radix matches Binary
+    {
+        group = 1;
+    }
+    else if options.radix matches Octal
+    {
+        group = 3;
+    }
+
+    return RealRendering
+    {
+        negative = negative,
+        body = RealBody.Radix(radix_real(significand, binary_exponent, group, options.precision)),
+    };
+}
+
+internal func real_fraction_length(pos integer: usize, pos precision: usize) -> usize
+{
+    if precision == 0
+    {
+        return integer;
+    }
+
+    return integer_content_length(integer, integer_content_length(1, precision));
+}
+
+internal func real_body_length(pos body: &RealBody) -> usize
+{
+    match body
+    {
+        case Decimal(value, scientific) { return real_decimal_length(&value, scientific); }
+        case Fixed(value)
+        {
+            let digits: usize = real_coefficient_digits(&value.coefficient);
+            let mut integer: usize = 1;
+
+            if digits > value.scale
+            {
+                integer = digits - value.scale;
+            }
+
+            return real_fraction_length(integer, value.precision);
+        }
+        case Radix(value)
+        {
+            return integer_content_length(
+                real_fraction_length(3, value.precision),
+                real_exponent_length(value.exponent)
+            );
+        }
+        case Special(_) { return 3; }
+    }
+}
+
+internal func write_real_exponent<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos exponent: i32,
+    pos marker: u8,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let mut digits: bytes<8> = [0; 8];
+    let mut start: usize = 8;
+    let mut remaining: u32 = std.numeric.truncate_to<u32>(exponent);
+
+    if exponent < 0
+    {
+        remaining = std.numeric.truncate_to<u32>(-exponent);
+    }
+
+    loop
+    {
+        start -= 1;
+        digits[start] = b"0"[0] + std.numeric.truncate_to<u8>(remaining % 10);
+        remaining /= 10;
+
+        if remaining == 0
+        {
+            break;
+        }
+    }
+
+    if exponent < 0
+    {
+        start -= 1;
+        digits[start] = b"-"[0];
+    }
+
+    start -= 1;
+    digits[start] = marker;
+
+    return destination.write(&digits[start..8]);
+}
+
+internal func write_real_digit_range<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos mut coefficient: u128,
+    pos width: usize,
+    pos offset: usize,
+    pos count: usize,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    if count == 0
+    {
+        return Ok(unit);
+    }
+
+    let mut digits: bytes<39> = [0; 39];
+    let mut start: usize = 39;
+
+    while start > 39 - width
+    {
+        start -= 1;
+        digits[start] = b"0"[0] + std.numeric.truncate_to<u8>(coefficient % 10);
+        coefficient /= 10;
+    }
+
+    return destination.write(&digits[start + offset..start + offset + count]);
+}
+
+internal func write_real_coefficient<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos coefficient: &RealCoefficient,
+    pos mut offset: usize,
+    pos mut count: usize,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    match coefficient
+    {
+        case Small(value)
+        {
+            return write_real_digit_range<Destination, Failure>(
+                destination,
+                value,
+                unsigned_digit_count(value, 10),
+                offset,
+                count
+            );
+        }
+        case Large(value)
+        {
+            let mut index: usize = value.length;
+
+            while index != 0 && count != 0
+            {
+                index -= 1;
+
+                let part: u128 = value.limbs[index] as u128;
+                let mut width: usize = 9;
+
+                if index == value.length - 1
+                {
+                    width = unsigned_digit_count(part, 10);
+                }
+
+                if offset >= width
+                {
+                    offset -= width;
+                }
+                else
+                {
+                    let mut taken: usize = width - offset;
+
+                    if count < taken
+                    {
+                        taken = count;
+                    }
+
+                    try write_real_digit_range<Destination, Failure>(&mut destination, part, width, offset, taken);
+
+                    offset = 0;
+                    count -= taken;
+                }
+            }
+
+            assert(count == 0);
+
+            return Ok(unit);
+        }
+    }
+}
+
+internal func write_real_decimal<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: &RealDecimal,
+    pos scientific: bool,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let digits: usize = unsigned_digit_count(value.coefficient, 10);
+
+    if scientific
+    {
+        try write_real_digit_range<Destination, Failure>(&mut destination, value.coefficient, digits, 0, 1);
+
+        if digits > 1
+        {
+            try destination.write(&b"."[..]);
+
+            try write_real_digit_range<Destination, Failure>(
+                &mut destination,
+                value.coefficient,
+                digits,
+                1,
+                digits - 1
+            );
+        }
+
+        return write_real_exponent<Destination, Failure>(
+            destination,
+            value.exponent + std.numeric.truncate_to<i32>(digits) - 1,
+            b"e"[0]
+        );
+    }
+
+    if value.exponent >= 0
+    {
+        try write_real_digit_range<Destination, Failure>(&mut destination, value.coefficient, digits, 0, digits);
+
+        return write_leading_zeroes<Destination, Failure>(destination, std.numeric.truncate_to<usize>(value.exponent));
+    }
+
+    let fraction: usize = std.numeric.truncate_to<usize>(-value.exponent);
+
+    if fraction >= digits
+    {
+        try destination.write(&b"0."[..]);
+        try write_leading_zeroes<Destination, Failure>(&mut destination, fraction - digits);
+
+        return write_real_digit_range<Destination, Failure>(destination, value.coefficient, digits, 0, digits);
+    }
+
+    try write_real_digit_range<Destination, Failure>(&mut destination, value.coefficient, digits, 0, digits - fraction);
+    try destination.write(&b"."[..]);
+
+    return write_real_digit_range<Destination, Failure>(
+        destination,
+        value.coefficient,
+        digits,
+        digits - fraction,
+        fraction
+    );
+}
+
+internal func write_real_fixed<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: &RealFixed,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let digits: usize = real_coefficient_digits(&value.coefficient);
+
+    if digits > value.scale
+    {
+        try write_real_coefficient<Destination, Failure>(&mut destination, &value.coefficient, 0, digits - value.scale);
+    }
+    else
+    {
+        try destination.write(&b"0"[..]);
+    }
+
+    if value.precision != 0
+    {
+        try destination.write(&b"."[..]);
+
+        if value.scale >= digits
+        {
+            try write_leading_zeroes<Destination, Failure>(&mut destination, value.scale - digits);
+            try write_real_coefficient<Destination, Failure>(&mut destination, &value.coefficient, 0, digits);
+        }
+        else
+        {
+            try write_real_coefficient<Destination, Failure>(
+                &mut destination,
+                &value.coefficient,
+                digits - value.scale,
+                value.scale
+            );
+        }
+
+        try write_leading_zeroes<Destination, Failure>(&mut destination, value.precision - value.scale);
+    }
+
+    return Ok(unit);
+}
+
+internal func write_real_body<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos body: &RealBody,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    match body
+    {
+        case Decimal(value, scientific)
+        {
+            return write_real_decimal<Destination, Failure>(destination, &value, scientific);
+        }
+        case Fixed(value) { return write_real_fixed<Destination, Failure>(destination, &value); }
+        case Radix(value) { return write_real_radix<Destination, Failure>(destination, &value, options); }
+        case Special(nan)
+        {
+            if uppercase_digits(options)
+            {
+                if nan
+                {
+                    return destination.write(&b"NAN"[..]);
+                }
+
+                return destination.write(&b"INF"[..]);
+            }
+
+            if nan
+            {
+                return destination.write(&b"nan"[..]);
+            }
+
+            return destination.write(&b"inf"[..]);
+        }
+    }
+}
+
+internal func write_real_rendering<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: &RealRendering,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let length: usize = integer_content_length(sign_length(value.negative, options), real_body_length(&value.body));
+    let padding: usize = padding_count(options.width, length);
+    let left: usize = left_padding(padding, options);
+
+    try destination.prepare(additional = maximum(length, options.width));
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, value.negative, options);
+    try write_real_body<Destination, Failure>(&mut destination, &value.body, options);
+
+    return write_padding<Destination, Failure>(destination, padding - left);
+}

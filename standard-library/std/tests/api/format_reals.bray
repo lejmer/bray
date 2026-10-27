@@ -1,0 +1,492 @@
+module bray.standard_library_tests.format_reals;
+
+using core.memory;
+using std.bytes;
+using std.format;
+using std.format.C64Format;
+using std.format.C128Format;
+using std.format.CountingSinkFormatting;
+using std.format.FixedSinkFormatting;
+using std.format.R32Format;
+using std.format.R64Format;
+using std.memory;
+using std.numeric;
+using std.string;
+using std.testing;
+
+trusted func assert_real_format<Value>(
+    pos value: &Value,
+    pos expected: string,
+    options: std.format.Options = std.format.Options(),
+)
+    with(Value: std.format.Format<std.format.FixedSink, std.format.FixedSinkError>)
+    requires(blocking_execution())
+{
+    let parts: [string; 1] = [expected];
+
+    assert_real_format_parts<Value>(value, &parts[..], options = options);
+}
+
+trusted func assert_real_format_parts<Value>(
+    pos value: &Value,
+    pos expected: &[string],
+    options: std.format.Options = std.format.Options(),
+)
+    with(Value: std.format.Format<std.format.FixedSink, std.format.FixedSinkError>)
+    requires(blocking_execution())
+{
+    let mut storage: bytes<1024> = [0; 1024];
+    let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
+
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<Value, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink,
+            std.format.Argument<Value>(value, options = options)
+        )
+    );
+
+    let length: usize = std.format.finish_fixed(sink);
+
+    let mut offset: usize = 0;
+    let mut index: usize = 0;
+
+    while index < expected.length()
+    {
+        let part: &[u8] = expected[index].as_bytes();
+        let end: usize = offset + part.length();
+
+        assert(end <= length);
+        assert(std.bytes.equals(&storage[offset..end], part));
+        offset = end;
+        index += 1;
+    }
+
+    assert(offset == length);
+}
+
+@test
+trusted func real_shortest_output_covers_both_baseline_widths()
+{
+    let zero: r64 = 0.0;
+    let negative_zero: r64 = -0.0;
+    let quarter: r64 = 1.25;
+    let decimal: r64 = 0.1;
+    let thousand: r64 = 1000.0;
+    let small: r64 = 0.001;
+    let minimum: r64 = 4.9406564584124654e-324;
+    let normal: r64 = 2.2250738585072014e-308;
+    let maximum: r64 = 1.7976931348623157e308;
+
+    assert_real_format<r64>(&zero, "0");
+    assert_real_format<r64>(&negative_zero, "-0");
+    assert_real_format<r64>(&quarter, "1.25");
+    assert_real_format<r64>(&decimal, "0.1");
+    assert_real_format<r64>(&thousand, "1e3");
+    assert_real_format<r64>(&small, "1e-3");
+    assert_real_format<r64>(&minimum, "5e-324");
+    assert_real_format<r64>(&normal, "2.2250738585072014e-308");
+    assert_real_format<r64>(&maximum, "1.7976931348623157e308");
+
+    let zero32: r32 = -0.0;
+    let decimal32: r32 = 0.1;
+    let minimum32: r32 = 1.401298464324817e-45;
+    let normal32: r32 = 1.1754943508222875e-38;
+    let maximum32: r32 = 3.4028234663852886e38;
+
+    assert_real_format<r32>(&zero32, "-0");
+    assert_real_format<r32>(&decimal32, "0.1");
+    assert_real_format<r32>(&minimum32, "1e-45");
+    assert_real_format<r32>(&normal32, "1.1754944e-38");
+    assert_real_format<r32>(&maximum32, "3.4028235e38");
+}
+
+@test
+trusted func real_radices_round_the_fraction_and_preserve_carries()
+{
+    let value: r64 = 1.5;
+    let lower_tie: r64 = 1.90625;
+    let upper_tie: r64 = 1.96875;
+
+    assert_real_format<r64>(&value, "0b1.1p0", options = std.format.Options(radix = std.format.Radix.Binary));
+    assert_real_format<r64>(&value, "0o1.4p0", options = std.format.Options(radix = std.format.Radix.Octal));
+
+    assert_real_format<r64>(
+        &value,
+        "0x1.8p0",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase)
+    );
+
+    assert_real_format<r64>(
+        &value,
+        "0X1.8P0",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalUppercase)
+    );
+
+    assert_real_format<r64>(
+        &value,
+        "0x1.800p0",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, precision = 3)
+    );
+
+    assert_real_format<r64>(
+        &value,
+        "0b1p1",
+        options = std.format.Options(radix = std.format.Radix.Binary, precision = 0)
+    );
+
+    assert_real_format<r64>(
+        &lower_tie,
+        "0x1.ep0",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, precision = 1)
+    );
+
+    assert_real_format<r64>(
+        &upper_tie,
+        "0x1.0p1",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, precision = 1)
+    );
+}
+
+@test
+trusted func real_sign_and_alignment_apply_to_the_complete_output()
+{
+    let negative: r64 = -1.25;
+    let positive: r64 = 1.25;
+
+    assert_real_format<r64>(
+        &negative,
+        "  -1.25  ",
+        options = std.format.Options(precision = 2, width = 9, alignment = std.format.Alignment.Center)
+    );
+
+    assert_real_format<r64>(
+        &positive,
+        "+1.25    ",
+        options = std.format.Options(width = 9, alignment = std.format.Alignment.Left, sign = std.format.Sign.Always)
+    );
+
+    assert_real_format<r64>(&positive, " 1.25", options = std.format.Options(sign = std.format.Sign.Space));
+}
+
+trusted func real64_value_pointer(pos value: &u64) -> DataPointer<r64>
+    ensures(
+        trusted core.memory.valid_read<r64>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<r64>(pointer = result),
+        trusted core.memory.initialized_as<r64>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<r64, u64>(std.memory.address_of<u64>(value));
+}
+
+trusted func real64_value(pos bits: u64) -> r64
+    uses(raw_memory)
+{
+    let pointer: DataPointer<r64> = real64_value_pointer(&bits);
+
+    return trusted std.memory.read<r64>(pointer);
+}
+
+@test
+trusted func real_special_values_preserve_sign_and_canonicalize_nan_payloads()
+{
+    let infinity: r64 = real64_value(0x7ff0000000000000);
+    let negative_infinity: r64 = real64_value(0xfff0000000000000);
+    let nan: r64 = real64_value(0x7ff8000000000001);
+    let signaling: r64 = real64_value(0x7ff0000000000001);
+    let negative_nan: r64 = real64_value(0xfff8000000000123);
+
+    assert_real_format<r64>(&infinity, "inf");
+    assert_real_format<r64>(&negative_infinity, "-inf");
+    assert_real_format<r64>(&nan, "nan");
+    assert_real_format<r64>(&signaling, "nan");
+    assert_real_format<r64>(&negative_nan, "-nan");
+
+    assert_real_format<r64>(
+        &nan,
+        "+NAN",
+        options = std.format.Options(
+            radix = std.format.Radix.HexadecimalUppercase,
+            precision = 100,
+            sign = std.format.Sign.Always
+        )
+    );
+
+    assert_real_format<r64>(
+        &infinity,
+        " INF",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalUppercase, sign = std.format.Sign.Space)
+    );
+}
+
+@test
+trusted func complex_components_reuse_real_policy_and_share_outer_padding()
+{
+    let small_part_real: r32 = 1.0;
+    let small_part_imaginary: r32 = 2.0;
+    let small: c64 = (small_part_real, small_part_imaginary) as c64;
+    let value_part_real: r64 = 1.25;
+    let value_part_imaginary: r64 = -2.5;
+    let value: c128 = (value_part_real, value_part_imaginary) as c128;
+    let negative_zero: r64 = -0.0;
+    let zero: c128 = (negative_zero, negative_zero) as c128;
+    let infinity: r64 = real64_value(0x7ff0000000000000);
+    let negative_nan: r64 = real64_value(0xfff8000000000123);
+    let exceptional: c128 = (infinity, negative_nan) as c128;
+
+    assert_real_format<c64>(&small, "1+2i");
+    assert_real_format<c128>(&value, "1.25-2.5i");
+
+    assert_real_format<c128>(
+        &value,
+        "  1.25-2.50i  ",
+        options = std.format.Options(precision = 2, width = 14, alignment = std.format.Alignment.Center)
+    );
+
+    assert_real_format<c128>(&zero, "-0-0i");
+    assert_real_format<c128>(&exceptional, "inf-nani");
+
+    assert_real_format<c128>(
+        &value,
+        "+0x1.4p0-0x1.4p1i",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, sign = std.format.Sign.Always)
+    );
+}
+
+@test
+trusted func huge_real_precision_and_width_use_bulk_sink_operations()
+{
+    let value: r64 = 1.5;
+    let mut sink: std.format.CountingSink = std.format.CountingSink();
+
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(
+        trusted std.format.write_to<r64, std.format.CountingSink, std.format.CountingSinkError>(
+            &mut sink,
+            std.format.Argument<r64>(&value, options = std.format.Options(precision = 1000000))
+        )
+    );
+
+    assert(std.format.formatted_length(&sink) == 1000002);
+
+    let mut wide: std.format.CountingSink = std.format.CountingSink();
+    let complex_part_real: r64 = 1.25;
+    let complex_part_imaginary: r64 = -2.5;
+    let complex: c128 = (complex_part_real, complex_part_imaginary) as c128;
+    let maximum: usize = ~0;
+
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(
+        trusted std.format.write_to<c128, std.format.CountingSink, std.format.CountingSinkError>(
+            &mut wide,
+            std.format.Argument<c128>(&complex, options = std.format.Options(width = maximum))
+        )
+    );
+
+    assert(std.format.formatted_length(&wide) == maximum);
+}
+
+@test
+trusted func unrepresentable_real_output_preserves_typed_counting_failure()
+{
+    let value: r64 = 1.5;
+    let mut sink: std.format.CountingSink = std.format.CountingSink();
+
+    let result: Result<unit, std.format.CountingSinkError> = trusted std.format.write_to<
+        r64,
+        std.format.CountingSink,
+        std.format.CountingSinkError
+    >(&mut sink, std.format.Argument<r64>(&value, options = std.format.Options(precision = ~0)));
+
+    assert(
+        std.testing.assert_error<unit, std.format.CountingSinkError>(result) matches
+            std.format.CountingSinkError.SizeOverflow
+    );
+
+    assert(std.format.formatted_length(&sink) == 3);
+}
+
+@test
+trusted func fixed_real_capacity_failure_preserves_existing_output()
+{
+    let value: r64 = -1.25;
+    let mut storage: bytes<3> = [170; 3];
+    let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
+
+    let result: Result<unit, std.format.FixedSinkError> = trusted std.format.write_to<
+        r64,
+        std.format.FixedSink,
+        std.format.FixedSinkError
+    >(&mut sink, std.format.Argument<r64>(&value));
+
+    assert(
+        std.testing.assert_error<unit, std.format.FixedSinkError>(result) matches
+            std.format.FixedSinkError.CapacityExceeded
+    );
+
+    assert(std.format.finish_fixed(sink) == 0);
+    assert(storage[0] == 170 && storage[1] == 170 && storage[2] == 170);
+}
+
+union RealFormatFailure
+{
+    Stopped(pos accepted: usize);
+}
+
+struct PartialRealSink
+{
+    mut storage: bytes<64>;
+    mut accepted: usize;
+    limit: usize;
+}
+
+impl PartialRealSinkFormatting = PartialRealSink(std.format.Sink<RealFormatFailure>)
+{
+    mut func write(pos source: &[u8]) -> Result<unit, RealFormatFailure>
+        requires(blocking_execution())
+    {
+        let mut index: usize = 0;
+
+        while index < source.length()
+        {
+            if self.accepted == self.limit
+            {
+                return Error(RealFormatFailure.Stopped(self.accepted));
+            }
+
+            self.storage[self.accepted] = source[index];
+            self.accepted += 1;
+            index += 1;
+        }
+
+        return Ok(unit);
+    }
+}
+
+@test
+trusted func real_and_complex_partial_output_keeps_the_original_failure()
+{
+    let complex_part_real: r64 = 1.25;
+    let complex_part_imaginary: r64 = -2.5;
+    let complex: c128 = (complex_part_real, complex_part_imaginary) as c128;
+
+    let mut sink: PartialRealSink =
+    {
+        storage = [0; 64],
+        accepted = 0,
+        limit = 6
+    };
+
+    let result: Result<unit, RealFormatFailure> = trusted std.format.write_to<c128, PartialRealSink, RealFormatFailure>(
+        &mut sink,
+        std.format.Argument<c128>(&complex)
+    );
+
+    match consume std.testing.assert_error<unit, RealFormatFailure>(result)
+    {
+        case Stopped(accepted) { assert(accepted == 6); }
+    }
+
+    assert(std.bytes.equals(&sink.storage[0..6], "1.25-2".as_bytes()));
+
+    let real: r64 = 1.25;
+
+    let mut repeated: PartialRealSink =
+    {
+        storage = [0; 64],
+        accepted = 0,
+        limit = 6
+    };
+
+    let second: Result<unit, RealFormatFailure> = trusted std.format.write_to<r64, PartialRealSink, RealFormatFailure>(
+        &mut repeated,
+        std.format.Argument<r64>(&real, options = std.format.Options(precision = 1000))
+    );
+
+    match consume std.testing.assert_error<unit, RealFormatFailure>(second)
+    {
+        case Stopped(accepted) { assert(accepted == 6); }
+    }
+
+    assert(std.bytes.equals(&repeated.storage[0..6], "1.2500".as_bytes()));
+}
+
+@test
+trusted func real_explicit_precision_rounds_the_exact_binary_value()
+{
+    let value_0: r64 = 0.5;
+
+    assert_real_format<r64>(&value_0, "0", options = std.format.Options(precision = 0));
+
+    let value_1: r64 = 1.5;
+
+    assert_real_format<r64>(&value_1, "2", options = std.format.Options(precision = 0));
+
+    let value_2: r64 = 2.5;
+
+    assert_real_format<r64>(&value_2, "2", options = std.format.Options(precision = 0));
+
+    let value_3: r64 = 3.5;
+
+    assert_real_format<r64>(&value_3, "4", options = std.format.Options(precision = 0));
+
+    let value_4: r64 = -2.5;
+
+    assert_real_format<r64>(&value_4, "-2", options = std.format.Options(precision = 0));
+
+    let value_5: r64 = 9.999;
+
+    assert_real_format<r64>(&value_5, "10.00", options = std.format.Options(precision = 2));
+
+    let value_6: r64 = 2.675;
+
+    assert_real_format<r64>(&value_6, "2.67", options = std.format.Options(precision = 2));
+
+    let value_7: r64 = -0.0001;
+
+    assert_real_format<r64>(&value_7, "-0.00", options = std.format.Options(precision = 2));
+
+    let value_8: r64 = 1.5;
+
+    assert_real_format<r64>(&value_8, "1.5000", options = std.format.Options(precision = 4));
+
+    let value_9: r64 = 0.1;
+
+    assert_real_format<r64>(
+        &value_9,
+        "0.1000000000000000055511151231257827021182",
+        options = std.format.Options(precision = 40)
+    );
+
+    let value_10: r64 = 0.1;
+
+    assert_real_format<r64>(
+        &value_10,
+        "0.10000000000000000555111512312578270211815834045410156250000000000000000000000000",
+        options = std.format.Options(precision = 80)
+    );
+
+    let value_11: r64 = 1.7976931348623157e308;
+
+    assert_real_format_parts<r64>(
+        &value_11,
+        &[
+            "17976931348623157081452742373170435679807056752584499659891747680315726078002853",
+            "87605895586327668781715404589535143824642343213268894641827684675467035375169860",
+            "49910576551282076245490090389328944075868508455133942304583236903222948165808559",
+            "332123348274797826204144723168738177180919299881250404026184124858368",
+        ][..],
+        options = std.format.Options(precision = 0)
+    );
+
+    let value_12: r64 = 2.2250738585072014e-308;
+
+    assert_real_format_parts<r64>(
+        &value_12,
+        &[
+            "0.000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "000000000000000000000000000000000000000000000000000000000000000000000223",
+        ][..],
+        options = std.format.Options(precision = 310)
+    );
+}

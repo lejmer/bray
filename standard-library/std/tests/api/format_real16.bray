@@ -1,0 +1,32 @@
+@target(target.scalar.R16 && target.scalar.C32)
+module bray.standard_library_tests.format_real16;
+
+using std.bytes;
+using std.format;
+using std.format.C32Format;
+using std.format.FixedSinkFormatting;
+using std.format.R16Format;
+using std.string;
+using std.testing;
+
+@test
+trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
+{
+    let value: r16 = 1.5;
+    let complex_part_real: r16 = 1.5;
+    let complex_part_imaginary: r16 = -2.25;
+    let complex: c32 = (complex_part_real, complex_part_imaginary) as c32;
+    let mut storage: bytes<64> = [0; 64];
+    let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
+
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<r16, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink, std.format.Argument<r16>(&value, options = std.format.Options(precision = 2))));
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        trusted std.format.write_to<c32, std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink, std.format.Argument<c32>(&complex)));
+
+    let length: usize = std.format.finish_fixed(sink);
+
+    assert(std.bytes.equals(&storage[0..length], "1.501.5-2.25i".as_bytes()));
+}

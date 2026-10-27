@@ -1,0 +1,38 @@
+@target(target.scalar.R128)
+module std.format;
+
+using core.memory;
+using std.memory;
+
+// These concrete numeric representations have equal size and alignment and no padding.
+trusted internal func real128_pointer(pos value: &r128) -> DataPointer<u128>
+    ensures(
+        trusted core.memory.valid_read<u128>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<u128>(pointer = result),
+        trusted core.memory.initialized_as<u128>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<u128, r128>(std.memory.address_of<r128>(value));
+}
+
+trusted internal func real128_bits(pos value: &r128) -> u128
+    uses(raw_memory)
+{
+    let pointer: DataPointer<u128> = real128_pointer(value);
+    let bits: u128 = trusted std.memory.read<u128>(pointer);
+
+    return bits;
+}
+
+impl R128Format = r128(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
+{
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
+    {
+        let value: RealRendering = make_real_rendering(real128_bits(&self), 112, 15, options);
+
+        return write_real_rendering<Destination, Failure>(destination, &value, options);
+    }
+}

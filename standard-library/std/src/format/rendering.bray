@@ -736,5 +736,3 @@ impl IsizeFormat = isize(Format<Destination, Failure>)
         return write_signed_native_integer<Destination, Failure>(destination, self as i64, options);
     }
 }
-
-// TODO(BRA-376): Add real and complex formatting through the sink-generic protocol.
