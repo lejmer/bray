@@ -50,9 +50,9 @@ compiler under a different Cargo profile does not copy [toolchain bundles](#buil
 
 ### Build measurements
 
-The [BRA-648 experiment](https://linear.app/bray-lang/issue/BRA-648) compares `xtask` and `brayc` together on a
-four-CPU, 16 GiB x86-64 Linux VM with Rust 1.97.0. Both profiles start with empty Cargo artifact caches and reuse the
-downloaded dependencies and LLVM installation. These are single-build observations, with warm filesystem caches.
+These measurements compare `xtask` and `brayc` together on a four-CPU, 16 GiB x86-64 Linux VM with Rust 1.97.0.
+Both profiles start with empty Cargo artifact caches and reuse downloaded dependencies and the LLVM installation.
+These are single-build observations, with warm filesystem caches.
 
 | Measurement                         | Release | Tooling |
 |-------------------------------------|---------|---------|
