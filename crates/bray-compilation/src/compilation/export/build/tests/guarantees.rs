@@ -2058,6 +2058,56 @@ fn imported_callable_postconditions_can_weaken_but_cannot_strengthen() {
 }
 
 #[test]
+fn imported_callable_conversion_keeps_entry_guards_separate_from_exit_facts() {
+    for (parameter, observation) in [
+        ("mut flag: bool", "flag"),
+        ("flag: &mut Flag", "flag.value"),
+    ] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            struct Flag
+            {{
+                mut value: bool;
+            }}
+            callable Source = func(pos {parameter}) -> bool ensures(!{observation});
+            callable Target = func(pos {parameter}) -> bool
+                when({observation}) {{ ensures(result) }};
+            func change(pos {parameter}) -> bool ensures(!{observation})
+            {{
+                {observation} = false;
+                return false;
+            }}
+        "#
+        ));
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{parameter}: {:?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func convert(pos action: example.package.api.Source)
+                -> example.package.api.Target
+            {
+                return action as example.package.api.Target;
+            }
+        "#,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            consumer.check_diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingNoApplicableCandidate,
+        );
+    }
+}
+
+#[test]
 fn guarded_foreign_assertions_and_postconditions_match_imported_behavior() {
     let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
         [r#"

@@ -261,6 +261,19 @@ fn phase_guarantees_are_compatible(
         })
     };
 
+    let entry_facts = std::collections::BTreeSet::new();
+
+    let completion = |predicate| {
+        // Conversion has no captured invocation inputs. Exit facts must not prove an
+        // entry guard, even when both snapshots name the same formal parameter.
+        decode(predicate).capture_entry(
+            &|_| ExecutionCondition::Unknown,
+            &entry_facts,
+            &entry_facts,
+            &mut { bray_symbols::EXECUTION_CONDITION_WORK_LIMIT },
+        )
+    };
+
     let postconditions = target.predicate_guarantees().iter().all(|condition| {
         if source.predicate_guarantees().iter().any(|candidate| {
             candidate.condition() == condition.condition()
@@ -276,10 +289,10 @@ fn phase_guarantees_are_compatible(
             .iter()
             .filter(|candidate| candidate.domain() == condition.domain())
         {
-            decode(candidate).assume(true, &mut known);
+            completion(candidate).assume(true, &mut known);
         }
 
-        decode(condition).prove(&known, &mut {
+        completion(condition).prove(&known, &mut {
             bray_symbols::EXECUTION_CONDITION_WORK_LIMIT
         }) == Some(true)
     });

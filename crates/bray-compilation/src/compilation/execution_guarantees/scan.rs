@@ -744,6 +744,56 @@ mod tests {
     }
 
     #[test]
+    fn callable_conversion_keeps_entry_guards_separate_from_exit_facts() {
+        for (parameter, observation) in [
+            ("mut flag: bool", "flag"),
+            ("flag: &mut Flag", "flag.value"),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Flag
+                {{
+                    mut value: bool;
+                }}
+                callable Source = func(pos {parameter}) -> bool ensures(!{observation});
+                callable Target = func(pos {parameter}) -> bool
+                    when({observation}) {{ ensures(result) }};
+                func change(pos {parameter}) -> bool ensures(!{observation})
+                {{
+                    {observation} = false;
+                    return false;
+                }}
+            "#
+            );
+
+            let provider = compilation(&source);
+
+            assert!(
+                !provider.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                provider.check_diagnostics()
+            );
+
+            let source = format!(
+                r#"{source}
+                func convert(pos action: Source) -> Target
+                {{
+                    return action as Target;
+                }}
+            "#
+            );
+
+            let checked = compilation(&source);
+
+            assert_goal_state_diagnostic_kind(
+                checked.check_diagnostics(),
+                DiagnosticKind::CheckingNoApplicableCandidate,
+            );
+        }
+    }
+
+    #[test]
     fn named_callable_values_preserve_declared_guard_domains() {
         for (guard, valid) in [("flag", true), ("true", true), ("!flag", false)] {
             let source = r#"
