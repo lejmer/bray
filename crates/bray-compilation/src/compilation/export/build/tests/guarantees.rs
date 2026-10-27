@@ -1985,6 +1985,49 @@ fn guarded_callable_types_preserve_generic_inputs_across_interfaces() {
 }
 
 #[test]
+fn imported_callable_postconditions_can_weaken_but_cannot_strengthen() {
+    let provider = compilation(
+        r#"
+        module api;
+        callable Unconditional = func(pos flag: bool) -> bool
+            executes(pure) ensures(result);
+        callable Guarded = func(pos flag: bool) -> bool
+            when(flag) { executes(pure) ensures(result) };
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (source_type, target_type, valid) in [
+        ("Unconditional", "Guarded", true),
+        ("Guarded", "Unconditional", false),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using example.package.api;
+            func convert(pos action: example.package.api.{source_type})
+                -> example.package.api.{target_type}
+            {{ return action as example.package.api.{target_type}; }}
+        "#,
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            !consumer.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
 fn guarded_foreign_assertions_and_postconditions_match_imported_behavior() {
     let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
         [r#"

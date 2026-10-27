@@ -681,6 +681,23 @@ mod tests {
     fn guarded_callable_conversions_forget_but_cannot_invent_promises() {
         for (source_contract, target_contract, valid) in [
             ("executes(pure)", "when(flag) { executes(pure) }", true),
+            (
+                "executes(pure) ensures(result)",
+                "when(flag) { executes(pure) ensures(result) }",
+                true,
+            ),
+            (
+                "when(flag) { executes(pure) ensures(result) }",
+                "executes(pure) ensures(result)",
+                false,
+            ),
+            (
+                "when(flag) { executes(pure) ensures(result) }",
+                "when(flag) { executes(pure) ensures(result) }",
+                true,
+            ),
+            ("ensures(result && flag)", "ensures(result)", true),
+            ("ensures(result)", "ensures(result && flag)", false),
             ("when(flag) { executes(pure) }", "", true),
             (
                 "when(flag) { executes(pure) }",
