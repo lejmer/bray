@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bray_bound_tree::{
     AsyncCleanupPhases, AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause,
@@ -42,6 +42,11 @@ impl CleanupShape {
         recovered: false,
     };
 
+    const RECOVERED: Self = Self {
+        recovered: true,
+        ..Self::BOTH
+    };
+
     pub(in crate::asynchronous) fn opaque(role: RepresentationRole) -> Option<Self> {
         match role {
             RepresentationRole::Future => Some(Self::BOTH),
@@ -65,6 +70,35 @@ impl CleanupShape {
     }
 }
 
+#[derive(Clone, Copy)]
+enum CleanupShapeInput {
+    Contents(TypeId),
+    Uninitialized(TypeId),
+    FinalizerResult(TypeId),
+}
+
+impl CleanupShapeInput {
+    const fn ty(self) -> TypeId {
+        match self {
+            Self::Contents(ty) | Self::Uninitialized(ty) | Self::FinalizerResult(ty) => ty,
+        }
+    }
+
+    fn merge(self, target: &mut CleanupShape, shape: CleanupShape) {
+        match self {
+            Self::Contents(_) => target.merge(shape),
+            Self::Uninitialized(_) => {
+                target.graceful |= shape.graceful;
+                target.recovered |= shape.recovered;
+            }
+            Self::FinalizerResult(_) => {
+                target.suspending |= shape.cancellation;
+                target.recovered |= shape.recovered;
+            }
+        }
+    }
+}
+
 pub(crate) struct CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -77,7 +111,7 @@ where
     pub(in crate::asynchronous) full_parts:
         BTreeMap<TypeId, std::sync::Arc<[crate::asynchronous::ResolvedCleanupPart]>>,
     pub(super) requirements: Option<std::sync::Arc<[AsyncStorageRequirement]>>,
-    active: BTreeSet<TypeId>,
+    limit_exceeded: bool,
     // Query diagnostics are cloned because the cleanup result owns them independently.
     pub(crate) diagnostics: DiagnosticBag,
 }
@@ -95,7 +129,7 @@ where
             expanded_types: BTreeSet::new(),
             full_parts: BTreeMap::new(),
             requirements: None,
-            active: BTreeSet::new(),
+            limit_exceeded: false,
             diagnostics: DiagnosticBag::new(),
         }
     }
@@ -265,21 +299,94 @@ where
         &mut self,
         ty: TypeId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        if self.request.is_cancelled() {
+            return Err(CheckerQueryError::Cancelled);
+        }
+
         if let Some(shape) = self.completed.get(&ty) {
             return Ok(*shape);
         }
 
-        if !self.active.insert(ty) {
-            return Ok(CleanupShape::BOTH);
+        if self.limit_exceeded {
+            return Ok(CleanupShape::RECOVERED);
         }
 
+        let maximum = self.request.context().maximum_recursion_depth();
+        let mut pending = vec![(ty, 1_usize)];
+        let mut shapes = BTreeMap::new();
+        let mut dependents = BTreeMap::<TypeId, Vec<(TypeId, CleanupShapeInput)>>::new();
+
+        while let Some((subject, depth)) = pending.pop() {
+            if self.request.is_cancelled() {
+                return Err(CheckerQueryError::Cancelled);
+            }
+
+            if self.completed.contains_key(&subject) || shapes.contains_key(&subject) {
+                continue;
+            }
+
+            if depth > maximum {
+                self.report_recursion_limit(depth);
+
+                return Ok(CleanupShape::RECOVERED);
+            }
+
+            let (mut shape, inputs) = self.shape_inputs(subject)?;
+
+            for input in inputs.into_iter().rev() {
+                let child = input.ty();
+
+                if let Some(completed) = self.completed.get(&child) {
+                    input.merge(&mut shape, *completed);
+                } else {
+                    dependents.entry(child).or_default().push((subject, input));
+                    pending.push((child, depth.saturating_add(1)));
+                }
+            }
+
+            shapes.insert(subject, shape);
+        }
+
+        // Close the exact-type graph before publishing any summaries. Each flag only grows,
+        // so recursive components converge without assuming equal behavior across substitutions.
+        let mut changed = shapes.keys().copied().collect::<VecDeque<_>>();
+
+        while let Some(child) = changed.pop_front() {
+            if self.request.is_cancelled() {
+                return Err(CheckerQueryError::Cancelled);
+            }
+
+            let shape = shapes[&child];
+
+            for (parent, input) in dependents.get(&child).into_iter().flatten() {
+                let target = shapes.get_mut(parent).expect("cleanup graph retains every dependent type");
+                let previous = *target;
+
+                input.merge(target, shape);
+
+                if *target != previous {
+                    changed.push_back(*parent);
+                }
+            }
+        }
+
+        let result = shapes[&ty];
+
+        // Prepared consumers share the published cache. New demand extends only this resolver.
+        std::sync::Arc::make_mut(&mut self.completed).extend(shapes);
+
+        Ok(result)
+    }
+
+    fn shape_inputs(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<(CleanupShape, Vec<CleanupShapeInput>), CheckerQueryError<C::UpstreamError>> {
         let data = self.request.semantic_values().type_data(ty);
+        let mut inputs = Vec::new();
 
         let shape = match data.as_ref() {
-            TypeData::Error => CleanupShape {
-                recovered: true,
-                ..CleanupShape::BOTH
-            },
+            TypeData::Error => CleanupShape::RECOVERED,
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
@@ -287,17 +394,24 @@ where
             TypeData::Named {
                 definition,
                 substitution,
-            } => self.named_shape(ty, *definition, *substitution)?,
-            TypeData::Tuple(elements) => self.aggregate(elements.iter().copied())?,
+            } => self.named_shape(ty, *definition, *substitution, &mut inputs)?,
+            TypeData::Tuple(elements) => {
+                inputs.extend(elements.iter().copied().map(CleanupShapeInput::Contents));
+
+                CleanupShape::default()
+            }
             TypeData::Array { element, .. } | TypeData::Nullable(element) => {
-                self.resolve(*element)?
+                inputs.push(CleanupShapeInput::Contents(*element));
+
+                CleanupShape::default()
             }
             TypeData::OwnedIndirection { target, .. } => {
-                let mut shape = self.resolve(*target)?;
+                inputs.push(CleanupShapeInput::Contents(*target));
 
-                shape.lifecycle = true;
-
-                shape
+                CleanupShape {
+                    lifecycle: true,
+                    ..CleanupShape::default()
+                }
             }
             TypeData::ExactInteger { .. }
             | TypeData::FlexibleArray(_)
@@ -307,13 +421,25 @@ where
             | TypeData::TraitView(_) => CleanupShape::default(),
         };
 
-        self.active.remove(&ty);
+        Ok((shape, inputs))
+    }
 
-        // Prepared consumers share all known shapes. A newly demanded type extends
-        // only this resolver's cache, without mutating the published preparation.
-        std::sync::Arc::make_mut(&mut self.completed).insert(ty, shape);
+    pub(in crate::asynchronous) fn report_recursion_limit(&mut self, actual: usize) {
+        if self.limit_exceeded {
+            return;
+        }
 
-        Ok(shape)
+        self.limit_exceeded = true;
+
+        let owner = self.request.symbols().symbol_for_key(self.request.unit().key().declared_owner());
+
+        crate::diagnostic::report_cleanup_recursion_limit(
+            self.request,
+            owner,
+            actual,
+            self.request.context().maximum_recursion_depth(),
+            &mut self.diagnostics,
+        );
     }
 
     fn named_shape(
@@ -321,6 +447,7 @@ where
         ty: TypeId,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
+        inputs: &mut Vec<CleanupShapeInput>,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
         let role = match definition {
             bray_symbols::NamedTypeSymbolId::Struct(definition) => self
@@ -352,12 +479,14 @@ where
                     .semantic_values()
                     .generic_substitution_data(substitution);
 
-                self.aggregate(substitution.bindings().iter().filter_map(|binding| {
+                inputs.extend(substitution.bindings().iter().filter_map(|binding| {
                     match binding.argument() {
-                        GenericArgument::Type(ty) => Some(ty),
+                        GenericArgument::Type(ty) => Some(CleanupShapeInput::Contents(ty)),
                         GenericArgument::Constant(_) => None,
                     }
-                }))
+                }));
+
+                Ok(CleanupShape::default())
             }
             Some(RepresentationRole::Uninit) => {
                 let substitution = self
@@ -365,21 +494,17 @@ where
                     .semantic_values()
                     .generic_substitution_data(substitution);
 
-                let payload =
-                    self.aggregate(substitution.bindings().iter().filter_map(|binding| {
-                        match binding.argument() {
-                            GenericArgument::Type(ty) => Some(ty),
-                            GenericArgument::Constant(_) => None,
-                        }
-                    }))?;
+                inputs.extend(substitution.bindings().iter().filter_map(|binding| {
+                    match binding.argument() {
+                        GenericArgument::Type(ty) => Some(CleanupShapeInput::Uninitialized(ty)),
+                        GenericArgument::Constant(_) => None,
+                    }
+                }));
 
-                Ok(CleanupShape {
-                    graceful: payload.graceful,
-                    ..CleanupShape::default()
-                })
+                Ok(CleanupShape::default())
             }
             Some(_) => Ok(CleanupShape::default()),
-            None => self.declared_shape(ty, definition, substitution),
+            None => self.declared_shape(ty, definition, substitution, inputs),
         }
     }
 
@@ -388,17 +513,19 @@ where
         ty: TypeId,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
+        inputs: &mut Vec<CleanupShapeInput>,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
         if let Some(element) = self
             .request
             .context()
             .raw_buffer_element(definition, substitution)?
         {
-            let mut shape = self.resolve(element)?;
+            inputs.push(CleanupShapeInput::Contents(element));
 
-            shape.lifecycle = true;
-
-            return Ok(shape);
+            return Ok(CleanupShape {
+                lifecycle: true,
+                ..CleanupShape::default()
+            });
         }
 
         let representation = self.request.declared_type_representation(definition)?;
@@ -418,7 +545,11 @@ where
         self.diagnostics.add_range(lifecycle.diagnostics().clone());
 
         for member in representation.value().storage().member_types() {
-            shape.merge(self.member_shape(member, substitution)?);
+            if let Some(ty) = self.member_type(member, substitution)? {
+                inputs.push(CleanupShapeInput::Contents(ty));
+            } else {
+                shape.merge(CleanupShape::RECOVERED);
+            }
         }
 
         if *lifecycle.value() == bray_symbols::TypeLifecycle::Graceful {
@@ -441,27 +572,15 @@ where
                 };
 
                 shape.suspending |= callable.execution()
-                    == bray_symbols::CallableExecution::Asynchronous
-                    || self.resolve(callable.result())?.cancellation;
+                    == bray_symbols::CallableExecution::Asynchronous;
+
+                if callable.execution() == bray_symbols::CallableExecution::Synchronous {
+                    inputs.push(CleanupShapeInput::FinalizerResult(callable.result()));
+                }
             }
         }
 
         Ok(shape)
-    }
-
-    fn member_shape(
-        &mut self,
-        template: &TypeExpressionTemplate,
-        substitution: bray_symbols::GenericSubstitutionId,
-    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
-        let Some(ty) = self.member_type(template, substitution)? else {
-            return Ok(CleanupShape {
-                recovered: true,
-                ..CleanupShape::BOTH
-            });
-        };
-
-        self.resolve(ty)
     }
 
     pub(in crate::asynchronous) fn member_type(
@@ -477,19 +596,6 @@ where
         self.diagnostics.add_range(diagnostics);
 
         Ok(ty)
-    }
-
-    fn aggregate(
-        &mut self,
-        types: impl IntoIterator<Item = TypeId>,
-    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
-        let mut shape = CleanupShape::default();
-
-        for ty in types {
-            shape.merge(self.resolve(ty)?);
-        }
-
-        Ok(shape)
     }
 
     pub(in crate::asynchronous) fn report_incomplete_lifecycle(
@@ -539,5 +645,70 @@ pub(in crate::asynchronous) const fn cleanup_requirement(
         (true, false) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Cancellation),
         (false, true) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
         (false, false) => AsyncStorageCleanupRequirement::None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use bray_bound_tree::BoundUnitId;
+    use bray_diagnostics::DiagnosticKind;
+    use bray_symbols::{TypeData, TypeId};
+
+    use super::CleanupShapeResolver;
+    use crate::test_support::{
+        TestCheckerContext, callable_entry, expression_unit, semantic_values,
+    };
+    use crate::{CheckerQueryError, CheckerUnitView};
+
+    fn nested_type(depth: usize) -> TypeId {
+        let values = semantic_values();
+
+        let mut ty = values
+            .intern_type(TypeData::Tuple(Arc::from([])))
+            .expect("empty structural type must intern");
+
+        for _ in 0..depth {
+            ty = values
+                .intern_type(TypeData::Nullable(ty))
+                .expect("nested structural type must intern");
+        }
+
+        ty
+    }
+
+    #[test]
+    fn cleanup_shape_limits_do_not_publish_partial_summaries() {
+        let (unit, _) = expression_unit(BoundUnitId::new(70), |_, _| Vec::new());
+
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
+        let mut resolver = CleanupShapeResolver::new(request);
+
+        let shape = resolver.resolve(nested_type(1_024)).expect("bounded shape analysis must finish");
+
+        assert!(shape.recovered);
+        assert!(resolver.completed.is_empty());
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &resolver.diagnostics,
+            DiagnosticKind::CheckingCleanupRecursionLimitExceeded,
+        );
+    }
+
+    #[test]
+    fn cleanup_shape_cancellation_does_not_publish_partial_summaries() {
+        let (unit, _) = expression_unit(BoundUnitId::new(71), |_, _| Vec::new());
+
+        let context = TestCheckerContext::cancelling_after(4);
+        let semantic_context = callable_entry(unit.key());
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
+        let mut resolver = CleanupShapeResolver::new(request);
+
+        assert!(matches!(resolver.resolve(nested_type(32)), Err(CheckerQueryError::Cancelled)));
+        assert!(resolver.completed.is_empty());
+        assert!(resolver.diagnostics.is_empty());
     }
 }
