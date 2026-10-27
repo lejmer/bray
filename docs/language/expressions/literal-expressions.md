@@ -178,7 +178,7 @@ The imaginary component literal adapts to the complex component type.
 
 The expression produces a value of the expected complex type.
 
-The real literal may have a unary sign. Subtraction negates the imaginary component:
+The real literal may have a leading minus. Subtraction negates the imaginary component:
 
 ```bray
 let z: c128 = -1.0 - 2.0i;

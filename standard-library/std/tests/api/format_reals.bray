@@ -483,3 +483,28 @@ trusted func real_explicit_precision_rounds_the_exact_binary_value()
         options = std.format.Options(precision = 310)
     );
 }
+
+@test
+trusted func complex_equality_compares_both_components_with_real_policy()
+{
+    let value: c128 = 1.0 + 2.0i;
+    let different_real: c128 = 3.0 + 2.0i;
+    let different_imaginary: c128 = 1.0 - 2.0i;
+    let zero: c128 = 0.0 + 0.0i;
+    let negative_zero: c128 = -0.0 - 0.0i;
+    let nan: r64 = real64_value(0x7ff8000000000001);
+    let normal: r64 = 1.0;
+    let nan_real: c128 = (nan, normal) as c128;
+    let nan_imaginary: c128 = (normal, nan) as c128;
+
+    assert(value != different_real);
+    assert(value != different_imaginary);
+    assert(!(value == different_real));
+    assert(!(value == different_imaginary));
+    assert(zero == negative_zero);
+    assert(!(zero != negative_zero));
+    assert(!(nan_real == nan_real));
+    assert(!(nan_imaginary == nan_imaginary));
+    assert(nan_real != nan_real);
+    assert(nan_imaginary != nan_imaginary);
+}

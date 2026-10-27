@@ -15,6 +15,10 @@ trusted func optional_real_and_complex_formatting_use_the_canonical_sink()
     let value: r16 = 1.5;
     let complex: c32 = 1.5 - 2.25i;
     let positive: c32 = 1.5 + 2.25i;
+
+    assert(complex != positive);
+    assert(complex == complex);
+
     let mut storage: bytes<64> = [0; 64];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 

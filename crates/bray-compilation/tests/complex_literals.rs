@@ -94,7 +94,7 @@ fn complex_literals_preserve_component_types_through_selection_and_lowering() {
                 let positive{annotation} = 1.0 + 2.0i;
                 let negative{annotation} = 1.0 - 2.0i;
                 let signed{annotation} = -1.0 + 2.0i;
-                let positive_sign{annotation} = +1.0 + 2i;
+                let integer_imaginary{annotation} = 1.0 + 2i;
             }}
         "#
         );

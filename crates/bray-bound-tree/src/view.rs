@@ -59,7 +59,7 @@ impl<'unit> BoundUnitView<'unit> {
 
     /// Returns the real and imaginary literal operands of a complex literal expression.
     ///
-    /// The real literal may have a unary sign. Addition or subtraction supplies the
+    /// The real literal may have a leading minus. Addition or subtraction supplies the
     /// imaginary sign. Already-typed operands remain ordinary arithmetic expressions.
     pub fn complex_literal_components(
         self,
@@ -82,12 +82,7 @@ impl<'unit> BoundUnitView<'unit> {
 
         let real_literal = match self.expression(*real)? {
             BoundExpression::Literal(literal) => literal,
-            BoundExpression::Unary(unary)
-                if matches!(
-                    unary.operator(),
-                    crate::BoundOperator::Add | crate::BoundOperator::Subtract
-                ) =>
-            {
+            BoundExpression::Unary(unary) if unary.operator() == crate::BoundOperator::Subtract => {
                 let [operand] = unary.operands() else {
                     return None;
                 };
