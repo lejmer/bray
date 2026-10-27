@@ -43,9 +43,9 @@ the Rust tools are built; it does not change the optimization selected for Bray 
 Tasks that explicitly build compiler executables with `--release` continue to use release compiler executables, even
 when the task runner itself uses the `tooling` profile.
 
-Cargo places the compiler executable in `target/tooling/brayc` (`brayc.exe` on Windows), relative to the selected final
-target directory. When invoking that compiler directly, select existing compatible standard-library inputs with
-`--standard-library-root <bundle-root>` and native runtime inputs with `--runtime-artifact <metadata>`. Building the
+Cargo places the compiler executable in `<target-dir>/tooling/brayc` (`brayc.exe` on Windows), where `<target-dir>`
+defaults to the checkout's `target` directory. When invoking that compiler directly, select compatible standard-library
+inputs with `--standard-library-root <bundle-root>` and native runtime inputs with `--runtime-artifact <metadata>`. Building the
 compiler under a different Cargo profile does not copy [toolchain bundles](#build-required-artifacts) beside it.
 
 ### Build measurements
