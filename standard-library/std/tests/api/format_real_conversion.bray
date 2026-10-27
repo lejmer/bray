@@ -1,0 +1,390 @@
+module bray.standard_library_tests.format_real_conversion;
+
+using std.bytes;
+using std.format;
+using std.format.FixedSinkFormatting;
+using std.format.CountingSinkFormatting;
+using std.numeric;
+using std.string;
+using std.testing;
+using internal std.format;
+using internal std.format.RealCoefficient;
+
+func assert_real_conversion(
+    pos bits: u128,
+    pos fraction_bits: u32,
+    pos exponent_bits: u32,
+    pos coefficient: u128,
+    pos exponent: i32
+)
+{
+    let one: u128 = 1;
+    let fraction: u128 = bits & ((one << fraction_bits as u128) - 1);
+    let field: u32 = std.numeric.truncate_to<u32>(bits >> fraction_bits as u128);
+    let actual = internal std.format.shortest_real_decimal(fraction, field, fraction_bits, exponent_bits);
+
+    assert(actual.coefficient == coefficient);
+    assert(actual.exponent == exponent);
+}
+
+@test
+func all_finite_positive_binary16_values_choose_the_closest_shortest_decimal()
+{
+    // The digest comes from exact rational midpoint intervals with ties to even,
+    // independently of Ryu. Both signs share the same magnitude conversion.
+    let mut checksum: u64 = 0;
+
+    let mut bits: u32 = 1;
+
+    while bits < 31744
+    {
+        let value = internal std.format.shortest_real_decimal((bits % 1024) as u128, bits / 1024, 10, 5);
+
+        checksum = (checksum << 7) | (checksum >> 57);
+        checksum ^= std.numeric.truncate_to<u64>(value.coefficient) ^ std.numeric.truncate_to<u64>(value.exponent);
+        bits += 1;
+    }
+
+    assert(checksum == 6702837057293423163);
+}
+
+func real_power_checksum(pos inverse: bool, pos limit: u32) -> u64
+{
+    let mut checksum: u64 = 0;
+    let mut index: u32 = 0;
+
+    while index <= limit
+    {
+        let value: [u64; 4] = internal std.format.real_power(index, inverse);
+        let mut part: usize = 0;
+
+        while part < 4
+        {
+            checksum = (checksum << 7) | (checksum >> 57);
+            checksum ^= value[part];
+            part += 1;
+        }
+
+        index += 1;
+    }
+
+    return checksum;
+}
+
+@test
+func real_power_cache_matches_exact_powers_and_reciprocals_through_binary128()
+{
+    // Exact 5^i is scaled to 249 bits and truncated. Its reciprocal is
+    // floor(2^(bit_length(5^i) + 248) / 5^i) + 1. Fold little-endian words
+    // with rotate-left seven and xor, covering every power used by binary128.
+    assert(real_power_checksum(false, 4967) == 6524634665978581620);
+
+    assert(real_power_checksum(true, 4896) == 3401574218191106991);
+}
+
+trusted func assert_binary_real_format(
+    pos bits: u128,
+    pos fraction_bits: u32,
+    pos exponent_bits: u32,
+    pos expected: string,
+    options: std.format.Options = std.format.Options(),
+)
+    requires(blocking_execution())
+{
+    let value = internal std.format.make_real_rendering(bits, fraction_bits, exponent_bits, &options);
+    let mut storage: bytes<1024> = [0; 1024];
+    let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
+
+    std.testing.assert_ok<unit, std.format.FixedSinkError>(
+        internal std.format.write_real_rendering<std.format.FixedSink, std.format.FixedSinkError>(
+            &mut sink,
+            &value,
+            &options
+        )
+    );
+
+    let length: usize = std.format.finish_fixed(sink);
+
+    assert(std.bytes.equals(&storage[0..length], expected.as_bytes()));
+}
+
+@test
+trusted func every_ieee_width_preserves_zero_infinity_and_nan_signs()
+{
+    let widths: [u32; 4] = [10, 23, 52, 112];
+    let exponents: [u32; 4] = [5, 8, 11, 15];
+    let one: u128 = 1;
+    let mut index: usize = 0;
+
+    while index < 4
+    {
+        let fraction: u32 = widths[index];
+        let exponent: u32 = exponents[index];
+        let sign: u128 = one << (fraction + exponent) as u128;
+        let infinity: u128 = ((one << exponent as u128) - 1) << fraction as u128;
+        let quiet: u128 = one << (fraction - 1) as u128;
+
+        assert_binary_real_format(0, fraction, exponent, "0");
+        assert_binary_real_format(sign, fraction, exponent, "-0");
+        assert_binary_real_format(0, fraction, exponent, "0.00", options = std.format.Options(precision = 2));
+        assert_binary_real_format(sign, fraction, exponent, "-0.00", options = std.format.Options(precision = 2));
+        assert_binary_real_format(infinity, fraction, exponent, "inf");
+        assert_binary_real_format(infinity | sign, fraction, exponent, "-inf");
+        assert_binary_real_format(infinity | quiet, fraction, exponent, "nan");
+        assert_binary_real_format(infinity | 1, fraction, exponent, "nan");
+        assert_binary_real_format(infinity | quiet | sign, fraction, exponent, "-nan");
+
+        assert_binary_real_format(
+            infinity | quiet | 3,
+            fraction,
+            exponent,
+            "+NAN",
+            options = std.format.Options(
+                radix = std.format.Radix.HexadecimalUppercase,
+                precision = 100,
+                sign = std.format.Sign.Always
+            )
+        );
+
+        index += 1;
+    }
+}
+
+@test
+func binary32_edges_and_sampled_values_match_exact_midpoint_intervals()
+{
+    assert_real_conversion(1, 23, 8, 1, -45);
+    assert_real_conversion(2, 23, 8, 3, -45);
+    assert_real_conversion(8388607, 23, 8, 11754942, -45);
+    assert_real_conversion(8388608, 23, 8, 11754944, -45);
+    assert_real_conversion(8388609, 23, 8, 11754945, -45);
+    assert_real_conversion(2139095039, 23, 8, 34028235, 31);
+    assert_real_conversion(1065353216, 23, 8, 1, 0);
+    assert_real_conversion(1065353217, 23, 8, 10000001, -7);
+    assert_real_conversion(1443719396, 23, 8, 3887041, 7);
+    assert_real_conversion(1570475934, 23, 8, 1401169, 12);
+    assert_real_conversion(1546652446, 23, 8, 19820728, 10);
+    assert_real_conversion(869964881, 23, 8, 1017985, -13);
+    assert_real_conversion(1012100274, 23, 8, 12904333, -9);
+    assert_real_conversion(624393751, 23, 8, 15915441, -23);
+    assert_real_conversion(348602845, 23, 8, 20119843, -33);
+    assert_real_conversion(1426676330, 23, 8, 9438839, 6);
+    assert_real_conversion(1119259711, 23, 8, 9127392, -5);
+    assert_real_conversion(217074279, 23, 8, 37022634, -38);
+    assert_real_conversion(914181099, 23, 8, 37744128, -13);
+    assert_real_conversion(833624428, 23, 8, 51251643, -16);
+    assert_real_conversion(390025545, 23, 8, 61818025, -32);
+    assert_real_conversion(1245470176, 23, 8, 30862, 2);
+    assert_real_conversion(2306548, 23, 8, 3232162, -45);
+    assert_real_conversion(960718465, 23, 8, 18634835, -11);
+}
+
+@test
+func binary64_edges_and_sampled_values_match_exact_midpoint_intervals()
+{
+    assert_real_conversion(1, 52, 11, 5, -324);
+    assert_real_conversion(2, 52, 11, 1, -323);
+    assert_real_conversion(4503599627370495, 52, 11, 2225073858507201, -323);
+    assert_real_conversion(4503599627370496, 52, 11, 22250738585072014, -324);
+    assert_real_conversion(4503599627370497, 52, 11, 2225073858507202, -323);
+    assert_real_conversion(9218868437227405311, 52, 11, 17976931348623157, 292);
+    assert_real_conversion(4607182418800017408, 52, 11, 1, 0);
+    assert_real_conversion(4607182418800017409, 52, 11, 10000000000000002, -16);
+    assert_real_conversion(6553890233508220039, 52, 11, 13929533442099917, 114);
+    assert_real_conversion(4875852368150190910, 52, 11, 955029883223646, 3);
+    assert_real_conversion(2685448433608392356, 52, 11, 3720130067720842, -144);
+    assert_real_conversion(4351886378506112573, 52, 11, 9110015478201916, -33);
+    assert_real_conversion(554244412788460557, 52, 11, 12622949967251495, -287);
+    assert_real_conversion(388952151972338338, 52, 11, 1174734763890219, -297);
+    assert_real_conversion(889038686240783285, 52, 11, 31425646253092504, -265);
+    assert_real_conversion(6359614566210739516, 52, 11, 14097770888815924, 101);
+    assert_real_conversion(6153762981318792584, 52, 11, 25261991163972774, 87);
+    assert_real_conversion(8665297547606325979, 52, 11, 1830131466299857, 256);
+    assert_real_conversion(5625096933366698084, 52, 11, 11025822700354927, 52);
+    assert_real_conversion(900792212092213447, 52, 11, 18164732788094104, -264);
+    assert_real_conversion(1262366263388794652, 52, 11, 2813175603710042, -239);
+    assert_real_conversion(3084063347088351024, 52, 11, 16069933632283024, -118);
+    assert_real_conversion(1949933800921334478, 52, 11, 24335553788752427, -194);
+    assert_real_conversion(6749416039660074899, 52, 11, 16305458504890628, 127);
+}
+
+@test
+func binary128_edges_and_sampled_values_match_exact_midpoint_intervals()
+{
+    assert_real_conversion(1, 112, 15, 6, -4966);
+    assert_real_conversion(2, 112, 15, 1, -4965);
+    assert_real_conversion(5192296858534827628530496329220095, 112, 15, 3362103143112093506262677817321752, -4965);
+    assert_real_conversion(5192296858534827628530496329220096, 112, 15, 33621031431120935062626778173217526, -4966);
+    assert_real_conversion(5192296858534827628530496329220097, 112, 15, 3362103143112093506262677817321753, -4965);
+    assert_real_conversion(170135991163610696904058773219554885631, 112, 15, 1189731495357231765085759326628007, 4899);
+    assert_real_conversion(85065399433376081038215121361612832768, 112, 15, 1, 0);
+    assert_real_conversion(85065399433376081038215121361612832769, 112, 15, 10000000000000000000000000000000002, -34);
+    assert_real_conversion(28270987167579574396858054584067165128, 112, 15, 19351644049296930771742003467934514, -3327);
+    assert_real_conversion(49613502296974171097415700163476571438, 112, 15, 4477549237164257687292929024479742, -2089);
+    assert_real_conversion(22337704409437072558194594685202687945, 112, 15, 19597678938521727971121856284359016, -3671);
+    assert_real_conversion(34549601247362719926466772276602265579, 112, 15, 19230582975821753483555561371260634, -2963);
+    assert_real_conversion(147134569023333085894119389685124380062, 112, 15, 3539085497915650031843305967129998, 3565);
+    assert_real_conversion(67577510923591797232880564543041147868, 112, 15, 1321699037150704364285981902752777, -1047);
+    assert_real_conversion(140290666691773656288994337886561099229, 112, 15, 56878068098660913142807834687502243, 3167);
+    assert_real_conversion(82663337730598869793274719220024846048, 112, 15, 579309259215981527465567352013309, -172);
+    assert_real_conversion(150540041760483881649923706405735148382, 112, 15, 9525780875137416948046973704512336, 3762);
+    assert_real_conversion(151515819925354398980399198013832281138, 112, 15, 35997539510439661733167959920601825, 3818);
+    assert_real_conversion(29721880423706846196804641540399153551, 112, 15, 25689129229836892907998093725837616, -3243);
+    assert_real_conversion(31958209470711860622554437905267100064, 112, 15, 11197328127761023889019493347114814, -3113);
+    assert_real_conversion(37226420981669349102327213342080922591, 112, 15, 31576194828233684450018078206354665, -2808);
+    assert_real_conversion(146364682679192624309016348674331757704, 112, 15, 8267628697065644585175680121240147, 3520);
+    assert_real_conversion(65102312217760298064012032772122674445, 112, 15, 43283037872893148254119231759872593, -1192);
+    assert_real_conversion(128051268720076946058920715401134236282, 112, 15, 14998956798651592998207842221415368, 2458);
+}
+
+internal func real_coefficient_checksum(pos coefficient: &std.format.RealCoefficient) -> u64
+{
+    match coefficient
+    {
+        case Small(value)
+        {
+            let mut remaining: u128 = value;
+            let mut checksum: u64 = 0;
+
+            loop
+            {
+                checksum = (checksum << 7) | (checksum >> 57);
+                checksum ^= std.numeric.truncate_to<u64>(remaining % 1000000000);
+                remaining /= 1000000000;
+
+                if remaining == 0
+                {
+                    return checksum;
+                }
+            }
+        }
+        case Large(value)
+        {
+            let mut checksum: u64 = 0;
+            let mut index: usize = 0;
+
+            while index < value.length
+            {
+                checksum = (checksum << 7) | (checksum >> 57);
+                checksum ^= value.limbs[index] as u64;
+                index += 1;
+            }
+
+            return checksum;
+        }
+    }
+}
+
+@test
+func fixed_decimal_conversion_covers_the_full_ieee_storage_bound()
+{
+    // Goldens round the exact rational value times 10^scale to nearest even,
+    // then fold its base-10^9 limbs with rotate-left seven and xor.
+    let value_0 = internal std.format.fixed_real_decimal(1, -16494, 16494);
+
+    assert(value_0.scale == 16494);
+    assert(internal std.format.real_coefficient_digits(&value_0.coefficient) == 11529);
+    assert(real_coefficient_checksum(&value_0.coefficient) == 3234639345196462509);
+
+    let value_1 = internal std.format.fixed_real_decimal(5192296858534827628530496329220095, -16494, 16494);
+
+    assert(value_1.scale == 16494);
+    assert(internal std.format.real_coefficient_digits(&value_1.coefficient) == 11563);
+    assert(real_coefficient_checksum(&value_1.coefficient) == 9859851418744684235);
+
+    let value_2 = internal std.format.fixed_real_decimal(10384593717069655257060992658440191, 16271, 0);
+
+    assert(value_2.scale == 0);
+    assert(internal std.format.real_coefficient_digits(&value_2.coefficient) == 4933);
+    assert(real_coefficient_checksum(&value_2.coefficient) == 2304088591483079409);
+
+    let value_3 = internal std.format.fixed_real_decimal(1, -16494, 5000);
+
+    assert(value_3.scale == 5000);
+    assert(internal std.format.real_coefficient_digits(&value_3.coefficient) == 35);
+    assert(real_coefficient_checksum(&value_3.coefficient) == 1221831715824903);
+
+    let value_4 = internal std.format.fixed_real_decimal(9007199254740991, -1074, 1074);
+
+    assert(value_4.scale == 1074);
+    assert(internal std.format.real_coefficient_digits(&value_4.coefficient) == 767);
+    assert(real_coefficient_checksum(&value_4.coefficient) == 5790737589827659129);
+}
+
+@test
+trusted func every_ieee_width_formats_finite_decimal_and_radix_values()
+{
+    let widths: [u32; 4] = [10, 23, 52, 112];
+    let exponents: [u32; 4] = [5, 8, 11, 15];
+    let one: u128 = 1;
+    let mut index: usize = 0;
+
+    while index < 4
+    {
+        let fraction: u32 = widths[index];
+        let exponent: u32 = exponents[index];
+        let bias: u128 = (one << (exponent - 1) as u128) - 1;
+        let value: u128 = (bias << fraction as u128) | (one << (fraction - 1) as u128);
+
+        assert_binary_real_format(value, fraction, exponent, "1.5");
+        assert_binary_real_format(value, fraction, exponent, "1.50", options = std.format.Options(precision = 2));
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0b1.1p0",
+            options = std.format.Options(radix = std.format.Radix.Binary)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0o1.4p0",
+            options = std.format.Options(radix = std.format.Radix.Octal)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0X1.8P0",
+            options = std.format.Options(radix = std.format.Radix.HexadecimalUppercase)
+        );
+
+        assert_binary_real_format(
+            value,
+            fraction,
+            exponent,
+            "0x1p1",
+            options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, precision = 0)
+        );
+
+        index += 1;
+    }
+
+    let maximum: u128 = (32767 * (one << 112)) - 1;
+
+    assert_binary_real_format(
+        maximum,
+        112,
+        15,
+        "0x1.ffffffffffffffffffffffffffffp16383",
+        options = std.format.Options(radix = std.format.Radix.HexadecimalLowercase)
+    );
+
+    let options: std.format.Options = std.format.Options(radix = std.format.Radix.Binary);
+    let rendering = internal std.format.make_real_rendering(maximum, 112, 15, &options);
+    let mut sink: std.format.CountingSink = std.format.CountingSink();
+
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(
+        internal std.format.write_real_rendering<std.format.CountingSink, std.format.CountingSinkError>(
+            &mut sink,
+            &rendering,
+            &options
+        )
+    );
+
+    assert(std.format.formatted_length(&sink) == 122);
+}

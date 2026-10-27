@@ -9,7 +9,7 @@ use crate::text::normalize_line_endings;
 use crate::workspace;
 
 const VERSION: &str = "17.0.0";
-const GENERATOR_REVISION: u32 = 2;
+const GENERATOR_REVISION: u32 = 1;
 const INPUT_ROOT: &str = "standard-library/targets/unicode/17.0.0";
 const TABLE_OUTPUT: &str = "standard-library/std/src/runtime/character/unicode_tables.bray";
 const METADATA_OUTPUT: &str = "standard-library/targets/unicode/metadata.json";

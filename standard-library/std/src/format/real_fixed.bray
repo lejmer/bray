@@ -1,0 +1,321 @@
+module std.format;
+
+using std.numeric;
+
+// IEEE binary128 needs at most 11564 exact decimal digits. Base 10^9 limbs
+// cover that bound in local storage; ordinary precision stays in the scalar case.
+internal struct RealBigDecimal
+{
+    mut limbs: [u32; 1288];
+    mut length: usize;
+}
+
+internal union RealCoefficient
+{
+    Small(pos value: u128);
+    Large(pos value: RealBigDecimal);
+}
+
+internal struct RealFixed
+{
+    coefficient: RealCoefficient;
+    scale: usize;
+    precision: usize;
+}
+
+internal func round_real_integer(pos value: u128, pos shift: u32) -> u128
+{
+    if shift == 0
+    {
+        return value;
+    }
+
+    let one: u128 = 1;
+
+    if shift >= 128
+    {
+        if shift == 128 && value > (one << 127)
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    let half: u128 = one << (shift - 1) as u128;
+    let remainder: u128 = value & ((one << shift as u128) - 1);
+    let mut rounded: u128 = value >> shift as u128;
+
+    if remainder > half || (remainder == half && rounded % 2 != 0)
+    {
+        rounded += 1;
+    }
+
+    return rounded;
+}
+
+internal func real_big_decimal(pos mut value: u128) -> RealBigDecimal
+{
+    let mut result: RealBigDecimal =
+    {
+        limbs = [0; 1288],
+        length = 0,
+    };
+
+    while value != 0
+    {
+        result.limbs[result.length] = std.numeric.truncate_to<u32>(value % 1000000000);
+        result.length += 1;
+        value /= 1000000000;
+    }
+
+    if result.length == 0
+    {
+        result.length = 1;
+    }
+
+    return result;
+}
+
+internal func multiply_real_big(pos value: &mut RealBigDecimal, pos factor: u32)
+{
+    let mut carry: u64 = 0;
+    let mut index: usize = 0;
+
+    while index < value.length
+    {
+        let part: u64 = value.limbs[index] as u64 * factor as u64 + carry;
+
+        value.limbs[index] = std.numeric.truncate_to<u32>(part % 1000000000);
+        carry = part / 1000000000;
+        index += 1;
+    }
+
+    while carry != 0
+    {
+        assert(value.length < 1288);
+
+        value.limbs[value.length] = std.numeric.truncate_to<u32>(carry % 1000000000);
+        value.length += 1;
+        carry /= 1000000000;
+    }
+}
+
+internal func multiply_real_fives(pos value: &mut RealBigDecimal, pos mut count: usize)
+{
+    while count >= 13
+    {
+        multiply_real_big(value, 1220703125);
+        count -= 13;
+    }
+
+    if count != 0
+    {
+        let mut factor: u32 = 1;
+
+        while count != 0
+        {
+            factor *= 5;
+            count -= 1;
+        }
+
+        multiply_real_big(value, factor);
+    }
+}
+
+internal func multiply_real_twos(pos value: &mut RealBigDecimal, pos mut count: u32)
+{
+    while count >= 29
+    {
+        multiply_real_big(value, 536870912);
+        count -= 29;
+    }
+
+    if count != 0
+    {
+        let one: u32 = 1;
+
+        multiply_real_big(value, one << count);
+    }
+}
+
+internal func divide_real_big(pos value: &mut RealBigDecimal, pos divisor: u32) -> u32
+{
+    let mut carry: u64 = 0;
+    let mut index: usize = value.length;
+
+    while index != 0
+    {
+        index -= 1;
+
+        let part: u64 = carry * 1000000000 + value.limbs[index] as u64;
+
+        value.limbs[index] = std.numeric.truncate_to<u32>(part / divisor as u64);
+        carry = part % divisor as u64;
+    }
+
+    while value.length > 1 && value.limbs[value.length - 1] == 0
+    {
+        value.length -= 1;
+    }
+
+    return std.numeric.truncate_to<u32>(carry);
+}
+
+internal func increment_real_big(pos value: &mut RealBigDecimal)
+{
+    let mut index: usize = 0;
+
+    while index < value.length && value.limbs[index] == 999999999
+    {
+        value.limbs[index] = 0;
+        index += 1;
+    }
+
+    if index == value.length
+    {
+        assert(value.length < 1288);
+
+        value.length += 1;
+    }
+
+    value.limbs[index] += 1;
+}
+
+internal func round_real_big(pos value: &mut RealBigDecimal, pos mut count: u32)
+{
+    let one: u32 = 1;
+    let mut sticky: bool = false;
+
+    while count != 0
+    {
+        let step: u32 = if count >= 29
+        {
+            yield 29;
+        }
+        else
+        {
+            yield count;
+        };
+
+        let divisor: u32 = one << step;
+        let remainder: u32 = divide_real_big(value, divisor);
+
+        count -= step;
+
+        if count == 0
+        {
+            let half: u32 = divisor / 2;
+
+            if remainder > half || (remainder == half && (sticky || value.limbs[0] % 2 != 0))
+            {
+                increment_real_big(value);
+            }
+        }
+        else
+        {
+            if value.length == 1 && value.limbs[0] == 0
+            {
+                return;
+            }
+
+            sticky = sticky || remainder != 0;
+        }
+    }
+}
+
+internal func real_fixed_coefficient(
+    pos mut value: u128,
+    pos exponent: i32,
+    pos mut precision: usize,
+) -> RealCoefficient
+{
+    let shift: i32 = exponent + std.numeric.truncate_to<i32>(precision);
+
+    while precision != 0 && value <= std.numeric.U128_MAX / 5
+    {
+        value *= 5;
+        precision -= 1;
+    }
+
+    if precision == 0
+    {
+        if shift <= 0
+        {
+            return RealCoefficient.Small(round_real_integer(value, std.numeric.truncate_to<u32>(-shift)));
+        }
+
+        if shift < 128 && value <= (std.numeric.U128_MAX >> std.numeric.truncate_to<u128>(shift))
+        {
+            return RealCoefficient.Small(value << std.numeric.truncate_to<u128>(shift));
+        }
+    }
+
+    let mut big: RealBigDecimal = real_big_decimal(value);
+
+    multiply_real_fives(&mut big, precision);
+
+    if shift > 0
+    {
+        multiply_real_twos(&mut big, std.numeric.truncate_to<u32>(shift));
+    }
+    else
+    {
+        round_real_big(&mut big, std.numeric.truncate_to<u32>(-shift));
+    }
+
+    return RealCoefficient.Large(big);
+}
+
+internal func fixed_real_decimal(pos mut significand: u128, pos mut exponent: i32, pos precision: usize) -> RealFixed
+{
+    // Remove exact binary factors before choosing the terminating decimal scale.
+    // This keeps values such as 1.5 in the scalar case even at huge precision.
+    if significand != 0
+    {
+        let one: u128 = 1;
+        let mut shift: u128 = 64;
+
+        while shift != 0
+        {
+            if (significand & ((one << shift) - 1)) == 0
+            {
+                significand >>= shift;
+                exponent += std.numeric.truncate_to<i32>(shift);
+            }
+
+            shift /= 2;
+        }
+    }
+
+    let mut scale: usize = 0;
+
+    if exponent < 0 && significand != 0
+    {
+        scale = std.numeric.truncate_to<usize>(-exponent);
+
+        if precision < scale
+        {
+            scale = precision;
+        }
+    }
+
+    return RealFixed
+    {
+        coefficient = real_fixed_coefficient(significand, exponent, scale),
+        scale = scale,
+        precision = precision,
+    };
+}
+
+internal func real_coefficient_digits(pos coefficient: &RealCoefficient) -> usize
+{
+    match coefficient
+    {
+        case Small(value) { return unsigned_digit_count(value, 10); }
+        case Large(value)
+        {
+            return (value.length - 1) * 9 + unsigned_digit_count(value.limbs[value.length - 1] as u128, 10);
+        }
+    }
+}

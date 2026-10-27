@@ -1,0 +1,353 @@
+module std.format;
+
+using std.numeric;
+
+// Ryu, Copyright 2018 Ulf Adams, adapted under the Boost Software License 1.0.
+// See third-party/ryu/LICENSE-Boost and README.md for source provenance.
+// The interval arithmetic below is shared by all implicit-leading-bit IEEE widths.
+
+internal struct RealDecimal
+{
+    coefficient: u128;
+    exponent: i32;
+}
+
+internal func real_power_bits(pos exponent: u32) -> u32
+{
+    return std.numeric.truncate_to<u32>(((exponent as u64 * 163391164108059) >> 46) + 1);
+}
+
+internal func real_log10_two(pos exponent: u32) -> u32
+{
+    return std.numeric.truncate_to<u32>((exponent as u64 * 169464822037455) >> 49);
+}
+
+internal func real_log10_five(pos exponent: u32) -> u32
+{
+    return std.numeric.truncate_to<u32>((exponent as u64 * 196742565691928) >> 48);
+}
+
+internal func real_product(pos value: u128, pos power: &[u64; 4], pos shift: u32, pos correction: u32) -> [u64; 4]
+{
+    let words: [u64; 2] = [std.numeric.truncate_to<u64>(value), std.numeric.truncate_to<u64>(value >> 64)];
+    let mut product: [u64; 6] = [0; 6];
+    let mut left: usize = 0;
+
+    while left < 2
+    {
+        let mut carry: u128 = 0;
+        let mut right: usize = 0;
+
+        while right < 4
+        {
+            // A word product plus two words is at most 2^128 - 1.
+            let part: u128 = words[left] as u128 * power[right] as u128 + product[left + right] as u128 + carry;
+
+            product[left + right] = std.numeric.truncate_to<u64>(part);
+            carry = part >> 64;
+            right += 1;
+        }
+
+        product[left + 4] = std.numeric.truncate_to<u64>(carry);
+        left += 1;
+    }
+
+    let offset: usize = (shift / 64) as usize;
+    let bits: u64 = (shift % 64) as u64;
+    let mut result: [u64; 4] = [0; 4];
+    let mut index: usize = 0;
+    let mut carry: u128 = correction as u128;
+
+    while index < 4
+    {
+        let position: usize = offset + index;
+        let mut word: u64 = 0;
+
+        if position < 6
+        {
+            word = product[position] >> bits;
+        }
+
+        if bits != 0 && position + 1 < 6
+        {
+            word |= product[position + 1] << (64 - bits);
+        }
+
+        let part: u128 = word as u128 + carry;
+
+        result[index] = std.numeric.truncate_to<u64>(part);
+        carry = part >> 64;
+        index += 1;
+    }
+
+    return result;
+}
+
+internal func real_power(pos exponent: u32, pos inverse: bool) -> [u64; 4]
+{
+    let base: u32 = if inverse
+    {
+        yield (exponent + 55) / 56;
+    }
+    else
+    {
+        yield exponent / 56;
+    };
+
+    let base_exponent: u32 = base * 56;
+    let mut power: [u64; 4] = REAL_POWERS[base as usize];
+
+    if inverse
+    {
+        power = REAL_INVERSE_POWERS[base as usize];
+    }
+
+    if exponent == base_exponent
+    {
+        if inverse
+        {
+            let mut carry: u128 = 1;
+            let mut index: usize = 0;
+
+            while index < 4
+            {
+                let part: u128 = power[index] as u128 + carry;
+
+                power[index] = std.numeric.truncate_to<u64>(part);
+                carry = part >> 64;
+                index += 1;
+            }
+        }
+
+        return power;
+    }
+
+    let error_shift: u64 = (2 * (exponent % 32)) as u64;
+    let error_index: usize = (exponent / 32) as usize;
+
+    if inverse
+    {
+        let offset: u32 = base_exponent - exponent;
+        let delta: u32 = real_power_bits(base_exponent) - real_power_bits(exponent);
+
+        let correction: u32 = std.numeric.truncate_to<u32>(
+            (REAL_INVERSE_POWER_ERRORS[error_index] >> error_shift) & 3
+        ) + 1;
+
+        return real_product(REAL_SMALL_POWERS[offset as usize], &power, delta, correction);
+    }
+
+    let offset: u32 = exponent - base_exponent;
+    let delta: u32 = real_power_bits(exponent) - real_power_bits(base_exponent);
+    let correction: u32 = std.numeric.truncate_to<u32>((REAL_POWER_ERRORS[error_index] >> error_shift) & 3);
+
+    return real_product(REAL_SMALL_POWERS[offset as usize], &power, delta, correction);
+}
+
+internal func real_scaled_integer(pos value: u128, pos power: &[u64; 4], pos shift: i32) -> u128
+{
+    assert(shift > 128 && shift < 256);
+
+    let product: [u64; 4] = real_product(value, power, std.numeric.truncate_to<u32>(shift), 0);
+
+    return product[0] as u128 | (product[1] as u128 << 64);
+}
+
+internal func real_multiple_of_five(pos mut value: u128, pos mut power: u32) -> bool
+{
+    while power != 0
+    {
+        if value % 5 != 0
+        {
+            return false;
+        }
+
+        value /= 5;
+        power -= 1;
+    }
+
+    return true;
+}
+
+internal func shortest_real_decimal(
+    pos fraction: u128,
+    pos exponent: u32,
+    pos fraction_bits: u32,
+    pos exponent_bits: u32,
+) -> RealDecimal
+{
+    let one: u128 = 1;
+    let leading: u32 = 1;
+    let bias: i32 = std.numeric.truncate_to<i32>((leading << (exponent_bits - 1)) - 1);
+    let mut binary_exponent: i32 = 1 - bias - std.numeric.truncate_to<i32>(fraction_bits) - 2;
+    let mut significand: u128 = fraction;
+
+    if exponent != 0
+    {
+        binary_exponent = std.numeric.truncate_to<i32>(exponent) - bias - std.numeric.truncate_to<i32>(fraction_bits) -
+            2;
+
+        significand |= one << fraction_bits as u128;
+    }
+
+    let accept_bounds: bool = significand % 2 == 0;
+    let middle: u128 = significand * 4;
+    let mut lower_offset: u128 = 1;
+
+    // The smallest normal and its subnormal predecessor have the same spacing.
+    if fraction != 0 || exponent <= 1
+    {
+        lower_offset = 2;
+    }
+
+    let mut lower: u128 = 0;
+    let mut upper: u128 = 0;
+    let mut rounded: u128 = 0;
+    let mut decimal_exponent: i32 = 0;
+    let mut lower_zeroes: bool = false;
+    let mut middle_zeroes: bool = false;
+
+    if binary_exponent >= 0
+    {
+        let binary: u32 = std.numeric.truncate_to<u32>(binary_exponent);
+        let mut power: u32 = real_log10_two(binary);
+
+        if binary > 3
+        {
+            power -= 1;
+        }
+
+        decimal_exponent = std.numeric.truncate_to<i32>(power);
+
+        let shift: i32 = -binary_exponent + decimal_exponent + std.numeric.truncate_to<i32>(
+            248 + real_power_bits(power)
+        );
+
+        let multiplier: [u64; 4] = real_power(power, inverse = true);
+
+        rounded = real_scaled_integer(middle, &multiplier, shift);
+        upper = real_scaled_integer(middle + 2, &multiplier, shift);
+        lower = real_scaled_integer(middle - lower_offset, &multiplier, shift);
+
+        if power <= 55
+        {
+            if middle % 5 == 0
+            {
+                // Exact divisibility is by 5^power, including power zero.
+                middle_zeroes = real_multiple_of_five(middle, power);
+            }
+            else if accept_bounds
+            {
+                lower_zeroes = real_multiple_of_five(middle - lower_offset, power);
+            }
+            else if real_multiple_of_five(middle + 2, power)
+            {
+                upper -= 1;
+            }
+        }
+    }
+    else
+    {
+        let binary: u32 = std.numeric.truncate_to<u32>(-binary_exponent);
+        let mut power: u32 = real_log10_five(binary);
+
+        if binary > 1
+        {
+            power -= 1;
+        }
+
+        decimal_exponent = std.numeric.truncate_to<i32>(power) + binary_exponent;
+
+        let index: u32 = binary - power;
+
+        let shift: i32 = std.numeric.truncate_to<i32>(power) - std.numeric.truncate_to<i32>(real_power_bits(index)) +
+            249;
+
+        let multiplier: [u64; 4] = real_power(index, inverse = false);
+
+        rounded = real_scaled_integer(middle, &multiplier, shift);
+        upper = real_scaled_integer(middle + 2, &multiplier, shift);
+        lower = real_scaled_integer(middle - lower_offset, &multiplier, shift);
+
+        if power <= 1
+        {
+            middle_zeroes = true;
+
+            if accept_bounds
+            {
+                lower_zeroes = lower_offset == 2;
+            }
+            else
+            {
+                upper -= 1;
+            }
+        }
+        else if power < 127
+        {
+            middle_zeroes = (middle & ((one << (power - 1) as u128) - 1)) == 0;
+        }
+    }
+
+    return remove_real_decimal_digits(
+        lower,
+        rounded,
+        upper,
+        decimal_exponent,
+        accept_bounds,
+        lower_zeroes,
+        middle_zeroes
+    );
+}
+
+internal func remove_real_decimal_digits(
+    pos mut lower: u128,
+    pos mut rounded: u128,
+    pos mut upper: u128,
+    pos mut exponent: i32,
+    pos accept_bounds: bool,
+    pos mut lower_zeroes: bool,
+    pos mut middle_zeroes: bool,
+) -> RealDecimal
+{
+    let mut last: u128 = 0;
+
+    while upper / 10 > lower / 10
+    {
+        lower_zeroes = lower_zeroes && lower % 10 == 0;
+        middle_zeroes = middle_zeroes && last == 0;
+        last = rounded % 10;
+        rounded /= 10;
+        upper /= 10;
+        lower /= 10;
+        exponent += 1;
+    }
+
+    if lower_zeroes
+    {
+        while lower % 10 == 0
+        {
+            middle_zeroes = middle_zeroes && last == 0;
+            last = rounded % 10;
+            rounded /= 10;
+            upper /= 10;
+            lower /= 10;
+            exponent += 1;
+        }
+    }
+
+    if middle_zeroes && last == 5 && rounded % 2 == 0
+    {
+        last = 4;
+    }
+
+    if (rounded == lower && (!accept_bounds || !lower_zeroes)) || last >= 5
+    {
+        rounded += 1;
+    }
+
+    return RealDecimal
+    {
+        coefficient = rounded,
+        exponent = exponent,
+    };
+}

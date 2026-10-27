@@ -81,6 +81,43 @@ uses defaults, and named options override them. Omitted precision differs from a
 sink, while convenience operations returning a string make allocation explicit. Equal values and options produce equal
 output when the value's ordering contract is defined.
 
+### Real and complex values
+
+The standard `Format` implementations cover `r32`, `r64`, `c64`, and `c128`, and the corresponding `r16`, `r128`, `c32`,
+and `c256` forms when the selected target provides them. Formatting is independent of locale and native endianness.
+
+For a finite real value in decimal radix, omitted precision selects the shortest significant decimal that rounds back
+to that value in its real type. Among equally short candidates, choose the nearest, with ties to an even last digit.
+Use the shorter of ordinary decimal and scientific notation, preferring ordinary notation when their lengths match.
+Scientific notation uses lowercase `e`, omits a positive exponent sign and leading exponent zeroes, and omits a decimal
+point when there is only one significant digit. Thus `1.25` formats as `1.25`, while `1000.0` formats as `1e3`.
+
+Explicit decimal precision counts digits after the decimal point and uses fixed notation. Round the exact binary value
+to that precision, with ties to even, and retain the requested trailing zeroes. Explicit zero precision produces an
+integer without a decimal point. For example, the `r64` value `2.675` formats with precision two as `2.67`, because that
+binary value is slightly below the decimal midpoint.
+
+Binary, octal, and hexadecimal radix select normalized binary-exponent notation with `0b`, `0o`, or `0x` prefixes and a
+`p` exponent. A nonzero finite significand lies in `[1, 2)`. Omitted precision retains its exact fraction and removes
+trailing zeroes. Explicit precision counts fractional digits in the selected radix and rounds with ties to even.
+Hexadecimal uppercase uses `0X`, uppercase digits and `P`. Exponents omit a positive sign and leading zeroes. For
+example, hexadecimal `1.5` formats as `0x1.8p0`. Zero has significand and exponent zero.
+
+Preserve the sign of zero, including after rounding. Infinities format as `inf` and NaNs as `nan`, preserving their sign
+but omitting NaN payloads and the signaling distinction. Hexadecimal uppercase selects `INF` and `NAN`. Precision does
+not add fractional digits to these special values. The selected sign policy applies to every real value.
+
+Complex values format as `real+imaginaryi` or `real-imaginaryi`. Each component uses the same real formatting rules,
+radix and precision. The sign policy applies to the real component, and the imaginary component always has its own
+`+` or `-` separator, including for signed zero and special values. Width and alignment apply to the entire complex
+output, with no component padding. For example, `1.25 - 2.5i` with precision two formats as `1.25-2.50i`.
+
+Real and complex formatting use the sink-generic protocol with bounded local conversion storage. A fixed destination
+performs no heap allocation. Precision and width beyond the significant digits produce bulk repeated writes, and sink
+failures retain their original type and partial-output behavior.
+
+### Numeric operations
+
 Numeric utilities preserve their stated operand and result types. Target-sized integers use the selected target width,
 and parsing is locale-independent. Checked arithmetic reports failure rather than silently applying another rounding,
 wrapping, or saturation policy. Those policies require explicit operations.

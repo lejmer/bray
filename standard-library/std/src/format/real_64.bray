@@ -1,0 +1,37 @@
+module std.format;
+
+using core.memory;
+using std.memory;
+
+// These concrete numeric representations have equal size and alignment and no padding.
+trusted internal func real64_pointer(pos value: &r64) -> DataPointer<u64>
+    ensures(
+        trusted core.memory.valid_read<u64>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = result),
+        trusted core.memory.initialized_as<u64>(pointer = result),
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<u64, r64>(std.memory.address_of<r64>(value));
+}
+
+trusted internal func real64_bits(pos value: &r64) -> u128
+    uses(raw_memory)
+{
+    let pointer: DataPointer<u64> = real64_pointer(value);
+    let bits: u64 = trusted std.memory.read<u64>(pointer);
+
+    return bits as u128;
+}
+
+impl R64Format = r64(Format<Destination, Failure>)
+    with(Destination: Sink<Failure>)
+{
+    func format(pos destination: &mut Destination, pos options: &Options) -> Result<unit, Failure>
+        requires(blocking_execution())
+    {
+        let value: RealRendering = make_real_rendering(real64_bits(&self), 52, 11, options);
+
+        return write_real_rendering<Destination, Failure>(destination, &value, options);
+    }
+}

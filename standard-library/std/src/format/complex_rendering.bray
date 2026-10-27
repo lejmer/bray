@@ -1,0 +1,37 @@
+module std.format;
+
+internal func write_complex_bits<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos real: u128,
+    pos imaginary: u128,
+    pos fraction_bits: u32,
+    pos exponent_bits: u32,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let real_part: RealRendering = make_real_rendering(real, fraction_bits, exponent_bits, options);
+    let imaginary_part: RealRendering = make_real_rendering(imaginary, fraction_bits, exponent_bits, options);
+
+    let real_length: usize = integer_content_length(
+        sign_length(real_part.negative, options),
+        real_body_length(&real_part.body)
+    );
+
+    let imaginary_length: usize = integer_content_length(1, real_body_length(&imaginary_part.body));
+    let length: usize = integer_content_length(integer_content_length(real_length, imaginary_length), 1);
+    let padding: usize = padding_count(options.width, length);
+    let left: usize = left_padding(padding, options);
+    let imaginary_sign: Options = Options(sign = Sign.Always);
+
+    try destination.prepare(additional = maximum(length, options.width));
+    try write_padding<Destination, Failure>(&mut destination, left);
+    try write_requested_sign<Destination, Failure>(&mut destination, real_part.negative, options);
+    try write_real_body<Destination, Failure>(&mut destination, &real_part.body, options);
+    try write_requested_sign<Destination, Failure>(&mut destination, imaginary_part.negative, &imaginary_sign);
+    try write_real_body<Destination, Failure>(&mut destination, &imaginary_part.body, options);
+    try destination.write(&b"i"[..]);
+
+    return write_padding<Destination, Failure>(destination, padding - left);
+}

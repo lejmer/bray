@@ -1,7 +1,15 @@
 use super::super::model::PeerLanguage;
 
-pub(super) const RUST_SOURCE: &str = include_str!("../../../fixtures/performance-peer.rs");
-pub(super) const CPP_SOURCE: &str = include_str!("../../../fixtures/performance-peer.cpp");
+pub(super) const RUST_SOURCE: &str = concat!(
+    include_str!("../../../fixtures/performance-peer.rs"),
+    "\n",
+    include_str!("../../../fixtures/performance-real-formatting.rs")
+);
+pub(super) const CPP_SOURCE: &str = concat!(
+    include_str!("../../../fixtures/performance-peer.cpp"),
+    "\n",
+    include_str!("../../../fixtures/performance-real-formatting.cpp")
+);
 
 pub(super) struct PeerSource {
     pub language: PeerLanguage,
@@ -22,6 +30,11 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
         "borrowed_text" => ("borrowed_text", "7"),
+        "format_real_shortest" => ("format_real_shortest", "21"),
+        "format_real_precision" => ("format_real_precision", "22"),
+        "format_real_large_width" => ("format_real_large_width", "23"),
+        "format_real_collection" => ("format_real_collection", "24"),
+        "format_complex_writer" => ("format_complex_writer", "25"),
         "format_numbers" => ("format_numbers", "8"),
         "format_large_width" => ("format_large_width", "12"),
         "format_writer" => ("format_writer", "13"),
@@ -101,6 +114,21 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         "monotonic_clock" => Some("read a monotonic clock successfully 1024 times"),
         "borrowed_text" => Some(
             "slice UTF-8 text, construct owned UTF-8 text, compare and hash text, parse decimal 42, append borrowed text 256 times, and append quoted text",
+        ),
+        "format_real_shortest" => Some(
+            "format each binary64 value index plus 0.125 for index 0 through 1023 into bounded local storage using shortest decimal conversion and validate total length",
+        ),
+        "format_real_precision" => Some(
+            "format binary64 0.1 into bounded local storage 1024 times alternating 40 and 80 fractional decimal digits with nearest-even rounding and validate total length",
+        ),
+        "format_real_large_width" => Some(
+            "format binary64 1.5 with three fractional decimal digits and a million-column minimum width 1024 times into a bulk counting destination and validate total length",
+        ),
+        "format_real_collection" => Some(
+            "append the shortest decimal representation of each binary64 value index plus 0.125 for index 0 through 1023 into one preallocated growable byte sequence and validate final length",
+        ),
+        "format_complex_writer" => Some(
+            "format complex binary64 components 1.25 minus 2.5i with two fractional decimal digits 1024 times directly to a validating writer and validate every output byte",
         ),
         "format_numbers" => Some(
             "append the decimal representation of every integer from 0 through 1023 to one growable byte sequence and validate its final length",

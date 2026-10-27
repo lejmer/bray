@@ -1,0 +1,169 @@
+module std.format;
+
+using std.numeric;
+
+internal struct RealRadix
+{
+    coefficient: u128;
+    exponent: i32;
+    scale: usize;
+    precision: usize;
+}
+
+internal func real_significand_bits(pos mut value: u128) -> u32
+{
+    let mut count: u32 = 0;
+
+    while value != 0
+    {
+        value >>= 1;
+        count += 1;
+    }
+
+    return count;
+}
+
+internal func radix_real(pos significand: u128, pos exponent: i32, pos group: u32, pos precision: usize?) -> RealRadix
+{
+    if significand == 0
+    {
+        let mut requested: usize = 0;
+
+        if let ?digits = precision
+        {
+            requested = digits;
+        }
+
+        return RealRadix
+        {
+            coefficient = 0,
+            exponent = 0,
+            scale = 0,
+            precision = requested
+        };
+    }
+
+    let bits: u32 = real_significand_bits(significand) - 1;
+    let mut output_exponent: i32 = exponent + std.numeric.truncate_to<i32>(bits);
+    let mut digits: u32 = (bits + group - 1) / group;
+    let mut requested: usize = digits as usize;
+
+    if let ?count = precision
+    {
+        requested = count;
+
+        if count < digits as usize
+        {
+            digits = std.numeric.truncate_to<u32>(count);
+        }
+    }
+
+    let scale: u32 = digits * group;
+    let one: u128 = 1;
+    let mut coefficient: u128 = significand;
+
+    if scale < bits
+    {
+        coefficient = round_real_integer(coefficient, bits - scale);
+
+        if coefficient == (one << (scale + 1) as u128)
+        {
+            coefficient >>= 1;
+            output_exponent += 1;
+        }
+    }
+    else
+    {
+        coefficient <<= (scale - bits) as u128;
+    }
+
+    if precision matches none
+    {
+        let radix: u128 = one << group as u128;
+
+        while digits != 0 && coefficient % radix == 0
+        {
+            coefficient /= radix;
+            digits -= 1;
+        }
+
+        requested = digits as usize;
+    }
+
+    return RealRadix
+    {
+        coefficient = coefficient,
+        exponent = output_exponent,
+        scale = digits as usize,
+        precision = requested,
+    };
+}
+
+internal func write_real_radix<Destination, Failure>(
+    pos destination: &mut Destination,
+    pos value: &RealRadix,
+    pos options: &Options,
+) -> Result<unit, Failure>
+    with(Destination: Sink<Failure>)
+    requires(blocking_execution())
+{
+    let radix: u128 = radix_value(options) as u128;
+    let uppercase: bool = uppercase_digits(options);
+    let mut digits: bytes<116> = [0; 116];
+    let mut start: usize = 116;
+    let mut remaining: usize = value.scale;
+    let mut coefficient: u128 = value.coefficient;
+
+    while remaining != 0
+    {
+        start -= 1;
+        digits[start] = digit_byte(coefficient % radix, uppercase);
+        coefficient /= radix;
+        remaining -= 1;
+    }
+
+    if value.precision != 0
+    {
+        start -= 1;
+        digits[start] = b"."[0];
+    }
+
+    start -= 1;
+    digits[start] = digit_byte(coefficient, uppercase);
+    start -= 1;
+
+    digits[start] = if uppercase
+    {
+        yield b"X"[0];
+    }
+    else
+    {
+        yield b"x"[0];
+    };
+
+    if options.radix matches Binary
+    {
+        digits[start] = b"b"[0];
+    }
+    else if options.radix matches Octal
+    {
+        digits[start] = b"o"[0];
+    }
+
+    start -= 1;
+    digits[start] = b"0"[0];
+
+    try destination.write(&digits[start..116]);
+    try write_leading_zeroes<Destination, Failure>(&mut destination, value.precision - value.scale);
+
+    let marker: u8 = if uppercase
+    {
+        yield b"P"[0];
+    }
+    else
+    {
+        yield b"p"[0];
+    };
+
+    return write_real_exponent<Destination, Failure>(destination, value.exponent, marker);
+}
