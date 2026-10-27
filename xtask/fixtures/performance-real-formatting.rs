@@ -35,6 +35,7 @@ fn workload() -> bool {
             bytes: [0; 128],
             length: 0,
         };
+
         let value = std::hint::black_box(f64::from(index) + 0.125);
 
         write!(&mut sink, "{value}").expect("bounded real formatting");
@@ -56,6 +57,7 @@ fn workload() -> bool {
             bytes: [0; 128],
             length: 0,
         };
+
         let precision = if index % 2 == 0 { 40 } else { 80 };
         let value = std::hint::black_box(0.1_f64);
 
@@ -78,6 +80,7 @@ fn workload() -> bool {
             bytes: [0; 128],
             length: 0,
         };
+
         let value = std::hint::black_box(1.5_f64);
 
         write!(&mut sink, "{value:.3}").expect("bounded precision formatting");
