@@ -95,9 +95,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match (intrinsic, arguments) {
             (IntrinsicCall::Unary(operator), [operand]) => {
-                let (_, operand) = self.intrinsic_operand(operand_type, *operand)?;
+                let (operand_type, operand) = self.intrinsic_operand(operand_type, *operand)?;
 
-                self.translate_unary_value(*operator, operand)
+                self.translate_unary_value(*operator, operand, operand_type)
             }
             (IntrinsicCall::Binary(operator), [left, right]) => {
                 let (concrete_type, left) = self.intrinsic_operand(operand_type, *left)?;
@@ -257,16 +257,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let operand_type = self.operand_type(operand);
         let value = self.operand(operand)?;
 
-        let (_, value) = self.intrinsic_operand(operand_type, value)?;
+        let (operand_type, value) = self.intrinsic_operand(operand_type, value)?;
 
-        self.translate_unary_value(operator, value)
+        self.translate_unary_value(operator, value, operand_type)
     }
 
     fn translate_unary_value(
-        &self,
+        &mut self,
         operator: MirUnaryOperator,
         value: BasicValueEnum<'context>,
+        operand_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        if self.is_complex_operand(operand_type) {
+            assert_eq!(
+                operator,
+                MirUnaryOperator::Negate,
+                "checked complex unary operation is negation"
+            );
+
+            return self.complex_negate(value, operand_type);
+        }
+
         match (operator, value) {
             (MirUnaryOperator::Negate, BasicValueEnum::IntValue(value)) => {
                 llvm(self.builder.build_int_neg(value, "negate")).map(Into::into)
@@ -309,15 +320,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         right: BasicValueEnum<'context>,
         operand_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        if matches!(
-            operator,
-            MirBinaryOperator::Equal | MirBinaryOperator::NotEqual
-        ) && matches!(
-            self.type_mapping(operand_type)
-                .map(|mapping| mapping.kind()),
-            Some(CodegenTypeKind::Aggregate(_))
-        ) {
-            return self.complex_equality(operator, left, right, operand_type);
+        if self.is_complex_operand(operand_type) {
+            return self.complex_binary(operator, left, right, operand_type);
         }
 
         match (left, right) {
@@ -331,57 +335,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "checked MIR translation violated an established compiler contract: {unexpected:?}"
             ),
         }
-    }
-
-    fn complex_equality(
-        &mut self,
-        operator: MirBinaryOperator,
-        left: BasicValueEnum<'context>,
-        right: BasicValueEnum<'context>,
-        operand_type: bray_symbols::TypeId,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let fields = self.aggregate_fields(operand_type);
-
-        assert_eq!(
-            fields.len(),
-            2,
-            "checked complex equality has two real components"
-        );
-
-        let mut result = None;
-
-        for index in 0..2 {
-            let left = self
-                .layout_field_value(left, &fields, index)?
-                .into_float_value();
-
-            let right = self
-                .layout_field_value(right, &fields, index)?
-                .into_float_value();
-
-            let component = llvm(self.builder.build_float_compare(
-                float_predicate(operator),
-                left,
-                right,
-                "complex.compare",
-            ))?;
-
-            result = Some(match result {
-                None => component,
-                Some(previous) if operator == MirBinaryOperator::Equal => {
-                    llvm(self.builder.build_and(previous, component, "complex.equal"))?
-                }
-                Some(previous) => llvm(self.builder.build_or(
-                    previous,
-                    component,
-                    "complex.not_equal",
-                ))?,
-            });
-        }
-
-        Ok(result
-            .expect("complex equality compares both components")
-            .into())
     }
 
     pub(super) fn integer_binary(
@@ -398,6 +351,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Operator::Subtract => llvm(self.builder.build_int_sub(left, right, "subtract"))?.into(),
             Operator::Multiply => llvm(self.builder.build_int_mul(left, right, "multiply"))?.into(),
             Operator::Exponentiate => self.integer_power(left, right)?.into(),
+            Operator::ComplexMultiply | Operator::ComplexDivide | Operator::ComplexExponentiate => {
+                panic!("complex helper operator has complex operands")
+            }
             Operator::Divide => {
                 if signed {
                     llvm(self.builder.build_int_signed_div(left, right, "divide"))?.into()
@@ -609,7 +565,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "compare",
             ))?
             .into(),
-            Operator::Exponentiate
+            Operator::ComplexMultiply
+            | Operator::ComplexDivide
+            | Operator::ComplexExponentiate
+            | Operator::Exponentiate
             | Operator::BitwiseAnd
             | Operator::BitwiseOr
             | Operator::BitwiseXor

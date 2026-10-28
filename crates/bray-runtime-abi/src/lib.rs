@@ -7,6 +7,7 @@
 mod layout;
 mod activation;
 mod catalog;
+mod numeric;
 mod panic;
 mod platform;
 mod process;
@@ -21,6 +22,7 @@ pub mod symbols;
 mod temporal;
 
 pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
+pub use numeric::NativeComplexBits;
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
     NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeSourceAnchor,

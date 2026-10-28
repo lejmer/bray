@@ -1,0 +1,36 @@
+@target(target.scalar.R128 && target.scalar.C256)
+module bray.standard_library_tests.complex_arithmetic;
+
+const PRODUCT_256: c256 = (3.0 + 4.0i) * (1.0 + 1.0i);
+
+const QUOTIENT_256: c256 = (3.0 + 4.0i) / (1.0 + 1.0i);
+
+const POWER_256: c256 = (1.0 + 1.0i) ** (2.0 + 0.0i);
+
+@test
+func optional_complex_256_arithmetic_executes()
+{
+    let left: c256 = 3.0 + 4.0i;
+    let right: c256 = 1.0 + 1.0i;
+    let exponent: c256 = 2.0 + 0.0i;
+    let sum: c256 = 4.0 + 5.0i;
+    let difference: c256 = 2.0 + 3.0i;
+    let product: c256 = -1.0 + 7.0i;
+    let quotient: c256 = 3.5 + 0.5i;
+    let squared: c256 = 0.0 + 2.0i;
+    let negative: c256 = -3.0 - 4.0i;
+
+    assert(left + right == sum);
+    assert(left - right == difference);
+    assert(left * right == product);
+    assert(left / right == quotient);
+    assert(right ** exponent == squared);
+    assert(-left == negative);
+    assert(PRODUCT_256 == product);
+    assert(QUOTIENT_256 == quotient);
+    assert(POWER_256 == squared);
+    assert(generic_complex_product<c256>(left, right) == product);
+    assert(generic_complex_quotient<c256>(left, right) == quotient);
+    assert(generic_complex_power<c256>(right, exponent) == squared);
+    assert(generic_complex_negation<c256>(left) == negative);
+}

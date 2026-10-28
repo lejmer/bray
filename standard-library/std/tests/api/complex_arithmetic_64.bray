@@ -1,0 +1,73 @@
+module bray.standard_library_tests.complex_arithmetic;
+
+func add_64(pos left: c64, pos right: c64) -> c64
+{
+    return left + right;
+}
+
+func subtract_64(pos left: c64, pos right: c64) -> c64
+{
+    return left - right;
+}
+
+func multiply_64(pos left: c64, pos right: c64) -> c64
+{
+    return left * right;
+}
+
+func divide_64(pos left: c64, pos right: c64) -> c64
+{
+    return left / right;
+}
+
+func power_64(pos left: c64, pos right: c64) -> c64
+{
+    return left ** right;
+}
+
+const PRODUCT_64: c64 = (3.0 + 4.0i) * (1.0 + 1.0i);
+
+const QUOTIENT_64: c64 = (3.0 + 4.0i) / (1.0 + 1.0i);
+
+const POWER_64: c64 = (1.0 + 1.0i) ** (2.0 + 0.0i);
+
+@test
+func ordinary_complex_64_operators_and_compound_assignments_execute()
+{
+    let left: c64 = 3.0 + 4.0i;
+    let right: c64 = 1.0 + 1.0i;
+    let exponent: c64 = 2.0 + 0.0i;
+    let sum: c64 = 4.0 + 5.0i;
+    let difference: c64 = 2.0 + 3.0i;
+    let product: c64 = -1.0 + 7.0i;
+    let quotient: c64 = 3.5 + 0.5i;
+    let squared: c64 = 0.0 + 2.0i;
+    let negative: c64 = -3.0 - 4.0i;
+
+    assert(add_64(left, right) == sum);
+    assert(subtract_64(left, right) == difference);
+    assert(multiply_64(left, right) == product);
+    assert(divide_64(left, right) == quotient);
+    assert(power_64(right, exponent) == squared);
+    assert(-left == negative);
+    assert(PRODUCT_64 == product);
+    assert(QUOTIENT_64 == quotient);
+    assert(POWER_64 == squared);
+    assert(generic_complex_product<c64>(left, right) == product);
+    assert(generic_complex_quotient<c64>(left, right) == quotient);
+    assert(generic_complex_power<c64>(right, exponent) == squared);
+    assert(generic_complex_negation<c64>(left) == negative);
+
+    let mut assigned = left;
+
+    assigned += right;
+    assert(assigned == sum);
+    assigned -= right;
+    assert(assigned == left);
+    assigned *= right;
+    assert(assigned == product);
+    assigned /= right;
+    assert(assigned == left);
+    assigned **= exponent;
+    assert(assigned == (-7.0 + 24.0i));
+}

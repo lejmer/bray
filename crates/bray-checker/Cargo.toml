@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-numeric = { path = "../bray-numeric" }
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-compiler-known = { path = "../bray-compiler-known" }

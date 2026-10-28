@@ -3,6 +3,7 @@ mod aggregate;
 mod call;
 mod call_arguments;
 mod callback;
+mod complex;
 mod construction;
 mod control;
 mod core;

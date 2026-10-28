@@ -1,0 +1,36 @@
+@target(target.scalar.R16 && target.scalar.C32)
+module bray.standard_library_tests.complex_arithmetic;
+
+const PRODUCT_32: c32 = (3.0 + 4.0i) * (1.0 + 1.0i);
+
+const QUOTIENT_32: c32 = (3.0 + 4.0i) / (1.0 + 1.0i);
+
+const POWER_32: c32 = (1.0 + 1.0i) ** (2.0 + 0.0i);
+
+@test
+func optional_complex_32_arithmetic_executes()
+{
+    let left: c32 = 3.0 + 4.0i;
+    let right: c32 = 1.0 + 1.0i;
+    let exponent: c32 = 2.0 + 0.0i;
+    let sum: c32 = 4.0 + 5.0i;
+    let difference: c32 = 2.0 + 3.0i;
+    let product: c32 = -1.0 + 7.0i;
+    let quotient: c32 = 3.5 + 0.5i;
+    let squared: c32 = 0.0 + 2.0i;
+    let negative: c32 = -3.0 - 4.0i;
+
+    assert(left + right == sum);
+    assert(left - right == difference);
+    assert(left * right == product);
+    assert(left / right == quotient);
+    assert(right ** exponent == squared);
+    assert(-left == negative);
+    assert(PRODUCT_32 == product);
+    assert(QUOTIENT_32 == quotient);
+    assert(POWER_32 == squared);
+    assert(generic_complex_product<c32>(left, right) == product);
+    assert(generic_complex_quotient<c32>(left, right) == quotient);
+    assert(generic_complex_power<c32>(right, exponent) == squared);
+    assert(generic_complex_negation<c32>(left) == negative);
+}

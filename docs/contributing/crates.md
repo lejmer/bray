@@ -61,6 +61,10 @@ Compiler libraries and installed Bray tools.
 - `bray-bound-tree`
     - The source-correlated high-level intermediate representation and durable typed semantic analyses.
 
+- `bray-numeric`
+    - Deterministic IEEE complex multiplication, division, and principal powers shared by constant evaluation and native
+      helpers.
+
 - `bray-checker`
     - Focused type, ownership, control-flow, effect, and related semantic checker services.
 

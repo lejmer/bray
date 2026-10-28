@@ -30,6 +30,33 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
+            ComplexMultiply {
+                "Multiply complex IEEE components in the selected format.", "complex_multiply",
+                native: (COMPLEX_MULTIPLY_SYMBOL = "bray_runtime_complex_multiply", [U32, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            ComplexDivide {
+                "Divide complex IEEE components in the selected format.", "complex_divide",
+                native: (COMPLEX_DIVIDE_SYMBOL = "bray_runtime_complex_divide", [U32, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            ComplexPower {
+                "Compute the principal complex power in the selected format.", "complex_power",
+                native: (COMPLEX_POWER_SYMBOL = "bray_runtime_complex_power", [U32, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             ReportRecordAdmission {
                 "Reserve records before a Rust producer accepts ownership.", "report_records_admit",
                 native: (REPORT_RECORDS_ADMIT_SYMBOL = "bray_runtime_report_records_admit", [Usize, Pointer] -> U32),
