@@ -95,7 +95,11 @@ fn expand<C: CheckerRequestContext + ?Sized>(
             let nested = DependencyContractTemplateData::new(requirements.iter().cloned());
             let expanded = expand(request, selection, &nested, defaults, from_default)?;
 
-            result.push(DependencyRequirement::cleanup_dependencies(ty, expanded.template.requirements().iter().cloned()));
+            result.push(DependencyRequirement::cleanup_dependencies(
+                ty,
+                expanded.template.requirements().iter().cloned(),
+            ));
+
             escaping_evaluation_inputs.extend(expanded.escaping_evaluation_inputs);
             continue;
         }

@@ -1179,21 +1179,22 @@ mod tests {
             let observed_task = Arc::clone(&task);
             let observed_callbacks = Arc::clone(&callbacks);
 
-            *callback.lock().expect("fixture mutex must not be poisoned") = Some(Box::new(move || {
-                let data = observed_task
-                    .data
-                    .try_lock()
-                    .expect("frame callbacks and destruction must not hold task data");
+            *callback.lock().expect("fixture mutex must not be poisoned") =
+                Some(Box::new(move || {
+                    let data = observed_task
+                        .data
+                        .try_lock()
+                        .expect("frame callbacks and destruction must not hold task data");
 
-                assert_eq!(data.state, TaskState::Running);
-                assert!(data.frame.is_none());
+                    assert_eq!(data.state, TaskState::Running);
+                    assert!(data.frame.is_none());
 
-                drop(data);
+                    drop(data);
 
-                assert_eq!(observed_task.resume(), Err(TaskResumeError::AlreadyRunning));
+                    assert_eq!(observed_task.resume(), Err(TaskResumeError::AlreadyRunning));
 
-                observed_callbacks.fetch_add(1, Ordering::Relaxed);
-            }) as Box<dyn Fn() + Send + Sync>);
+                    observed_callbacks.fetch_add(1, Ordering::Relaxed);
+                }) as Box<dyn Fn() + Send + Sync>);
 
             if runtime_failure {
                 assert!(task.resolve_runtime_failure().is_none());
@@ -1212,7 +1213,10 @@ mod tests {
             assert_eq!(releases.load(Ordering::Relaxed), 1);
 
             // Release the callback's task ownership after the frame has been destroyed.
-            callback.lock().expect("fixture mutex must not be poisoned").take();
+            callback
+                .lock()
+                .expect("fixture mutex must not be poisoned")
+                .take();
         }
     }
 
@@ -1284,7 +1288,12 @@ mod tests {
 
     impl LockCheckingFrame {
         fn check(&self) {
-            if let Some(callback) = self.callback.lock().expect("fixture mutex must not be poisoned").as_ref() {
+            if let Some(callback) = self
+                .callback
+                .lock()
+                .expect("fixture mutex must not be poisoned")
+                .as_ref()
+            {
                 callback();
             }
         }

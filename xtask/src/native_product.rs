@@ -257,7 +257,8 @@ mod tests {
 
     #[test]
     fn native_outputs_share_storage_in_their_parent_build_directory() {
-        let destination = super::managed_destination(Path::new("build/native/release")).expect("fixture `super::managed_destination` call must succeed");
+        let destination = super::managed_destination(Path::new("build/native/release"))
+            .expect("fixture `super::managed_destination` call must succeed");
 
         assert_eq!(destination.root(), Path::new("build/native"));
         assert_eq!(destination.directory(), Path::new("build/native/release"));

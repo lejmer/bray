@@ -323,7 +323,8 @@ mod tests {
             );
 
             for _ in 0..count {
-                writeln!(source, "value = identity(value);").expect("fixture source must be constructed");
+                writeln!(source, "value = identity(value);")
+                    .expect("fixture source must be constructed");
             }
 
             source.push_str("\nreturn value;\n}\n");
@@ -381,13 +382,18 @@ mod tests {
                         )
                         .expect("fixture source must be constructed");
 
-                        writeln!(source, "let moved{index} = wrapper{index}.value;").expect("fixture source must be constructed");
+                        writeln!(source, "let moved{index} = wrapper{index}.value;")
+                            .expect("fixture source must be constructed");
                     } else {
-                        writeln!(source, "let item{index} = Item {{}};").expect("fixture source must be constructed");
-                        writeln!(source, "let moved{index} = item{index};").expect("fixture source must be constructed");
+                        writeln!(source, "let item{index} = Item {{}};")
+                            .expect("fixture source must be constructed");
+
+                        writeln!(source, "let moved{index} = item{index};")
+                            .expect("fixture source must be constructed");
                     }
 
-                    writeln!(source, "take(moved{index});").expect("fixture source must be constructed");
+                    writeln!(source, "take(moved{index});")
+                        .expect("fixture source must be constructed");
                 }
 
                 source.push_str("\n}\n");
@@ -401,7 +407,10 @@ mod tests {
                 );
 
                 let key = source_function_body_key(&compilation, "caller");
-                let liveness = compilation.liveness(key.clone()).expect("fixture `liveness` call must succeed");
+
+                let liveness = compilation
+                    .liveness(key.clone())
+                    .expect("fixture `liveness` call must succeed");
 
                 assert!(!liveness.value().is_recovered());
 
@@ -608,7 +617,8 @@ mod tests {
             );
 
             for index in 0..count {
-                writeln!(source, "let value_{index}: bool = identity(true);").expect("fixture source must be constructed");
+                writeln!(source, "let value_{index}: bool = identity(true);")
+                    .expect("fixture source must be constructed");
             }
 
             source.push_str("\n}\n");
@@ -637,7 +647,8 @@ mod tests {
             let mut source = String::from("module example;\nfunc caller(\n");
 
             for index in 0..count {
-                writeln!(source, "pos value_{index}: bool,").expect("fixture source must be constructed");
+                writeln!(source, "pos value_{index}: bool,")
+                    .expect("fixture source must be constructed");
             }
 
             source.push_str(
@@ -806,7 +817,8 @@ mod tests {
                 );
 
                 for index in 0..count {
-                    writeln!(source, "let value_{index}: bool = identity(true);").expect("fixture source must be constructed");
+                    writeln!(source, "let value_{index}: bool = identity(true);")
+                        .expect("fixture source must be constructed");
 
                     if short_circuit {
                         writeln!(
@@ -815,7 +827,8 @@ mod tests {
                         )
                         .expect("fixture source must be constructed");
                     } else {
-                        writeln!(source, "if condition\n{{\nidentity(value_{index});\n}}").expect("fixture source must be constructed");
+                        writeln!(source, "if condition\n{{\nidentity(value_{index});\n}}")
+                            .expect("fixture source must be constructed");
                     }
                 }
 

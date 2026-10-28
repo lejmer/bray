@@ -1693,9 +1693,12 @@ fn json_storage_failures_preserve_revision_and_permission_details() {
 
         let mut bytes = Vec::new();
 
-        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes).expect("fixture `write_json_diagnostics` call must succeed");
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes)
+            .expect("fixture `write_json_diagnostics` call must succeed");
 
-        let output: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+        let output: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+
         let value = &output["diagnostics"][0]["args"][1]["value"]["value"];
 
         assert_eq!(value["problem"], key);
@@ -1729,9 +1732,12 @@ fn callable_result_diagnostic_preserves_json_context() {
 
     let mut output = Vec::new();
 
-    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output).expect("fixture `write_json_diagnostics` call must succeed");
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .expect("fixture `write_json_diagnostics` call must succeed");
 
-    let json: serde_json::Value = serde_json::from_slice(&output).expect("fixture data must deserialize");
+    let json: serde_json::Value =
+        serde_json::from_slice(&output).expect("fixture data must deserialize");
+
     let diagnostic = &json["diagnostics"][0];
 
     assert_eq!(diagnostic["kind"], "checking_callable_result_required");
@@ -1759,15 +1765,20 @@ fn native_artifact_read_json_preserves_typed_path_and_io_cause() {
 
     let mut bytes = Vec::new();
 
-    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes).expect("fixture `write_json_diagnostics` call must succeed");
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes)
+        .expect("fixture `write_json_diagnostics` call must succeed");
 
-    let output: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+    let output: serde_json::Value =
+        serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+
     let failure = &output["diagnostics"][0]["args"][0]["value"]["value"];
 
     assert_eq!(failure["category"], "native_read");
     assert_eq!(failure["reason"], "read");
 
-    let context = failure["context"].as_array().expect("fixture `as_array` call must succeed");
+    let context = failure["context"]
+        .as_array()
+        .expect("fixture `as_array` call must succeed");
 
     assert!(
         context
@@ -1813,9 +1824,12 @@ fn finalization_diagnostics_preserve_owner_and_ownership_end() {
 
         let mut output = Vec::new();
 
-        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output).expect("fixture `write_json_diagnostics` call must succeed");
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+            .expect("fixture `write_json_diagnostics` call must succeed");
 
-        let json: serde_json::Value = serde_json::from_slice(&output).expect("fixture data must deserialize");
+        let json: serde_json::Value =
+            serde_json::from_slice(&output).expect("fixture data must deserialize");
+
         let diagnostic = &json["diagnostics"][0];
 
         assert_eq!(diagnostic["kind"], key);

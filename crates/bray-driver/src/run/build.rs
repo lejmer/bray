@@ -322,7 +322,9 @@ fn encode_test_catalog(
 
     let (bytes, _) =
         bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(Box::new(test_catalog_failure(error, product, target)))
+            TestCatalogPublicationError::Diagnostic(Box::new(test_catalog_failure(
+                error, product, target,
+            )))
         })?;
 
     Ok(bytes)

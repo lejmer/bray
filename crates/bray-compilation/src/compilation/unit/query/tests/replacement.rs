@@ -44,7 +44,10 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
         );
 
         let key = source_function_body_key(&compilation, "probe");
-        let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+        let flow = compilation
+            .storage_flow(key.clone())
+            .expect("fixture callable must complete storage-flow analysis");
 
         let [decision] = flow.value().replacements() else {
             panic!("one assignment must publish one old-state decision: {flow:?}");
@@ -52,7 +55,9 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
 
         assert_eq!(decision.state(), expected, "{source}");
 
-        let analysis = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+        let analysis = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
 
         let [plan] = analysis.value().replacements() else {
             panic!("one assignment must publish one cleanup plan: {analysis:?}");
@@ -68,7 +73,9 @@ fn replacement_plans_capture_old_state_after_rhs_transfers() {
             "{source}"
         );
 
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             lowered
@@ -109,7 +116,14 @@ fn nested_cleanup_native_fixture_lowers_checked_paths() {
         let lowered = compilation.lowered_unit(key);
 
         assert!(lowered.is_ok(), "{name}: {lowered:?}");
-        assert!(lowered.expect("fixture `lowered` call must succeed").value().is_some(), "{name}");
+
+        assert!(
+            lowered
+                .expect("fixture `lowered` call must succeed")
+                .value()
+                .is_some(),
+            "{name}"
+        );
     }
 
     assert!(compilation.check_diagnostics().is_empty());
@@ -143,7 +157,14 @@ fn replacement_native_fixture_lowers_checked_cleanup_paths() {
         let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name));
 
         assert!(lowered.is_ok(), "{name}: {lowered:?}");
-        assert!(lowered.expect("fixture `lowered` call must succeed").value().is_some(), "{name}");
+
+        assert!(
+            lowered
+                .expect("fixture `lowered` call must succeed")
+                .value()
+                .is_some(),
+            "{name}"
+        );
     }
 }
 
@@ -167,7 +188,10 @@ fn replacement_lowering_covers_borrowed_projected_and_nullable_destinations() {
         );
 
         let key = source_function_body_key(&compilation, "probe");
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             lowered

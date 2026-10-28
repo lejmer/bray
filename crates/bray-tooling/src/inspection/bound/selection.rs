@@ -854,7 +854,8 @@ func main()
         );
 
         let compilation = Compilation::load_sources(
-            PackageIdentity::try_new("test.package").expect("fixture package identity must be valid"),
+            PackageIdentity::try_new("test.package")
+                .expect("fixture package identity must be valid"),
             vec![input],
         )
         .expect("fixture `Compilation::load_sources` call must succeed");

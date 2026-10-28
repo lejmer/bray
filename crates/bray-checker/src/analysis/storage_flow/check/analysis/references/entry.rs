@@ -15,7 +15,10 @@ pub(super) type Demands = BTreeMap<
 
 type ParentPaths = BTreeMap<
     bray_symbols::TypeId,
-    BTreeSet<(bray_symbols::TypeId, Arc<[bray_bound_tree::StorageProjection]>)>,
+    BTreeSet<(
+        bray_symbols::TypeId,
+        Arc<[bray_bound_tree::StorageProjection]>,
+    )>,
 >;
 
 impl crate::analysis::storage_flow::model::StorageFlowInput {

@@ -13,7 +13,11 @@ fn readers_recover_a_crashed_public_projection_before_consuming_files() {
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = current.generation().expect("fixture `generation` call must succeed").store();
+    let store = current
+        .generation()
+        .expect("fixture `generation` call must succeed")
+        .store();
+
     let public = output.path().join("application.brayd");
     let extra = output.path().join("unfinished.brayd");
     let unrelated = output.path().join("user.txt");
@@ -51,11 +55,18 @@ fn a_committed_reference_wins_over_an_unfinished_journal() {
     let current = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = current.generation().expect("fixture `generation` call must succeed").store();
+    let store = current
+        .generation()
+        .expect("fixture `generation` call must succeed")
+        .store();
+
     let journal = store.join("pending-publication.json");
 
-    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).expect("fixture contents must be written");
-    std::fs::remove_file(output.path().join("application.brayd")).expect("fixture file must be removed");
+    std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#)
+        .expect("fixture contents must be written");
+
+    std::fs::remove_file(output.path().join("application.brayd"))
+        .expect("fixture file must be removed");
 
     let resolved = crate::resolve_published_artifact(
         output.path(),
@@ -77,7 +88,12 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
     let product = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"committed", None)]);
 
-    let store = product.generation().expect("fixture `generation` call must succeed").store().to_owned();
+    let store = product
+        .generation()
+        .expect("fixture `generation` call must succeed")
+        .store()
+        .to_owned();
+
     let public = output.path().join("application.brayd");
     let extra = output.path().join("unfinished.brayd");
     let journal = store.join("pending-publication.json");
@@ -93,7 +109,9 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
     std::fs::write(&public, b"uncommitted").expect("fixture contents must be written");
     std::fs::write(&extra, b"unfinished").expect("fixture contents must be written");
 
-    let mut managed = crate::storage::ManagedStore::open(output.path()).expect("fixture file must open");
+    let mut managed =
+        crate::storage::ManagedStore::open(output.path()).expect("fixture file must open");
+
     let cancelled = || std::fs::read(&public).is_ok_and(|bytes| bytes == b"committed");
 
     let error = managed

@@ -666,21 +666,22 @@ fn bind_callable_contracts(
     );
 
     if owner.into_any().kind() == bray_symbols::SymbolKind::Destructor
-        && let Some(key) = &body_key {
-            let body = context
-                .compilation()
-                .body_semantics_with_cancellation(key.clone(), context.cancellation())
-                .map_err(super::binding::binder_error)?;
+        && let Some(key) = &body_key
+    {
+        let body = context
+            .compilation()
+            .body_semantics_with_cancellation(key.clone(), context.cancellation())
+            .map_err(super::binding::binder_error)?;
 
-            invocation_behavior = invocation_behavior.with_receiver_cleanup(
-                body.result()
-                    .value()
-                    .storage_flow()
-                    .receiver_cleanup()
-                    .iter()
-                    .copied(),
-            );
-        }
+        invocation_behavior = invocation_behavior.with_receiver_cleanup(
+            body.result()
+                .value()
+                .storage_flow()
+                .receiver_cleanup()
+                .iter()
+                .copied(),
+        );
+    }
 
     let may_unwind = if let Some(key) = body_key {
         let unwind = context
@@ -1480,8 +1481,12 @@ mod tests {
         assert_eq!(predicates.len(), 1);
 
         let condition = bray_checker::execution_condition_from_type_term(
-            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
-            predicates[0].condition().expect("fixture `condition` call must succeed"),
+            compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store"),
+            predicates[0]
+                .condition()
+                .expect("fixture `condition` call must succeed"),
             2,
         )
         .expect("fixture `bray_checker::execution_condition_from_type_term` call must succeed");

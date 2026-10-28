@@ -11,8 +11,8 @@ use bray_messages::{
 };
 use bray_test_protocol::{
     CapturedStream, CapturedStreamPolicy, TestCancellationSource, TestCommandReport,
-    TestHostTermination, TestInfrastructureFailureKind, TestInvocationResult, TestOutcome, TestPanicCause,
-    TestProductReport, TestSourceAnchor,
+    TestHostTermination, TestInfrastructureFailureKind, TestInvocationResult, TestOutcome,
+    TestPanicCause, TestProductReport, TestSourceAnchor,
 };
 use bray_tooling::OutputFormat;
 use serde::Serialize;

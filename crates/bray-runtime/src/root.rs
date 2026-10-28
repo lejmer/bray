@@ -269,7 +269,8 @@ mod tests {
     fn synchronous_roots_execute_directly_and_capture_panics() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         assert!(matches!(
             execute_synchronous_root(|| 17, |_| {}, &mut admitted),
@@ -286,7 +287,8 @@ mod tests {
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             current_run_cancellation_observable,
@@ -303,7 +305,8 @@ mod tests {
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
         let _isolation = crate::native::test_runtime_isolation();
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let outcome =
             execute_synchronous_root(propagate_current_run_cancellation, |_| {}, &mut admitted);
@@ -316,7 +319,9 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
 
         let mut cancellation = None;
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             || (),

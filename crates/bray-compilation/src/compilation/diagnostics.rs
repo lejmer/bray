@@ -902,7 +902,11 @@ func main() {}
         assert_eq!(diagnostics.len(), 1);
 
         assert_eq!(
-            diagnostics.iter().next().expect("fixture iterator must provide its expected item").primary_span(),
+            diagnostics
+                .iter()
+                .next()
+                .expect("fixture iterator must provide its expected item")
+                .primary_span(),
             error.source()
         );
     }
@@ -921,7 +925,8 @@ func main() {}
         let mut source = String::from("module app;\n");
 
         for index in 0..count {
-            writeln!(source, "func item{index}() {{}}").expect("fixture source must be constructed");
+            writeln!(source, "func item{index}() {{}}")
+                .expect("fixture source must be constructed");
         }
 
         let compilation = compilation(&source);

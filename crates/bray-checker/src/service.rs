@@ -220,7 +220,10 @@ where
     C: CheckerRequestContext + crate::CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     /// Establishes one immutable body-semantic stage from its checked prerequisites.
-    #[expect(clippy::too_many_arguments, reason = "body checking consumes independently prepared expression, pattern, storage and memory facts")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "body checking consumes independently prepared expression, pattern, storage and memory facts"
+    )]
     fn check_body_semantics(
         &self,
         request: CheckerUnitView<'_, C>,

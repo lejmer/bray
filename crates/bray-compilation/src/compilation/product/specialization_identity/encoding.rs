@@ -601,7 +601,9 @@ mod tests {
         "#,
             );
 
-            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store");
 
             let context = compilation
                 .binding_context(&compilation.state.cancellation)
@@ -694,7 +696,10 @@ mod tests {
                             .cloned(),
                     );
 
-                    encoder.dependency_contract(contract).expect("fixture `dependency_contract` call must succeed");
+                    encoder
+                        .dependency_contract(contract)
+                        .expect("fixture `dependency_contract` call must succeed");
+
                     identities.insert(encoder.digest.finalize());
                 }
             }
@@ -712,7 +717,10 @@ mod tests {
                 allow_static_address: false,
             };
 
-            encoder.dependency_contract(combined).expect("fixture `dependency_contract` call must succeed");
+            encoder
+                .dependency_contract(combined)
+                .expect("fixture `dependency_contract` call must succeed");
+
             by_query_order.push((identities, encoder.digest.finalize()));
         }
 
@@ -722,16 +730,23 @@ mod tests {
     #[test]
     fn callable_execution_properties_distinguish_specialization_identities() {
         let compilation = crate::test_support::compilation("module app;");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
 
         let context = compilation
             .binding_context(&compilation.state.cancellation)
             .expect("fixture compilation must provide a binding context");
 
-        let result = values.intern_type(TypeData::Tuple([].into())).expect("fixture type must be interned");
+        let result = values
+            .intern_type(TypeData::Tuple([].into()))
+            .expect("fixture type must be interned");
 
         let dependencies = CallableDependencyContracts::synchronous(
-            values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed"),
+            values
+                .empty_dependency_contract_template()
+                .expect("fixture `empty_dependency_contract_template` call must succeed"),
         );
 
         let identities = [
@@ -754,9 +769,12 @@ mod tests {
             )
             .with_phase_behaviors(phases);
 
-            let ty = values.intern_type(TypeData::Callable(callable)).expect("fixture type must be interned");
+            let ty = values
+                .intern_type(TypeData::Callable(callable))
+                .expect("fixture type must be interned");
 
-            structural_type_identity(values, &context, ty).expect("fixture `structural_type_identity` call must succeed")
+            structural_type_identity(values, &context, ty)
+                .expect("fixture `structural_type_identity` call must succeed")
         })
         .collect::<std::collections::BTreeSet<_>>();
 
@@ -878,7 +896,10 @@ mod tests {
 
         for order in [[false, true], [true, false]] {
             let compilation = crate::test_support::compilation("module app;");
-            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store");
 
             let context = compilation
                 .binding_context(&compilation.state.cancellation)
@@ -888,8 +909,14 @@ mod tests {
                 .target_property_type(bray_target::TargetPropertyKind::ScalarBool)
                 .expect("fixture `target_property_type` call must succeed");
 
-            let result = values.intern_type(TypeData::Tuple([].into())).expect("fixture type must be interned");
-            let dependency = values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
+            let result = values
+                .intern_type(TypeData::Tuple([].into()))
+                .expect("fixture type must be interned");
+
+            let dependency = values
+                .empty_dependency_contract_template()
+                .expect("fixture `empty_dependency_contract_template` call must succeed");
+
             let mut conditions = Vec::new();
 
             for value in order {
@@ -945,10 +972,14 @@ mod tests {
                             )
                             .with_phase_behaviors(phases);
 
-                            let ty = values.intern_type(TypeData::Callable(callable)).expect("fixture type must be interned");
+                            let ty = values
+                                .intern_type(TypeData::Callable(callable))
+                                .expect("fixture type must be interned");
 
                             identities
-                                .insert(structural_type_identity(values, &context, ty).expect("fixture `structural_type_identity` call must succeed"));
+                                .insert(structural_type_identity(values, &context, ty).expect(
+                                    "fixture `structural_type_identity` call must succeed",
+                                ));
                         }
                     }
                 }

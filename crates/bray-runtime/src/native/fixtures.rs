@@ -27,18 +27,23 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
 
     crate::report_provider::bray_runtime_activation_header_layout(&mut bytes, &mut alignment);
 
-    let header =
-        Layout::from_size_align(bytes, alignment.max(callbacks.storage.alignment())).expect("fixture size align must form a valid value");
+    let header = Layout::from_size_align(bytes, alignment.max(callbacks.storage.alignment()))
+        .expect("fixture size align must form a valid value");
 
-    let capture =
-        Layout::from_size_align(callbacks.storage.bytes(), callbacks.storage.alignment()).expect("fixture size align must form a valid value");
+    let capture = Layout::from_size_align(callbacks.storage.bytes(), callbacks.storage.alignment())
+        .expect("fixture size align must form a valid value");
 
-    let (header, _) = header.extend(capture).expect("fixture `extend` call must succeed");
+    let (header, _) = header
+        .extend(capture)
+        .expect("fixture `extend` call must succeed");
 
     let completion =
-        Layout::from_size_align(callbacks.completion_bytes, callbacks.completion_align).expect("fixture size align must form a valid value");
+        Layout::from_size_align(callbacks.completion_bytes, callbacks.completion_align)
+            .expect("fixture size align must form a valid value");
 
-    let (layout, completion) = header.extend(completion).expect("fixture `extend` call must succeed");
+    let (layout, completion) = header
+        .extend(completion)
+        .expect("fixture `extend` call must succeed");
 
     let layout = layout.pad_to_align();
 
@@ -71,7 +76,8 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
         context,
     });
 
-    let mut outgoing = crate::outgoing::OutgoingRecords::admit(4).expect("fixture outgoing records must admit the supplied values");
+    let mut outgoing = crate::outgoing::OutgoingRecords::admit(4)
+        .expect("fixture outgoing records must admit the supplied values");
 
     let (head, tail, count) = std::mem::take(&mut outgoing).into_parts();
 

@@ -25,7 +25,9 @@ impl MemoryRegion {
     fn new(pointer: *const u8, bytes: usize, alignment: usize) -> Option<Self> {
         let start = pointer.addr();
 
-        if !start.is_multiple_of(alignment) || bytes != 0 && pointer.is_null() || bytes > isize::MAX as usize
+        if !start.is_multiple_of(alignment)
+            || bytes != 0 && pointer.is_null()
+            || bytes > isize::MAX as usize
         {
             return None;
         }

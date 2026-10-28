@@ -67,7 +67,8 @@ mod tests {
         let first = crate::test_support::product_identity();
 
         let second = ProductIdentity::try_new(
-            PackageIdentity::try_new("other.package").expect("fixture package identity must be valid"),
+            PackageIdentity::try_new("other.package")
+                .expect("fixture package identity must be valid"),
             first.name(),
         )
         .expect("fixture product identity must be valid");

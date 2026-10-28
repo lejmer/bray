@@ -121,24 +121,22 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
 
             let root = bray_symbols::DependencySubjectRoot::Receiver;
 
-            bray_symbols::DependencyContractTemplateData::new([
-                DependencyRequirement::result_call(
-                    callable,
-                    None,
-                    [bray_symbols::DependencyCallInput::new(
-                        root,
-                        [DependencyRequirement::direct(
-                            bray_symbols::DependencySubject::root(root),
-                            DependencyRequirementKind::ValueDependencies,
-                        )],
-                        [DependencyRequirement::direct(
-                            bray_symbols::DependencySubject::root(root),
-                            DependencyRequirementKind::StorageAlive,
-                        )],
+            bray_symbols::DependencyContractTemplateData::new([DependencyRequirement::result_call(
+                callable,
+                None,
+                [bray_symbols::DependencyCallInput::new(
+                    root,
+                    [DependencyRequirement::direct(
+                        bray_symbols::DependencySubject::root(root),
+                        DependencyRequirementKind::ValueDependencies,
                     )],
-                    bray_symbols::DependencyCallOutput::Value,
-                ),
-            ])
+                    [DependencyRequirement::direct(
+                        bray_symbols::DependencySubject::root(root),
+                        DependencyRequirementKind::StorageAlive,
+                    )],
+                )],
+                bray_symbols::DependencyCallOutput::Value,
+            )])
         } else {
             let template = self.request.callable_result_dependencies(symbol)?;
 

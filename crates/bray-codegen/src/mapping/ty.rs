@@ -639,8 +639,13 @@ mod tests {
             SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
         };
 
-        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-        let ty = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let values =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+        let ty = values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
         let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(1));
         let field = UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(2));
 
@@ -656,7 +661,9 @@ mod tests {
             ],
         )]);
 
-        let layout = kind.union_variant(variant).expect("fixture `union_variant` call must succeed");
+        let layout = kind
+            .union_variant(variant)
+            .expect("fixture `union_variant` call must succeed");
 
         assert_eq!(
             layout.payload_element(SymbolOrdinal::new(0)),
@@ -681,10 +688,20 @@ mod tests {
 
     #[test]
     fn shared_representation_preserves_backend_identity_without_semantic_behavior() {
-        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-        let original = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
-        let backend = values.intern_type(TypeData::Slice(original)).expect("fixture type must be interned");
-        let alias = values.intern_type(TypeData::Nullable(original)).expect("fixture type must be interned");
+        let values =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+        let original = values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
+        let backend = values
+            .intern_type(TypeData::Slice(original))
+            .expect("fixture type must be interned");
+
+        let alias = values
+            .intern_type(TypeData::Nullable(original))
+            .expect("fixture type must be interned");
 
         let mapping = CodegenTypeMapping::new_unsized(original, CodegenTypeKind::UnsizedTraitView)
             .with_backend_type(backend)

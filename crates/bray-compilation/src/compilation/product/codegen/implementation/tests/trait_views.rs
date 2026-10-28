@@ -225,7 +225,8 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
 
     let request = crate::CompilationRequest::with_options(
         crate::test_support::package_identity(),
-        vec![crate::test_support::source_input(r#"
+        vec![crate::test_support::source_input(
+            r#"
         module consumer;
 
         using example.dependency.app.Cell;
@@ -248,9 +249,16 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
 
             return 1;
         }
-        "#, 0)],
-        crate::CompilationOptions::new(crate::WorkerBudget::serial(), bray_symbols::ProductKind::Library, crate::SelectedTarget::baseline()),
-    ).with_dependency_interfaces([dependency]);
+        "#,
+            0,
+        )],
+        crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        ),
+    )
+    .with_dependency_interfaces([dependency]);
 
     let compilation = crate::Compilation::load_with_codegen(request, codegen)
         .expect("imported view consumer must load");

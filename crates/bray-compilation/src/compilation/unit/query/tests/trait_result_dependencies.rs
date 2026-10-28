@@ -480,7 +480,9 @@ fn abstract_trait_results_converge_through_recursive_generic_composition() {
                 }
             });
 
-            let context = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
+            let context = compilation
+                .binding_context(&cancellation)
+                .expect("fixture compilation must provide a binding context");
 
             let result =
                     bray_binder::SymbolQueryProvider::resolve_symbol_query(

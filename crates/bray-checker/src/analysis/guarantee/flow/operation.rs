@@ -25,9 +25,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         ) && let (Some(body), bray_bound_tree::BoundExecutionSite::Node(node)) =
             (self.checked_body, operation.occurrence())
-            && !self.assume_patterns(state, body.refinements().refinements_before(node).iter()) {
-                return false;
-            }
+            && !self.assume_patterns(state, body.refinements().refinements_before(node).iter())
+        {
+            return false;
+        }
 
         self.transition_cleanup(state, operation, observe);
 
@@ -358,9 +359,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
             phase: super::super::super::model::AnalysisCallPhase::Completion,
         } = operation
-            && let Some(value) = state.pending_results.remove(&expression) {
-                state.expressions.insert(expression, value);
-            }
+            && let Some(value) = state.pending_results.remove(&expression)
+        {
+            state.expressions.insert(expression, value);
+        }
 
         let input = matches!(
             operation.occurrence(),
@@ -512,45 +514,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         self.semantics,
                         self.request.semantic_values(),
                         *target,
-                    ) {
-                        let value = if assignment.operator() == BoundAssignmentOperator::Assign {
-                            state
-                                .expressions
-                                .get(source)
-                                .cloned()
-                                .unwrap_or_else(|| self.value(state, *source))
-                        } else {
-                            match machine_value.clone().unwrap_or(ExecutionCondition::Unknown) {
-                                ExecutionCondition::Unknown => ExecutionCondition::PostState(
-                                    bray_bound_tree::StorageMutation::Operation(expression.into()),
-                                    assignment_place.unwrap_or(&place).clone(),
-                                ),
-                                value => value,
-                            }
-                        };
-
-                        let value = value.coerce(
-                            self.request.semantic_values(),
-                            self.semantics
-                                .types()
-                                .expression(*source)
-                                .expect("assignment source retains its checked type")
-                                .ty(),
-                            self.semantics
-                                .types()
-                                .expression(*target)
-                                .expect("assignment target retains its checked type")
-                                .ty(),
-                        );
-
-                        if let Some(owner) = assignment_place
-                            && *owner != place
-                        {
-                            state.assign(owner.clone(), value.clone());
+                    )
+                {
+                    let value = if assignment.operator() == BoundAssignmentOperator::Assign {
+                        state
+                            .expressions
+                            .get(source)
+                            .cloned()
+                            .unwrap_or_else(|| self.value(state, *source))
+                    } else {
+                        match machine_value.clone().unwrap_or(ExecutionCondition::Unknown) {
+                            ExecutionCondition::Unknown => ExecutionCondition::PostState(
+                                bray_bound_tree::StorageMutation::Operation(expression.into()),
+                                assignment_place.unwrap_or(&place).clone(),
+                            ),
+                            value => value,
                         }
+                    };
 
-                        state.assign(place, value);
+                    let value = value.coerce(
+                        self.request.semantic_values(),
+                        self.semantics
+                            .types()
+                            .expression(*source)
+                            .expect("assignment source retains its checked type")
+                            .ty(),
+                        self.semantics
+                            .types()
+                            .expression(*target)
+                            .expect("assignment target retains its checked type")
+                            .ty(),
+                    );
+
+                    if let Some(owner) = assignment_place
+                        && *owner != place
+                    {
+                        state.assign(owner.clone(), value.clone());
                     }
+
+                    state.assign(place, value);
+                }
             }
             Some(BoundExpression::ControlTransfer(transfer))
                 if transfer.kind() == BoundControlTransferKind::Return =>

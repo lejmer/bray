@@ -153,7 +153,10 @@ fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
             if let MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
                 resume_state: admitted,
                 ..
-            }) = mir.operation(*operation).expect("fixture MIR operation must exist").kind()
+            }) = mir
+                .operation(*operation)
+                .expect("fixture MIR operation must exist")
+                .kind()
             {
                 assert_eq!(
                     admitted, resume_state,
@@ -197,8 +200,14 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         .expect("fixture callable must lower successfully");
 
     let mir = lowered_mir(&result);
-    let frame = mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed");
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let frame = mir
+        .frame_descriptor()
+        .expect("fixture `frame_descriptor` call must succeed");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let boolean = compilation
         .available_compiler_known_symbols()
@@ -212,13 +221,19 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
         .expect("fixture MIR block must exist")
         .operations()
         .iter()
-        .filter_map(|id| match mir.operation(*id).expect("fixture MIR operation must exist").kind() {
-            MirOperationKind::Store {
-                kind: bray_ir::MirStoreKind::Initialize,
-                destination,
-                ..
-            } => Some(destination.storage()),
-            _ => None,
+        .filter_map(|id| {
+            match mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist")
+                .kind()
+            {
+                MirOperationKind::Store {
+                    kind: bray_ir::MirStoreKind::Initialize,
+                    destination,
+                    ..
+                } => Some(destination.storage()),
+                _ => None,
+            }
         })
         .collect::<std::collections::BTreeSet<_>>();
 
@@ -398,7 +413,12 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
     let mir = lowered_mir(&lowered);
 
     let resumed = mir
-        .block(mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed").states()[1].entry())
+        .block(
+            mir.frame_descriptor()
+                .expect("fixture `frame_descriptor` call must succeed")
+                .states()[1]
+                .entry(),
+        )
         .expect("fixture MIR block must exist");
 
     assert!(resumed.operations().iter().any(|id| matches!(
@@ -415,18 +435,26 @@ fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
         panic!("child panic and cancellation must transfer before checking a new request");
     };
 
-    let completed = mir.block(completed.target()).expect("fixture MIR block must exist");
+    let completed = mir
+        .block(completed.target())
+        .expect("fixture MIR block must exist");
 
     let result = completed
         .operations()
         .iter()
-        .find_map(|id| match mir.operation(*id).expect("fixture MIR operation must exist").kind() {
-            MirOperationKind::Store {
-                destination,
-                value: MirOperand::Value(_),
-                ..
-            } => Some(destination.storage()),
-            _ => None,
+        .find_map(|id| {
+            match mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist")
+                .kind()
+            {
+                MirOperationKind::Store {
+                    destination,
+                    value: MirOperand::Value(_),
+                    ..
+                } => Some(destination.storage()),
+                _ => None,
+            }
         })
         .expect("the completed result must become an initialized cleanup owner");
 
@@ -517,7 +545,9 @@ fn completed_frame_result_has_its_own_cleanup_state() {
     };
 
     assert!(matches!(
-        mir.storage(*storage).expect("fixture `storage` call must succeed").kind(),
+        mir.storage(*storage)
+            .expect("fixture `storage` call must succeed")
+            .kind(),
         bray_ir::MirStorageKind::FrameCompletion
     ));
 
@@ -573,8 +603,13 @@ fn completed_result_cleanup_retains_its_separate_execution_phase() {
         .lowered_unit(source_function_body_key(&application, "produce"))
         .expect("owned completion must lower");
 
-    let frame = lowered_mir(&result).frame_descriptor().expect("fixture `frame_descriptor` call must succeed");
-    let completion = frame.completion_state().expect("fixture `completion_state` call must succeed");
+    let frame = lowered_mir(&result)
+        .frame_descriptor()
+        .expect("fixture `frame_descriptor` call must succeed");
+
+    let completion = frame
+        .completion_state()
+        .expect("fixture `completion_state` call must succeed");
 
     assert!(frame.states()[0].retention().lane_requirements().is_empty());
 

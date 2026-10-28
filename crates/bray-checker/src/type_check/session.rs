@@ -247,7 +247,7 @@ where
             [ExpressionTypeExpectation::new(expression, ty)],
             &self.variables,
             &mut self.inference,
-        ) {  }
+        ) {}
     }
 
     pub(crate) fn expression_type(

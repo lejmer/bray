@@ -516,8 +516,13 @@ mod tests {
                     crate::SelectedTarget::for_native(target),
                 );
 
-            let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
-            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+            let symbols = compilation
+                .symbol_graph()
+                .expect("fixture compilation must build its symbol graph");
+
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store");
 
             let definition = symbols
                 .structures()
@@ -650,7 +655,9 @@ mod tests {
         let pointer = compilation
             .available_compiler_known_symbols()
             .unary_representation_type(
-                compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
+                compilation
+                    .semantic_value_store()
+                    .expect("fixture compilation must provide its semantic value store"),
                 RepresentationRole::RawPointer,
                 usize,
             )
@@ -733,8 +740,13 @@ mod tests {
                 );
             }
 
-            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
-            let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store");
+
+            let symbols = compilation
+                .symbol_graph()
+                .expect("fixture compilation must build its symbol graph");
 
             let types = symbols
                 .structures()
@@ -764,7 +776,9 @@ mod tests {
                         values,
                         bray_symbols::NamedTypeSymbolId::Struct(symbol.id()),
                     )
-                    .expect("fixture `crate::compilation::substitution::named_type` call must succeed")
+                    .expect(
+                        "fixture `crate::compilation::substitution::named_type` call must succeed",
+                    )
                 })
                 .collect::<std::collections::BTreeSet<_>>();
 
@@ -840,7 +854,9 @@ mod tests {
             let pointer = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_type(
-                    compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
+                    compilation
+                        .semantic_value_store()
+                        .expect("fixture compilation must provide its semantic value store"),
                     RepresentationRole::RawPointer,
                     byte,
                 )
@@ -890,14 +906,20 @@ mod tests {
         "#,
         );
 
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
+
         let function = crate::test_support::source_function(&compilation, "callback");
 
         let substitution =
-            crate::compilation::substitution::empty_substitution(values, function.into()).expect("fixture `crate::compilation::substitution::empty_substitution` call must succeed");
+            crate::compilation::substitution::empty_substitution(values, function.into()).expect(
+                "fixture `crate::compilation::substitution::empty_substitution` call must succeed",
+            );
 
         let callable = bray_symbols::CallableInstanceData::new(
-            bray_symbols::CallableDefinitionId::try_new(function.into()).expect("fixture callable definition id must be valid"),
+            bray_symbols::CallableDefinitionId::try_new(function.into())
+                .expect("fixture callable definition id must be valid"),
             substitution,
         );
 
@@ -905,7 +927,11 @@ mod tests {
             .constant_callable_signature(callable, &CancellationToken::new())
             .expect("fixture `constant_callable_signature` call must succeed");
 
-        let callable_type = signature.value().as_ref().expect("fixture optional value must be present").callable_type();
+        let callable_type = signature
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .callable_type();
 
         let byte = compilation
             .codegen_representation_type(RepresentationRole::ScalarU8)
@@ -964,7 +990,9 @@ mod tests {
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new()
                 )
-                .expect("fixture `crate::compilation::foreign::abi_type_matches` call must succeed"),
+                .expect(
+                    "fixture `crate::compilation::foreign::abi_type_matches` call must succeed"
+                ),
                 parameter == data
             );
         }

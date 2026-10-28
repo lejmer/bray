@@ -219,9 +219,12 @@ impl<'a> SemanticExporter<'a> {
         requirement: &DependencyRequirement,
     ) -> Result<InterfaceDependencyRequirement, PackageInterfaceExportError> {
         match requirement {
-            DependencyRequirement::CleanupDependencies { ty, requirements } => Ok(
-                InterfaceDependencyRequirement::cleanup_dependencies(self.type_id(*ty)?, self.dependency_requirements(requirements)?),
-            ),
+            DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                Ok(InterfaceDependencyRequirement::cleanup_dependencies(
+                    self.type_id(*ty)?,
+                    self.dependency_requirements(requirements)?,
+                ))
+            }
             DependencyRequirement::SynchronousCleanup(ty) => Ok(
                 InterfaceDependencyRequirement::synchronous_cleanup(self.type_id(*ty)?),
             ),
@@ -533,8 +536,14 @@ mod tests {
 
             for ordinals in [[1, 2], [2, 1]] {
                 let compilation = crate::test_support::compilation("module app;");
-                let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
-                let graph = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+
+                let values = compilation
+                    .semantic_value_store()
+                    .expect("fixture compilation must provide its semantic value store");
+
+                let graph = compilation
+                    .symbol_graph()
+                    .expect("fixture compilation must build its symbol graph");
 
                 let bundle =
                     bray_package_interface::test_support::package_interface_export_bundle();
@@ -544,7 +553,10 @@ mod tests {
                 let mut export =
                     SemanticExporter::new(&compilation, graph, bundle.surface(), &keys, values);
 
-                let unit = values.intern_type(TypeData::Tuple([].into())).expect("fixture type must be interned");
+                let unit = values
+                    .intern_type(TypeData::Tuple([].into()))
+                    .expect("fixture type must be interned");
+
                 let mut requirements = Vec::new();
                 let mut borrows = Vec::new();
                 let mut carriers = Vec::new();
@@ -564,7 +576,12 @@ mod tests {
 
                     let ty = values
                         .intern_type(TypeData::Tuple(
-                            vec![unit; usize::try_from(ordinal).expect("fixture dependencies must close successfully")].into(),
+                            vec![
+                                unit;
+                                usize::try_from(ordinal)
+                                    .expect("fixture dependencies must close successfully")
+                            ]
+                            .into(),
                         ))
                         .expect("fixture type must be interned");
 
@@ -607,9 +624,13 @@ mod tests {
                     _ => unreachable!(),
                 };
 
-                let contract = values.intern_dependency_contract_template(data).expect("fixture dependency contract must be interned");
+                let contract = values
+                    .intern_dependency_contract_template(data)
+                    .expect("fixture dependency contract must be interned");
 
-                export.dependency_contract_id(contract).expect("fixture `dependency_contract_id` call must succeed");
+                export
+                    .dependency_contract_id(contract)
+                    .expect("fixture `dependency_contract_id` call must succeed");
 
                 exported.push((
                     export.types,
@@ -625,16 +646,28 @@ mod tests {
     #[test]
     fn nested_callable_contracts_receive_distinct_export_indices() {
         let compilation = crate::test_support::compilation("module app;");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
-        let graph = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
+
+        let graph = compilation
+            .symbol_graph()
+            .expect("fixture compilation must build its symbol graph");
+
         let bundle = bray_package_interface::test_support::package_interface_export_bundle();
         let keys = BTreeMap::new();
 
         let mut export =
             SemanticExporter::new(&compilation, graph, bundle.surface(), &keys, values);
 
-        let nested = values.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
-        let unit = values.intern_type(TypeData::Tuple([].into())).expect("fixture type must be interned");
+        let nested = values
+            .empty_dependency_contract_template()
+            .expect("fixture `empty_dependency_contract_template` call must succeed");
+
+        let unit = values
+            .intern_type(TypeData::Tuple([].into()))
+            .expect("fixture type must be interned");
 
         let callable = values
             .intern_type(TypeData::Callable(CallableTypeData::new(
@@ -655,9 +688,17 @@ mod tests {
             )
             .expect("fixture dependency contract must be interned");
 
-        let outer_id = export.dependency_contract_id(outer).expect("fixture `dependency_contract_id` call must succeed");
-        let nested_id = export.dependency_contract_id(nested).expect("fixture `dependency_contract_id` call must succeed");
-        let callable_id = export.type_id(callable).expect("fixture `type_id` call must succeed");
+        let outer_id = export
+            .dependency_contract_id(outer)
+            .expect("fixture `dependency_contract_id` call must succeed");
+
+        let nested_id = export
+            .dependency_contract_id(nested)
+            .expect("fixture `dependency_contract_id` call must succeed");
+
+        let callable_id = export
+            .type_id(callable)
+            .expect("fixture `type_id` call must succeed");
 
         assert_eq!(
             (nested_id, outer_id, export.dependency_contracts),

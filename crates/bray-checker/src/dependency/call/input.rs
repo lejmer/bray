@@ -16,7 +16,10 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
     selection: &SemanticSelection,
     values: &crate::dependency::ValueInputs,
 ) -> super::contract::ContractInstantiationResult<
-    Vec<(bray_bound_tree::BoundExecutionSite, BoundCallDependencyContracts)>,
+    Vec<(
+        bray_bound_tree::BoundExecutionSite,
+        BoundCallDependencyContracts,
+    )>,
     C::UpstreamError,
 > {
     if !selection.evaluates_defaults() {

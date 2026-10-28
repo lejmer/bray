@@ -299,7 +299,10 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         &mut self,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-    ) -> crate::CheckerQueryResult<Option<Vec<(StorageCleanupProjectionKind, TypeId)>>, C::UpstreamError> {
+    ) -> crate::CheckerQueryResult<
+        Option<Vec<(StorageCleanupProjectionKind, TypeId)>>,
+        C::UpstreamError,
+    > {
         let representation = self.request.declared_type_representation(definition)?;
 
         self.diagnostics
@@ -393,7 +396,10 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         &mut self,
         ty: TypeId,
         source: BoundSourceAnchor,
-    ) -> crate::CheckerQueryResult<std::sync::Arc<[crate::asynchronous::ResolvedCleanupPart]>, C::UpstreamError> {
+    ) -> crate::CheckerQueryResult<
+        std::sync::Arc<[crate::asynchronous::ResolvedCleanupPart]>,
+        C::UpstreamError,
+    > {
         if let Some(parts) = self.full_parts.get(&ty) {
             return Ok(std::sync::Arc::clone(parts));
         }
@@ -436,7 +442,10 @@ pub(crate) fn full_cleanup_parts<C: CheckerRequestContext + ?Sized>(
     ty: TypeId,
     source: BoundSourceAnchor,
     destructor_receiver: bool,
-) -> crate::CheckerQueryResult<bray_diagnostics::DiagnosticResult<Vec<crate::asynchronous::ResolvedCleanupPart>>, C::UpstreamError> {
+) -> crate::CheckerQueryResult<
+    bray_diagnostics::DiagnosticResult<Vec<crate::asynchronous::ResolvedCleanupPart>>,
+    C::UpstreamError,
+> {
     let mut receivers = Vec::new();
 
     let selected = if destructor_receiver {

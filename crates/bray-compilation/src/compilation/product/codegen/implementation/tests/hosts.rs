@@ -158,9 +158,20 @@ fn independently_started_tasks_emit_native_units() {
     );
 
     for callback in callbacks {
-        assert_eq!(callback.lines().next().expect("fixture iterator must provide its expected item").matches("ptr ").count(), 2);
+        assert_eq!(
+            callback
+                .lines()
+                .next()
+                .expect("fixture iterator must provide its expected item")
+                .matches("ptr ")
+                .count(),
+            2
+        );
 
-        let body = callback.split("\n}").next().expect("fixture iterator must provide its expected item");
+        let body = callback
+            .split("\n}")
+            .next()
+            .expect("fixture iterator must provide its expected item");
 
         assert!(!body.contains("@bray_runtime_panic_propagation("));
         assert!(body.contains("@bray_runtime_cleanup_shield_enter("));

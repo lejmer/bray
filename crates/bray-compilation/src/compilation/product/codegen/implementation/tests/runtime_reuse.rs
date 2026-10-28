@@ -55,7 +55,8 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
     );
 
     let companion = bray_native_artifact::NativeStatic::new(
-        NonEmptySharedStr::try_new("second_provider_host").expect("fixture non empty shared str must be valid"),
+        NonEmptySharedStr::try_new("second_provider_host")
+            .expect("fixture non empty shared str must be valid"),
         [78; 32],
         Arc::from([1].as_slice()),
         StaticStorageDuration::Product,
@@ -214,12 +215,17 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         .expect("fixture implementation artifact must have shared storage")
         .expect("successful fixture query must contain its expected result");
 
-    let original = artifact.native_artifact().expect("fixture `native_artifact` call must succeed").expect("successful fixture query must contain its expected result");
+    let original = artifact
+        .native_artifact()
+        .expect("fixture `native_artifact` call must succeed")
+        .expect("successful fixture query must contain its expected result");
+
     let unit = &original.units()[0];
     let role = RuntimeAbiRole::PanicReportSuppression;
 
     let static_entry = bray_native_artifact::NativeStatic::new(
-        NonEmptySharedStr::try_new("bray_test_static_host").expect("fixture non empty shared str must be valid"),
+        NonEmptySharedStr::try_new("bray_test_static_host")
+            .expect("fixture non empty shared str must be valid"),
         [77; 32],
         Arc::from(b"native-static".as_slice()),
         StaticStorageDuration::Product,
@@ -237,7 +243,8 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         .cloned()
         .chain([NativeDefinition::new(
             NativeSymbolContract::required_name(
-                NonEmptySharedStr::try_new(static_entry.symbol()).expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new(static_entry.symbol())
+                    .expect("fixture non empty shared str must be valid"),
             ),
             NativeDefinitionSelection::Ordinary,
         )])
@@ -249,7 +256,11 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         NativeUnitSummary::Exact {
             definitions: definitions.into(),
             references: Arc::from([NativeSymbolContract::required_name(
-                NonEmptySharedStr::try_new(role.native_symbol().expect("fixture runtime role must have a native symbol")).expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new(
+                    role.native_symbol()
+                        .expect("fixture runtime role must have a native symbol"),
+                )
+                .expect("fixture non empty shared str must be valid"),
             )]),
             roots: Arc::from([]),
         },
@@ -335,7 +346,8 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
                     selected.clone(),
                 )
                 .with_native_link_inputs([NativeLinkRequirement::new(
-                    NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
+                    NonEmptySharedStr::try_new("native")
+                        .expect("fixture non empty shared str must be valid"),
                     NativeLinkKind::Dynamic,
                 )]),
             )
@@ -353,8 +365,15 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
         );
 
         let cancellation = CancellationToken::new();
-        let target = compilation.requested_target().codegen_target().expect("fixture target must support code generation");
-        let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+
+        let target = compilation
+            .requested_target()
+            .codegen_target()
+            .expect("fixture target must support code generation");
+
+        let semantic = compilation
+            .product_semantics()
+            .expect("fixture product semantics must resolve");
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -461,8 +480,10 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
     );
 
     for required in ["bray_test_precompiled", "missing_library_symbol"] {
-        let symbol =
-            NativeSymbolContract::required_name(NonEmptySharedStr::try_new(required).expect("fixture non empty shared str must be valid"));
+        let symbol = NativeSymbolContract::required_name(
+            NonEmptySharedStr::try_new(required)
+                .expect("fixture non empty shared str must be valid"),
+        );
 
         let unit = NativeUnit::new(
             original_unit.digest(),
@@ -485,7 +506,10 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
 
         let bytes = index.encode().expect("fixture artifact must encode");
 
-        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
+        let digest = NativeContentDigest::new(
+            bray_base::sha256_reader(bytes.as_slice())
+                .expect("fixture contents must have a complete SHA-256 digest"),
+        );
 
         let imported = NativeArtifactIndex::import(
             &bytes,

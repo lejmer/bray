@@ -314,7 +314,9 @@ mod tests {
             assert!(primary.message().copy_to(0, &mut bytes).is_success());
 
             OBSERVED.with_borrow_mut(|observed| {
-                observed.reports.push(String::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
+                observed
+                    .reports
+                    .push(String::from_utf8(bytes).expect("fixture text must be valid UTF-8"))
             });
 
             NativeRuntimeStatus::SUCCESS
@@ -323,7 +325,8 @@ mod tests {
         extern "C" fn cleanup(_: u64) -> u32 {
             assert!(crate::bootstrap::current_runtime_thread().is_none());
 
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+                .expect("fixture outgoing records must admit the supplied values");
 
             let mut panic =
                 crate::RuntimePanic::new("terminal cleanup \u{3b2}".repeat(4096), &mut admitted);
@@ -363,7 +366,12 @@ mod tests {
             primary: &bray_runtime_abi::NativePanicPrimary,
             identity: Option<bray_runtime_abi::NativeTypeIdentity>,
         ) -> NativeRuntimeStatus {
-            assert_eq!(identity.expect("fixture `identity` call must succeed").bytes(), [29; 32]);
+            assert_eq!(
+                identity
+                    .expect("fixture `identity` call must succeed")
+                    .bytes(),
+                [29; 32]
+            );
 
             assert_eq!(
                 primary.source(),
@@ -498,7 +506,9 @@ mod tests {
 
             assert_eq!(
                 crate::incident::OwnedCleanupIncident::native(incident)
-                    .expect("fixture `crate::incident::OwnedCleanupIncident::native` call must succeed")
+                    .expect(
+                        "fixture `crate::incident::OwnedCleanupIncident::native` call must succeed"
+                    )
                     .report(),
                 NativeRuntimeStatus::RUNTIME_FAILURE
             );

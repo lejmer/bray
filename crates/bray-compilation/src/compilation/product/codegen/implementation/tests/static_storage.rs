@@ -207,7 +207,9 @@ public func main() -> i32
     let definitions = units
         .iter()
         .flat_map(|artifact| {
-            match bray_native_artifact::scan_object_unit_summary(artifact).expect("fixture object unit must have a native summary") {
+            match bray_native_artifact::scan_object_unit_summary(artifact)
+                .expect("fixture object unit must have a native summary")
+            {
                 bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
                     definitions.to_vec()
                 }

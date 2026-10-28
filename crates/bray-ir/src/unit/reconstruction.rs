@@ -189,10 +189,13 @@ pub fn reachable_blocks(
     )
     .into_iter()
     .enumerate()
-    .filter(|&(_index, retained)| retained).map(|(index, _retained)| MirBlockId::from_slot(
-                unit.unit(),
-                u32::try_from(index).expect("allocated block slot fits u32"),
-            ))
+    .filter(|&(_index, retained)| retained)
+    .map(|(index, _retained)| {
+        MirBlockId::from_slot(
+            unit.unit(),
+            u32::try_from(index).expect("allocated block slot fits u32"),
+        )
+    })
     .collect()
 }
 

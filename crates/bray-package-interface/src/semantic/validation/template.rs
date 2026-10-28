@@ -264,11 +264,11 @@ fn validate_template(
                         | InterfaceCheckedTemplateInputKind::Parameter(_)
                 )
                 || node_type(template, output) != Some(input.ty()))
-            {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            }
+        {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
+        }
 
         match input.kind() {
             InterfaceCheckedTemplateInputKind::GenericType(parameter) => {

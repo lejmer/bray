@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind, DiagnosticLabelStyle,
-    DiagnosticNoteKind, DiagnosticRelatedLocationKind, DiagnosticSourceEdit,
+    Diagnostic, DiagnosticCode, DiagnosticId, DiagnosticKind, DiagnosticLabelKind,
+    DiagnosticLabelStyle, DiagnosticNoteKind, DiagnosticRelatedLocationKind, DiagnosticSourceEdit,
     DiagnosticSuggestionApplicability, DiagnosticSuggestionKind, SeverityKind,
 };
 use bray_source::SourceSpan;

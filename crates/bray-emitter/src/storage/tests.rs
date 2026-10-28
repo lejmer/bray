@@ -12,11 +12,11 @@ use crate::{
 fn cache_budget_evicts_the_least_recently_used_entry() {
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let older =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let older = ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    let newer =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let newer = ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let old_path = older.directory().to_owned();
     let new_path = newer.directory().to_owned();
@@ -50,21 +50,29 @@ fn cache_budget_evicts_the_least_recently_used_entry() {
         .expect("fixture `maintain_at` call must succeed");
 
     assert!(!old_path.exists());
-    assert_eq!(std::fs::read(new_path.join("cache")).expect("fixture contents must be readable"), b"new");
+
+    assert_eq!(
+        std::fs::read(new_path.join("cache")).expect("fixture contents must be readable"),
+        b"new"
+    );
 }
 
 #[test]
 fn storage_report_marks_the_least_recently_used_cache_over_budget() {
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let older =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let older = ManagedCache::thin_lto(root.path(), &target_identity(), "older", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    let newer =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let newer = ManagedCache::thin_lto(root.path(), &target_identity(), "newer", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    std::fs::write(older.directory().join("cache"), b"old").expect("fixture contents must be written");
-    std::fs::write(newer.directory().join("cache"), b"new").expect("fixture contents must be written");
+    std::fs::write(older.directory().join("cache"), b"old")
+        .expect("fixture contents must be written");
+
+    std::fs::write(newer.directory().join("cache"), b"new")
+        .expect("fixture contents must be written");
+
     drop(older);
     drop(newer);
 
@@ -173,11 +181,23 @@ fn public_path_claims_prevent_cross_product_ownership() {
         .expect("fixture path must contain UTF-8")
         .replace('\\', "/");
 
-    store.index.entries.get_mut(&first_key).expect("fixture lookup must contain its requested mutable entry").state = super::record::EntryState::Retiring;
-    store.save().expect("fixture `save` call must succeed");
-    store.finish_retirement(&first_key, &|| false).expect("fixture `finish_retirement` call must succeed");
+    store
+        .index
+        .entries
+        .get_mut(&first_key)
+        .expect("fixture lookup must contain its requested mutable entry")
+        .state = super::record::EntryState::Retiring;
 
-    assert_eq!(std::fs::read(public).expect("fixture contents must be readable"), b"second product");
+    store.save().expect("fixture `save` call must succeed");
+
+    store
+        .finish_retirement(&first_key, &|| false)
+        .expect("fixture `finish_retirement` call must succeed");
+
+    assert_eq!(
+        std::fs::read(public).expect("fixture contents must be readable"),
+        b"second product"
+    );
 }
 
 #[test]
@@ -206,7 +226,13 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
 
     let expired_at = SystemTime::now() - Duration::from_secs(2);
 
-    store.index.entries.get_mut(&key).expect("fixture lookup must contain its requested mutable entry").last_used = expired_at;
+    store
+        .index
+        .entries
+        .get_mut(&key)
+        .expect("fixture lookup must contain its requested mutable entry")
+        .last_used = expired_at;
+
     store.save().expect("fixture `save` call must succeed");
 
     let error = store
@@ -227,8 +253,8 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
 fn cache_age_and_budget_never_evict_an_active_linker() {
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let cache =
-        ManagedCache::thin_lto(root.path(), &target_identity(), "active", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "active", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     let path = cache.directory().join("cache");
 
@@ -246,7 +272,11 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
         .maintain_at(policy, SystemTime::now(), 16, &|| false)
         .expect("fixture `maintain_at` call must succeed");
 
-    assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"active cache");
+    assert_eq!(
+        std::fs::read(&path).expect("fixture contents must be readable"),
+        b"active cache"
+    );
+
     drop(cache);
 
     store
@@ -282,7 +312,8 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
         )
         .expect("fixture operation must begin successfully");
 
-        std::fs::write(operation.directory().join("temporary"), b"completed output").expect("fixture contents must be written");
+        std::fs::write(operation.directory().join("temporary"), b"completed output")
+            .expect("fixture contents must be written");
     }
 
     let next = ManagedOperation::begin(
@@ -301,7 +332,11 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
     )
     .expect("fixture storage must be inspectable");
 
-    assert_eq!(std::fs::read(&active_path).expect("fixture contents must be readable"), b"live input");
+    assert_eq!(
+        std::fs::read(&active_path).expect("fixture contents must be readable"),
+        b"live input"
+    );
+
     assert_eq!(rows.len(), 2);
 
     assert!(
@@ -316,16 +351,18 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
 fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed() {
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    let mut child = std::process::Command::new(std::env::current_exe().expect("fixture `std::env::current_exe` call must succeed"))
-        .args([
-            "--exact",
-            "storage::tests::abandoned_operation_child",
-            "--nocapture",
-        ])
-        .env("BRAY_TEST_ABANDONED_STORAGE_ROOT", root.path())
-        .stdout(std::process::Stdio::null())
-        .spawn()
-        .expect("fixture worker must start");
+    let mut child = std::process::Command::new(
+        std::env::current_exe().expect("fixture `std::env::current_exe` call must succeed"),
+    )
+    .args([
+        "--exact",
+        "storage::tests::abandoned_operation_child",
+        "--nocapture",
+    ])
+    .env("BRAY_TEST_ABANDONED_STORAGE_ROOT", root.path())
+    .stdout(std::process::Stdio::null())
+    .spawn()
+    .expect("fixture worker must start");
 
     let started = std::time::Instant::now();
 
@@ -345,7 +382,8 @@ fn a_process_exit_releases_ownership_and_allows_abandoned_work_to_be_reclaimed()
     }
 
     let abandoned = std::path::PathBuf::from(
-        std::fs::read_to_string(root.path().join("abandoned-path")).expect("fixture text must be readable"),
+        std::fs::read_to_string(root.path().join("abandoned-path"))
+            .expect("fixture text must be readable"),
     );
 
     assert!(abandoned.join("partial").exists());
@@ -384,7 +422,8 @@ fn abandoned_operation_child() {
     let root = std::path::PathBuf::from(root);
 
     let operation =
-        ManagedOperation::begin(&root, &product_identity(), &target_identity(), &|| false).expect("fixture operation must begin successfully");
+        ManagedOperation::begin(&root, &product_identity(), &target_identity(), &|| false)
+            .expect("fixture operation must begin successfully");
 
     std::fs::write(
         operation.directory().join("partial"),
@@ -394,7 +433,10 @@ fn abandoned_operation_child() {
 
     std::fs::write(
         root.join("abandoned-path"),
-        operation.directory().to_str().expect("fixture path must contain UTF-8"),
+        operation
+            .directory()
+            .to_str()
+            .expect("fixture path must contain UTF-8"),
     )
     .expect("fixture contents must be written");
 
@@ -405,14 +447,17 @@ fn abandoned_operation_child() {
 #[test]
 fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
-    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+
+    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
     drop(cache);
 
     let index = root.path().join(".bray/storage-index.json");
 
     let mut value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&index).expect("fixture contents must be readable")).expect("fixture data must deserialize");
+        serde_json::from_slice(&std::fs::read(&index).expect("fixture contents must be readable"))
+            .expect("fixture data must deserialize");
 
     let record = value["entries"]
         .as_object_mut()
@@ -422,7 +467,12 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
         .expect("fixture iterator must provide its expected item");
 
     record["owner"]["context"]["target"] = serde_json::json!("");
-    std::fs::write(&index, serde_json::to_vec(&value).expect("fixture data must serialize")).expect("fixture contents must be written");
+
+    std::fs::write(
+        &index,
+        serde_json::to_vec(&value).expect("fixture data must serialize"),
+    )
+    .expect("fixture contents must be written");
 
     let error = inspect_storage(
         root.path(),
@@ -444,7 +494,8 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
 
     let root = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-    std::fs::write(root.path().join(".bray"), b"unmanaged file").expect("fixture contents must be written");
+    std::fs::write(root.path().join(".bray"), b"unmanaged file")
+        .expect("fixture contents must be written");
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
         .expect_err("unmanaged storage path must be rejected");
@@ -466,21 +517,31 @@ fn cleanup_rejects_symlinks_without_touching_their_target() {
 
     std::fs::write(&file, b"keep").expect("fixture contents must be written");
 
-    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).expect("fixture `ManagedCache::thin_lto` call must succeed");
+    let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false)
+        .expect("fixture `ManagedCache::thin_lto` call must succeed");
 
-    std::os::unix::fs::symlink(&file, cache.directory().join("link")).expect("fixture `std::os::unix::fs::symlink` call must succeed");
+    std::os::unix::fs::symlink(&file, cache.directory().join("link"))
+        .expect("fixture `std::os::unix::fs::symlink` call must succeed");
+
     drop(cache);
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
         .expect_err("symlink in managed storage must be rejected");
 
     assert_eq!(error.kind(), &crate::StorageErrorKind::UnsafePath);
-    assert_eq!(std::fs::read(&file).expect("fixture contents must be readable"), b"keep");
+
+    assert_eq!(
+        std::fs::read(&file).expect("fixture contents must be readable"),
+        b"keep"
+    );
 }
 
 fn managed_library_plan(root: &std::path::Path, package: &str) -> crate::EmissionPlan {
-    let package = bray_symbols::PackageIdentity::try_new(package).expect("fixture package identity must be valid");
-    let product = bray_symbols::ProductIdentity::try_new(package.clone(), "application").expect("fixture product identity must be valid");
+    let package = bray_symbols::PackageIdentity::try_new(package)
+        .expect("fixture package identity must be valid");
+
+    let product = bray_symbols::ProductIdentity::try_new(package.clone(), "application")
+        .expect("fixture product identity must be valid");
 
     let request = crate::EmissionRequest::try_new(
         product,

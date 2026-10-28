@@ -310,8 +310,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let child_value =
                         self.aggregate_field_value(value, conversion.source_type(), index)?;
 
-                    let child_value =
-                        self.translate_conversion_plan(child_value, child)?;
+                    let child_value = self.translate_conversion_plan(child_value, child)?;
 
                     result =
                         self.insert_aggregate_field(result, &target_fields, index, child_value)?;

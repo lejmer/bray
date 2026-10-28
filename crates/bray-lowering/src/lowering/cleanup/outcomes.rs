@@ -542,7 +542,6 @@ impl Lowerer<'_> {
         while let Some(temporary) =
             temporaries.next_if(|temporary| temporary.scope_depth >= scope_depth)
         {
-
             if temporary.requires_cleanup(phase) {
                 steps.push(AbnormalCleanupStep {
                     occurrence,

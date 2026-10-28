@@ -440,7 +440,10 @@ mod tests {
             expression,
             [identity],
             [identity],
-            [storage.logical_path(access).cloned().expect("fixture cloned selection must contain its expected value")],
+            [storage
+                .logical_path(access)
+                .cloned()
+                .expect("fixture cloned selection must contain its expected value")],
             [mutable],
             [],
         );
@@ -449,7 +452,10 @@ mod tests {
             expression,
             [identity],
             [identity],
-            [storage.logical_path(access).cloned().expect("fixture cloned selection must contain its expected value")],
+            [storage
+                .logical_path(access)
+                .cloned()
+                .expect("fixture cloned selection must contain its expected value")],
             [mutable, reborrow],
             [],
         );

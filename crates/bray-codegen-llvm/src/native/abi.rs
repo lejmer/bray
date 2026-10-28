@@ -357,7 +357,9 @@ mod tests {
         builder.position_at_end(context.append_basic_block(wrapper, "entry"));
 
         let role = RuntimeAbiRole::CurrentNativeThreadIdentity;
-        let function = declare_runtime_function(&module, &context, &target, role).expect("fixture `declare_runtime_function` call must succeed");
+
+        let function = declare_runtime_function(&module, &context, &target, role)
+            .expect("fixture `declare_runtime_function` call must succeed");
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = invoke_runtime(
@@ -418,7 +420,8 @@ mod tests {
                         Some(context.i64_type().into())
                     );
 
-                    return_frame_state(&context, &builder, 1, 2).expect("fixture `return_frame_state` call must succeed");
+                    return_frame_state(&context, &builder, 1, 2)
+                        .expect("fixture `return_frame_state` call must succeed");
 
                     frame_state_type(&context)
                 } else {
@@ -481,7 +484,9 @@ mod tests {
                     "{native:?} {operation:?}"
                 );
 
-                builder.build_return(None).expect("fixture `build_return` call must succeed");
+                builder
+                    .build_return(None)
+                    .expect("fixture `build_return` call must succeed");
             }
 
             let resolution = frame_operation_type(
@@ -522,8 +527,8 @@ mod tests {
                 runtime_function_type(&context, &target, RuntimeAbiRole::CompatibleLaneSelection)
                     .expect("fixture `runtime_function_type` call must succeed");
 
-            let root =
-                runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution).expect("fixture `runtime_function_type` call must succeed");
+            let root = runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
+                .expect("fixture `runtime_function_type` call must succeed");
 
             let expected_root_parameters = match native {
                 NativeTarget::X86_64WindowsMsvc => vec![
@@ -578,7 +583,8 @@ mod tests {
                     continue;
                 };
 
-                let function = declare_runtime_function(&module, &context, &target, role).expect("fixture `declare_runtime_function` call must succeed");
+                let function = declare_runtime_function(&module, &context, &target, role)
+                    .expect("fixture `declare_runtime_function` call must succeed");
 
                 let arguments = signature
                     .parameters()
@@ -609,7 +615,9 @@ mod tests {
                 );
             }
 
-            builder.build_return(None).expect("fixture `build_return` call must succeed");
+            builder
+                .build_return(None)
+                .expect("fixture `build_return` call must succeed");
 
             module
                 .verify()
@@ -629,7 +637,11 @@ mod tests {
                     continue;
                 };
 
-                let symbol = format!("@{}(", role.native_symbol().expect("fixture runtime role must have a native symbol"));
+                let symbol = format!(
+                    "@{}(",
+                    role.native_symbol()
+                        .expect("fixture runtime role must have a native symbol")
+                );
 
                 if native == NativeTarget::X86_64WindowsMsvc {
                     let name = format!("%{}.argument", role.as_str());

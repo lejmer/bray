@@ -91,9 +91,10 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
 
         operation.for_each_operand(|operand| {
             if let MirOperand::Value(value) = operand
-                && self.value_blocks[value] != block {
-                    values.push(*value);
-                }
+                && self.value_blocks[value] != block
+            {
+                values.push(*value);
+            }
         });
 
         operation.substitute_values(&self.replacements(block, values)?);
@@ -133,18 +134,20 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
 
         kind.for_each_input(|operand| {
             if let MirOperand::Value(value) = operand
-                && self.value_blocks[value] != block {
-                    values.push(*value);
-                }
+                && self.value_blocks[value] != block
+            {
+                values.push(*value);
+            }
         });
 
         kind.try_for_each_edge_mut::<C::Error>(|edge| {
             for argument in edge.arguments() {
                 argument.for_each_operand(|operand| {
                     if let MirOperand::Value(value) = operand
-                        && self.value_blocks[value] != block {
-                            values.push(*value);
-                        }
+                        && self.value_blocks[value] != block
+                    {
+                        values.push(*value);
+                    }
                 });
             }
 

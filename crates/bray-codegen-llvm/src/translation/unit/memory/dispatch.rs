@@ -179,8 +179,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_control_memory(kind)
             }
             CheckedMemoryOperationKind::InlineAssembly {
-                output, ref contract, ..
-            } => self.translate_inline_assembly(id, operation, memory, **contract, output.is_none()),
+                output,
+                ref contract,
+                ..
+            } => {
+                self.translate_inline_assembly(id, operation, memory, **contract, output.is_none())
+            }
             CheckedMemoryOperationKind::AtomicInitialize { .. }
             | CheckedMemoryOperationKind::AtomicLoad { .. }
             | CheckedMemoryOperationKind::AtomicStore { .. }
@@ -757,7 +761,10 @@ mod tests {
 
         assert_eq!(deallocations, 4);
 
-        assert!(!ir.contains("memory.buffer.previous_index"), "initialized-prefix retirement belongs to MIR cleanup, not memory primitives: {ir}");
+        assert!(
+            !ir.contains("memory.buffer.previous_index"),
+            "initialized-prefix retirement belongs to MIR cleanup, not memory primitives: {ir}"
+        );
 
         assert!(!ir.contains("memory.buffer.next_index"));
     }
@@ -1877,7 +1884,9 @@ mod tests {
             builder,
             block,
             source,
-            CheckedMemoryOperationKind::RawBufferRelease { element: types.value },
+            CheckedMemoryOperationKind::RawBufferRelease {
+                element: types.value,
+            },
             [MirOperand::Value(buffer)],
             [types.raw_buffer_borrow],
             None,
@@ -2478,7 +2487,8 @@ mod tests {
             CodegenSymbolKey::Instance(instance.key().clone()),
             name,
             CodegenLinkage::Internal,
-            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false).with_panic_report_context(),
+            CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false)
+                .with_panic_report_context(),
         );
 
         let allocation_signature = CodegenCallableSignature::new(
@@ -2513,7 +2523,8 @@ mod tests {
                 CodegenResultMapping::Void,
                 CallableAbi::Bray,
                 false,
-            ).with_panic_report_context(),
+            )
+            .with_panic_report_context(),
         );
 
         let operation_mappings =
@@ -2601,13 +2612,9 @@ mod tests {
             target,
             type_mappings,
             [],
-            [
-                owner_symbol,
-                allocation_symbol,
-                deallocation_symbol,
-            ]
-            .into_iter()
-            .chain(atomic_symbols),
+            [owner_symbol, allocation_symbol, deallocation_symbol]
+                .into_iter()
+                .chain(atomic_symbols),
             [],
             [],
             [],

@@ -34,9 +34,9 @@ pub use codec::{
 pub use event::{TestHostEvent, TestHostEventKind, TestHostEventSequence};
 pub use execution::{
     TestCancellationSource, TestCatalogEntryId, TestDuration, TestErrorTypeIdentity,
-    TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult, TestHostTermination, TestInfrastructureFailure,
-    TestInfrastructureFailureKind, TestInvocationPlan, TestInvocationResult, TestOutcome,
-    TestPanicCause, TestPanicReport, TestTimeoutPolicy,
+    TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult, TestHostTermination,
+    TestInfrastructureFailure, TestInfrastructureFailureKind, TestInvocationPlan,
+    TestInvocationResult, TestOutcome, TestPanicCause, TestPanicReport, TestTimeoutPolicy,
 };
 pub use failure::{AssertionFailure, ExplicitTestFailure};
 pub use filter::{TestFilter, TestSelection, TestSelectionQuery, TestShard};

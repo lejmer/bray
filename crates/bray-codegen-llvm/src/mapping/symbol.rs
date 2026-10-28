@@ -657,7 +657,10 @@ mod tests {
         let context = Context::create();
         let module = context.create_module("mapped.runtime");
         let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
-        let machine = LlvmTargetMachine::create(&target).expect("fixture `LlvmTargetMachine::create` call must succeed");
+
+        let machine = LlvmTargetMachine::create(&target)
+            .expect("fixture `LlvmTargetMachine::create` call must succeed");
+
         let target_data = machine.target_data();
         let mut types = LlvmTypeMappings::new(&context, request.mappings(), &target, &target_data);
         let role = bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationObservation;
@@ -667,13 +670,17 @@ mod tests {
                 role,
                 RuntimeAbiVersion::new(1, 0),
             )),
-            BinarySymbolName::try_new(role.native_symbol().expect("fixture runtime role must have a native symbol")).expect("fixture binary symbol name must be valid"),
+            BinarySymbolName::try_new(
+                role.native_symbol()
+                    .expect("fixture runtime role must have a native symbol"),
+            )
+            .expect("fixture binary symbol name must be valid"),
             CodegenLinkage::Import,
             request.mappings().symbols()[0].signature().clone(),
         );
 
-        let function =
-            super::declare_symbol(&module, &mapping, &target, false, &mut types).expect("fixture `super::declare_symbol` call must succeed");
+        let function = super::declare_symbol(&module, &mapping, &target, false, &mut types)
+            .expect("fixture `super::declare_symbol` call must succeed");
 
         let zero_extend = inkwell::attributes::Attribute::get_named_enum_kind_id("zeroext");
 
@@ -844,7 +851,10 @@ mod tests {
 
             let context = Context::create();
             let module = context.create_module("fallback-references");
-            let machine = LlvmTargetMachine::create(request.target()).expect("fixture `LlvmTargetMachine::create` call must succeed");
+
+            let machine = LlvmTargetMachine::create(request.target())
+                .expect("fixture `LlvmTargetMachine::create` call must succeed");
+
             let target_data = machine.target_data();
 
             let mut types =
@@ -867,10 +877,20 @@ mod tests {
             .expect("fixture `apply_linkage` call must succeed");
 
             builder.position_at_end(body);
-            builder.build_return(None).expect("fixture `build_return` call must succeed");
+
+            builder
+                .build_return(None)
+                .expect("fixture `build_return` call must succeed");
+
             builder.position_at_end(caller_body);
-            builder.build_call(function, &[], "").expect("fixture `build_call` call must succeed");
-            builder.build_return(None).expect("fixture `build_return` call must succeed");
+
+            builder
+                .build_call(function, &[], "")
+                .expect("fixture `build_call` call must succeed");
+
+            builder
+                .build_return(None)
+                .expect("fixture `build_return` call must succeed");
 
             let address = module.add_global(
                 function.as_global_value().as_pointer_value().get_type(),
@@ -879,9 +899,14 @@ mod tests {
             );
 
             address.set_initializer(&function.as_global_value().as_pointer_value());
-            super::project_fallbacks(&module, &mappings, request.target(), &mut types).expect("fixture `super::project_fallbacks` call must succeed");
 
-            let public = module.get_function(original.name().as_str()).expect("fixture `get_function` call must succeed");
+            super::project_fallbacks(&module, &mappings, request.target(), &mut types)
+                .expect("fixture `super::project_fallbacks` call must succeed");
+
+            let public = module
+                .get_function(original.name().as_str())
+                .expect("fixture `get_function` call must succeed");
+
             let coff = target.object_format() == bray_target::ObjectFormat::Coff;
             let text = module.print_to_string().to_string();
 
@@ -1008,7 +1033,9 @@ mod tests {
 
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
 
-        apply_linkage(&module, function, &exported, &target, true).expect("fixture `apply_linkage` call must succeed");
+        apply_linkage(&module, function, &exported, &target, true)
+            .expect("fixture `apply_linkage` call must succeed");
+
         assert_eq!(function.get_linkage(), Linkage::External);
 
         assert_eq!(
@@ -1265,16 +1292,23 @@ mod tests {
         builder.position_at_end(context.append_basic_block(caller, "entry"));
 
         let arguments: Vec<_> = caller.get_param_iter().map(Into::into).collect();
-        let call = builder.build_call(function, &arguments, "").expect("fixture `build_call` call must succeed");
 
-        super::apply_signature_call_attributes(call, protected.signature(), &mut types).expect("fixture `super::apply_signature_call_attributes` call must succeed");
+        let call = builder
+            .build_call(function, &arguments, "")
+            .expect("fixture `build_call` call must succeed");
+
+        super::apply_signature_call_attributes(call, protected.signature(), &mut types)
+            .expect("fixture `super::apply_signature_call_attributes` call must succeed");
 
         assert!(
             call.get_enum_attribute(AttributeLoc::Param(3), noalias)
                 .is_some()
         );
 
-        builder.build_return(None).expect("fixture `build_return` call must succeed");
+        builder
+            .build_return(None)
+            .expect("fixture `build_return` call must succeed");
+
         module.verify().expect("fixture `verify` call must succeed");
     }
 

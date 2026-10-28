@@ -89,8 +89,18 @@ fn chained_nullable_receiver_evaluates_its_producer_once() {
     );
 
     let key = crate::test_support::source_type_callable_member_body_key(&compilation, "remove");
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
-    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
+    let mir = lowered
+        .value()
+        .as_ref()
+        .expect("fixture optional value must be present")
+        .mir()
+        .expect("fixture instance must retain its MIR");
+
     let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
 
     assert_eq!(calls.len(), 1, "{calls:#?}");
@@ -136,15 +146,24 @@ fn returned_slice_receiver_uses_the_call_result_representation() {
         .lowered_unit(key)
         .expect("chained returned slice must lower");
 
-    let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+    let mir = lowered
+        .value()
+        .as_ref()
+        .expect("fixture optional value must be present")
+        .mir()
+        .expect("fixture instance must retain its MIR");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let length = mir
         .operations()
         .iter()
         .find_map(|operation| match operation.kind() {
             bray_ir::MirOperationKind::Memory(memory)
-                if memory.kind() == &bray_bound_tree::CheckedMemoryOperationKind::SequenceLength =>
+                if memory.kind()
+                    == &bray_bound_tree::CheckedMemoryOperationKind::SequenceLength =>
             {
                 Some(memory)
             }

@@ -215,8 +215,17 @@ fn absence_provenance_survives_mutation_and_joins_conservatively() {
     let (moved, observed) = (*moved, *observed);
 
     let storage = builder.finish();
-    let moved = storage.logical_path(moved).cloned().expect("fixture cloned selection must contain its expected value");
-    let observed = storage.logical_path(observed).cloned().expect("fixture cloned selection must contain its expected value");
+
+    let moved = storage
+        .logical_path(moved)
+        .cloned()
+        .expect("fixture cloned selection must contain its expected value");
+
+    let observed = storage
+        .logical_path(observed)
+        .cloned()
+        .expect("fixture cloned selection must contain its expected value");
+
     let mut state = reachable_state();
 
     state.definitely_absent.extend([

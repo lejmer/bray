@@ -247,7 +247,8 @@ pub fn resolve_callable_signature_template(
     substitution: GenericSubstitutionId,
     constants: &CheckedConstantTerms,
 ) -> Option<CallableSignature> {
-    let callable_type = resolve_type_expression_template(values, template.callable_type(), constants)?;
+    let callable_type =
+        resolve_type_expression_template(values, template.callable_type(), constants)?;
 
     let result = resolve_type_expression_template(values, template.result(), constants)?;
 

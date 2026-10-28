@@ -65,7 +65,10 @@ pub(super) struct ConcreteStaticFinalization {
     selected: Option<bray_codegen::CodegenInstanceKey>,
 }
 
-type StaticInitializerReferences = (Vec<CodegenStaticRelocation>, Vec<(ConcreteCodegenInstance, TypeId, CallableExecution)>);
+type StaticInitializerReferences = (
+    Vec<CodegenStaticRelocation>,
+    Vec<(ConcreteCodegenInstance, TypeId, CallableExecution)>,
+);
 
 impl Compilation {
     fn static_finalizer_result(

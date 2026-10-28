@@ -77,7 +77,12 @@ pub(super) fn audit(
     )?;
 
     if target.object_format() == ObjectFormat::Coff {
-        let dynamic = platform_archive(toolchain, target, PlatformServiceRole::DynamicLibraryOpenPath)?;
+        let dynamic = platform_archive(
+            toolchain,
+            target,
+            PlatformServiceRole::DynamicLibraryOpenPath,
+        )?;
+
         let dynamic_include = root.join("crates/bray-platform-abi/native/dynamic/include");
         let contract = output.join("bray_dynamic_contract.h");
 

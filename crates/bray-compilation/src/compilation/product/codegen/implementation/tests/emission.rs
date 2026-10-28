@@ -351,12 +351,17 @@ fn imported_aggregate_static_borrows_emit_valid_native_units() {
             }
         "#;
 
-    let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
+    let backend = Arc::new(
+        bray_codegen_llvm::LlvmCodeGenerator::try_new()
+            .expect("fixture llvm code generator must be valid"),
+    );
 
-    let registry =
-        CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>]).expect("fixture code generator registry must be valid");
+    let registry = CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+        .expect("fixture code generator registry must be valid");
 
-    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).expect("fixture codegen configuration must be valid");
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+        .expect("fixture codegen configuration must be valid");
+
     let target = SelectedTarget::baseline();
 
     let request = CompilationRequest::with_options(
@@ -369,7 +374,8 @@ fn imported_aggregate_static_borrows_emit_valid_native_units() {
         crate::test_support::runtime_standard_library_dependency(&target),
     ]);
 
-    let compilation = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+    let compilation = crate::Compilation::load_with_codegen(request, codegen)
+        .expect("fixture compilation must load for code generation");
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -471,12 +477,17 @@ fn imported_execution_guarantees_emit_native_units() {
         },
     );
 
-    let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
+    let backend = Arc::new(
+        bray_codegen_llvm::LlvmCodeGenerator::try_new()
+            .expect("fixture llvm code generator must be valid"),
+    );
 
-    let registry =
-        CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>]).expect("fixture code generator registry must be valid");
+    let registry = CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+        .expect("fixture code generator registry must be valid");
 
-    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).expect("fixture codegen configuration must be valid");
+    let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+        .expect("fixture codegen configuration must be valid");
+
     let target = SelectedTarget::baseline();
 
     let request = CompilationRequest::with_options(
@@ -485,7 +496,8 @@ fn imported_execution_guarantees_emit_native_units() {
             CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, target.clone()),
         ).with_dependency_interfaces([dependency, crate::test_support::runtime_standard_library_dependency(&target)]);
 
-    let compilation = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+    let compilation = crate::Compilation::load_with_codegen(request, codegen)
+        .expect("fixture compilation must load for code generation");
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -780,7 +792,11 @@ public func update(pos records: Records) -> Records
 
     assert!(
         ir.lines().any(|line| line.contains("add i64")
-            && line.split(", !dbg").next().expect("fixture LLVM instruction must have its text segment").ends_with(", 8")),
+            && line
+                .split(", !dbg")
+                .next()
+                .expect("fixture LLVM instruction must have its text segment")
+                .ends_with(", 8")),
         "the records payload must be addressed after tuple padding: {ir}"
     );
 }

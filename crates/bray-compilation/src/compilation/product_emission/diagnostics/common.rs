@@ -81,12 +81,14 @@ mod tests {
     #[test]
     fn capacity_failures_do_not_invent_source_locations_or_defect_guidance() {
         let product = ProductIdentity::try_new(
-            PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
+            PackageIdentity::try_new("example.package")
+                .expect("fixture package identity must be valid"),
             "application",
         )
         .expect("fixture product identity must be valid");
 
-        let target = TargetIdentity::try_new("test-target").expect("fixture target identity must be valid");
+        let target =
+            TargetIdentity::try_new("test-target").expect("fixture target identity must be valid");
 
         let diagnostic = emission_failure_diagnostic(
             DiagnosticEmissionFailure::Evaluation(

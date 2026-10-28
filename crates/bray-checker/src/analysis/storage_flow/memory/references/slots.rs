@@ -273,14 +273,18 @@ impl State {
         &'a self,
         root: &'a Place,
     ) -> impl Iterator<Item = (&'a Place, &'a Origin)> {
-        self.slots_in(root).filter(|&(_, references)| references.is_exact()).map(|(slot, references)| (
+        self.slots_in(root)
+            .filter(|&(_, references)| references.is_exact())
+            .map(|(slot, references)| {
+                (
                     slot,
                     &references
                         .targets
                         .first()
                         .expect("exact reference has one target")
                         .origin,
-                ))
+                )
+            })
     }
 
     pub(in crate::analysis::storage_flow) fn has_stored_value(&self, slot: &Place) -> bool {

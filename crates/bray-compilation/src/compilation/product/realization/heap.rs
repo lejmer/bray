@@ -351,17 +351,25 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
 
         let compilation = Compilation::load(request).expect("fixture input must load");
         let cancellation = CancellationToken::new();
-        let binding = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+        let binding = compilation
+            .binding_context(&cancellation)
+            .expect("fixture compilation must provide a binding context");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
 
         let heap = compilation
             .available_compiler_known_symbols()
             .declaration_symbol::<StructSymbolId>(
-                &CompilerKnownDeclarationKey::try_new("Heap").expect("fixture compiler known declaration key must be valid"),
+                &CompilerKnownDeclarationKey::try_new("Heap")
+                    .expect("fixture compiler known declaration key must be valid"),
             )
             .expect("fixture `declaration_symbol` call must succeed");
 
-        let heap = named_type(values, NamedTypeSymbolId::Struct(heap)).expect("fixture `named_type` call must succeed");
+        let heap = named_type(values, NamedTypeSymbolId::Struct(heap))
+            .expect("fixture `named_type` call must succeed");
 
         let element = compilation
             .codegen_representation_type(RepresentationRole::ScalarI32)
@@ -384,7 +392,8 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
                 &binding,
                 heap,
                 element,
-                &CompilerKnownDeclarationKey::try_new(member).expect("fixture compiler known declaration key must be valid"),
+                &CompilerKnownDeclarationKey::try_new(member)
+                    .expect("fixture compiler known declaration key must be valid"),
                 &cancellation,
             )
             .expect("fixture `selected_storage_callable` call must succeed");
@@ -395,7 +404,10 @@ trusted func deallocate(pos pointer: DataPointer<u8>, pos bytes: usize, pos alig
                 selected.diagnostics()
             );
 
-            let (_, _, callable, _) = selected.value().as_ref().expect("fixture optional value must be present");
+            let (_, _, callable, _) = selected
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present");
 
             let instance = compilation
                 .concrete_codegen_callable(*callable, [], &target, &cancellation)

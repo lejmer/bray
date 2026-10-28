@@ -233,7 +233,10 @@ where
 }
 
 /// Evaluates one source-independent static initializer.
-#[expect(clippy::too_many_arguments, reason = "initializer evaluation preserves its checked template identity, substitution, result and limits")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "initializer evaluation preserves its checked template identity, substitution, result and limits"
+)]
 pub fn evaluate_static_initializer_template<C>(
     context: &C,
     template: &CheckedTemplate,
@@ -1139,7 +1142,10 @@ mod tests {
     #[test]
     fn imported_definition_template_rejects_discarded_nested_static_borrow() {
         let values = semantic_values();
-        let unit = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+
+        let unit = values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
 
         let borrowed = values
             .intern_type(TypeData::Borrow {
@@ -1153,13 +1159,19 @@ mod tests {
             .expect("fixture type must be interned");
 
         let static_symbol = StaticSymbolId::from_symbol_id(SymbolId::new(998));
-        let owner = GenericOwnerId::try_new(static_symbol.into()).expect("fixture generic owner id must be valid");
+
+        let owner = GenericOwnerId::try_new(static_symbol.into())
+            .expect("fixture generic owner id must be valid");
 
         let substitution = values
-            .intern_generic_substitution(GenericSubstitutionData::try_new(owner, [], []).expect("fixture generic substitution data must be valid"))
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(owner, [], [])
+                    .expect("fixture generic substitution data must be valid"),
+            )
             .expect("fixture generic substitution must be interned");
 
-        let target = bray_target::TargetIdentity::try_new("test").expect("fixture target identity must be valid");
+        let target = bray_target::TargetIdentity::try_new("test")
+            .expect("fixture target identity must be valid");
 
         let instance = StaticInstanceKey::new(
             StaticInstanceTemplateId::new(static_symbol),

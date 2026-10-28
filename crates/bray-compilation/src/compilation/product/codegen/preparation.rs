@@ -666,7 +666,10 @@ mod tests {
             .codegen_target()
             .expect("fixture target must support code generation");
 
-        let semantics = compilation.product_semantics().expect("fixture product semantics must resolve");
+        let semantics = compilation
+            .product_semantics()
+            .expect("fixture product semantics must resolve");
+
         let cancellation = &compilation.state.cancellation;
 
         let roots = compilation
@@ -719,7 +722,10 @@ mod tests {
             bray_codegen::CodegenUnit::try_from_key(
                 unit.key(),
                 unit.instances().iter().cloned(),
-                |mir| super::super::mir_content_identity(&compilation, mir).expect("fixture `super::super::mir_content_identity` call must succeed"),
+                |mir| {
+                    super::super::mir_content_identity(&compilation, mir)
+                        .expect("fixture `super::super::mir_content_identity` call must succeed")
+                },
             )
             .expect("planned identity must include each concrete descriptor's actual content");
         }

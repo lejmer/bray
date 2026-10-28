@@ -80,7 +80,12 @@ pub(in crate::implementation) struct ImplementationDirectoryEntry {
 }
 
 type DecodedPayload = OnceLock<Result<Arc<[u8]>, InterfaceValidationError>>;
-type NativeIndex = OnceLock<Result<Option<bray_native_artifact::NativeArtifactIndex>, super::native::PackageNativeArtifactError>>;
+type NativeIndex = OnceLock<
+    Result<
+        Option<bray_native_artifact::NativeArtifactIndex>,
+        super::native::PackageNativeArtifactError,
+    >,
+>;
 
 /// An immutable package implementation artifact associated with one semantic interface.
 #[derive(Clone, Debug)]

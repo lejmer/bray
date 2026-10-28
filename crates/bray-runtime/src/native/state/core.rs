@@ -277,7 +277,13 @@ mod tests {
             for core in cores {
                 assert_eq!(core.owners.load(Ordering::Acquire), 0);
                 assert!(core.workers.is_stopping());
-                assert!(core.tasks.lock().expect("fixture mutex must not be poisoned").is_empty());
+
+                assert!(
+                    core.tasks
+                        .lock()
+                        .expect("fixture mutex must not be poisoned")
+                        .is_empty()
+                );
             }
         }
     }
@@ -481,7 +487,12 @@ mod tests {
 
             assert_eq!(inner.owners.load(Ordering::Acquire), 0);
             assert!(inner.workers.is_stopping());
-            assert!(Rc::ptr_eq(&super::current_runtime().expect("fixture runtime must be active"), &outer));
+
+            assert!(Rc::ptr_eq(
+                &super::current_runtime().expect("fixture runtime must be active"),
+                &outer
+            ));
+
             assert_eq!(outer.core.owners.load(Ordering::Acquire), 1);
         }
 
@@ -504,12 +515,18 @@ mod tests {
 
         assert_eq!(unwound.owners.load(Ordering::Acquire), 0);
         assert!(unwound.workers.is_stopping());
-        assert!(Rc::ptr_eq(&super::current_runtime().expect("fixture runtime must be active"), &outer));
+
+        assert!(Rc::ptr_eq(
+            &super::current_runtime().expect("fixture runtime must be active"),
+            &outer
+        ));
 
         let retained = super::with_independent_execution_context(|| {
             assert!(super::initialize(NativeRuntimeConfiguration::new(4, 4)).is_success());
 
-            super::retain_current_runtime().expect("fixture runtime must remain retained").expect("successful fixture query must contain its expected result")
+            super::retain_current_runtime()
+                .expect("fixture runtime must remain retained")
+                .expect("successful fixture query must contain its expected result")
         });
 
         assert_eq!(retained.core.owners.load(Ordering::Acquire), 1);

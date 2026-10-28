@@ -521,7 +521,9 @@ impl RuntimeConformance for BrayRuntime {
             ProtectedFrameStateId::new(0),
         );
 
-        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let first = crate::RuntimePanic::new("first", &mut first_admitted);
 
         reports.transfer(
@@ -531,7 +533,9 @@ impl RuntimeConformance for BrayRuntime {
             &mut first_admitted,
         );
 
-        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let second = crate::RuntimePanic::new("second", &mut second_admitted);
 
         reports.transfer(

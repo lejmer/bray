@@ -175,7 +175,8 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
         fixture.bundle.implementation_configuration().clone(),
     );
 
-    let bytes = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
+    let bytes = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[])
+        .expect("fixture implementation artifact must encode");
 
     let artifact = PackageImplementationArtifact::try_from_bytes(
         bytes.clone(),
@@ -183,8 +184,10 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
     )
     .expect("fixture from bytes must succeed");
 
-    let original_offset =
-        usize::try_from(u64::from_le_bytes(bytes[32..40].try_into().expect("fixture into must succeed"))).expect("fixture value must fit the requested representation");
+    let original_offset = usize::try_from(u64::from_le_bytes(
+        bytes[32..40].try_into().expect("fixture into must succeed"),
+    ))
+    .expect("fixture value must fit the requested representation");
 
     let mut header = bytes[..super::super::HEADER_LENGTH].to_vec();
     let mut directory_bytes = bytes[original_offset..].to_vec();
@@ -244,22 +247,31 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
     header[32..40].copy_from_slice(&(offset as u64).to_le_bytes());
     header[40..48].copy_from_slice(&(directory_bytes.len() as u64).to_le_bytes());
 
-    let metadata_hash = compute_metadata_hash(&header, &directory_bytes).expect("fixture `compute_metadata_hash` call must succeed");
+    let metadata_hash = compute_metadata_hash(&header, &directory_bytes)
+        .expect("fixture `compute_metadata_hash` call must succeed");
 
     header[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32].copy_from_slice(&metadata_hash);
 
     let temporary = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = temporary.path().join("large.brayimpl");
-    let mut file = std::fs::File::create(&path).expect("fixture `std::fs::File::create` call must succeed");
 
-    file.write_all(&header).expect("fixture contents must be written completely");
+    let mut file =
+        std::fs::File::create(&path).expect("fixture `std::fs::File::create` call must succeed");
+
+    file.write_all(&header)
+        .expect("fixture contents must be written completely");
 
     file.write_all(&bytes[super::super::HEADER_LENGTH..original_offset])
         .expect("fixture contents must be written completely");
 
-    file.seek(SeekFrom::Start(offset as u64)).expect("fixture `seek` call must succeed");
-    file.write_all(&directory_bytes).expect("fixture contents must be written completely");
-    file.sync_all().expect("fixture `sync_all` call must succeed");
+    file.seek(SeekFrom::Start(offset as u64))
+        .expect("fixture `seek` call must succeed");
+
+    file.write_all(&directory_bytes)
+        .expect("fixture contents must be written completely");
+
+    file.sync_all()
+        .expect("fixture `sync_all` call must succeed");
 
     let limits = InterfaceValidationLimits::default();
 
@@ -312,9 +324,12 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
         ));
     }
 
-    let loaded = PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
+    let loaded =
+        PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
 
-    loaded.verify_all().expect("fixture MIR must satisfy its structural contracts");
+    loaded
+        .verify_all()
+        .expect("fixture MIR must satisfy its structural contracts");
 
     assert!(loaded.decoded.iter().all(|cell| cell.get().is_none()));
 
@@ -331,7 +346,10 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
 
     let expected = *digest.finalize().as_bytes();
     let input = crate::PackageArtifactInput::file(&path, Some(expected));
-    let loaded = input.load_implementation().expect("fixture implementation must load");
+
+    let loaded = input
+        .load_implementation()
+        .expect("fixture implementation must load");
 
     assert_eq!(loaded.identity(), artifact.identity());
     assert_eq!(loaded.access_statistics().opens, 1);
@@ -344,9 +362,14 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
             + artifact.directory[0].payload.len() as u64
     );
 
-    file.seek(SeekFrom::Start(offset as u64 - 1)).expect("fixture `seek` call must succeed");
-    file.write_all(&[1]).expect("fixture contents must be written completely");
-    file.sync_all().expect("fixture `sync_all` call must succeed");
+    file.seek(SeekFrom::Start(offset as u64 - 1))
+        .expect("fixture `seek` call must succeed");
+
+    file.write_all(&[1])
+        .expect("fixture contents must be written completely");
+
+    file.sync_all()
+        .expect("fixture `sync_all` call must succeed");
 
     let input = crate::PackageArtifactInput::file(&path, Some(expected));
 
@@ -361,10 +384,12 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
 #[test]
 fn native_units_above_sixteen_mib_use_the_bounded_allocation_budget() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
-    let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
+    let interface =
+        encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
+
+    let target = NativeTarget::for_identity(fixture.bundle.implementation_configuration().target())
+        .expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let payload: Arc<[u8]> = vec![7_u8; 24 * 1024 * 1024].into();
     let digest = native_digest(&payload);
@@ -394,17 +419,28 @@ fn native_units_above_sixteen_mib_use_the_bounded_allocation_budget() {
     )
     .expect("fixture from export bundle with native must succeed");
 
-    assert_eq!(artifact.native_artifact().expect("fixture `native_artifact` call must succeed"), Some(index));
+    assert_eq!(
+        artifact
+            .native_artifact()
+            .expect("fixture `native_artifact` call must succeed"),
+        Some(index)
+    );
 
     assert_eq!(
-        artifact.native_unit_bytes(digest.bytes()).expect("fixture `native_unit_bytes` call must succeed"),
+        artifact
+            .native_unit_bytes(digest.bytes())
+            .expect("fixture `native_unit_bytes` call must succeed"),
         Some(payload)
     );
 
-    artifact.verify_all().expect("fixture MIR must satisfy its structural contracts");
+    artifact
+        .verify_all()
+        .expect("fixture MIR must satisfy its structural contracts");
 
     let error = PackageImplementationArtifact::try_from_bytes(
-        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        artifact
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
         InterfaceValidationLimits::default().with_decoded_allocation(16 * 1024 * 1024),
     );
 
@@ -421,17 +457,20 @@ fn native_units_above_sixteen_mib_use_the_bounded_allocation_budget() {
 #[test]
 fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
-    let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
+    let interface =
+        encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
+
+    let target = NativeTarget::for_identity(fixture.bundle.implementation_configuration().target())
+        .expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let payload: Arc<[u8]> = Arc::from(b"native unit".as_slice());
     let digest = native_digest(&payload);
 
     let definitions = (0..100_000u32)
         .map(|number| {
-            let name = NonEmptySharedStr::try_new(format!("bray_instance_{number:064x}")).expect("fixture non empty shared str must be valid");
+            let name = NonEmptySharedStr::try_new(format!("bray_instance_{number:064x}"))
+                .expect("fixture non empty shared str must be valid");
 
             NativeDefinition::new(
                 NativeSymbolContract::new(
@@ -476,12 +515,21 @@ fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
     )
     .expect("fixture from export bundle with native must succeed");
 
-    assert_eq!(artifact.native_artifact().expect("fixture `native_artifact` call must succeed"), Some(index));
+    assert_eq!(
+        artifact
+            .native_artifact()
+            .expect("fixture `native_artifact` call must succeed"),
+        Some(index)
+    );
 
-    artifact.verify_all().expect("fixture MIR must satisfy its structural contracts");
+    artifact
+        .verify_all()
+        .expect("fixture MIR must satisfy its structural contracts");
 
     let error = PackageImplementationArtifact::try_from_bytes(
-        artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        artifact
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
         InterfaceValidationLimits::default().with_decoded_allocation(16 * 1024 * 1024),
     );
 
@@ -497,10 +545,12 @@ fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
 #[test]
 fn native_unit_identity_authentication_is_shared_by_the_payload_cache() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
-    let target =
-        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
+    let interface =
+        encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
+
+    let target = NativeTarget::for_identity(fixture.bundle.implementation_configuration().target())
+        .expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let payload: Arc<[u8]> = Arc::from(b"native unit".as_slice());
     let digest = native_digest(&payload);
@@ -531,7 +581,10 @@ fn native_unit_identity_authentication_is_shared_by_the_payload_cache() {
     .expect("fixture from export bundle with native must succeed");
 
     assert_eq!(
-        artifact.native_unit_bytes(digest.bytes()).expect("fixture `native_unit_bytes` call must succeed").expect("successful fixture query must contain its expected result"),
+        artifact
+            .native_unit_bytes(digest.bytes())
+            .expect("fixture `native_unit_bytes` call must succeed")
+            .expect("successful fixture query must contain its expected result"),
         payload
     );
 
@@ -552,7 +605,9 @@ fn native_unit_identity_authentication_is_shared_by_the_payload_cache() {
 #[test]
 fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
     let fixture = artifact_fixture();
-    let interface = encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
+
+    let interface =
+        encode_package_interface(&fixture.bundle).expect("fixture package interface must encode");
 
     let artifact = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
@@ -561,7 +616,8 @@ fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
     )
     .expect("fixture from export bundle must succeed");
 
-    let target = NativeTarget::for_identity(artifact.identity().configuration().target()).expect("fixture `NativeTarget::for_identity` call must succeed");
+    let target = NativeTarget::for_identity(artifact.identity().configuration().target())
+        .expect("fixture `NativeTarget::for_identity` call must succeed");
 
     let payloads = (0..3u8)
         .map(|byte| {
@@ -592,7 +648,9 @@ fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
         .try_native_only_artifact(&[(NativeUnitKind::Object, &index)], &payloads)
         .expect("fixture native only artifact must succeed");
 
-    let bytes = packed.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let bytes = packed
+        .shared_bytes()
+        .expect("fixture `shared_bytes` call must succeed");
 
     for (parallel, verify_before) in [(false, false), (true, false), (false, true), (true, true)] {
         let loaded = PackageImplementationArtifact::try_from_bytes(
@@ -603,7 +661,9 @@ fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
 
         if verify_before {
             // Full authentication streams all units without reserving their unused decoded bytes.
-            loaded.verify_all().expect("fixture MIR must satisfy its structural contracts");
+            loaded
+                .verify_all()
+                .expect("fixture MIR must satisfy its structural contracts");
 
             assert_eq!(
                 loaded
@@ -635,7 +695,11 @@ fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
 
                 readers
                     .into_iter()
-                    .map(|reader| reader.join().expect("fixture worker must join successfully"))
+                    .map(|reader| {
+                        reader
+                            .join()
+                            .expect("fixture worker must join successfully")
+                    })
                     .collect::<Vec<_>>()
             })
         } else {
@@ -671,6 +735,8 @@ fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
         assert_eq!(statistics, loaded.access_statistics());
 
         // Rejected reservations do not consume memory or prevent streaming verification.
-        loaded.verify_all().expect("fixture MIR must satisfy its structural contracts");
+        loaded
+            .verify_all()
+            .expect("fixture MIR must satisfy its structural contracts");
     }
 }

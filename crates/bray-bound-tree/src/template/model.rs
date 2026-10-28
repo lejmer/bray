@@ -249,7 +249,10 @@ pub struct CheckedTemplateBehavior {
 
 impl CheckedTemplateBehavior {
     /// Creates portable behavior as canonical sorted semantic sets.
-    #[expect(clippy::too_many_arguments, reason = "portable behavior retains independent effects, authority, lifecycle and dependency sets")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "portable behavior retains independent effects, authority, lifecycle and dependency sets"
+    )]
     pub fn new(
         effects: impl IntoIterator<Item = CheckedTemplateEffect>,
         capabilities: impl IntoIterator<Item = CheckedTemplateCapability>,

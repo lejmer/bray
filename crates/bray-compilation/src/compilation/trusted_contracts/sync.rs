@@ -238,7 +238,13 @@ fn production_sync_compilation_for_target(
         sources
             .iter()
             .enumerate()
-            .map(|(index, source)| source_input(source, u32::try_from(index).expect("fixture value must fit the requested representation")))
+            .map(|(index, source)| {
+                source_input(
+                    source,
+                    u32::try_from(index)
+                        .expect("fixture value must fit the requested representation"),
+                )
+            })
             .collect(),
         crate::CompilationOptions::new(
             crate::WorkerBudget::serial(),
@@ -247,7 +253,8 @@ fn production_sync_compilation_for_target(
         )
         .with_native_link_inputs(["c", "pthread", "dl", "Kernel32"].map(|name| {
             bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
+                bray_base::NonEmptySharedStr::try_new(name)
+                    .expect("fixture non empty shared str must be valid"),
                 if name == "dl" {
                     bray_symbols::NativeLinkKind::Dynamic
                 } else {
@@ -1073,7 +1080,9 @@ fn body_belongs_to(
     modules: &[&[&str]],
     types: &[&str],
 ) -> bool {
-    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+    let symbols = compilation
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
 
     let mut symbol = symbols
         .symbol_for_key(key.declared_owner())
@@ -1116,7 +1125,10 @@ using core.target;
 
     let mut failures = Vec::new();
 
-    for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
+    for key in compilation
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units")
+    {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
             || !body_belongs_to(
                 &compilation,
@@ -1152,7 +1164,9 @@ using core.target;
             continue;
         }
 
-        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let checked = compilation
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", checked.diagnostics()));
@@ -1165,7 +1179,10 @@ using core.target;
 #[test]
 fn consuming_guard_release_keeps_its_destructors_reference_effects() {
     let application = production_sync_compilation("module app;");
-    let symbols = application.symbol_graph().expect("fixture compilation must build its symbol graph");
+
+    let symbols = application
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
 
     let context = application
         .binding_context(&application.state.cancellation)
@@ -1248,7 +1265,10 @@ using core.target;
 "#,
     );
 
-    for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
+    for key in compilation
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units")
+    {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
             continue;
         }
@@ -1276,7 +1296,9 @@ using core.target;
             continue;
         }
 
-        let certified = compilation.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
+        let certified = compilation
+            .execution_properties(key.clone())
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(
             !certified.diagnostics().has_errors(),
@@ -1284,7 +1306,9 @@ using core.target;
             certified.diagnostics()
         );
 
-        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let checked = compilation
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !checked.diagnostics().has_errors(),
@@ -1419,7 +1443,10 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 #[test]
 fn production_guard_borrow_origin_reaches_the_protected_payload() {
     let application = production_sync_compilation("module app;");
-    let symbols = application.symbol_graph().expect("fixture compilation must build its symbol graph");
+
+    let symbols = application
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
 
     let callable = symbols
         .type_callable_members()
@@ -1491,7 +1518,10 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         (value, "value"),
     ] {
         assert_eq!(
-            symbols.member_name((*field).into()).expect("fixture `member_name` call must succeed").as_str(),
+            symbols
+                .member_name((*field).into())
+                .expect("fixture `member_name` call must succeed")
+                .as_str(),
             expected
         );
     }
@@ -2147,7 +2177,10 @@ fn native_atomic_word_declarations_check_for_every_target() {
 
         let mut checked_bodies = 0;
 
-        for key in compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
+        for key in compilation
+            .declared_unit_keys_for_test()
+            .expect("fixture declarations must resolve their units")
+        {
             if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
                 || !body_belongs_to(
                     &compilation,
@@ -2171,7 +2204,9 @@ fn native_atomic_word_declarations_check_for_every_target() {
                 "{target:?} {key:?}: {diagnostics:?}"
             );
 
-            let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+            let checked = compilation
+                .lowered_unit(key)
+                .expect("fixture callable must lower successfully");
 
             assert!(
                 !checked.diagnostics().has_errors(),
@@ -2534,7 +2569,10 @@ fn production_once_declarations_check_their_own_bodies() {
     let application = production_sync_compilation("module app;");
     let mut failures = Vec::new();
 
-    for key in application.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
+    for key in application
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units")
+    {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody
             || !body_belongs_to(
                 &application,
@@ -2546,7 +2584,9 @@ fn production_once_declarations_check_their_own_bodies() {
             continue;
         }
 
-        let certified = application.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
+        let certified = application
+            .execution_properties(key.clone())
+            .expect("fixture callable must resolve its execution properties");
 
         if certified.diagnostics().has_errors() {
             failures.push((
@@ -2556,7 +2596,9 @@ fn production_once_declarations_check_their_own_bodies() {
             ));
         }
 
-        let checked = application.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let checked = application
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push((
@@ -3085,7 +3127,10 @@ fn production_channel_declarations_check_their_own_bodies() {
 
     let mut failures = Vec::new();
 
-    for key in application.declared_unit_keys_for_test().expect("fixture declarations must resolve their units") {
+    for key in application
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units")
+    {
         if key.kind() != bray_bound_tree::BoundUnitKind::CallableBody {
             continue;
         }
@@ -3098,7 +3143,9 @@ fn production_channel_declarations_check_their_own_bodies() {
             continue;
         }
 
-        let checked = application.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let checked = application
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         if checked.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", checked.diagnostics()));

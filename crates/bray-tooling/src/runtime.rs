@@ -262,7 +262,9 @@ mod tests {
     #[test]
     #[cfg(feature = "compiler")]
     fn relative_runtime_metadata_resolves_native_units_independently_of_linker_working_directory() {
-        let directory = tempfile::tempdir_in(".").expect("fixture `tempfile::tempdir_in` call must succeed");
+        let directory =
+            tempfile::tempdir_in(".").expect("fixture `tempfile::tempdir_in` call must succeed");
+
         let metadata_path = directory.path().join("bray-runtime.brayrt");
         let archive = directory.path().join("runtime.lib");
 
@@ -284,7 +286,13 @@ mod tests {
             indexes.iter().map(|(reference, _)| reference.clone()),
         );
 
-        std::fs::write(&metadata_path, metadata.encode_json().expect("fixture `encode_json` call must succeed")).expect("fixture contents must be written");
+        std::fs::write(
+            &metadata_path,
+            metadata
+                .encode_json()
+                .expect("fixture `encode_json` call must succeed"),
+        )
+        .expect("fixture contents must be written");
 
         let artifact = load_runtime_artifact(
             &metadata_path,
@@ -293,11 +301,14 @@ mod tests {
         )
         .expect("fixture `load_runtime_artifact` call must succeed");
 
-        let directory = std::path::absolute(directory.path()).expect("fixture `std::path::absolute` call must succeed");
+        let directory = std::path::absolute(directory.path())
+            .expect("fixture `std::path::absolute` call must succeed");
 
         for index in artifact.native_indexes() {
             for unit in index.index().units() {
-                let path = index.payload(unit.digest()).expect("fixture `payload` call must succeed");
+                let path = index
+                    .payload(unit.digest())
+                    .expect("fixture `payload` call must succeed");
 
                 assert!(path.is_absolute());
                 assert!(path.starts_with(directory.join("native")));

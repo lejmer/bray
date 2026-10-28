@@ -91,8 +91,10 @@ impl Compilation {
             let mir = instance.mir();
 
             if let std::collections::btree_map::Entry::Vacant(e) = identities.entry(mir.unit()) {
-                e.insert(super::product::mir_content_identity(self, mir)
-                        .map_err(CodegenPreparationError::Query)?);
+                e.insert(
+                    super::product::mir_content_identity(self, mir)
+                        .map_err(CodegenPreparationError::Query)?,
+                );
             }
         }
 

@@ -17,7 +17,10 @@ fn imported_growing_cleanup_shapes_report_the_analysis_limit() {
         "#,
     );
 
-    for consume in ["", "example.package.api.discard<example.package.api.Node<i32>>(node);"] {
+    for consume in [
+        "",
+        "example.package.api.discard<example.package.api.Node<i32>>(node);",
+    ] {
         let consumer = execution_consumer(
             &provider,
             &format!(

@@ -493,12 +493,13 @@ impl Compilation {
 
         for (_, evaluation) in &mut completed {
             if let ReachabilityEvaluation::Instance { instance, .. } = evaluation
-                && let Some(requirements) = requirements.get(instance.key()) {
-                    // The graph publishes the realized immutable descriptor to all downstream consumers.
-                    *instance = instance
-                        .clone()
-                        .with_frame_execution_requirements(requirements);
-                }
+                && let Some(requirements) = requirements.get(instance.key())
+            {
+                // The graph publishes the realized immutable descriptor to all downstream consumers.
+                *instance = instance
+                    .clone()
+                    .with_frame_execution_requirements(requirements);
+            }
         }
 
         finish_codegen_reachability(builder, previous, &roots, completed, helper_requirements)

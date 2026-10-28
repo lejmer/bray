@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use bray_test_protocol::TestHostTermination;
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub(crate) struct NativeTestReport {

@@ -1207,21 +1207,24 @@ mod tests {
             assert_eq!(report.suppressed_count(), 2 * usize::from(!fail_completion));
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
+                    .expect("fixture runtime must be active"),
                 0
             );
 
             assert!(bray_runtime_root_completion_resolution(root).is_success());
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
+                    .expect("fixture runtime must be active"),
                 1
             );
 
             assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
 
             assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents()).expect("fixture runtime must be active"),
+                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
+                    .expect("fixture runtime must be active"),
                 0
             );
 
@@ -1612,8 +1615,12 @@ mod tests {
         );
 
         super::super::state::with_runtime(|runtime| {
-            let task = runtime.retained_task(task, true).expect("fixture `retained_task` call must succeed");
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+            let task = runtime
+                .retained_task(task, true)
+                .expect("fixture `retained_task` call must succeed");
+
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+                .expect("fixture outgoing records must admit the supplied values");
 
             let primary = bray_runtime_abi::NativePanicPrimary::new(
                 bray_runtime_abi::NativePanicCause::ASSERTION,
@@ -1667,12 +1674,18 @@ mod tests {
                 .is_success()
         );
 
-        let task = bray_runtime_task_allocation().task().expect("fixture `task` call must succeed");
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("fixture `task` call must succeed");
+
         let frame = protected_frame(8, resume_frame, ignore_completion_move, started_destroy);
-        let missing = NativeTaskHandle::new(task.raw() + 1).expect("fixture native task handle must be valid");
+
+        let missing = NativeTaskHandle::new(task.raw() + 1)
+            .expect("fixture native task handle must be valid");
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(missing, &frame)).expect("fixture runtime must be active"),
+            super::with_runtime(|runtime| runtime.start(missing, &frame))
+                .expect("fixture runtime must be active"),
             NativeRuntimeStatus::UNKNOWN_TASK
         );
 
@@ -1685,7 +1698,8 @@ mod tests {
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(task, &frame)).expect("fixture runtime must be active"),
+            super::with_runtime(|runtime| runtime.start(task, &frame))
+                .expect("fixture runtime must be active"),
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
@@ -1776,7 +1790,9 @@ mod tests {
 
         drop(failure);
 
-        let task = bray_runtime_task_allocation().task().expect("fixture `task` call must succeed");
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("fixture `task` call must succeed");
 
         assert!(bray_runtime_task_start(task, inactive).is_success());
         assert!(bray_runtime_main_thread_lane_drive().is_success());

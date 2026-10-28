@@ -472,7 +472,10 @@ mod tests {
     #[test]
     fn portable_predicate_definitions_use_link_once_even_as_roots() {
         let compilation = crate::test_support::compilation("module app;");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
 
         let boolean = compilation
             .codegen_representation_type(bray_compiler_known::RepresentationRole::ScalarBool)
@@ -520,8 +523,8 @@ mod tests {
 
         let mir = builder.finish(entry);
 
-        let instance =
-            CodegenInstance::try_new(CodegenInstanceKey::non_generic(&mir), mir, []).expect("fixture codegen instance must be valid");
+        let instance = CodegenInstance::try_new(CodegenInstanceKey::non_generic(&mir), mir, [])
+            .expect("fixture codegen instance must be valid");
 
         for roots in [BTreeSet::new(), BTreeSet::from([instance.key().clone()])] {
             assert_eq!(

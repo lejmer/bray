@@ -409,7 +409,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
-        let broadcast = outcome.check(builder, broadcast, source, false).map_err(invalid)?;
+        let broadcast = outcome
+            .check(builder, broadcast, source, false)
+            .map_err(invalid)?;
 
         builder.set_terminator(
             broadcast,

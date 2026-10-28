@@ -436,16 +436,16 @@ impl ExecutionCondition {
                     | BoundOperator::Greater
                     | BoundOperator::GreaterEqual
             )
-                && let Ok(bray_symbols::ConstantValueKind::Boolean(value)) =
-                    crate::constant::fold_binary(
-                        operator,
-                        left.kind(),
-                        right.kind(),
-                        crate::ConstantEvaluationLimits::default().integer_bits(),
-                    )
-                {
-                    return Self::Boolean(value);
-                }
+            && let Ok(bray_symbols::ConstantValueKind::Boolean(value)) =
+                crate::constant::fold_binary(
+                    operator,
+                    left.kind(),
+                    right.kind(),
+                    crate::ConstantEvaluationLimits::default().integer_bits(),
+                )
+        {
+            return Self::Boolean(value);
+        }
 
         if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual) {
             if let [Self::Borrowed(subject), Self::Literal(absent)]

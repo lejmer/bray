@@ -151,9 +151,10 @@ fn verify_native_indexes(
                         == bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
                     && let Some(index) = package.native_artifact().map_err(|error| {
                         BuildError::conformance("native-index", format!("{error:?}"))
-                    })? {
-                        return Ok(index);
-                    }
+                    })?
+                {
+                    return Ok(index);
+                }
             }
 
             Err(BuildError::conformance(

@@ -49,7 +49,10 @@ trusted internal func handle_read(
     );
 
     let key = source_function_body_key(&compilation, "main");
-    let selections = compilation.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
+
+    let selections = compilation
+        .semantic_selections(key.clone())
+        .expect("fixture callable must have semantic selections");
 
     let diagnostic = selections
         .diagnostics()
@@ -69,14 +72,18 @@ trusted internal func handle_read(
         .primary_span()
         .expect("type error must retain its argument span");
 
-    let source = compilation.source(span.source_id()).expect("fixture `source` call must succeed");
+    let source = compilation
+        .source(span.source_id())
+        .expect("fixture `source` call must succeed");
 
     assert_eq!(
         source.text_slice(span.range()).map(str::trim),
         Some("handle")
     );
 
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     assert!(lowered.value().is_none());
     assert!(lowered.diagnostics().has_errors());
@@ -563,7 +570,9 @@ fn byte_extents_report_incorrect_argument_counts() {
 
     assert!(diagnostic.args().contains(&DiagnosticArg::actual_count(2)));
 
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     assert!(lowered.value().is_none());
 
@@ -625,10 +634,19 @@ fn trait_default_bodies_apply_associated_type_equalities_in_either_query_order()
                 crate::test_support::source_trait_callable_member_body_key(&compilation, "first");
 
             if header_first {
-                let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
-                let owner = symbols.symbol_for_key(key.declared_owner()).expect("fixture `symbol_for_key` call must succeed");
+                let symbols = compilation
+                    .symbol_graph()
+                    .expect("fixture compilation must build its symbol graph");
+
+                let owner = symbols
+                    .symbol_for_key(key.declared_owner())
+                    .expect("fixture `symbol_for_key` call must succeed");
+
                 let cancellation = crate::fact::CancellationToken::new();
-                let binding = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
+
+                let binding = compilation
+                    .binding_context(&cancellation)
+                    .expect("fixture compilation must provide a binding context");
 
                 let constraints = bray_binder::SymbolQueryProvider::resolve_symbol_query(
                     &binding,
@@ -640,7 +658,9 @@ fn trait_default_bodies_apply_associated_type_equalities_in_either_query_order()
                 assert!(constraints.diagnostics().is_empty());
             }
 
-            let types = compilation.expression_types(key.clone()).expect("fixture callable must complete expression typing");
+            let types = compilation
+                .expression_types(key.clone())
+                .expect("fixture callable must complete expression typing");
 
             if equality.is_empty() {
                 bray_testing::assert_goal_state_diagnostic_kind(
@@ -660,7 +680,13 @@ fn trait_default_bodies_apply_associated_type_equalities_in_either_query_order()
                     compilation.check_diagnostics()
                 );
 
-                assert!(compilation.lowered_unit(key).expect("fixture callable must lower successfully").value().is_some());
+                assert!(
+                    compilation
+                        .lowered_unit(key)
+                        .expect("fixture callable must lower successfully")
+                        .value()
+                        .is_some()
+                );
             }
         }
     }

@@ -416,10 +416,9 @@ fn external_declaration_key(
         SymbolKind::CallableOverload | SymbolKind::ImplementationOverload
     );
 
-    if !use_ordinal
-        && let Some(name) = graph.member_name(symbol) {
-            return ExternalSymbolKey::named(owner_key, symbol.kind(), name.clone());
-        }
+    if !use_ordinal && let Some(name) = graph.member_name(symbol) {
+        return ExternalSymbolKey::named(owner_key, symbol.kind(), name.clone());
+    }
 
     relationship_ordinal(graph, owner, symbol)
         .and_then(|ordinal| ExternalSymbolKey::ordinal(owner_key, symbol.kind(), ordinal))
@@ -456,12 +455,15 @@ fn export_symbol(
 
     let containing_symbol = graph
         .runtime_default_subject(symbol)
-        .or_else(|| graph.containing_symbol(symbol)).map(|owner| keys.get(&owner).cloned().unwrap_or_else(|| {
-            panic!(
-                "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
-                owner.kind()
-            );
-        }));
+        .or_else(|| graph.containing_symbol(symbol))
+        .map(|owner| {
+            keys.get(&owner).cloned().unwrap_or_else(|| {
+                panic!(
+                    "export IncompletePublicDeclarationSemantics contract failed: declaration={:?}",
+                    owner.kind()
+                );
+            })
+        });
 
     let visibility = graph
         .symbol_visibility(symbol)

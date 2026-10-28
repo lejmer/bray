@@ -455,7 +455,10 @@ fn returned_iteration_values_reject_local_storage() {
 
     let compilation = compilation(source);
     let key = source_function_body_key(&compilation, "bad");
-    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("fixture callable must complete storage-flow analysis");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         flow.diagnostics(),
@@ -562,7 +565,10 @@ fn returned_propagated_errors_reject_local_storage() {
 
     let compilation = compilation(source);
     let key = source_function_body_key(&compilation, "bad");
-    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("fixture callable must complete storage-flow analysis");
 
     bray_testing::assert_goal_state_diagnostic_kind(
         flow.diagnostics(),

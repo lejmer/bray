@@ -623,7 +623,9 @@ mod tests {
 
     #[test]
     fn dependency_parameter_occurrences_include_types_nested_in_constants() {
-        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let store =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
         let ty_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
         let unused = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
         let count = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(4));

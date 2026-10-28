@@ -7,9 +7,9 @@ use crate::{
     AssertionFailure, CapturedStream, CapturedStreamPolicy, ExplicitTestFailure,
     TestCancellationSource, TestCaptureLimits, TestCapturePolicy, TestCatalogDigest,
     TestCatalogEntryId, TestDuration, TestErrorTypeIdentity, TestHostCommand, TestHostCommandId,
-    TestHostControl, TestHostResult, TestHostTermination, TestInfrastructureFailure, TestInfrastructureFailureKind,
-    TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor, TestStreamFailure,
-    TestStreamFailureKind, TestTimeoutPolicy,
+    TestHostControl, TestHostResult, TestHostTermination, TestInfrastructureFailure,
+    TestInfrastructureFailureKind, TestOutcome, TestPanicCause, TestPanicReport, TestSourceAnchor,
+    TestStreamFailure, TestStreamFailureKind, TestTimeoutPolicy,
 };
 
 use super::support::{
@@ -534,8 +534,12 @@ fn decode_infrastructure_failure(
 
     let termination = match decoder.u8()? {
         0 => return Ok(TestInfrastructureFailure::new(kind, detail)),
-        1 => TestHostTermination::ExitCode { code: decoder.u32()?.cast_signed() },
-        2 => TestHostTermination::Signal { signal: decoder.u64()?.cast_signed() },
+        1 => TestHostTermination::ExitCode {
+            code: decoder.u32()?.cast_signed(),
+        },
+        2 => TestHostTermination::Signal {
+            signal: decoder.u64()?.cast_signed(),
+        },
         _ => return Err(TestProtocolError::Malformed),
     };
 
@@ -564,9 +568,13 @@ mod tests {
             let result = TestHostResult::after_cleanup(
                 TestHostCommandId::from_bytes([3; 32]),
                 TestCatalogDigest::from_bytes([4; 32]),
-                TestOutcome::InfrastructureFailed(crate::TestInfrastructureFailure::new(
-                    crate::TestInfrastructureFailureKind::Host, None,
-                ).with_host_termination(termination)),
+                TestOutcome::InfrastructureFailed(
+                    crate::TestInfrastructureFailure::new(
+                        crate::TestInfrastructureFailureKind::Host,
+                        None,
+                    )
+                    .with_host_termination(termination),
+                ),
                 CapturedStream::captured(b"startup".iter().copied(), 9, None),
                 CapturedStream::discarded(),
             );
@@ -575,7 +583,8 @@ mod tests {
 
             super::write_host_result(&mut bytes, &result).expect("encode native failure result");
 
-            let decoded = super::read_host_result(&mut bytes.as_slice()).expect("decode native failure result");
+            let decoded = super::read_host_result(&mut bytes.as_slice())
+                .expect("decode native failure result");
 
             assert_eq!(decoded, result);
         }
@@ -718,10 +727,12 @@ mod tests {
 
         let mut bytes = Vec::new();
 
-        super::write_host_result(&mut bytes, &result).expect("fixture `super::write_host_result` call must succeed");
+        super::write_host_result(&mut bytes, &result)
+            .expect("fixture `super::write_host_result` call must succeed");
 
         assert_eq!(
-            super::read_host_result(&mut Cursor::new(bytes)).expect("fixture `super::read_host_result` call must succeed"),
+            super::read_host_result(&mut Cursor::new(bytes))
+                .expect("fixture `super::read_host_result` call must succeed"),
             result
         );
     }

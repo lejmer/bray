@@ -43,7 +43,10 @@ fn imported_call_effects_distinguish_forwarding_from_mutation() {
 
         assert_eq!(calls.len(), 1);
 
-        let call = calls.values().next().expect("fixture iterator must provide its expected item");
+        let call = calls
+            .values()
+            .next()
+            .expect("fixture iterator must provide its expected item");
 
         assert_eq!(call.effects().is_empty(), unchanged, "{:?}", call.effects());
 
@@ -594,9 +597,18 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
         );
 
         let key = source_function_body_key(&consumer, "root");
-        let storage = consumer.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-        let unit = consumer.bound_unit(key.clone()).expect("fixture callable must bind successfully");
-        let contracts = consumer.dependency_contracts(key).expect("fixture `dependency_contracts` call must succeed");
+
+        let storage = consumer
+            .storage_plan(key.clone())
+            .expect("fixture callable must have a storage plan");
+
+        let unit = consumer
+            .bound_unit(key.clone())
+            .expect("fixture callable must bind successfully");
+
+        let contracts = consumer
+            .dependency_contracts(key)
+            .expect("fixture `dependency_contracts` call must succeed");
 
         let (capability, input) = storage
             .value()
@@ -604,7 +616,10 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             .find(|(_, capability)| capability.entry_binding().is_some())
             .expect("fixture lookup must find its expected value");
 
-        let root = storage.value().root_identity(input.access()).expect("fixture `root_identity` call must succeed");
+        let root = storage
+            .value()
+            .root_identity(input.access())
+            .expect("fixture `root_identity` call must succeed");
 
         let call = unit
             .value()
@@ -850,7 +865,9 @@ fn inferred_unwind_behavior_survives_export_and_import() {
             "{callee}"
         );
 
-        let lowered = consumer.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = consumer
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !lowered.diagnostics().has_errors(),
@@ -2354,7 +2371,11 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
 
             assert_eq!(calls.len(), 1);
 
-            let effects = calls.values().next().expect("fixture iterator must provide its expected item").effects();
+            let effects = calls
+                .values()
+                .next()
+                .expect("fixture iterator must provide its expected item")
+                .effects();
 
             assert!(
                 !effects.iter().any(|effect| matches!(
@@ -2452,7 +2473,11 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
 
         for (application, name) in [(&application, "caller"), (&consumer, "forward")] {
             let key = crate::test_support::source_function_body_key(application, name);
-            let flow = application.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+            let flow = application
+                .storage_flow(key)
+                .expect("fixture callable must complete storage-flow analysis");
+
             let summary = flow.value().dependencies().effects();
 
             let summary_roots = summary
@@ -2476,7 +2501,12 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
                 );
 
                 assert!(
-                    expected.contains(reference.projections().first().expect("fixture sequence must contain its first item")),
+                    expected.contains(
+                        reference
+                            .projections()
+                            .first()
+                            .expect("fixture sequence must contain its first item")
+                    ),
                     "{summary:#?}"
                 );
             }
@@ -2491,7 +2521,10 @@ fn composite_conversion_effects_use_the_aggregate_input_paths() {
         }
 
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let contracts = application.dependency_contracts(key).expect("fixture `dependency_contracts` call must succeed");
+
+        let contracts = application
+            .dependency_contracts(key)
+            .expect("fixture `dependency_contracts` call must succeed");
 
         let effects = contracts
             .value()

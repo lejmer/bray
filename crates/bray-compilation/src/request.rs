@@ -575,9 +575,7 @@ impl CompilationRequest {
     }
 
     /// Consumes the request into its parts.
-    pub fn into_parts(
-        self,
-    ) -> CompilationRequestParts {
+    pub fn into_parts(self) -> CompilationRequestParts {
         (
             self.package_identity,
             self.package_source_authority,

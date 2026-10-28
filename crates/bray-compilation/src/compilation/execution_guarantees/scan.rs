@@ -301,7 +301,6 @@ impl Compilation {
 
         Ok(diagnostics)
     }
-
 }
 
 #[cfg(test)]

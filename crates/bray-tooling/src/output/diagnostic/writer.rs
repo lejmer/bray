@@ -69,7 +69,8 @@ mod tests {
     #[test]
     fn ignored_result_warnings_preserve_context_in_text_and_json() {
         let compilation = Compilation::load(CompilationRequest::new(
-            PackageIdentity::try_new("test.package").expect("fixture package identity must be valid"),
+            PackageIdentity::try_new("test.package")
+                .expect("fixture package identity must be valid"),
             vec![SourceInput::virtual_text(
                 SourceIdentity::new(0),
                 "discard.bray",
@@ -116,7 +117,8 @@ mod tests {
         )
         .expect("fixture `write_diagnostics` call must succeed");
 
-        let json: serde_json::Value = serde_json::from_slice(&stdout).expect("fixture data must deserialize");
+        let json: serde_json::Value =
+            serde_json::from_slice(&stdout).expect("fixture data must deserialize");
 
         assert!(stderr.is_empty());
         assert_eq!(json["has_errors"], false);

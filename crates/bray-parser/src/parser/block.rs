@@ -237,7 +237,10 @@ mod tests {
 
         let declarations = block
             .block_items()
-            .map(|item| item.local_binding_declaration().expect("fixture `local_binding_declaration` call must succeed"))
+            .map(|item| {
+                item.local_binding_declaration()
+                    .expect("fixture `local_binding_declaration` call must succeed")
+            })
             .collect::<Vec<_>>();
 
         assert_eq!(declarations.len(), 3);

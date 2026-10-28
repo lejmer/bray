@@ -16,10 +16,13 @@ pub(crate) fn cleanup_scopes<C>(
     cleanup_shapes: &mut crate::asynchronous::CleanupShapeResolver<'_, C>,
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> crate::CheckerQueryResult<(
+) -> crate::CheckerQueryResult<
+    (
         BTreeSet<bray_bound_tree::BoundBlockId>,
         BTreeSet<bray_bound_tree::BoundExpressionId>,
-    ), C::UpstreamError>
+    ),
+    C::UpstreamError,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {

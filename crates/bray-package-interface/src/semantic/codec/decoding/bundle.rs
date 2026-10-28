@@ -839,7 +839,10 @@ mod tests {
 
         types.push(InterfaceType::Tuple([].into()));
 
-        let replacement = InterfaceTypeId::new(u32::try_from(types.len()).expect("fixture value must fit the requested representation"));
+        let replacement = InterfaceTypeId::new(
+            u32::try_from(types.len())
+                .expect("fixture value must fit the requested representation"),
+        );
 
         types.push(InterfaceType::Tuple(
             [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),

@@ -157,8 +157,20 @@ fn shared_libraries_own_hosts_while_archives_contribute_storage() {
     });
 
     assert!(!Arc::ptr_eq(&plans[0], &plans[1]));
-    assert!(!plans[0].product_host().expect("fixture shared library must own an executable host").is_final_image());
-    assert!(plans[1].product_host().expect("fixture `product_host` call must succeed").is_final_image());
+
+    assert!(
+        !plans[0]
+            .product_host()
+            .expect("fixture shared library must own an executable host")
+            .is_final_image()
+    );
+
+    assert!(
+        plans[1]
+            .product_host()
+            .expect("fixture `product_host` call must succeed")
+            .is_final_image()
+    );
 
     assert!(
         plans[0]
@@ -621,7 +633,9 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
             })
             .expect("generic resource must retain its static finalizer");
 
-        let finalization = storage.finalization().expect("fixture `finalization` call must succeed");
+        let finalization = storage
+            .finalization()
+            .expect("fixture `finalization` call must succeed");
 
         let requirement = storage
             .outgoing_requirements()
@@ -637,7 +651,11 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
         assert!(layout.size() >= alignment);
         assert_eq!(layout.alignment().get(), alignment);
 
-        let roles = plan.executable_host().expect("fixture `executable_host` call must succeed").requirements().roles();
+        let roles = plan
+            .executable_host()
+            .expect("fixture `executable_host` call must succeed")
+            .requirements()
+            .roles();
 
         assert!(roles.contains(&RuntimeAbiRole::CleanupStorageClaim));
         assert!(roles.contains(&RuntimeAbiRole::CleanupStorageRelease));

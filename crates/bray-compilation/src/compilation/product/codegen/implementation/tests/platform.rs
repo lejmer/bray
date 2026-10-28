@@ -373,7 +373,10 @@ fn structural_assembly_emits_valid_native_units() {
     };
 
     assert!(matches!(
-        mir.block(completed.target()).expect("fixture MIR block must exist").terminator().kind(),
+        mir.block(completed.target())
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind(),
         MirTerminatorKind::Unreachable
     ));
 
@@ -858,8 +861,15 @@ func platform_path_override_test()
         })
     }));
 
-    assert!(ir.lines().any(|line| line.starts_with("declare ") && line.contains(symbol)));
-    assert!(!ir.lines().any(|line| line.starts_with("define ") && line.contains(symbol)));
+    assert!(
+        ir.lines()
+            .any(|line| line.starts_with("declare ") && line.contains(symbol))
+    );
+
+    assert!(
+        !ir.lines()
+            .any(|line| line.starts_with("define ") && line.contains(symbol))
+    );
 }
 
 #[test]

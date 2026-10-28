@@ -184,7 +184,9 @@ mod tests {
         );
 
         let function = source_function(&compilation, "missing");
-        let definition = CallableDefinitionId::try_new(function.into()).expect("fixture callable definition id must be valid");
+
+        let definition = CallableDefinitionId::try_new(function.into())
+            .expect("fixture callable definition id must be valid");
 
         let _ = compilation.codegen_callable_template(definition, &CancellationToken::new());
     }
@@ -197,7 +199,8 @@ mod tests {
             SelectedTarget::baseline(),
         )
         .with_native_link_inputs([NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
+            NonEmptySharedStr::try_new("native")
+                .expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )]);
 
@@ -257,7 +260,8 @@ extern func invalid_read(pos value: i32) -> i32;
             let compilation = compilation(&format!("module app; func {name}() {{}}"));
 
             let definition =
-                CallableDefinitionId::try_new(source_function(&compilation, name).into()).expect("fixture callable definition id must be valid");
+                CallableDefinitionId::try_new(source_function(&compilation, name).into())
+                    .expect("fixture callable definition id must be valid");
 
             assert_eq!(compilation.compiler_provided_heap_method(definition), None);
 

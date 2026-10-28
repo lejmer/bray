@@ -64,7 +64,9 @@ fn negative_integer_literals_publish_representable_mir_constants() {
         compilation.check_diagnostics()
     );
 
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     for (name, sign, magnitude) in [
         ("minimum", bray_symbols::IntegerSign::Negative, vec![128]),

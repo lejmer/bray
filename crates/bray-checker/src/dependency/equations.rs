@@ -17,8 +17,12 @@ pub(super) fn map_requirements<E>(
             }
 
             let mapped = match requirement {
-                DependencyRequirement::CleanupDependencies { ty, requirements } =>
-                    DependencyRequirement::cleanup_dependencies(*ty, map_requirements(requirements, depth, transform)?),
+                DependencyRequirement::CleanupDependencies { ty, requirements } => {
+                    DependencyRequirement::cleanup_dependencies(
+                        *ty,
+                        map_requirements(requirements, depth, transform)?,
+                    )
+                }
                 DependencyRequirement::FixedPoint {
                     definitions,
                     result,
@@ -150,7 +154,9 @@ pub(super) fn has_variables(requirements: &[DependencyRequirement], local_only: 
                     .map(|requirement| (requirement, binders)),
             ),
             DependencyRequirement::CleanupDependencies { requirements, .. } => pending.extend(
-                requirements.iter().map(|requirement| (requirement, binders)),
+                requirements
+                    .iter()
+                    .map(|requirement| (requirement, binders)),
             ),
             DependencyRequirement::Guarded(guarded) => pending.extend(
                 guarded

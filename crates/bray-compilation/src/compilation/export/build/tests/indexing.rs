@@ -42,7 +42,9 @@ fn indexed_constant_templates_evaluate_after_import() {
         let body = format!("const result: i32 = selected([19, 37], {start}, {end});");
         let source = compilation(&format!("module api;\n{declaration}\n{body}"));
         let bundle = export(&provider);
-        let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
+
+        let interface =
+            encode_package_interface(bundle).expect("fixture package interface must encode");
 
         let implementation = PackageImplementationArtifact::try_from_export_bundle(
             &interface,

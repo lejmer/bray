@@ -104,8 +104,12 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
     assert_eq!(bundle, checked_bundle);
 
     assert_eq!(
-        encode_package_interface(bundle).expect("fixture package interface must encode").bytes(),
-        encode_package_interface(checked_bundle).expect("fixture package interface must encode").bytes()
+        encode_package_interface(bundle)
+            .expect("fixture package interface must encode")
+            .bytes(),
+        encode_package_interface(checked_bundle)
+            .expect("fixture package interface must encode")
+            .bytes()
     );
 
     let dependencies = checked

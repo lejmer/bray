@@ -842,7 +842,8 @@ fn borrowed_trait_view_requires_matching_trusted_evidence() {
             ""
         };
 
-        let source = format!(r#"
+        let source = format!(
+            r#"
         trusted module app;
 
         using cell_value;
@@ -876,7 +877,8 @@ fn borrowed_trait_view_requires_matching_trusted_evidence() {
         {{
             return selected.read(value);
         }}
-        "#);
+        "#
+        );
 
         let application = compilation(&source);
 

@@ -171,7 +171,9 @@ fn unit_valued_replacement_retains_old_owner_cleanup_exits() {
     );
 
     for case in cases.iter() {
-        let failure = mir.block(case.edge().target()).expect("fixture MIR block must exist");
+        let failure = mir
+            .block(case.edge().target())
+            .expect("fixture MIR block must exist");
 
         let mut transfers = 0;
 
@@ -232,7 +234,10 @@ fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let selections = compilation.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .expect("fixture callable must have semantic selections");
 
         let scoped = selections
             .value()
@@ -244,14 +249,21 @@ fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
             })
             .expect("fixture selection must find its expected value");
 
-        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let result = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&result);
         let mut entered = false;
         let mut exited = false;
 
         for block in mir.blocks() {
             for (position, id) in block.operations().iter().enumerate() {
-                let MirOperationKind::Call(call) = mir.operation(*id).expect("fixture MIR operation must exist").kind() else {
+                let MirOperationKind::Call(call) = mir
+                    .operation(*id)
+                    .expect("fixture MIR operation must exist")
+                    .kind()
+                else {
                     continue;
                 };
 
@@ -275,7 +287,9 @@ fn scoped_invocations_retain_distinct_inputs_and_clear_activity_before_exit() {
 
                     assert!(
                         block.operations()[..position].iter().any(|id| matches!(
-                            mir.operation(*id).expect("fixture MIR operation must exist").kind(),
+                            mir.operation(*id)
+                                .expect("fixture MIR operation must exist")
+                                .kind(),
                             MirOperationKind::Store {
                                 value: bray_ir::MirOperand::Immediate {
                                     value: bray_ir::MirImmediateValue::Boolean(false),
@@ -322,9 +336,14 @@ fn borrowed_scoped_capability_retains_its_receiver_storage_through_exit() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
 
-    let dependencies = compilation.dependency_contracts(key.clone()).expect("fixture `dependency_contracts` call must succeed");
+    let storage = compilation
+        .storage_plan(key.clone())
+        .expect("fixture callable must have a storage plan");
+
+    let dependencies = compilation
+        .dependency_contracts(key.clone())
+        .expect("fixture `dependency_contracts` call must succeed");
 
     let (entry, _) = dependencies
         .value()
@@ -333,7 +352,9 @@ fn borrowed_scoped_capability_retains_its_receiver_storage_through_exit() {
         .find(|(site, _)| matches!(site, bray_bound_tree::BoundExecutionSite::ScopedEnter(_)))
         .expect("fixture lookup must find its expected value");
 
-    let expression = entry.expression().expect("fixture expression must retain its checked type or storage");
+    let expression = entry
+        .expression()
+        .expect("fixture expression must retain its checked type or storage");
 
     let (_, capability) = storage
         .value()
@@ -341,14 +362,19 @@ fn borrowed_scoped_capability_retains_its_receiver_storage_through_exit() {
         .find(|(_, loan)| loan.expression() == Some(expression))
         .expect("entry creates its receiver loan");
 
-    let receiver = storage.value().root_identity(capability.access()).expect("fixture `root_identity` call must succeed");
+    let receiver = storage
+        .value()
+        .root_identity(capability.access())
+        .expect("fixture `root_identity` call must succeed");
 
     assert!(matches!(
         storage.value().identity(receiver),
         Some(bray_bound_tree::StorageIdentity::Parameter(_))
     ));
 
-    let liveness = compilation.liveness(key.clone()).expect("fixture `liveness` call must succeed");
+    let liveness = compilation
+        .liveness(key.clone())
+        .expect("fixture `liveness` call must succeed");
 
     assert!(
         liveness.value().is_last_use(
@@ -359,7 +385,9 @@ fn borrowed_scoped_capability_retains_its_receiver_storage_through_exit() {
         liveness.value()
     );
 
-    let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let result = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     lowered_mir(&result);
 }
@@ -390,7 +418,10 @@ fn asynchronous_scoped_phases_drive_selected_frames_and_shield_exit() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let checked = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+        let checked = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
 
         let phases = checked
             .value()
@@ -407,7 +438,10 @@ fn asynchronous_scoped_phases_drive_selected_frames_and_shield_exit() {
             usize::from(!enter.is_empty()) + usize::from(!exit.is_empty())
         );
 
-        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let result = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&result);
 
         assert!(
@@ -465,7 +499,10 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let selections = compilation.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .expect("fixture callable must have semantic selections");
 
         let scoped = selections
             .value()
@@ -477,16 +514,24 @@ fn fallible_scoped_phases_separate_the_capability_and_body_result_types() {
             })
             .expect("fixture selection must find its expected value");
 
-        let types = compilation.expression_types(key.clone()).expect("fixture callable must complete expression typing");
+        let types = compilation
+            .expression_types(key.clone())
+            .expect("fixture callable must complete expression typing");
 
         assert!(scoped.failure_type().is_some());
 
         assert_ne!(
-            types.value().expression(scoped.expression()).expect("fixture expression must retain its checked type or storage").ty(),
+            types
+                .value()
+                .expression(scoped.expression())
+                .expect("fixture expression must retain its checked type or storage")
+                .ty(),
             scoped.capability_type()
         );
 
-        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let result = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             lowered_mir(&result).is_valid(),
@@ -521,7 +566,11 @@ fn fallible_scoped_exit_preserves_pending_control_outcomes() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let result = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&result);
 
         assert!(
@@ -534,7 +583,9 @@ fn fallible_scoped_exit_preserves_pending_control_outcomes() {
                 .iter()
                 .flat_map(|block| block.operations())
                 .any(|id| matches!(
-                    mir.operation(*id).expect("fixture MIR operation must exist").kind(),
+                    mir.operation(*id)
+                        .expect("fixture MIR operation must exist")
+                        .kind(),
                     MirOperationKind::Async(
                         bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
                     )
@@ -579,7 +630,10 @@ fn destructor_receiver_move_admits_before_transfer() {
         })
         .expect("fixture lookup must find its expected value");
 
-    let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let result = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
     let mir = lowered_mir(&result);
 
     let admission = mir
@@ -588,7 +642,9 @@ fn destructor_receiver_move_admits_before_transfer() {
         .find(|block| {
             block.operations().iter().any(|id| {
                 matches!(
-                    mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
+                    mir.operation(*id)
+                        .expect("fixture `iter` call must succeed")
+                        .kind(),
                     MirOperationKind::AdmitOutgoing { .. }
                 )
             })
@@ -688,7 +744,9 @@ fn default_failure_keeps_initialized_inputs_in_cleanup() {
 
             cleans_input |= block.operations().iter().any(|id| {
                 matches!(
-                    mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
+                    mir.operation(*id)
+                        .expect("fixture `iter` call must succeed")
+                        .kind(),
                     MirOperationKind::Cleanup {
                         phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                         ..
@@ -784,8 +842,14 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
     ));
 
     let key = source_function_body_key(&compilation, "main");
-    let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-    let analysis = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+    let storage = compilation
+        .storage_plan(key.clone())
+        .expect("fixture callable must have a storage plan");
+
+    let analysis = compilation
+        .async_analysis(key.clone())
+        .expect("fixture callable must complete async analysis");
 
     let required = analysis
         .value()
@@ -821,7 +885,10 @@ fn cleanup_materializes_every_verified_lifecycle_storage() {
     let cleanup_storages = cleanup_places
         .iter()
         .filter(|(storage, _)| {
-            lowered_mir(&lowered).storage(*storage).expect("fixture `storage` call must succeed").kind()
+            lowered_mir(&lowered)
+                .storage(*storage)
+                .expect("fixture `storage` call must succeed")
+                .kind()
                 != &bray_ir::MirStorageKind::Return
         })
         .map(|(storage, _)| *storage)
@@ -857,7 +924,9 @@ fn assert_frame_admission_retains_capture(source: &str) {
         .find(|block| {
             block.operations().last().is_some_and(|id| {
                 matches!(
-                    mir.operation(*id).expect("fixture sequence must contain its last item").kind(),
+                    mir.operation(*id)
+                        .expect("fixture sequence must contain its last item")
+                        .kind(),
                     MirOperationKind::AdmitOutgoing {
                         owner: bray_ir::MirOutgoingOwner::Invocation { .. }
                             | bray_ir::MirOutgoingOwner::FrameFactory(_),
@@ -872,7 +941,12 @@ fn assert_frame_admission_retains_capture(source: &str) {
         owner: bray_ir::MirOutgoingOwner::FrameFactory(callee),
         ..
     } = mir
-        .operation(*admission.operations().last().expect("fixture sequence must contain its last item"))
+        .operation(
+            *admission
+                .operations()
+                .last()
+                .expect("fixture sequence must contain its last item"),
+        )
         .expect("fixture MIR operation must exist")
         .kind()
     {
@@ -881,7 +955,9 @@ fn assert_frame_admission_retains_capture(source: &str) {
         };
 
         assert!(matches!(
-            mir.storage(factory.storage()).expect("fixture `storage` call must succeed").kind(),
+            mir.storage(factory.storage())
+                .expect("fixture `storage` call must succeed")
+                .kind(),
             bray_ir::MirStorageKind::Temporary
         ));
 
@@ -909,7 +985,10 @@ fn assert_frame_admission_retains_capture(source: &str) {
             let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
                 initializer: bray_ir::MirFrameInitializer::Callable(call),
                 ..
-            }) = mir.operation(*id).expect("fixture MIR operation must exist").kind()
+            }) = mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist")
+                .kind()
             else {
                 return None;
             };
@@ -934,7 +1013,10 @@ fn assert_frame_admission_retains_capture(source: &str) {
         let block = mir.block(id).expect("fixture MIR block must exist");
 
         for id in block.operations() {
-            let kind = mir.operation(*id).expect("fixture MIR operation must exist").kind();
+            let kind = mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist")
+                .kind();
 
             assert!(
                 !matches!(
@@ -978,7 +1060,12 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
     let mir = lowered_mir(&lowered);
 
     let entry = mir
-        .block(mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed").states()[0].entry())
+        .block(
+            mir.frame_descriptor()
+                .expect("fixture `frame_descriptor` call must succeed")
+                .states()[0]
+                .entry(),
+        )
         .expect("fixture MIR block must exist");
 
     let MirTerminatorKind::Branch {
@@ -991,7 +1078,9 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
     };
 
     assert!(entry.operations().iter().any(|id| {
-        let operation = mir.operation(*id).expect("fixture MIR operation must exist");
+        let operation = mir
+            .operation(*id)
+            .expect("fixture MIR operation must exist");
         matches!(
             operation.kind(),
             MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
@@ -1016,7 +1105,10 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
         let block = mir.block(id).expect("fixture MIR block must exist");
 
         for id in block.operations() {
-            let kind = mir.operation(*id).expect("fixture MIR operation must exist").kind();
+            let kind = mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist")
+                .kind();
 
             if let MirOperationKind::Cleanup {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
@@ -1025,7 +1117,9 @@ fn inactive_frame_cancellation_cleans_captures_without_entering_body() {
             } = kind
             {
                 cleans_capture |= matches!(
-                    mir.storage(place.storage()).expect("fixture `storage` call must succeed").kind(),
+                    mir.storage(place.storage())
+                        .expect("fixture `storage` call must succeed")
+                        .kind(),
                     bray_ir::MirStorageKind::Parameter(_)
                 );
             }
@@ -1066,7 +1160,10 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let checked = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+    let checked = compilation
+        .async_analysis(key.clone())
+        .expect("fixture callable must complete async analysis");
 
     let exit = checked
         .value()
@@ -1082,7 +1179,10 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
 
     assert!(!exit.cancellation_broadcast().is_empty());
 
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
     let mir = lowered_mir(&lowered);
 
     assert!(
@@ -1090,7 +1190,9 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
         "broadcast callbacks must satisfy MIR contracts"
     );
 
-    let frame = mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed");
+    let frame = mir
+        .frame_descriptor()
+        .expect("fixture `frame_descriptor` call must succeed");
 
     assert!(frame.states().len() > 1);
 
@@ -1116,12 +1218,18 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
             shielded = true;
 
             let entry = mir
-                .block(frame.states()[usize::try_from(resume_state.raw()).expect("fixture value must fit the requested representation")].entry())
+                .block(
+                    frame.states()[usize::try_from(resume_state.raw())
+                        .expect("fixture value must fit the requested representation")]
+                    .entry(),
+                )
                 .expect("fixture MIR block must exist");
 
             assert!(
                 !entry.operations().iter().any(|operation| matches!(
-                    mir.operation(*operation).expect("fixture MIR operation must exist").kind(),
+                    mir.operation(*operation)
+                        .expect("fixture MIR operation must exist")
+                        .kind(),
                     MirOperationKind::Async(bray_ir::MirAsyncOperation::ObserveFrameCancellation)
                 )),
                 "a shielded exit resumes its pending continuation even if cancellation started cleanup"
@@ -1151,23 +1259,31 @@ fn frame_broadcast_visits_captures_during_shielded_scoped_exit() {
             ));
 
             for id in block.operations() {
-                if let MirOperationKind::Cleanup { phase, place, .. } =
-                    mir.operation(*id).expect("fixture MIR operation must exist").kind()
+                if let MirOperationKind::Cleanup { phase, place, .. } = mir
+                    .operation(*id)
+                    .expect("fixture MIR operation must exist")
+                    .kind()
                 {
                     assert_eq!(*phase, bray_ir::MirCleanupPhase::TaskCancellation);
 
                     broadcasts_task |= matches!(
-                        mir.storage(place.storage()).expect("fixture `storage` call must succeed").kind(),
+                        mir.storage(place.storage())
+                            .expect("fixture `storage` call must succeed")
+                            .kind(),
                         bray_ir::MirStorageKind::Parameter(0)
                     );
                 }
 
-                if let MirOperationKind::Store { destination, .. } =
-                    mir.operation(*id).expect("fixture MIR operation must exist").kind()
+                if let MirOperationKind::Store { destination, .. } = mir
+                    .operation(*id)
+                    .expect("fixture MIR operation must exist")
+                    .kind()
                 {
                     assert!(
                         matches!(
-                            mir.storage(destination.storage()).expect("fixture `storage` call must succeed").kind(),
+                            mir.storage(destination.storage())
+                                .expect("fixture `storage` call must succeed")
+                                .kind(),
                             bray_ir::MirStorageKind::BroadcastLocal
                         ),
                         "broadcast preserves the suspended frame's pending state"
@@ -1203,8 +1319,14 @@ fn frames_without_cancellation_obligations_have_empty_broadcasts() {
 
     assert!(mir.is_valid());
 
-    for state in mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed").states() {
-        let block = mir.block(state.retention().broadcast()).expect("fixture MIR block must exist");
+    for state in mir
+        .frame_descriptor()
+        .expect("fixture `frame_descriptor` call must succeed")
+        .states()
+    {
+        let block = mir
+            .block(state.retention().broadcast())
+            .expect("fixture MIR block must exist");
 
         assert!(block.operations().is_empty());
 
@@ -1263,7 +1385,10 @@ fn ordinary_finalizers_keep_selected_execution_in_the_enclosing_cleanup() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let checked = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+        let checked = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
 
         let selected = checked
             .value()
@@ -1272,7 +1397,10 @@ fn ordinary_finalizers_keep_selected_execution_in_the_enclosing_cleanup() {
             .find_map(|ty| ty.finalizer())
             .expect("fixture selection must find its expected value");
 
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&lowered);
 
         assert!(mir.is_valid(), "{source}");
@@ -1348,7 +1476,10 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let checked = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+    let checked = compilation
+        .async_analysis(key.clone())
+        .expect("fixture callable must complete async analysis");
 
     assert!(
         checked
@@ -1366,7 +1497,10 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         .find(|call| matches!(call.result, bray_bound_tree::BoundCallResult::LazyFuture(_)))
         .expect("cleanup checking retains the selected async finalizer");
 
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
     let mir = lowered_mir(&lowered);
 
     assert!(
@@ -1405,7 +1539,8 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
         );
     }
 
-    let (reconstructed, _) = bray_ir::reconstruct_reachable(mir).expect("fixture `bray_ir::reconstruct_reachable` call must succeed");
+    let (reconstructed, _) = bray_ir::reconstruct_reachable(mir)
+        .expect("fixture `bray_ir::reconstruct_reachable` call must succeed");
 
     assert!(reconstructed.is_valid());
 
@@ -1456,7 +1591,9 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
     for block in mir.blocks() {
         if block.operations().iter().any(|id| {
             matches!(
-                mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
+                mir.operation(*id)
+                    .expect("fixture `iter` call must succeed")
+                    .kind(),
                 MirOperationKind::Destroy { .. }
             )
         }) {
@@ -1469,7 +1606,10 @@ fn ordinary_async_finalizers_suspend_with_live_owner_guards() {
                             ..
                         },
                     ..
-                } = mir.operation(*id).expect("fixture MIR operation must exist").kind()
+                } = mir
+                    .operation(*id)
+                    .expect("fixture MIR operation must exist")
+                    .kind()
                 {
                     destruction_guards.insert(destination.storage());
                 }
@@ -1663,7 +1803,9 @@ fn failed_later_inputs_await_initialized_temporary_finalizers() {
 
             composed |= block.operations().iter().any(|id| {
                 matches!(
-                    mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
+                    mir.operation(*id)
+                        .expect("fixture `iter` call must succeed")
+                        .kind(),
                     MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { .. })
                 )
             });
@@ -1738,11 +1880,15 @@ fn unconsumed_frame_results_await_their_finalizers() {
 
         assert!(state.retention().is_completion_cleanup());
 
-        let broadcast = mir.block(state.retention().broadcast()).expect("fixture MIR block must exist");
+        let broadcast = mir
+            .block(state.retention().broadcast())
+            .expect("fixture MIR block must exist");
 
         assert!(
             broadcast.operations().iter().any(|id| matches!(
-                mir.operation(*id).expect("fixture MIR operation must exist").kind(),
+                mir.operation(*id)
+                    .expect("fixture MIR operation must exist")
+                    .kind(),
                 MirOperationKind::Cleanup {
                     phase: bray_ir::MirCleanupPhase::TaskCancellation,
                     ..
@@ -1855,7 +2001,11 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
 
     let units = candidates
         .into_iter()
-        .map(|key| compilation.lowered_unit(key).expect("fixture callable must lower successfully"))
+        .map(|key| {
+            compilation
+                .lowered_unit(key)
+                .expect("fixture callable must lower successfully")
+        })
         .collect::<Vec<_>>();
 
     let mir = units
@@ -1889,7 +2039,9 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
         .cleanup_continuation()
         .expect("receiver cleanup is a caller-owned tail");
 
-    let body = mir.synchronous_body().expect("fixture `synchronous_body` call must succeed");
+    let body = mir
+        .synchronous_body()
+        .expect("fixture `synchronous_body` call must succeed");
 
     assert!(mir.is_valid());
     assert!(body.is_valid());
@@ -1910,7 +2062,9 @@ fn destructor_abandonment_applies_only_to_implicit_receiver_parts() {
                     ..
                 }
                 | MirOperationKind::Cleanup { place, .. } => !matches!(
-                    body.storage(place.storage()).expect("fixture `storage` call must succeed").kind(),
+                    body.storage(place.storage())
+                        .expect("fixture `storage` call must succeed")
+                        .kind(),
                     bray_ir::MirStorageKind::BorrowedParameter(0)
                 ),
                 _ => false,
@@ -1951,7 +2105,10 @@ fn inactive_future_cleanup_composes_without_result_storage() {
         );
 
         let key = source_function_body_key(&compilation, "caller");
-        let checked = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+        let checked = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
 
         assert!(
             checked
@@ -1962,7 +2119,10 @@ fn inactive_future_cleanup_composes_without_result_storage() {
             "inactive ownership end: {body}"
         );
 
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&lowered);
 
         assert!(mir.is_valid(), "inactive ownership end: {body}");
@@ -2037,11 +2197,22 @@ fn destructor_nested_callable_does_not_inherit_receiver_abandonment() {
         })
         .expect("fixture lookup must find its expected value");
 
-    let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
-    let nested = bound.value().nested_units().first().expect("fixture sequence must contain its first item").clone();
+    let bound = compilation
+        .bound_unit(key.clone())
+        .expect("fixture callable must bind successfully");
+
+    let nested = bound
+        .value()
+        .nested_units()
+        .first()
+        .expect("fixture sequence must contain its first item")
+        .clone();
 
     for (key, receiver_cleanup) in [(key, true), (nested, false)] {
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&lowered);
 
         assert_eq!(
@@ -2118,7 +2289,9 @@ fn returned_error_owns_a_future_extracted_from_a_nullable_binding() {
         application.check_diagnostics()
     );
 
-    let keys = application.declared_unit_keys_for_test().expect("fixture declarations must resolve their units");
+    let keys = application
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units");
 
     let finalizers = keys
         .into_iter()
@@ -2131,7 +2304,9 @@ fn returned_error_owns_a_future_extracted_from_a_nullable_binding() {
     assert_eq!(finalizers.len(), 2);
 
     for key in finalizers {
-        let lowered = application.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = application
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(lowered_mir(&lowered).is_valid());
     }
@@ -2288,13 +2463,20 @@ fn retained_capture_cleanup_publishes_frame_outcomes() {
 
     let mir = lowered_mir(&lowered);
 
-    assert!(mir.frame_descriptor().expect("fixture `frame_descriptor` call must succeed").capture_cleanup().is_some());
+    assert!(
+        mir.frame_descriptor()
+            .expect("fixture `frame_descriptor` call must succeed")
+            .capture_cleanup()
+            .is_some()
+    );
 
     let mut cancellation_entries = 0;
 
     for block in mir.blocks() {
         if let MirTerminatorKind::CancelCurrentRun { cleanup } = block.terminator().kind() {
-            let entry = mir.block(cleanup.edge().target()).expect("fixture MIR block must exist");
+            let entry = mir
+                .block(cleanup.edge().target())
+                .expect("fixture MIR block must exist");
 
             assert!(entry.operations().iter().any(|operation| {
                 matches!(mir.operation(*operation).expect("fixture MIR operation must exist").kind(),
@@ -2365,15 +2547,24 @@ fn destructor_receiver_tail_retains_normal_completion() {
             })
             .expect("fixture lookup must find its expected value");
 
-        let lowered = application.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = application
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&lowered);
-        let tail = mir.cleanup_continuation().expect("fixture `cleanup_continuation` call must succeed");
+
+        let tail = mir
+            .cleanup_continuation()
+            .expect("fixture `cleanup_continuation` call must succeed");
 
         assert!(mir.is_valid(), "{source}");
 
         assert_eq!(
             tail.entries().iter().any(|entry| matches!(
-                mir.block(entry.handoff()).expect("fixture MIR block must exist").terminator().kind(),
+                mir.block(entry.handoff())
+                    .expect("fixture MIR block must exist")
+                    .terminator()
+                    .kind(),
                 MirTerminatorKind::Return {
                     report: Some(_),
                     ..
@@ -2410,7 +2601,10 @@ fn destructor_receiver_tail_retains_normal_completion() {
                 reachable.into_iter().any(|id| {
                     !handoffs.contains_key(&id)
                         && matches!(
-                            mir.block(id).expect("fixture MIR block must exist").terminator().kind(),
+                            mir.block(id)
+                                .expect("fixture MIR block must exist")
+                                .terminator()
+                                .kind(),
                             MirTerminatorKind::Return { value: None, .. }
                         )
                 }),
@@ -2455,7 +2649,11 @@ fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
             );
 
             let key = source_function_body_key(&compilation, "caller");
-            let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+            let lowered = compilation
+                .lowered_unit(key)
+                .expect("fixture callable must lower successfully");
+
             let mir = lowered_mir(&lowered);
             let mut quiescence = 0;
 
@@ -2464,7 +2662,11 @@ fn fallible_scoped_exit_retains_its_error_quiescence_continuation() {
                     quiescence += 1;
 
                     assert!(
-                        collection.as_ref().expect("fixture optional value must be present").retention().is_some(),
+                        collection
+                            .as_ref()
+                            .expect("fixture optional value must be present")
+                            .retention()
+                            .is_some(),
                         "{execution}, {body}: scoped error quiescence retains its caller continuation"
                     );
                 }
@@ -2549,7 +2751,11 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
     let mir = lowered_mir(&lowered);
     let mut checked = 0;
 
@@ -2557,7 +2763,9 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
 
     for block in mir.blocks() {
         for (index, id) in block.operations().iter().enumerate() {
-            let operation = mir.operation(*id).expect("fixture MIR operation must exist");
+            let operation = mir
+                .operation(*id)
+                .expect("fixture MIR operation must exist");
 
             let bray_ir::MirOperationKind::Cleanup {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
@@ -2569,7 +2777,9 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
             };
 
             if !matches!(
-                mir.storage(place.storage()).expect("fixture `storage` call must succeed").kind(),
+                mir.storage(place.storage())
+                    .expect("fixture `storage` call must succeed")
+                    .kind(),
                 bray_ir::MirStorageKind::Local
             ) {
                 continue;
@@ -2579,7 +2789,9 @@ fn scoped_structural_cleanup_retires_the_source_initialization_guard() {
                 block.operations()[..index]
                     .last()
                     .is_some_and(|id| matches!(
-                        mir.operation(*id).expect("fixture MIR operation must exist").kind(),
+                        mir.operation(*id)
+                            .expect("fixture MIR operation must exist")
+                            .kind(),
                         bray_ir::MirOperationKind::Store {
                             value: bray_ir::MirOperand::Immediate {
                                 value: bray_ir::MirImmediateValue::Boolean(false),
@@ -2711,7 +2923,10 @@ fn discard_spellings_preserve_owned_storage_and_lifecycle_requirements() {
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "root");
-            let lowered = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+
+            let lowered = compilation
+                .lowered_unit(key.clone())
+                .expect("fixture callable must lower successfully");
 
             match expected {
                 Some(kind) => {
@@ -2722,7 +2937,9 @@ fn discard_spellings_preserve_owned_storage_and_lifecycle_requirements() {
                     assert!(lowered.diagnostics().is_empty(), "{source}: {lowered:#?}");
                     assert!(lowered.value().is_some());
 
-                    let storage = compilation.storage_plan(key).expect("fixture callable must have a storage plan");
+                    let storage = compilation
+                        .storage_plan(key)
+                        .expect("fixture callable must have a storage plan");
 
                     assert!(
                         storage

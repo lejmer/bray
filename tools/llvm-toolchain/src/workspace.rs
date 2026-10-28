@@ -74,8 +74,11 @@ mod tests {
         )
         .expect("fixture contents must be written");
 
-        fs::write(root.join("xtask/src/main.rs"), "fn main() {}\n").expect("fixture contents must be written");
-        fs::write(root.join("toolchains/llvm.json"), "{}\n").expect("fixture contents must be written");
+        fs::write(root.join("xtask/src/main.rs"), "fn main() {}\n")
+            .expect("fixture contents must be written");
+
+        fs::write(root.join("toolchains/llvm.json"), "{}\n")
+            .expect("fixture contents must be written");
 
         root
     }
@@ -89,8 +92,12 @@ mod tests {
         for root in [&first, &second, &first] {
             for current in [root.clone(), root.join("xtask/src")] {
                 assert_eq!(
-                    root_from(&current).expect("fixture workspace root must be discovered").canonicalize().expect("fixture path must have a canonical filesystem location"),
-                    root.canonicalize().expect("fixture path must have a canonical filesystem location")
+                    root_from(&current)
+                        .expect("fixture workspace root must be discovered")
+                        .canonicalize()
+                        .expect("fixture path must have a canonical filesystem location"),
+                    root.canonicalize()
+                        .expect("fixture path must have a canonical filesystem location")
                 );
             }
         }
@@ -100,9 +107,11 @@ mod tests {
     fn cargo_discovery_failures_preserve_the_manifest_error() {
         let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-        fs::write(directory.path().join("Cargo.toml"), "[workspace").expect("fixture contents must be written");
+        fs::write(directory.path().join("Cargo.toml"), "[workspace")
+            .expect("fixture contents must be written");
 
-        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
+        let error =
+            root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(error.contains("Cargo.toml"), "{error}");
 
@@ -118,9 +127,11 @@ mod tests {
     fn unrelated_cargo_workspaces_are_rejected() {
         let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
 
-        fs::write(directory.path().join("Cargo.toml"), "[workspace]\n").expect("fixture contents must be written");
+        fs::write(directory.path().join("Cargo.toml"), "[workspace]\n")
+            .expect("fixture contents must be written");
 
-        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
+        let error =
+            root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(error.ends_with("is not a Bray workspace"), "{error}");
     }
@@ -128,7 +139,9 @@ mod tests {
     #[test]
     fn directories_without_a_cargo_workspace_are_rejected() {
         let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
-        let error = root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
+
+        let error =
+            root_from(directory.path()).expect_err("invalid fixture workspace must be rejected");
 
         assert!(
             error.contains("could not locate the Cargo workspace"),

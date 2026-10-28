@@ -799,7 +799,9 @@ mod tests {
 
     #[test]
     fn structural_pattern_tests_do_not_retain_observed_payloads() {
-        let backend = LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid");
+        let backend =
+            LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid");
+
         let fixture = copied_composite_fixture(&backend, true);
         let context = Context::create();
 

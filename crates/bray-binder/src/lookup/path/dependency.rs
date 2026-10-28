@@ -135,8 +135,14 @@ mod tests {
         let context = fixture.context();
         let symbols = context.symbols();
         let owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
-        let path = ModulePathKey::try_new(["core", "memory"]).expect("fixture module path key must be valid");
-        let memory = symbols.module_by_path(owner, &path).expect("fixture `module_by_path` call must succeed");
+
+        let path = ModulePathKey::try_new(["core", "memory"])
+            .expect("fixture module path key must be valid");
+
+        let memory = symbols
+            .module_by_path(owner, &path)
+            .expect("fixture `module_by_path` call must succeed");
+
         let lookup = MemberLookupResult::Found(ResolvedName::Surface(memory.id().into()));
 
         assert!(lookup_dependency_declared(

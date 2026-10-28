@@ -306,7 +306,11 @@ mod tests {
     fn exhaustion_closes_and_resolves_waiters_without_reusing_a_generation() {
         let event = RuntimeEvent::new();
 
-        event.data.lock().expect("fixture mutex must not be poisoned").generation = u64::MAX;
+        event
+            .data
+            .lock()
+            .expect("fixture mutex must not be poisoned")
+            .generation = u64::MAX;
 
         let wakes = Arc::new(AtomicUsize::new(0));
 
@@ -368,7 +372,10 @@ mod tests {
             .expect("fixture `register` call must succeed");
 
         let _ = std::panic::catch_unwind(|| {
-            let _guard = event.data.lock().expect("fixture mutex must not be poisoned");
+            let _guard = event
+                .data
+                .lock()
+                .expect("fixture mutex must not be poisoned");
 
             panic!("poison intact event state");
         });

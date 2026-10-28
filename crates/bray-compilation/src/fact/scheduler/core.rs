@@ -789,11 +789,19 @@ mod tests {
                     .map_indexed(QueryPriority::Normal, 3, |index| {
                         match index {
                             0 => {
-                                started_sender.send(()).expect("fixture channel must accept its message");
+                                started_sender
+                                    .send(())
+                                    .expect("fixture channel must accept its message");
 
                                 let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
-                                while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
+                                while scheduler
+                                    .slots
+                                    .state()
+                                    .expect("fixture `state` call must succeed")
+                                    .active
+                                    != 1
+                                {
                                     assert!(std::time::Instant::now() < deadline);
                                     std::thread::yield_now();
                                 }
@@ -805,7 +813,9 @@ mod tests {
                                     .recv_timeout(Duration::from_secs(5))
                                     .expect("nested work must use the newly available worker");
                             }
-                            2 => second_sender.send(()).expect("fixture channel must accept its message"),
+                            2 => second_sender
+                                .send(())
+                                .expect("fixture channel must accept its message"),
                             _ => unreachable!(),
                         }
 
@@ -851,12 +861,20 @@ mod tests {
                                 0 => {
                                     // Keep the parent's slot held until the child starts serially.
                                     // Otherwise nested work may already reuse that slot.
-                                    started_sender.send(()).expect("fixture channel must accept its message");
+                                    started_sender
+                                        .send(())
+                                        .expect("fixture channel must accept its message");
 
                                     let deadline =
                                         std::time::Instant::now() + Duration::from_secs(5);
 
-                                    while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
+                                    while scheduler
+                                        .slots
+                                        .state()
+                                        .expect("fixture `state` call must succeed")
+                                        .active
+                                        != 1
+                                    {
                                         assert!(std::time::Instant::now() < deadline);
                                         std::thread::yield_now();
                                     }
@@ -870,7 +888,9 @@ mod tests {
                                             "waiting parent must release its slot to the children",
                                         );
                                 }
-                                2 => second_sender.send(()).expect("fixture channel must accept its message"),
+                                2 => second_sender
+                                    .send(())
+                                    .expect("fixture channel must accept its message"),
                                 _ => unreachable!(),
                             }
 
@@ -887,7 +907,14 @@ mod tests {
             vec![0, 1, 2]
         );
 
-        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
+        assert_eq!(
+            scheduler
+                .slots
+                .state()
+                .expect("fixture `state` call must succeed")
+                .active,
+            0
+        );
     }
 
     #[test]
@@ -913,11 +940,19 @@ mod tests {
                         return;
                     }
 
-                    started_sender.send(()).expect("fixture channel must accept its message");
+                    started_sender
+                        .send(())
+                        .expect("fixture channel must accept its message");
 
                     let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
-                    while scheduler.slots.state().expect("fixture `state` call must succeed").active != 1 {
+                    while scheduler
+                        .slots
+                        .state()
+                        .expect("fixture `state` call must succeed")
+                        .active
+                        != 1
+                    {
                         assert!(std::time::Instant::now() < deadline);
                         std::thread::yield_now();
                     }
@@ -928,8 +963,22 @@ mod tests {
         }));
 
         assert!(panic.is_err());
-        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
-        assert_eq!(scheduler.run(QueryPriority::Normal, || 42).expect("fixture `run` call must succeed"), 42);
+
+        assert_eq!(
+            scheduler
+                .slots
+                .state()
+                .expect("fixture `state` call must succeed")
+                .active,
+            0
+        );
+
+        assert_eq!(
+            scheduler
+                .run(QueryPriority::Normal, || 42)
+                .expect("fixture `run` call must succeed"),
+            42
+        );
     }
 
     #[test]
@@ -941,7 +990,9 @@ mod tests {
             .run(QueryPriority::Interactive, || {
                 scheduler.map_indexed(QueryPriority::Interactive, 3, |index| {
                     assert_eq!(
-                        scheduler.current_priority().expect("fixture `scheduler` call must succeed"),
+                        scheduler
+                            .current_priority()
+                            .expect("fixture `scheduler` call must succeed"),
                         Some(QueryPriority::Interactive)
                     );
 
@@ -965,7 +1016,15 @@ mod tests {
             .expect("successful fixture query must contain its expected result");
 
         assert_eq!(results, vec![0, 1, 2]);
-        assert_eq!(scheduler.slots.state().expect("fixture `state` call must succeed").active, 0);
+
+        assert_eq!(
+            scheduler
+                .slots
+                .state()
+                .expect("fixture `state` call must succeed")
+                .active,
+            0
+        );
     }
 
     #[test]

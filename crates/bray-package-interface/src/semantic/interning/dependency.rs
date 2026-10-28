@@ -165,9 +165,15 @@ impl InternState {
         for input in inputs {
             let value = match &input.value {
                 InterfaceDependencyRequirementValue::CleanupDependencies { ty, requirements } => {
-                    let Some(ty) = self.type_id(*ty) else { return Ok(None); };
+                    let Some(ty) = self.type_id(*ty) else {
+                        return Ok(None);
+                    };
 
-                    let Some(requirements) = self.convert_dependency_requirements(requirements, symbols)? else { return Ok(None); };
+                    let Some(requirements) =
+                        self.convert_dependency_requirements(requirements, symbols)?
+                    else {
+                        return Ok(None);
+                    };
 
                     DependencyRequirement::cleanup_dependencies(ty, requirements)
                 }

@@ -606,8 +606,13 @@ fn publish_artifact(
     bytes: &[u8],
     diagnostic_id: DiagnosticId,
 ) -> Result<(), Box<Diagnostic>> {
-    write_file_atomically(destination, bytes)
-        .map_err(|error| Box::new(artifact_write_failure(diagnostic_id, destination, error.kind())))
+    write_file_atomically(destination, bytes).map_err(|error| {
+        Box::new(artifact_write_failure(
+            diagnostic_id,
+            destination,
+            error.kind(),
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -658,12 +663,15 @@ mod tests {
 
         let arguments = vec![
             OsString::from("--expected-source-digest"),
-            OsString::from(serde_json::to_string(&[0_u8; 32]).expect("fixture data must serialize")),
+            OsString::from(
+                serde_json::to_string(&[0_u8; 32]).expect("fixture data must serialize"),
+            ),
             OsString::from("check"),
             file.path().as_os_str().to_os_string(),
         ];
 
-        bray_tooling::write_compiler_request(request.path(), &arguments).expect("fixture `bray_tooling::write_compiler_request` call must succeed");
+        bray_tooling::write_compiler_request(request.path(), &arguments)
+            .expect("fixture `bray_tooling::write_compiler_request` call must succeed");
 
         let result = run_result([
             OsString::from("brayc"),
@@ -742,7 +750,9 @@ mod tests {
             &mut stderr,
         );
 
-        let json: serde_json::Value = serde_json::from_slice(&stdout).expect("fixture data must deserialize");
+        let json: serde_json::Value =
+            serde_json::from_slice(&stdout).expect("fixture data must deserialize");
+
         let rendered = serde_json::to_string(&json).expect("fixture data must serialize");
 
         assert_eq!(result, ExitCode::FAILURE);
@@ -753,8 +763,11 @@ mod tests {
 
     #[test]
     fn interface_publication_preserves_the_export_failure() {
-        let package = PackageIdentity::try_new("app").expect("fixture package identity must be valid");
-        let product = ProductIdentity::try_new(package.clone(), "library").expect("fixture product identity must be valid");
+        let package =
+            PackageIdentity::try_new("app").expect("fixture package identity must be valid");
+
+        let product = ProductIdentity::try_new(package.clone(), "library")
+            .expect("fixture product identity must be valid");
 
         let compilation = bray_compilation::Compilation::load(
             bray_compilation::CompilationRequest::new(package, Vec::new()),
@@ -786,7 +799,10 @@ mod tests {
             "{diagnostics:?}"
         );
 
-        assert_eq!(std::fs::read(destination.path()).expect("fixture contents must be readable"), b"unchanged");
+        assert_eq!(
+            std::fs::read(destination.path()).expect("fixture contents must be readable"),
+            b"unchanged"
+        );
     }
 
     #[test]

@@ -245,7 +245,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         requirements.iter().all(|condition| {
-
             requirement_follows(condition, &known, &mut prove_leaf, &mut {
                 ExecutionCondition::WORK_LIMIT
             })

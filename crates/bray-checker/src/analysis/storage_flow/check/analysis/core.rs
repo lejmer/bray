@@ -461,7 +461,10 @@ where
         }
     }
 
-    #[expect(clippy::too_many_arguments, reason = "the collector borrows separately owned checker tables for one analysis")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the collector borrows separately owned checker tables for one analysis"
+    )]
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -526,7 +529,10 @@ where
         }
     }
 
-    #[expect(clippy::too_many_arguments, reason = "unpublished analysis borrows the same independent tables as published collection")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "unpublished analysis borrows the same independent tables as published collection"
+    )]
     pub(in crate::analysis::storage_flow) fn without_publication(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -1774,7 +1780,10 @@ where
             .moved
             .keys()
             .filter_map(|access| {
-                self.storage.access(access.access_id(self.storage)?)?.root().borrow_capability()
+                self.storage
+                    .access(access.access_id(self.storage)?)?
+                    .root()
+                    .borrow_capability()
             })
             .collect::<BTreeSet<_>>();
 
@@ -2139,7 +2148,6 @@ where
         &self,
         identity: bray_bound_tree::StorageIdentityId,
     ) -> DiagnosticStorageRoot {
-
         match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
             Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => {

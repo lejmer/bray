@@ -221,7 +221,9 @@ mod tests {
 
         let mut timer = None;
         let mut cancellation = None;
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             || {
@@ -259,7 +261,9 @@ mod tests {
 
         let mut timer = None;
         let mut cancellation = None;
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let outcome = execute_synchronous_root(
             || (),
@@ -294,7 +298,9 @@ mod tests {
         let mut first = None;
         let mut second = None;
         let mut registrations = Vec::new();
-        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let _ = execute_synchronous_root(
             || (),
@@ -310,7 +316,8 @@ mod tests {
             &mut first_admitted,
         );
 
-        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
 
         let _ = execute_synchronous_root(
             || (),

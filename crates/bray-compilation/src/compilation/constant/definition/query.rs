@@ -1388,7 +1388,14 @@ mod tests {
             );
 
             assert_eq!(
-                integer_value(&compilation, result.value().as_ref().expect("fixture optional value must be present").value()),
+                integer_value(
+                    &compilation,
+                    result
+                        .value()
+                        .as_ref()
+                        .expect("fixture optional value must be present")
+                        .value()
+                ),
                 expected
             );
         }
@@ -1935,7 +1942,9 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             panic!("test source has one constant");
         };
 
-        let result = compilation.constant_definition(*definition).expect("fixture `constant_definition` call must succeed");
+        let result = compilation
+            .constant_definition(*definition)
+            .expect("fixture `constant_definition` call must succeed");
 
         assert!(
             !result.diagnostics().has_errors(),

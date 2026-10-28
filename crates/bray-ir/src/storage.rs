@@ -256,10 +256,21 @@ mod tests {
 
     #[test]
     fn extending_a_place_preserves_the_parent_and_each_projection_type() {
-        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-        let leaf = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
-        let inner = values.intern_type(TypeData::tuple([leaf])).expect("fixture type must be interned");
-        let outer = values.intern_type(TypeData::tuple([inner])).expect("fixture type must be interned");
+        let values =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+        let leaf = values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
+        let inner = values
+            .intern_type(TypeData::tuple([leaf]))
+            .expect("fixture type must be interned");
+
+        let outer = values
+            .intern_type(TypeData::tuple([inner]))
+            .expect("fixture type must be interned");
+
         let storage = MirStorageId::from_slot(MirUnitId::new(4), 2);
 
         let parent =

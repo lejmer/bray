@@ -74,7 +74,10 @@ fn pattern_conditions_check_and_lower_structural_tests_and_bindings() {
         );
 
         let key = source_callable_body_key(&compilation);
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(lowered.value().is_some(), "{body}: {lowered:?}");
     }
@@ -231,14 +234,27 @@ fn pattern_conditions_binding_diagnostics_point_to_the_introduced_name() {
             .next()
             .expect("fixture iterator must provide its expected item");
 
-        let span = diagnostic.primary_span().expect("fixture `primary_span` call must succeed");
+        let span = diagnostic
+            .primary_span()
+            .expect("fixture `primary_span` call must succeed");
 
         assert_eq!(
             span.start().bytes(),
-            u32::try_from(source.rfind("number").expect("fixture `rfind` call must succeed")).expect("fixture value must fit the requested representation")
+            u32::try_from(
+                source
+                    .rfind("number")
+                    .expect("fixture `rfind` call must succeed")
+            )
+            .expect("fixture value must fit the requested representation")
         );
 
-        assert_eq!(span.range().slice_str(&source).expect("fixture `slice_str` call must succeed").trim(), "number");
+        assert_eq!(
+            span.range()
+                .slice_str(&source)
+                .expect("fixture `slice_str` call must succeed")
+                .trim(),
+            "number"
+        );
     }
 }
 

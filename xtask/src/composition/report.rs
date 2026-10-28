@@ -286,7 +286,9 @@ mod tests {
             if pointer == "/duration_nanoseconds" {
                 altered["duration_nanoseconds"] = replacement;
             } else {
-                *altered.pointer_mut(pointer).expect("fixture `pointer_mut` call must succeed") = replacement;
+                *altered
+                    .pointer_mut(pointer)
+                    .expect("fixture `pointer_mut` call must succeed") = replacement;
             }
 
             let report = serde_json::from_value(altered).expect("fixture JSON must deserialize");

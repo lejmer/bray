@@ -385,7 +385,8 @@ fn native_pointer_types_do_not_bound_unknown_effects() {
 
         let options = crate::CompilationOptions::default().with_native_link_inputs([
             bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
+                bray_base::NonEmptySharedStr::try_new("native")
+                    .expect("fixture non empty shared str must be valid"),
                 bray_symbols::NativeLinkKind::Dynamic,
             ),
         ]);
@@ -3561,7 +3562,10 @@ fn slice_bounds_follow_descriptor_identity_through_element_writes_and_replacemen
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
+
+        let checked = application
+            .execution_properties(key)
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3600,7 +3604,10 @@ fn slice_contents_calls_are_not_reused_after_element_mutation() {
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
+
+        let checked = application
+            .execution_properties(key)
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
@@ -3650,7 +3657,10 @@ fn nested_slice_bounds_require_descriptor_storage_separation() {
 
         let application = compilation(&source);
         let key = crate::test_support::source_function_body_key(&application, "caller");
-        let checked = application.execution_properties(key).expect("fixture callable must resolve its execution properties");
+
+        let checked = application
+            .execution_properties(key)
+            .expect("fixture callable must resolve its execution properties");
 
         assert_eq!(
             !checked.diagnostics().has_errors(),
