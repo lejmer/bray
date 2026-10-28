@@ -310,7 +310,6 @@ fn finish_node(
         None if root.is_none() => *root = Some(node),
         None => panic!("syntax traversal must produce exactly one root"),
     }
-
 }
 
 fn render_text_report(report: &SyntaxInspectionReport) -> String {

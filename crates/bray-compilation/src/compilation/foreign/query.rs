@@ -451,11 +451,15 @@ mod tests {
         ));
 
         for index in 0..4_100 {
-            writeln!(source, "func item{index}() {{}}").expect("fixture source must be constructed");
+            writeln!(source, "func item{index}() {{}}")
+                .expect("fixture source must be constructed");
         }
 
         let compilation = compilation(&source);
-        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+
+        let symbols = compilation
+            .symbol_graph()
+            .expect("fixture compilation must build its symbol graph");
 
         let functions = symbols
             .functions()
@@ -464,7 +468,9 @@ mod tests {
             .map(|symbol| {
                 (
                     symbol.id(),
-                    compilation.foreign_callable_contract(symbol.id()).expect("fixture `foreign_callable_contract` call must succeed"),
+                    compilation
+                        .foreign_callable_contract(symbol.id())
+                        .expect("fixture `foreign_callable_contract` call must succeed"),
                 )
             })
             .collect::<Vec<_>>();
@@ -476,7 +482,9 @@ mod tests {
             .map(|symbol| {
                 (
                     symbol.id(),
-                    compilation.foreign_static_contract(symbol.id()).expect("fixture `foreign_static_contract` call must succeed"),
+                    compilation
+                        .foreign_static_contract(symbol.id())
+                        .expect("fixture `foreign_static_contract` call must succeed"),
                 )
             })
             .collect::<Vec<_>>();
@@ -525,14 +533,18 @@ mod tests {
 
         for (function, expected) in &functions {
             assert_eq!(
-                &compilation.foreign_callable_contract(*function).expect("fixture foreign callable contract must resolve"),
+                &compilation
+                    .foreign_callable_contract(*function)
+                    .expect("fixture foreign callable contract must resolve"),
                 expected
             );
         }
 
         for (declaration, expected) in &statics {
             assert_eq!(
-                &compilation.foreign_static_contract(*declaration).expect("fixture foreign static contract must resolve"),
+                &compilation
+                    .foreign_static_contract(*declaration)
+                    .expect("fixture foreign static contract must resolve"),
                 expected
             );
         }

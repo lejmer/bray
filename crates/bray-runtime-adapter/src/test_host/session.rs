@@ -618,7 +618,9 @@ mod tests {
         observe(NativePanicCause::ALLOCATION_FAILURE);
         record_outcome(&NativeRunOutcome::new(NativeRunState::COMPLETED, 0));
 
-        let result = TEST_SESSION.take().expect("fixture owner must contain the value being taken");
+        let result = TEST_SESSION
+            .take()
+            .expect("fixture owner must contain the value being taken");
 
         assert_eq!(
             result.outcome.map(super::Observation::into_outcome),
@@ -650,7 +652,9 @@ mod tests {
         observe(NativePanicCause::ALLOCATION_FAILURE);
         record_outcome(&NativeRunOutcome::new(NativeRunState::CANCELLED, 0));
 
-        let result = TEST_SESSION.take().expect("fixture owner must contain the value being taken");
+        let result = TEST_SESSION
+            .take()
+            .expect("fixture owner must contain the value being taken");
 
         assert_eq!(
             result.outcome.map(super::Observation::into_outcome),
@@ -689,7 +693,9 @@ mod tests {
             Some(bray_runtime_abi::NativeTypeIdentity::new([29; 32])),
         );
 
-        let result = TEST_SESSION.take().expect("fixture owner must contain the value being taken");
+        let result = TEST_SESSION
+            .take()
+            .expect("fixture owner must contain the value being taken");
 
         assert!(matches!(
             result.outcome.map(super::Observation::into_outcome),
@@ -725,7 +731,12 @@ mod tests {
             bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE
         );
 
-        assert!(TEST_SESSION.with_borrow(|session| session.as_ref().expect("fixture test-host session must be active").capture_failed));
+        assert!(TEST_SESSION.with_borrow(|session| {
+            session
+                .as_ref()
+                .expect("fixture test-host session must be active")
+                .capture_failed
+        }));
 
         // A typed primary needs no callback-time string or shared allocation.
         assert!(
@@ -747,7 +758,9 @@ mod tests {
         record_outcome(&NativeRunOutcome::new(NativeRunState::CANCELLED, 0));
         DENY_CAPTURE.set(false);
 
-        let result = TEST_SESSION.take().expect("fixture owner must contain the value being taken");
+        let result = TEST_SESSION
+            .take()
+            .expect("fixture owner must contain the value being taken");
 
         assert!(result.capture_failed);
         assert!(result.suppressed.is_empty());
@@ -796,6 +809,12 @@ mod tests {
         }
 
         assert_eq!(RELEASES.get(), 2);
-        assert!(TEST_SESSION.take().expect("fixture owner must contain the value being taken").capture_failed);
+
+        assert!(
+            TEST_SESSION
+                .take()
+                .expect("fixture owner must contain the value being taken")
+                .capture_failed
+        );
     }
 }

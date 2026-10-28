@@ -669,7 +669,11 @@ mod tests {
 
         let expression = expression.expect("fixture source must contain the selected expression");
         let mut analysis = empty_expression_inputs(&unit);
-        let first_type = analysis.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+
+        let first_type = analysis
+            .values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
 
         let second_type = analysis
             .values
@@ -684,7 +688,10 @@ mod tests {
                 .push_identity(StorageIdentity::Temporary(expression))
                 .expect("fixture identity must fit its identity space");
 
-            storage.set_identity_type(identity, ty).expect("fixture `set_identity_type` call must succeed");
+            storage
+                .set_identity_type(identity, ty)
+                .expect("fixture `set_identity_type` call must succeed");
+
             identities.push(identity);
         }
 
@@ -728,7 +735,12 @@ mod tests {
         let second = expressions[1];
         let kind = unit.key().kind();
         let mut analysis = empty_expression_inputs(&unit);
-        let ty = analysis.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+
+        let ty = analysis
+            .values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
         let mut storage = StoragePlanBuilder::new(unit.unit(), kind);
 
         let identity = storage
@@ -809,7 +821,8 @@ mod tests {
         analysis.storage = storage.finish();
 
         analysis.storage_flow =
-            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false).expect("fixture storage flow must be valid");
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], [], false)
+                .expect("fixture storage flow must be valid");
 
         let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
         let input = lowering_input(&unit, &control_flow, (&analysis).into());

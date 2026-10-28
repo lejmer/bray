@@ -24,7 +24,6 @@ fn constant_kinds_equal(
     left: &ConstantValueKind,
     right: &ConstantValueKind,
 ) -> bool {
-
     match (left, right) {
         (ConstantValueKind::Error, _) | (_, ConstantValueKind::Error) => false,
         (ConstantValueKind::NullablePresent(left), ConstantValueKind::NullablePresent(right)) => {

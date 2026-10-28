@@ -90,8 +90,9 @@ fn imported_predicate_meanings_reject_a_callable_result_as_a_parameter() {
         })
         .expect("fixture sequence must contain the selected entry");
 
-    let result =
-        bray_package_interface::InterfaceConstantTermId::new(u32::try_from(result).expect("fixture value must fit the requested representation"));
+    let result = bray_package_interface::InterfaceConstantTermId::new(
+        u32::try_from(result).expect("fixture value must fit the requested representation"),
+    );
 
     for corrupt in [false, true] {
         let predicates = source.predicate_definitions().iter().map(|predicate| {
@@ -183,7 +184,9 @@ fn conditional_finalizer_completion_exports_with_declared_postconditions() {
         );
 
         let bundle = export(&provider);
-        let artifact = encode_package_interface(bundle).expect("fixture package interface must encode");
+
+        let artifact =
+            encode_package_interface(bundle).expect("fixture package interface must encode");
 
         let validated = ValidatedPackageInterface::try_new(
             artifact.bytes(),
@@ -191,7 +194,9 @@ fn conditional_finalizer_completion_exports_with_declared_postconditions() {
         )
         .expect("fixture validated package interface must be valid");
 
-        let decoded = validated.decode_semantics(bundle.surface()).expect("fixture interface semantics must decode");
+        let decoded = validated
+            .decode_semantics(bundle.surface())
+            .expect("fixture interface semantics must decode");
 
         assert_eq!(
             decoded.callable_contracts(),
@@ -433,7 +438,10 @@ fn execution_guarantees_export_only_certified_evidence() {
         );
 
         let compilation = compilation(&source);
-        let result = compilation.package_interface_export_bundle().expect("fixture `package_interface_export_bundle` call must succeed");
+
+        let result = compilation
+            .package_interface_export_bundle()
+            .expect("fixture `package_interface_export_bundle` call must succeed");
 
         assert_eq!(result.is_ok(), valid, "{source}: {result:?}");
     }
@@ -501,8 +509,10 @@ fn execution_guarantees_survive_provider_consumer_compilation() {
         let consumer = crate::test_support::compilation_with_dependencies(
             &source,
             [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").expect("fixture package identity must be valid"),
-                InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
+                PackageIdentity::try_new("example.package")
+                    .expect("fixture package identity must be valid"),
+                InterfaceProductIdentity::try_new("library")
+                    .expect("fixture interface product identity must be valid"),
                 "provider.brayi",
                 artifact.shared_bytes(),
                 InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
@@ -655,7 +665,9 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
     );
 
     let original = export(&provider);
-    let artifact = encode_package_interface(original).expect("fixture package interface must encode");
+
+    let artifact =
+        encode_package_interface(original).expect("fixture package interface must encode");
 
     let validated = ValidatedPackageInterface::try_new(
         artifact.bytes(),
@@ -663,7 +675,9 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
     )
     .expect("fixture validated package interface must be valid");
 
-    let decoded = validated.decode_semantics(original.surface()).expect("fixture interface semantics must decode");
+    let decoded = validated
+        .decode_semantics(original.surface())
+        .expect("fixture interface semantics must decode");
 
     assert_eq!(
         decoded.callable_contracts(),
@@ -719,7 +733,8 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
         WorkerBudget::default(),
         None,
         [bray_symbols::NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("c").expect("fixture non empty shared str must be valid"),
+            bray_base::NonEmptySharedStr::try_new("c")
+                .expect("fixture non empty shared str must be valid"),
             bray_symbols::NativeLinkKind::Dynamic,
         )],
     );
@@ -827,12 +842,14 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
         "#,
     );
 
-    let package = PackageIdentity::try_new("example.wrapper").expect("fixture package identity must be valid");
+    let package = PackageIdentity::try_new("example.wrapper")
+        .expect("fixture package identity must be valid");
 
     let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
         package.clone(),
         package_version(),
-        InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
+        InterfaceProductIdentity::try_new("library")
+            .expect("fixture interface product identity must be valid"),
         bray_package_interface::InterfaceProductKind::Library,
         "public",
     )
@@ -933,7 +950,9 @@ fn imported_trusted_contracts_preserve_requirements_and_live_witnesses() {
     )
     .expect("fixture validated package interface must be valid");
 
-    let decoded = validated.decode_semantics(bundle.surface()).expect("fixture interface semantics must decode");
+    let decoded = validated
+        .decode_semantics(bundle.surface())
+        .expect("fixture interface semantics must decode");
 
     assert_eq!(&decoded, bundle.semantics());
 
@@ -1033,7 +1052,9 @@ fn imported_mixed_predicate_conditions_preserve_trusted_occurrences() {
     .expect("fixture validated package interface must be valid");
 
     assert_eq!(
-        &validated.decode_semantics(bundle.surface()).expect("fixture exported semantics must decode"),
+        &validated
+            .decode_semantics(bundle.surface())
+            .expect("fixture exported semantics must decode"),
         bundle.semantics()
     );
 
@@ -1511,7 +1532,10 @@ fn imported_total_cleanup_certification_preserves_the_entry_domain() {
 
         for application in [&provider, &consumer] {
             let key = crate::test_support::source_function_body_key(application, "dispose");
-            let bound = application.bound_unit(key).expect("fixture callable must bind successfully");
+
+            let bound = application
+                .bound_unit(key)
+                .expect("fixture callable must bind successfully");
 
             assert!(!bound.diagnostics().has_errors(), "{bound:#?}");
 
@@ -1546,7 +1570,10 @@ fn imported_total_cleanup_certification_preserves_the_entry_domain() {
                 )
                 .expect("fixture `selected_lifecycle_signature` call must succeed");
 
-            let (callable, _) = selected.value().as_ref().expect("fixture optional value must be present");
+            let (callable, _) = selected
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present");
 
             assert_eq!(
                 application

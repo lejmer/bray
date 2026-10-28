@@ -493,7 +493,9 @@ impl ProfileSession {
         let runtime_artifacts = self
             .runtime_artifacts
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()).values().cloned()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .values()
+            .cloned()
             .collect();
 
         let runtime_roles = profile_strings(&self.runtime_roles);

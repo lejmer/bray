@@ -278,19 +278,15 @@ impl Compilation {
             bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let checked = prepared
-            .check_synchronous_cleanup(
-                request,
-                requirements,
-                &mut |call| {
-                    self.finalizer_is_complete(
-                        call.callable,
-                        call.result.completion_type(),
-                        None,
-                        cancellation,
-                    )
-                    .map_err(crate::compilation::checker::checker_query_error)
-                },
-            )
+            .check_synchronous_cleanup(request, requirements, &mut |call| {
+                self.finalizer_is_complete(
+                    call.callable,
+                    call.result.completion_type(),
+                    None,
+                    cancellation,
+                )
+                .map_err(crate::compilation::checker::checker_query_error)
+            })
             .map_err(FactQueryError::from)?;
 
         Ok(checked.into_parts().1)
@@ -941,7 +937,9 @@ mod tests {
             let mir = assert_cleanup_selection(&source, completed);
 
             if completed {
-                let entry = mir.block(mir.entry()).expect("fixture MIR block must exist");
+                let entry = mir
+                    .block(mir.entry())
+                    .expect("fixture MIR block must exist");
 
                 let bray_ir::MirTerminatorKind::Branch { else_edge, .. } =
                     entry.terminator().kind()
@@ -963,7 +961,9 @@ mod tests {
 
                     assert!(
                         block.operations().iter().all(|id| !matches!(
-                            mir.operation(*id).expect("fixture MIR operation must exist").kind(),
+                            mir.operation(*id)
+                                .expect("fixture MIR operation must exist")
+                                .kind(),
                             MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
                         )),
                         "discharged finalizer must not construct a future on the executing path: {source}"
@@ -1211,7 +1211,14 @@ mod tests {
                 .expect("fixture completed unit must resolve cleanup");
 
             assert!(std::sync::Arc::ptr_eq(&first, &second));
-            assert!(compilation.lowered_unit(key).expect("fixture callable must lower successfully").value().is_none());
+
+            assert!(
+                compilation
+                    .lowered_unit(key)
+                    .expect("fixture callable must lower successfully")
+                    .value()
+                    .is_none()
+            );
 
             let diagnostic = diagnostics
                 .iter()
@@ -1485,7 +1492,9 @@ mod tests {
             body.result().value().refinements().invalidations(),
         );
 
-        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+        let symbols = compilation
+            .symbol_graph()
+            .expect("fixture compilation must build its symbol graph");
 
         let definition = symbols
             .structures()
@@ -1494,13 +1503,23 @@ mod tests {
             .expect("fixture lookup must find its expected value");
 
         let ty = crate::compilation::substitution::named_type(
-            compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
+            compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store"),
             bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
         )
         .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
 
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         let destroys_owner = mir.operations().iter().any(|operation| {
             matches!(operation.kind(), MirOperationKind::Destroy { place, .. } if place.ty() == ty)

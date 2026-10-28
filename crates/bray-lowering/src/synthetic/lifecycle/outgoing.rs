@@ -14,12 +14,15 @@ pub(super) fn discharge_owner(
 
     let exits = builder
         .terminated_blocks()
-        .filter(|&(_id, terminal)| matches!(
+        .filter(|&(_id, terminal)| {
+            matches!(
                 terminal.kind(),
                 MirTerminatorKind::Return { .. }
                     | MirTerminatorKind::PropagatePanic { .. }
                     | MirTerminatorKind::PropagateCancellation { .. }
-            )).map(|(id, terminal)| (id, terminal.source().clone()))
+            )
+        })
+        .map(|(id, terminal)| (id, terminal.source().clone()))
         .collect::<Vec<_>>();
 
     for (block, source) in exits {

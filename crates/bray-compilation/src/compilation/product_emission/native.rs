@@ -587,7 +587,10 @@ mod tests {
 
         use std::sync::Arc;
 
-        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().expect("fixture llvm code generator must be valid"));
+        let backend = Arc::new(
+            bray_codegen_llvm::LlvmCodeGenerator::try_new()
+                .expect("fixture llvm code generator must be valid"),
+        );
 
         let registry = bray_codegen::CodeGeneratorRegistry::try_new([
             Arc::clone(&backend) as Arc<dyn CodeGenerator>
@@ -603,7 +606,8 @@ mod tests {
         let identity = PackageInterfaceIdentity::try_new(
             package.clone(),
             crate::test_support::package_version(),
-            InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
+            InterfaceProductIdentity::try_new("library")
+                .expect("fixture interface product identity must be valid"),
             InterfaceProductKind::Library,
             "public",
         )
@@ -638,7 +642,8 @@ mod tests {
 
         let native = compilation
             .native_product_plan(
-                bray_symbols::ProductIdentity::try_new(package, "library").expect("fixture product identity must be valid"),
+                bray_symbols::ProductIdentity::try_new(package, "library")
+                    .expect("fixture product identity must be valid"),
                 crate::BuildConfiguration::Development,
                 None,
                 [],
@@ -652,7 +657,9 @@ mod tests {
             .as_ref()
             .expect("fixture optional value must be present");
 
-        let target = bray_target::NativeTarget::for_identity(native.target().identity()).expect("fixture `bray_target::NativeTarget::for_identity` call must succeed");
+        let target = bray_target::NativeTarget::for_identity(native.target().identity())
+            .expect("fixture `bray_target::NativeTarget::for_identity` call must succeed");
+
         let mut digests = std::collections::BTreeMap::new();
         let mut units = Vec::new();
         let mut symbols = 0;
@@ -660,7 +667,11 @@ mod tests {
         for (ordinal, mappings) in native.mappings().iter().enumerate() {
             let mut bytes = [0; 32];
 
-            bytes[..8].copy_from_slice(&u64::try_from(ordinal).expect("fixture value must fit the requested representation").to_le_bytes());
+            bytes[..8].copy_from_slice(
+                &u64::try_from(ordinal)
+                    .expect("fixture value must fit the requested representation")
+                    .to_le_bytes(),
+            );
 
             let digest = NativeContentDigest::new(bytes);
 

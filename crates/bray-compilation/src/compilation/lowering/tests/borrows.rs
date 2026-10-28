@@ -340,7 +340,10 @@ fn returned_nullable_borrow_outlives_argument_evaluation() {
     );
 
     let key = crate::test_support::source_function_body_key(&compilation, "probe");
-    let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+    let lowered = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 }

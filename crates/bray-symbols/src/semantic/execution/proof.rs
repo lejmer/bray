@@ -18,10 +18,7 @@ pub type ExecutionProofKey<K, C> = (K, CallableExecutionObligation<C>);
 /// Pure recursion is allowed. Any cycle containing a total or completion obligation is rejected.
 /// Missing candidates invalidate all transitive consumers.
 pub fn check_execution_proof_dependencies<K: Copy + Ord, C: Copy + Ord>(
-    graph: &BTreeMap<
-        ExecutionProofKey<K, C>,
-        BTreeSet<ExecutionProofKey<K, C>>,
-    >,
+    graph: &BTreeMap<ExecutionProofKey<K, C>, BTreeSet<ExecutionProofKey<K, C>>>,
 ) -> BTreeMap<ExecutionProofKey<K, C>, ExecutionProofFailure<K>> {
     let mut failures = BTreeMap::new();
     let mut reverse = BTreeMap::<_, BTreeSet<_>>::new();

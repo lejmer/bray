@@ -211,7 +211,9 @@ mod tests {
                 super::super::execution::with_execution(&nested, || {
                     assert_eq!(
                         crate::current_task_execution_context()
-                            .expect("fixture `crate::current_task_execution_context` call must succeed")
+                            .expect(
+                                "fixture `crate::current_task_execution_context` call must succeed"
+                            )
                             .state()
                             .raw(),
                         8
@@ -325,7 +327,9 @@ mod tests {
         );
 
         let _isolation = crate::native::test_runtime_isolation();
-        let thread = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+
+        let thread = crate::bootstrap::RuntimeThreadScope::enter()
+            .expect("fixture execution scope must admit entry");
 
         let task = crate::TaskControlBlock::start(
             crate::test_support::admit_task(),
@@ -344,7 +348,9 @@ mod tests {
         let registration =
             crate::test_support::register_task(&scheduler, &task, thread.runtime().id());
 
-        let lane = registration.lane().expect("fixture `lane` call must succeed");
+        let lane = registration
+            .lane()
+            .expect("fixture `lane` call must succeed");
 
         let native_context = crate::TaskExecutionContext::new(
             task.id(),

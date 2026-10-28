@@ -491,7 +491,9 @@ mod tests {
         for source in generator_input_inventory().sources() {
             let path = directory.path().join(source.relative_path());
 
-            std::fs::create_dir_all(path.parent().expect("fixture `parent` call must succeed")).expect("fixture directories must be created");
+            std::fs::create_dir_all(path.parent().expect("fixture `parent` call must succeed"))
+                .expect("fixture directories must be created");
+
             std::fs::write(path, source.text()).expect("fixture contents must be written");
         }
 
@@ -501,8 +503,10 @@ mod tests {
         std::fs::write(&manifest, MANIFEST).expect("fixture contents must be written");
 
         assert_eq!(
-            generate_catalog_output(&catalog).expect("fixture compiler-known catalog must generate"),
-            generate_catalog_output(&catalog_directory()).expect("fixture compiler-known catalog must generate")
+            generate_catalog_output(&catalog)
+                .expect("fixture compiler-known catalog must generate"),
+            generate_catalog_output(&catalog_directory())
+                .expect("fixture compiler-known catalog must generate")
         );
 
         for path in [manifest, catalog.join("ambient/fundamentals.braydef")] {
@@ -510,7 +514,8 @@ mod tests {
 
             std::fs::write(&path, b"different input").expect("fixture contents must be written");
 
-            let error = generate_catalog_output(&catalog).expect_err("modified fixture catalog inputs must be rejected");
+            let error = generate_catalog_output(&catalog)
+                .expect_err("modified fixture catalog inputs must be rejected");
 
             let CatalogGenerationError::InputMismatch(actual) = error else {
                 panic!("expected input mismatch, got {error:?}");
@@ -524,7 +529,9 @@ mod tests {
     #[test]
     fn missing_selected_inputs_preserve_the_path_and_filesystem_error() {
         let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
-        let error = generate_catalog_output(directory.path()).expect_err("fixture catalog without selected inputs must be rejected");
+
+        let error = generate_catalog_output(directory.path())
+            .expect_err("fixture catalog without selected inputs must be rejected");
 
         let CatalogGenerationError::Io { path, error } = error else {
             panic!("expected input failure, got {error:?}");

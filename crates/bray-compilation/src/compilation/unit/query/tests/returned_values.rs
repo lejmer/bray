@@ -1428,7 +1428,10 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
         );
 
         let key = source_function_body_key(&application, "caller");
-        let selections = application.semantic_selections(key.clone()).expect("fixture callable must have semantic selections");
+
+        let selections = application
+            .semantic_selections(key.clone())
+            .expect("fixture callable must have semantic selections");
 
         let call = selections
             .value()
@@ -1443,9 +1446,17 @@ fn returned_borrow_storage_uses_exact_relations_instead_of_lifetime_anchors() {
             .expect("fixture lookup must find its expected value")
             .expression();
 
-        let flow = application.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
-        let refinements = application.refinements(key.clone()).expect("fixture callable must have checked refinements");
-        let storage = application.storage_plan(key).expect("fixture callable must have a storage plan");
+        let flow = application
+            .storage_flow(key.clone())
+            .expect("fixture callable must complete storage-flow analysis");
+
+        let refinements = application
+            .refinements(key.clone())
+            .expect("fixture callable must have checked refinements");
+
+        let storage = application
+            .storage_plan(key)
+            .expect("fixture callable must have a storage plan");
 
         assert!(
             !flow.diagnostics().has_errors(),
@@ -1822,8 +1833,15 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
     );
 
     let key = source_function_body_key(&application, "caller");
-    let storage = application.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-    let refinements = application.refinements(key).expect("fixture callable must have checked refinements");
+
+    let storage = application
+        .storage_plan(key.clone())
+        .expect("fixture callable must have a storage plan");
+
+    let refinements = application
+        .refinements(key)
+        .expect("fixture callable must have checked refinements");
+
     let storage = storage.value();
 
     let mutation = refinements.value().invalidations().values().find(|invalidation| {
@@ -1852,14 +1870,24 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
             continue;
         };
 
-        let graph = application.symbol_graph().expect("fixture compilation must build its symbol graph");
-        let parameter = graph.callable_parameter(parameter).expect("fixture `callable_parameter` call must succeed");
+        let graph = application
+            .symbol_graph()
+            .expect("fixture compilation must build its symbol graph");
+
+        let parameter = graph
+            .callable_parameter(parameter)
+            .expect("fixture `callable_parameter` call must succeed");
 
         let bray_bound_tree::StorageProjection::ProductField(field) = path.projections[0] else {
             continue;
         };
 
-        if graph.member_name(field.into()).expect("fixture `member_name` call must succeed").as_str() != "second" {
+        if graph
+            .member_name(field.into())
+            .expect("fixture `member_name` call must succeed")
+            .as_str()
+            != "second"
+        {
             continue;
         }
 

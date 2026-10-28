@@ -456,7 +456,9 @@ mod tests {
             (BinaryFormat::Elf, ".init_array"),
         ] {
             let bytes = object_fixture(format, section);
-            let summary = scan_object_unit_summary(&bytes).expect("fixture object unit must have a native summary");
+
+            let summary = scan_object_unit_summary(&bytes)
+                .expect("fixture object unit must have a native summary");
 
             assert!(
                 matches!(summary, NativeUnitSummary::Exact { definitions, references, roots }
@@ -467,7 +469,8 @@ mod tests {
 
         let opaque = object_fixture(BinaryFormat::Coff, ".drectve");
 
-        let summary = scan_object_unit_summary(&opaque).expect("fixture object unit must have a native summary");
+        let summary = scan_object_unit_summary(&opaque)
+            .expect("fixture object unit must have a native summary");
 
         assert!(matches!(summary, NativeUnitSummary::Opaque { .. }));
         assert_eq!(summary.references().len(), 1);
@@ -556,7 +559,10 @@ mod tests {
                 sections: vec![text, data],
             });
 
-            let summary = scan_object_unit_summary(&object.write().expect("fixture contents must be written")).expect("fixture object unit must have a native summary");
+            let summary = scan_object_unit_summary(
+                &object.write().expect("fixture contents must be written"),
+            )
+            .expect("fixture object unit must have a native summary");
 
             let NativeUnitSummary::Exact {
                 definitions, roots, ..
@@ -608,7 +614,10 @@ mod tests {
                 flags: SymbolFlags::None,
             });
 
-            let summary = scan_object_unit_summary(&object.write().expect("fixture contents must be written")).expect("fixture object unit must have a native summary");
+            let summary = scan_object_unit_summary(
+                &object.write().expect("fixture contents must be written"),
+            )
+            .expect("fixture object unit must have a native summary");
 
             let NativeUnitSummary::Exact {
                 definitions, roots, ..

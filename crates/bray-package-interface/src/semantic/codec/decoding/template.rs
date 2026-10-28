@@ -1834,12 +1834,14 @@ mod tests {
         let mut nodes = template.nodes().to_vec();
         let result = template.result();
 
-        nodes[usize::try_from(result.raw()).expect("fixture value must fit the requested representation")] = InterfaceCheckedTemplateNode::new(
-            InterfaceCheckedTemplateOperation::ArrayElement {
-                subject: CheckedTemplateNodeId::new(6),
-            },
-            InterfaceTypeId::new(0),
-        );
+        nodes[usize::try_from(result.raw())
+            .expect("fixture value must fit the requested representation")] =
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::ArrayElement {
+                    subject: CheckedTemplateNodeId::new(6),
+                },
+                InterfaceTypeId::new(0),
+            );
 
         let replacement = InterfaceCheckedTemplate::new(
             template.kind(),
@@ -1871,13 +1873,15 @@ mod tests {
 
     fn operation_semantics(surface: &crate::PackageInterfaceSurface) -> InterfaceSemantics {
         let boolean_key = bray_symbols::SymbolKey::compiler_known_declaration(
-            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool").expect("fixture compiler known declaration key must be valid"),
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool")
+                .expect("fixture compiler known declaration key must be valid"),
             SymbolKind::Struct,
         )
         .expect("fixture `bray_symbols::SymbolKey::compiler_known_declaration` call must succeed");
 
         let boolean = crate::InterfaceSymbolReference::CompilerKnown(
-            crate::CompilerKnownSymbolReference::try_new(boolean_key).expect("fixture compiler known symbol reference must be valid"),
+            crate::CompilerKnownSymbolReference::try_new(boolean_key)
+                .expect("fixture compiler known symbol reference must be valid"),
         );
 
         let declaration = InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0));
@@ -2036,7 +2040,10 @@ mod tests {
             ),
         ];
 
-        let element = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).expect("fixture value must fit the requested representation"));
+        let element = CheckedTemplateNodeId::new(
+            u32::try_from(nodes.len())
+                .expect("fixture value must fit the requested representation"),
+        );
 
         nodes.push(InterfaceCheckedTemplateNode::new(
             InterfaceCheckedTemplateOperation::ArrayElement {
@@ -2045,7 +2052,10 @@ mod tests {
             InterfaceTypeId::new(0),
         ));
 
-        let value = CheckedTemplateNodeId::new(u32::try_from(nodes.len()).expect("fixture value must fit the requested representation"));
+        let value = CheckedTemplateNodeId::new(
+            u32::try_from(nodes.len())
+                .expect("fixture value must fit the requested representation"),
+        );
 
         nodes.push(InterfaceCheckedTemplateNode::new(
             InterfaceCheckedTemplateOperation::Convert {
@@ -2271,7 +2281,8 @@ mod tests {
             .collect();
 
         let boolean_key = bray_symbols::SymbolKey::compiler_known_declaration(
-            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool").expect("fixture compiler known declaration key must be valid"),
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool")
+                .expect("fixture compiler known declaration key must be valid"),
             SymbolKind::Struct,
         )
         .expect("fixture `bray_symbols::SymbolKey::compiler_known_declaration` call must succeed");

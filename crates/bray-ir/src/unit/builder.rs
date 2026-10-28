@@ -893,7 +893,9 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .expect("fixture block must fit its identity space");
 
-        let value = builder.push_block_parameter(entry, source, ty).expect("fixture block parameter must fit its identity space");
+        let value = builder
+            .push_block_parameter(entry, source, ty)
+            .expect("fixture block parameter must fit its identity space");
 
         assert_eq!(builder.block_kind(entry), MirBlockKind::Ordinary);
         assert_eq!(builder.operand_type(&MirOperand::Value(value)), ty);

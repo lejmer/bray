@@ -151,11 +151,15 @@ mod tests {
     fn native_host_causes_identify_the_affected_test_and_termination() {
         let renderer = TestReportMessageRenderer::english();
 
-        assert_eq!(renderer.host_exit_code("example/tests::app.crash", -1),
-            "Test example/tests::app.crash: host exited with code -1");
+        assert_eq!(
+            renderer.host_exit_code("example/tests::app.crash", -1),
+            "Test example/tests::app.crash: host exited with code -1"
+        );
 
-        assert_eq!(renderer.host_signal("example/tests::app.crash", 6),
-            "Test example/tests::app.crash: host terminated by signal 6");
+        assert_eq!(
+            renderer.host_signal("example/tests::app.crash", 6),
+            "Test example/tests::app.crash: host terminated by signal 6"
+        );
     }
 
     #[test]

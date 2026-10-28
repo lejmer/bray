@@ -403,8 +403,14 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
         .unwrap_or_else(|error| panic!("control MIR must be available: {error:?}"));
 
     let mir = lowered_mir(&result);
-    let bound = compilation.bound_unit(key).expect("fixture callable must bind successfully");
-    let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value()).expect("fixture `bray_bound_tree::StorageScopeOwners::collect` call must succeed");
+
+    let bound = compilation
+        .bound_unit(key)
+        .expect("fixture callable must bind successfully");
+
+    let owners = bray_bound_tree::StorageScopeOwners::collect(bound.value())
+        .expect("fixture `bray_bound_tree::StorageScopeOwners::collect` call must succeed");
+
     let mut iteration_bodies = 0;
 
     for (expression, node) in bound.value().tree().expressions() {
@@ -429,7 +435,10 @@ fn checked_control_patterns_and_iteration_lower_to_explicit_mir() {
 
     assert!(iteration_bodies > 0);
 
-    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+    let symbols = compilation
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
+
     let mut checked_next_calls = 0;
 
     for block in mir.blocks() {
@@ -698,7 +707,11 @@ fn established_assertions_do_not_lower_failure_messages_or_reports() {
         let source = format!("module app; func main() {{ {body} }}");
         let compilation = compilation(&source);
         let key = source_callable_body_key(&compilation);
-        let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let result = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
+
         let mir = lowered_mir(&result);
 
         assert!(

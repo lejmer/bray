@@ -1050,8 +1050,11 @@ trusted func wrapper() -> i32 uses(foreign_call)
 }
 "#;
 
-        let package = PackageIdentity::try_new("example.trust").expect("fixture package identity must be valid");
-        let product = InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid");
+        let package = PackageIdentity::try_new("example.trust")
+            .expect("fixture package identity must be valid");
+
+        let product = InterfaceProductIdentity::try_new("library")
+            .expect("fixture interface product identity must be valid");
 
         let identity = PackageInterfaceIdentity::try_new(
             package.clone(),
@@ -1068,7 +1071,8 @@ trusted func wrapper() -> i32 uses(foreign_call)
             SelectedTarget::baseline(),
         )
         .with_native_link_inputs([NativeLinkRequirement::new(
-            bray_base::NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
+            bray_base::NonEmptySharedStr::try_new("native")
+                .expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )]);
 
@@ -1093,7 +1097,8 @@ trusted func wrapper() -> i32 uses(foreign_call)
             .as_ref()
             .expect("fixture optional value must be present");
 
-        let encoded = encode_package_interface(bundle).expect("fixture package interface must encode");
+        let encoded =
+            encode_package_interface(bundle).expect("fixture package interface must encode");
 
         let dependency = DependencyInterfaceInput::new(
             package,

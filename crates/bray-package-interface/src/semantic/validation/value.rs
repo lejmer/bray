@@ -549,7 +549,14 @@ impl InterfaceSemantics {
                 validate_index(ty.to_index(), self.types.len())?;
 
                 for nested in requirements.iter() {
-                    self.validate_dependency_requirement(nested, symbol_count, dependency_count, depth.saturating_add(1), limits, scopes)?;
+                    self.validate_dependency_requirement(
+                        nested,
+                        symbol_count,
+                        dependency_count,
+                        depth.saturating_add(1),
+                        limits,
+                        scopes,
+                    )?;
                 }
             }
             InterfaceDependencyRequirementValue::SynchronousCleanup(_)
@@ -875,8 +882,12 @@ mod tests {
 
             let semantics = InterfaceSemantics {
                 dependency_contracts: vec![InterfaceDependencyContract::new([
-                    InterfaceDependencyRequirement::fixed_point([vec![variable.clone()]], [variable]),
-                ])].into(),
+                    InterfaceDependencyRequirement::fixed_point(
+                        [vec![variable.clone()]],
+                        [variable],
+                    ),
+                ])]
+                .into(),
                 ..InterfaceSemantics::default()
             };
 
@@ -897,7 +908,8 @@ mod tests {
         let semantics = InterfaceSemantics {
             dependency_contracts: vec![InterfaceDependencyContract::new([
                 InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0)),
-            ])].into(),
+            ])]
+            .into(),
             ..InterfaceSemantics::default()
         };
 

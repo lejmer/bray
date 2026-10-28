@@ -198,9 +198,9 @@ where
                 && !self
                     .execution
                     .assume_patterns(execution, self.refinements.edge_facts(refinement))
-                {
-                    return false;
-                }
+            {
+                return false;
+            }
         }
 
         if let Some(crate::analysis::model::AnalysisRefinement::PropagationOutcome {

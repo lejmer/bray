@@ -424,7 +424,11 @@ mod tests {
                         let block = graph.block(cursor).expect("fixture MIR block must exist");
 
                         for operation in block.operations() {
-                            match graph.operation(*operation).expect("fixture MIR operation must exist").kind() {
+                            match graph
+                                .operation(*operation)
+                                .expect("fixture MIR operation must exist")
+                                .kind()
+                            {
                                 AnalysisOperationKind::Call { phase, .. } => {
                                     if phase == AnalysisCallPhase::Input {
                                         continue;

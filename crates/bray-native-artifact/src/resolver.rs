@@ -113,12 +113,7 @@ pub struct NativeUnitResolver {
     statics: BTreeMap<[u8; 32], (usize, usize)>,
     static_symbols: BTreeMap<NativeSymbolIdentity, BTreeSet<[u8; 32]>>,
     groups: BTreeMap<usize, BTreeSet<usize>>,
-    selections: Mutex<
-        BTreeMap<
-            Vec<NativeSymbolContract>,
-            SelectionResult,
-        >,
-    >,
+    selections: Mutex<BTreeMap<Vec<NativeSymbolContract>, SelectionResult>>,
 }
 
 impl NativeUnitResolver {
@@ -927,7 +922,8 @@ mod tests {
     fn provided_storage_keeps_transitive_static_metadata_without_its_native_payload() {
         let contribution = |id, name, dependencies: Vec<[u8; 32]>| {
             crate::NativeStatic::new(
-                NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new(name)
+                    .expect("fixture non empty shared str must be valid"),
                 [id; 32],
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
@@ -984,7 +980,10 @@ mod tests {
 
         let provided = |name| {
             (
-                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid")),
+                NativeSymbolIdentity::Name(
+                    NonEmptySharedStr::try_new(name)
+                        .expect("fixture non empty shared str must be valid"),
+                ),
                 NativeSymbolBinding::Strong,
             )
         };
@@ -1042,7 +1041,8 @@ mod tests {
     #[test]
     fn callable_static_dependencies_follow_resolved_providers_and_provided_host_entries() {
         let entry = crate::NativeStatic::new(
-            NonEmptySharedStr::try_new("state.host").expect("fixture non empty shared str must be valid"),
+            NonEmptySharedStr::try_new("state.host")
+                .expect("fixture non empty shared str must be valid"),
             [3; 32],
             vec![3].into(),
             bray_symbols::StaticStorageDuration::Product,
@@ -1100,7 +1100,10 @@ mod tests {
 
         let provided = |name| {
             (
-                NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid")),
+                NativeSymbolIdentity::Name(
+                    NonEmptySharedStr::try_new(name)
+                        .expect("fixture non empty shared str must be valid"),
+                ),
                 NativeSymbolBinding::Strong,
             )
         };
@@ -1166,7 +1169,8 @@ mod tests {
     fn lifecycle_metadata_closes_providers_and_rejects_missing_or_conflicting_instances() {
         let contribution = |id, name, dependencies: Vec<[u8; 32]>| {
             crate::NativeStatic::new(
-                NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new(name)
+                    .expect("fixture non empty shared str must be valid"),
                 [id; 32],
                 vec![id].into(),
                 bray_symbols::StaticStorageDuration::Product,
@@ -1201,7 +1205,10 @@ mod tests {
         .with_statics([contribution(2, "second", vec![])]);
 
         let resolver = NativeUnitResolver::new([index([first.clone()], []), index([second], [])]);
-        let selected = resolver.select([required("first")]).expect("fixture selection must succeed");
+
+        let selected = resolver
+            .select([required("first")])
+            .expect("fixture selection must succeed");
 
         assert_eq!(
             selected.static_accesses(&required("first")),
@@ -1644,7 +1651,8 @@ mod tests {
         let resolver = NativeUnitResolver::new([index([provider], [])]);
 
         let links = [NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("external").expect("fixture non empty shared str must be valid"),
+            NonEmptySharedStr::try_new("external")
+                .expect("fixture non empty shared str must be valid"),
             NativeLinkKind::Dynamic,
         )];
 
@@ -1830,14 +1838,19 @@ mod tests {
             let original = index(units, []);
             let bytes = original.encode().expect("fixture artifact must encode");
 
-            let index_digest =
-                NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
+            let index_digest = NativeContentDigest::new(
+                bray_base::sha256_reader(bytes.as_slice())
+                    .expect("fixture contents must have a complete SHA-256 digest"),
+            );
 
-            let decoded =
-                NativeArtifactIndex::decode(&bytes, index_digest, original.target()).expect("fixture `NativeArtifactIndex::decode` call must succeed");
+            let decoded = NativeArtifactIndex::decode(&bytes, index_digest, original.target())
+                .expect("fixture `NativeArtifactIndex::decode` call must succeed");
 
             let resolver = NativeUnitResolver::new([decoded]);
-            let selected = resolver.select([required("live")]).expect("fixture selection must succeed");
+
+            let selected = resolver
+                .select([required("live")])
+                .expect("fixture selection must succeed");
 
             assert_eq!(
                 selected

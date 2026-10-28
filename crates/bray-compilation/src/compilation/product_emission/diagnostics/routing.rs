@@ -70,8 +70,9 @@ pub(super) fn product_emission_failure_diagnostics(
                 Some(error) => {
                     DiagnosticBag::single(error.clone().into_diagnostic(DiagnosticId::new(0)))
                 }
-                None => package_interface_failure_diagnostics(kind, product, target)
-                    .unwrap_or_default(),
+                None => {
+                    package_interface_failure_diagnostics(kind, product, target).unwrap_or_default()
+                }
             }
         }
         ProductEmissionErrorKind::NativeIndexSizeLimitExceeded => emission_failure_diagnostics(

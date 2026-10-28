@@ -266,7 +266,9 @@ mod tests {
 
     #[test]
     fn occurrence_checks_include_index_and_slice_bounds() {
-        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let values =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
         let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(1));
 
         let parameter_term = values
@@ -296,17 +298,13 @@ mod tests {
                 )))
                 .expect("fixture constant term must be interned");
 
-            assert!(
-                unifier.constant_contains_parameter(term, parameter, &mut BTreeSet::new())
-            );
+            assert!(unifier.constant_contains_parameter(term, parameter, &mut BTreeSet::new()));
 
-            assert!(
-                !unifier.constant_contains_parameter(
-                    term,
-                    GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2)),
-                    &mut BTreeSet::new()
-                )
-            );
+            assert!(!unifier.constant_contains_parameter(
+                term,
+                GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2)),
+                &mut BTreeSet::new()
+            ));
         }
     }
 }

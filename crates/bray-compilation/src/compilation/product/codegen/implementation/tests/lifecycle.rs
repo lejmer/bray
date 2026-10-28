@@ -183,7 +183,8 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
 
     let (backend, codegen) = super::support::compilation::codegen_configuration();
 
-    let package = bray_symbols::PackageIdentity::try_new("std").expect("fixture package identity must be valid");
+    let package = bray_symbols::PackageIdentity::try_new("std")
+        .expect("fixture package identity must be valid");
 
     let request = crate::CompilationRequest::with_options(
         package.clone(),
@@ -223,7 +224,10 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
         .iter()
         .enumerate()
         .map(|(index, source)| {
-            crate::test_support::source_input(source, u32::try_from(index).expect("fixture value must fit the requested representation"))
+            crate::test_support::source_input(
+                source,
+                u32::try_from(index).expect("fixture value must fit the requested representation"),
+            )
         })
         .collect(),
         crate::CompilationOptions::new(
@@ -234,7 +238,8 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
     )
     .with_standard_library_source_authority();
 
-    let compilation = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+    let compilation = crate::Compilation::load_with_codegen(request, codegen)
+        .expect("fixture compilation must load for code generation");
 
     assert!(
         !compilation.check_diagnostics().has_errors(),
@@ -244,7 +249,9 @@ fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
 
     let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = super::support::runtime::runtime_artifact(&compilation, archive.path());
-    let product = bray_symbols::ProductIdentity::try_new(package, "buffer").expect("fixture product identity must be valid");
+
+    let product = bray_symbols::ProductIdentity::try_new(package, "buffer")
+        .expect("fixture product identity must be valid");
 
     let plan = compilation
         .native_product_plan(
@@ -322,11 +329,10 @@ fn broadcast_retains_nested_prefix(mir: &bray_ir::MirUnit, entry: bray_ir::MirBl
 
         let block = mir.block(id).expect("fixture MIR block must exist");
 
-        for operation in block
-            .operations()
-            .iter()
-            .map(|id| mir.operation(*id).expect("fixture MIR operation must exist"))
-        {
+        for operation in block.operations().iter().map(|id| {
+            mir.operation(*id)
+                .expect("fixture MIR operation must exist")
+        }) {
             if let MirOperationKind::Cleanup {
                 phase: bray_ir::MirCleanupPhase::TaskCancellation,
                 place,
@@ -956,7 +962,8 @@ fn admitted_synchronous_generic_cleanup_emits_native_units() {
     )
     .with_dependency_interfaces([dependency]);
 
-    let consumer = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+    let consumer = crate::Compilation::load_with_codegen(request, codegen)
+        .expect("fixture compilation must load for code generation");
 
     assert!(
         consumer.check_diagnostics().is_empty(),
@@ -1019,9 +1026,8 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
         }
     "#;
 
-    let source = super::support::compilation::codegen_compilation_for_product(
-        SOURCE, ProductKind::Library,
-    );
+    let source =
+        super::support::compilation::codegen_compilation_for_product(SOURCE, ProductKind::Library);
 
     let dependency = super::support::dependencies::generic_dependency_from_fixture(
         true,
@@ -1056,33 +1062,64 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
     )
     .with_dependency_interfaces([dependency]);
 
-    let consumer = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+    let consumer = crate::Compilation::load_with_codegen(request, codegen)
+        .expect("fixture compilation must load for code generation");
 
     for (backend, compilation) in [source, (backend, consumer)] {
-        for configuration in [crate::BuildConfiguration::Development, crate::BuildConfiguration::Release] {
-            assert!(compilation.check_diagnostics().is_empty(), "{:?}", compilation.check_diagnostics());
+        for configuration in [
+            crate::BuildConfiguration::Development,
+            crate::BuildConfiguration::Release,
+        ] {
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
 
-            let plan = compilation.native_product_plan(
-                super::support::compilation::test_product_identity(),
-                configuration,
-                None,
-                [],
-                None,
-            ).expect("fixture product must reach native planning");
+            let plan = compilation
+                .native_product_plan(
+                    super::support::compilation::test_product_identity(),
+                    configuration,
+                    None,
+                    [],
+                    None,
+                )
+                .expect("fixture product must reach native planning");
 
-            assert!(plan.units().iter().flat_map(|unit| unit.instances())
-                .flat_map(|instance| instance.mir().operations())
-                .any(|operation| matches!(operation.kind(),
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }))));
+            assert!(
+                plan.units()
+                    .iter()
+                    .flat_map(|unit| unit.instances())
+                    .flat_map(|instance| instance.mir().operations())
+                    .any(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }
+                        )
+                    ))
+            );
 
             for instance in plan.units().iter().flat_map(|unit| unit.instances()) {
                 let mir = instance.mir();
 
                 for block in mir.blocks() {
-                    if block.operations().iter().any(|id| matches!(mir.operation(*id).expect("fixture `iter` call must succeed").kind(),
-                        MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }))) {
-                        assert!(matches!(block.terminator().kind(),
-                            MirTerminatorKind::CheckCallOutcome { completed_report: Some(_), .. }));
+                    if block.operations().iter().any(|id| {
+                        matches!(
+                            mir.operation(*id)
+                                .expect("fixture `iter` call must succeed")
+                                .kind(),
+                            MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }
+                            )
+                        )
+                    }) {
+                        assert!(matches!(
+                            block.terminator().kind(),
+                            MirTerminatorKind::CheckCallOutcome {
+                                completed_report: Some(_),
+                                ..
+                            }
+                        ));
                     }
                 }
             }
@@ -1091,7 +1128,11 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
                 .all(|symbol| !matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(runtime)
                     if runtime.role().service_class() == Some(bray_runtime_interface::RuntimeServiceClass::Execution))));
 
-            assert!(generated_artifacts(&backend, &plan).iter().all(|artifact| !artifact.is_empty()));
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
         }
     }
 }
@@ -1176,7 +1217,8 @@ fn selected_associated_runtime_default_emits_source_and_imported_native_units() 
         )
         .with_dependency_interfaces([dependency]);
 
-        let consumer = crate::Compilation::load_with_codegen(request, codegen).expect("fixture compilation must load for code generation");
+        let consumer = crate::Compilation::load_with_codegen(request, codegen)
+            .expect("fixture compilation must load for code generation");
 
         assert!(
             consumer.check_diagnostics().is_empty(),

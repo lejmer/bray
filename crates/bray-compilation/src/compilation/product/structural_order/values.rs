@@ -425,8 +425,14 @@ mod tests {
     fn symbolic_key(padding: bool, ordinal: u32, upper: bool) -> std::sync::Arc<[u8]> {
         let compilation = crate::test_support::compilation("module app;");
         let cancellation = CancellationToken::new();
-        let context = compilation.binding_context(&cancellation).expect("fixture compilation must provide a binding context");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+        let context = compilation
+            .binding_context(&cancellation)
+            .expect("fixture compilation must provide a binding context");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
 
         if padding {
             values

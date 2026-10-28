@@ -23,14 +23,9 @@ pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
     let mut command = Command::new("cargo");
 
     // Retain the workspace feature selection while building only compiler binaries.
-    command.current_dir(root).args([
-        "build",
-        "--release",
-        "--bin",
-        "brayc",
-        "--bin",
-        "bray",
-    ]);
+    command
+        .current_dir(root)
+        .args(["build", "--release", "--bin", "brayc", "--bin", "bray"]);
 
     crate::progress::run("Building Bray compiler tools", || {
         let output = crate::command::output_with_streamed_stderr(&mut command)

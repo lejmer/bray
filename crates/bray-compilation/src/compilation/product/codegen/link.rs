@@ -255,24 +255,25 @@ impl Compilation {
         }
 
         if configuration.uses_thin_lto()
-            && let Some(profile) = self.state.fact_runtime.profile() {
-                use crate::profile::ProfileMetricKind as Metric;
+            && let Some(profile) = self.state.fact_runtime.profile()
+        {
+            use crate::profile::ProfileMetricKind as Metric;
 
-                for (metric, value) in [
-                    (Metric::OptimizationModules, libraries.optimization_modules),
-                    (Metric::OptimizationInputBytes, libraries.optimization_bytes),
-                    (
-                        Metric::OptimizationWorkers,
-                        u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
-                    ),
-                    (
-                        Metric::OptimizationPreservationRoots,
-                        u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
-                    ),
-                ] {
-                    profile.record_metric(metric, value);
-                }
+            for (metric, value) in [
+                (Metric::OptimizationModules, libraries.optimization_modules),
+                (Metric::OptimizationInputBytes, libraries.optimization_bytes),
+                (
+                    Metric::OptimizationWorkers,
+                    u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
+                ),
+                (
+                    Metric::OptimizationPreservationRoots,
+                    u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
+                ),
+            ] {
+                profile.record_metric(metric, value);
             }
+        }
 
         inputs = inputs.with_retained_symbols(preservation_roots);
 
@@ -282,12 +283,13 @@ impl Compilation {
             .collect::<BTreeSet<_>>();
 
         if product == LinkedProductKind::SharedLibrary
-            && let Some(host) = product_host {
-                native_exports.extend([
-                    host.descriptor_symbol().clone(),
-                    host.control_symbol().clone(),
-                ]);
-            }
+            && let Some(host) = product_host
+        {
+            native_exports.extend([
+                host.descriptor_symbol().clone(),
+                host.control_symbol().clone(),
+            ]);
+        }
 
         inputs = inputs.with_exported_symbols(native_exports);
 

@@ -198,20 +198,35 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
 
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).expect("fixture permissions must be updated");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+                .expect("fixture permissions must be updated");
         }
 
-        let permissions = std::fs::metadata(&path).expect("fixture metadata must be readable").permissions();
+        let permissions = std::fs::metadata(&path)
+            .expect("fixture metadata must be readable")
+            .permissions();
 
-        super::replace_source(&path, b"replacement").expect("fixture source replacement must succeed");
+        super::replace_source(&path, b"replacement")
+            .expect("fixture source replacement must succeed");
 
-        assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"replacement");
-        assert_eq!(std::fs::metadata(&path).expect("fixture metadata must be readable").permissions(), permissions);
+        assert_eq!(
+            std::fs::read(&path).expect("fixture contents must be readable"),
+            b"replacement"
+        );
+
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("fixture metadata must be readable")
+                .permissions(),
+            permissions
+        );
 
         let blocked = directory.path().join("directory.rs");
 
         std::fs::create_dir(&blocked).expect("fixture directory must be created");
-        std::fs::write(blocked.join("retained"), "original").expect("fixture contents must be written");
+
+        std::fs::write(blocked.join("retained"), "original")
+            .expect("fixture contents must be written");
 
         assert!(super::replace_source(&blocked, b"replacement").is_err());
 
@@ -220,7 +235,12 @@ mod tests {
             b"original"
         );
 
-        assert_eq!(std::fs::read_dir(directory.path()).expect("fixture directory entries must be readable").count(), 2);
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .expect("fixture directory entries must be readable")
+                .count(),
+            2
+        );
     }
 
     #[cfg(windows)]
@@ -236,7 +256,9 @@ mod tests {
 
         std::fs::write(&path, "original").expect("fixture contents must be written");
 
-        let permissions = std::fs::metadata(&path).expect("fixture metadata must be readable").permissions();
+        let permissions = std::fs::metadata(&path)
+            .expect("fixture metadata must be readable")
+            .permissions();
 
         let lock = OpenOptions::new()
             .read(true)
@@ -245,9 +267,25 @@ mod tests {
             .expect("fixture file must open");
 
         assert!(super::replace_source(&path, b"replacement").is_err());
-        assert_eq!(std::fs::read(&path).expect("fixture contents must be readable"), b"original");
-        assert_eq!(std::fs::metadata(&path).expect("fixture metadata must be readable").permissions(), permissions);
-        assert_eq!(std::fs::read_dir(directory.path()).expect("fixture directory entries must be readable").count(), 1);
+
+        assert_eq!(
+            std::fs::read(&path).expect("fixture contents must be readable"),
+            b"original"
+        );
+
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("fixture metadata must be readable")
+                .permissions(),
+            permissions
+        );
+
+        assert_eq!(
+            std::fs::read_dir(directory.path())
+                .expect("fixture directory entries must be readable")
+                .count(),
+            1
+        );
 
         drop(lock);
     }
@@ -260,12 +298,26 @@ mod tests {
 
         std::fs::write(&path, source).expect("fixture contents must be written");
 
-        let (expected, fixes) = crate::blank_line::fix_source(source).expect("fixture source fixes must converge");
+        let (expected, fixes) =
+            crate::blank_line::fix_source(source).expect("fixture source fixes must converge");
 
         assert!(fixes > 0);
-        assert_eq!(super::fix_sources(std::slice::from_ref(&path)).expect("fixture workspace fixes must succeed"), fixes);
-        assert_eq!(std::fs::read_to_string(&path).expect("fixture text must be readable"), expected);
-        assert_eq!(super::fix_sources(&[path]).expect("fixture workspace fixes must succeed"), 0);
+
+        assert_eq!(
+            super::fix_sources(std::slice::from_ref(&path))
+                .expect("fixture workspace fixes must succeed"),
+            fixes
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("fixture text must be readable"),
+            expected
+        );
+
+        assert_eq!(
+            super::fix_sources(&[path]).expect("fixture workspace fixes must succeed"),
+            0
+        );
     }
 
     #[test]

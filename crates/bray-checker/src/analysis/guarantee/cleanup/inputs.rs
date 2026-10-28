@@ -199,7 +199,10 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     expressions: &bray_bound_tree::CheckedExpressionSemantics,
     lifecycles: &mut BTreeSet<TypeId>,
     diagnostics: &mut DiagnosticBag,
-) -> crate::CheckerQueryResult<BTreeMap<TypeId, Vec<crate::asynchronous::ResolvedCleanupPart>>, C::UpstreamError> {
+) -> crate::CheckerQueryResult<
+    BTreeMap<TypeId, Vec<crate::asynchronous::ResolvedCleanupPart>>,
+    C::UpstreamError,
+> {
     let mut inputs = BTreeMap::new();
 
     for (id, expression) in request.unit().tree().expressions() {

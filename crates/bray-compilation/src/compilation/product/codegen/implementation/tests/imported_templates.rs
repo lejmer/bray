@@ -398,7 +398,10 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
+
     let cancellation = &compilation.state.cancellation;
 
     let roots = compilation
@@ -910,7 +913,9 @@ fn imported_generic_destructors_retain_their_receiver_continuations() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantics = consumer.product_semantics().expect("fixture product semantics must resolve");
+    let semantics = consumer
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = consumer
         .product_root_instances(semantics.value(), None, &target, &cancellation)

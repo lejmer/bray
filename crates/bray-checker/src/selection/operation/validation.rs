@@ -589,34 +589,31 @@ mod tests {
             panic!("test source expression must be committed");
         };
 
-        assert!(
-            implementation_selections_match(
-                &fixture.operation,
-                std::slice::from_ref(&fixture.implementation)
-            )
-        );
+        assert!(implementation_selections_match(
+            &fixture.operation,
+            std::slice::from_ref(&fixture.implementation)
+        ));
 
-        assert!(
-            compiler_known_operations_match(
-                request,
-                &fixture.operation,
-                source_expression,
-                &[ExpressionTypeResult::new(
-                    fixture.source,
-                    ExpressionTypeStatus::Valid
-                )],
-                std::slice::from_ref(&fixture.contract)
-            )
-        );
+        assert!(compiler_known_operations_match(
+            request,
+            &fixture.operation,
+            source_expression,
+            &[ExpressionTypeResult::new(
+                fixture.source,
+                ExpressionTypeStatus::Valid
+            )],
+            std::slice::from_ref(&fixture.contract)
+        ));
 
         let wrong_witness = ImplementationSelectionEvidence::new(
             fixture.requirement,
             ImplementationSelection::Selected(fixture.other_witness),
         );
 
-        assert!(
-            !implementation_selections_match(&fixture.operation, &[wrong_witness])
-        );
+        assert!(!implementation_selections_match(
+            &fixture.operation,
+            &[wrong_witness]
+        ));
 
         let wrong_signature = CallableSignature::new(
             fixture.source_element,
@@ -638,18 +635,16 @@ mod tests {
             wrong_signature,
         );
 
-        assert!(
-            !compiler_known_operations_match(
-                request,
-                &fixture.operation,
-                source_expression,
-                &[ExpressionTypeResult::new(
-                    fixture.source,
-                    ExpressionTypeStatus::Valid
-                )],
-                &[wrong_contract]
-            )
-        );
+        assert!(!compiler_known_operations_match(
+            request,
+            &fixture.operation,
+            source_expression,
+            &[ExpressionTypeResult::new(
+                fixture.source,
+                ExpressionTypeStatus::Valid
+            )],
+            &[wrong_contract]
+        ));
 
         let wrong_role = CompilerKnownOperationEvidence::new(
             CompilerKnownOperationRole::Equality,
@@ -658,18 +653,16 @@ mod tests {
             fixture.contract.signature().clone(),
         );
 
-        assert!(
-            !compiler_known_operations_match(
-                request,
-                &fixture.operation,
-                source_expression,
-                &[ExpressionTypeResult::new(
-                    fixture.source,
-                    ExpressionTypeStatus::Valid
-                )],
-                &[wrong_role]
-            )
-        );
+        assert!(!compiler_known_operations_match(
+            request,
+            &fixture.operation,
+            source_expression,
+            &[ExpressionTypeResult::new(
+                fixture.source,
+                ExpressionTypeStatus::Valid
+            )],
+            &[wrong_role]
+        ));
     }
 
     struct TraitConversionFixture {

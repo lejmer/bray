@@ -498,7 +498,9 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 })
                 .expect("fixture lookup must find its expected value");
 
-            let certified = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
+            let certified = compilation
+                .execution_properties(key)
+                .expect("fixture callable must resolve its execution properties");
 
             assert_eq!(
                 certified
@@ -598,7 +600,12 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
             assert!(!lowered.diagnostics().has_errors(), "{name}: {lowered:#?}");
 
-            let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+            let unit = lowered
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present")
+                .mir()
+                .expect("fixture instance must retain its MIR");
 
             let parameter = unit
                 .storages()
@@ -616,7 +623,9 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
             for block in unit.blocks() {
                 for operation in block.operations() {
-                    let operation = unit.operation(*operation).expect("fixture MIR operation must exist");
+                    let operation = unit
+                        .operation(*operation)
+                        .expect("fixture MIR operation must exist");
 
                     if let bray_ir::MirOperationKind::AdmitOutgoing {
                         owner: bray_ir::MirOutgoingOwner::Value(ty),
@@ -664,14 +673,22 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
         assert!(!lowered.diagnostics().has_errors(), "{lowered:#?}");
 
-        let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let unit = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         for block in unit.blocks() {
             for operation in block.operations() {
                 if let bray_ir::MirOperationKind::AdmitOutgoing {
                     owner: bray_ir::MirOutgoingOwner::Value(ty),
                     ..
-                } = unit.operation(*operation).expect("fixture MIR operation must exist").kind()
+                } = unit
+                    .operation(*operation)
+                    .expect("fixture MIR operation must exist")
+                    .kind()
                 {
                     assert_eq!(
                         compilation
@@ -714,13 +731,21 @@ async func abandon(pos owner: Owner) { panic("body"); }
                 );
 
                 if name != "prepare_attachment_cleanup" {
-                    let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+                    let unit = lowered
+                        .value()
+                        .as_ref()
+                        .expect("fixture optional value must be present")
+                        .mir()
+                        .expect("fixture instance must retain its MIR");
 
                     for operation in unit
                         .blocks()
                         .iter()
                         .flat_map(|block| block.operations())
-                        .map(|operation| unit.operation(*operation).expect("fixture MIR operation must exist"))
+                        .map(|operation| {
+                            unit.operation(*operation)
+                                .expect("fixture MIR operation must exist")
+                        })
                     {
                         if let bray_ir::MirOperationKind::AdmitOutgoing {
                             owner: bray_ir::MirOutgoingOwner::Value(ty),
@@ -814,13 +839,21 @@ async func abandon(pos owner: Owner) { panic("body"); }
 
             assert!(!lowered.diagnostics().has_errors(), "{name}: {lowered:#?}");
 
-            let unit = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+            let unit = lowered
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present")
+                .mir()
+                .expect("fixture instance must retain its MIR");
 
             for operation in unit
                 .blocks()
                 .iter()
                 .flat_map(|block| block.operations())
-                .map(|operation| unit.operation(*operation).expect("fixture MIR operation must exist"))
+                .map(|operation| {
+                    unit.operation(*operation)
+                        .expect("fixture MIR operation must exist")
+                })
             {
                 if let bray_ir::MirOperationKind::AdmitOutgoing {
                     owner: bray_ir::MirOutgoingOwner::Value(ty),

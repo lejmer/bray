@@ -359,7 +359,10 @@ where
             let shape = shapes[&child];
 
             for (parent, input) in dependents.get(&child).into_iter().flatten() {
-                let target = shapes.get_mut(parent).expect("cleanup graph retains every dependent type");
+                let target = shapes
+                    .get_mut(parent)
+                    .expect("cleanup graph retains every dependent type");
+
                 let previous = *target;
 
                 input.merge(target, shape);
@@ -431,7 +434,10 @@ where
 
         self.limit_exceeded = true;
 
-        let owner = self.request.symbols().symbol_for_key(self.request.unit().key().declared_owner());
+        let owner = self
+            .request
+            .symbols()
+            .symbol_for_key(self.request.unit().key().declared_owner());
 
         crate::diagnostic::report_cleanup_recursion_limit(
             self.request,
@@ -571,8 +577,8 @@ where
                     panic!("selected finalizer has its checked callable type");
                 };
 
-                shape.suspending |= callable.execution()
-                    == bray_symbols::CallableExecution::Asynchronous;
+                shape.suspending |=
+                    callable.execution() == bray_symbols::CallableExecution::Asynchronous;
 
                 if callable.execution() == bray_symbols::CallableExecution::Synchronous {
                     inputs.push(CleanupShapeInput::FinalizerResult(callable.result()));
@@ -687,7 +693,9 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
         let mut resolver = CleanupShapeResolver::new(request);
 
-        let shape = resolver.resolve(nested_type(1_024)).expect("bounded shape analysis must finish");
+        let shape = resolver
+            .resolve(nested_type(1_024))
+            .expect("bounded shape analysis must finish");
 
         assert!(shape.recovered);
         assert!(resolver.completed.is_empty());
@@ -707,7 +715,11 @@ mod tests {
         let request = CheckerUnitView::new(&unit, &semantic_context, &context);
         let mut resolver = CleanupShapeResolver::new(request);
 
-        assert!(matches!(resolver.resolve(nested_type(32)), Err(CheckerQueryError::Cancelled)));
+        assert!(matches!(
+            resolver.resolve(nested_type(32)),
+            Err(CheckerQueryError::Cancelled)
+        ));
+
         assert!(resolver.completed.is_empty());
         assert!(resolver.diagnostics.is_empty());
     }

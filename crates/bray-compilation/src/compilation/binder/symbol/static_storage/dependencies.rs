@@ -163,7 +163,10 @@ fn collect_witness_requirements(
                 collect_witness_requirements(context, nested, requirements)?;
             }
         }
-        bray_symbols::DependencyRequirement::CleanupDependencies { requirements: nested, .. } => {
+        bray_symbols::DependencyRequirement::CleanupDependencies {
+            requirements: nested,
+            ..
+        } => {
             for requirement in nested.iter() {
                 collect_witness_requirements(context, requirement, requirements)?;
             }

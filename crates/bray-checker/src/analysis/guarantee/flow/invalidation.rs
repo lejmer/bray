@@ -105,19 +105,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .request
                 .trusted_contracts()
                 .and_then(|contracts| contracts.calls.get(&occurrence))
-                && contract.preserves_inputs
-                && state.entries.get(&occurrence).is_some_and(|entry| {
-                    entry.proves(
-                        contract
-                            .preconditions
-                            .iter()
-                            .map(|(condition, _)| condition),
-                    ) && (entry.trusted_boundary
-                        || self.trusted_requirements_proven(entry, &contract.requirements))
-                })
-            {
-                return;
-            }
+            && contract.preserves_inputs
+            && state.entries.get(&occurrence).is_some_and(|entry| {
+                entry.proves(
+                    contract
+                        .preconditions
+                        .iter()
+                        .map(|(condition, _)| condition),
+                ) && (entry.trusted_boundary
+                    || self.trusted_requirements_proven(entry, &contract.requirements))
+            })
+        {
+            return;
+        }
 
         let transfers = !changes_contents
             && !self.storage.occurrence_plans(occurrence).any(|plan| {

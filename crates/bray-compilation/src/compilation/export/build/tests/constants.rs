@@ -318,7 +318,9 @@ fn imported_constant_tuple_projections_retain_checked_ordinals() {
     );
 
     let bundle = export(&provider);
-    let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
+
+    let interface =
+        encode_package_interface(bundle).expect("fixture package interface must encode");
 
     let implementation = PackageImplementationArtifact::try_from_export_bundle(
         &interface,

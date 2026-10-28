@@ -128,7 +128,8 @@ fn normal_reports_follow_calls_and_consumed_futures() {
 
 #[test]
 fn inactive_generic_cleanup_discharges_trivial_capture_report_dependencies() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         module app;
         async func hold<T>(pos value: T) {}
         func discard<T>(pos value: T) { let pending = hold<T>(value); }
@@ -136,18 +137,29 @@ fn inactive_generic_cleanup_discharges_trivial_capture_report_dependencies() {
             let value: bool = true;
             discard<(&bool)>(&value);
         }
-    "#);
+    "#,
+    );
 
     let diagnostics = application.check_diagnostics();
 
-    assert!(!diagnostics.has_errors(), "{diagnostics:#?}; discard={:#?}; caller={:#?}",
-        crate::compilation::result_dependencies::source_function_dependencies(&application, "discard"),
-        crate::compilation::result_dependencies::source_function_dependencies(&application, "caller"));
+    assert!(
+        !diagnostics.has_errors(),
+        "{diagnostics:#?}; discard={:#?}; caller={:#?}",
+        crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "discard"
+        ),
+        crate::compilation::result_dependencies::source_function_dependencies(
+            &application,
+            "caller"
+        )
+    );
 }
 
 #[test]
 fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
-    let application = compilation(r#"
+    let application = compilation(
+        r#"
         module app;
         struct Wrapper<T> { value: T; }
         async func hold<T>(pos value: T) {}
@@ -160,7 +172,8 @@ fn recursive_inactive_cleanup_report_dependencies_remain_finite() {
             discard<Wrapper<T>>(wrapped, stop);
         }
         func caller() { discard<i32>(1, true); }
-    "#);
+    "#,
+    );
 
     let diagnostics = application.check_diagnostics();
 
@@ -186,7 +199,10 @@ fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
                 discard<Resource>(Resource { value = Argument });
             }
         "#
-        .replace("Prologue", if local { "let local: bool = true;" } else { "" })
+        .replace(
+            "Prologue",
+            if local { "let local: bool = true;" } else { "" },
+        )
         .replace("Argument", if local { "&local" } else { "input" });
 
         let application = compilation(&source);
@@ -205,7 +221,11 @@ fn inactive_generic_cleanup_reports_retain_capture_dependencies() {
                 "caller",
             );
 
-            assert!(summary.completion_reports().is_some_and(|requirements| !requirements.is_empty()));
+            assert!(
+                summary
+                    .completion_reports()
+                    .is_some_and(|requirements| !requirements.is_empty())
+            );
         }
     }
 }
@@ -1421,7 +1441,10 @@ fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
     assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
 
     let key = crate::test_support::source_function_body_key(&application, "main");
-    let lowered = application.lowered_unit(key).expect("fixture callable must lower successfully");
+
+    let lowered = application
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     let mir = lowered
         .value()
@@ -1546,8 +1569,14 @@ fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referent
 
     for (name, borrowed) in [("borrowed", true), ("owned", false)] {
         let key = crate::test_support::source_function_body_key(&compilation, name);
-        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
-        let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .expect("fixture callable must bind successfully");
+
+        let flow = compilation
+            .storage_flow(key)
+            .expect("fixture callable must complete storage-flow analysis");
 
         let assignment = bound
             .value()

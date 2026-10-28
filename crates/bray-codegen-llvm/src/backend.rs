@@ -704,14 +704,19 @@ mod tests {
                 self.0.fetch_add(1, Ordering::Relaxed);
 
                 let context = Context::create();
-                let bytes = content.read_shared().expect("fixture shared artifact bytes must be readable");
+
+                let bytes = content
+                    .read_shared()
+                    .expect("fixture shared artifact bytes must be readable");
+
                 let module = crate::parse_bitcode(&bytes, &context)?;
                 let storage = module.add_global(context.i32_type(), None, "finalized_storage");
 
                 storage.set_initializer(&context.i32_type().const_int(7, false));
 
                 Ok(BackendBitcodeOptimizationOutcome::Complete(
-                    ArtifactContent::try_memory(crate::bitcode_bytes(&module)).expect("fixture memory must succeed"),
+                    ArtifactContent::try_memory(crate::bitcode_bytes(&module))
+                        .expect("fixture memory must succeed"),
                 ))
             }
         }
@@ -741,18 +746,28 @@ mod tests {
         );
 
         let outcome = backend.generate(request);
-        let artifacts = outcome.artifacts().expect("fixture `artifacts` call must succeed");
+
+        let artifacts = outcome
+            .artifacts()
+            .expect("fixture `artifacts` call must succeed");
 
         assert_eq!(optimizer.0.load(Ordering::Relaxed), 1);
         assert_eq!(artifacts.len(), 2);
 
         for contribution in artifacts {
-            let unit = contribution.native_unit().expect("fixture `native_unit` call must succeed");
-            let bytes = contribution.content().read_shared().expect("fixture shared artifact bytes must be readable");
+            let unit = contribution
+                .native_unit()
+                .expect("fixture `native_unit` call must succeed");
+
+            let bytes = contribution
+                .content()
+                .read_shared()
+                .expect("fixture shared artifact bytes must be readable");
 
             assert_eq!(
                 unit.digest().bytes(),
-                bray_base::sha256_reader(bytes.as_ref()).expect("fixture contents must have a complete SHA-256 digest")
+                bray_base::sha256_reader(bytes.as_ref())
+                    .expect("fixture contents must have a complete SHA-256 digest")
             );
 
             assert!(
@@ -762,7 +777,10 @@ mod tests {
             );
 
             assert_eq!(
-                contribution.digest().expect("fixture `digest` call must succeed").bytes(),
+                contribution
+                    .digest()
+                    .expect("fixture `digest` call must succeed")
+                    .bytes(),
                 unit.digest().bytes()
             );
         }

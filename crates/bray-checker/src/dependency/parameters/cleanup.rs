@@ -6,10 +6,12 @@ pub(super) fn has_conditions(requirements: &[DependencyRequirement]) -> bool {
     requirements.iter().any(|requirement| match requirement {
         DependencyRequirement::CleanupDependencies { .. } => true,
         DependencyRequirement::Guarded(guarded) => has_conditions(guarded.requirements()),
-        DependencyRequirement::FixedPoint { definitions, result } => {
-            definitions.iter().any(|items| has_conditions(items)) || has_conditions(result)
-        }
-        DependencyRequirement::ResultCall { inputs, .. } => inputs.iter()
+        DependencyRequirement::FixedPoint {
+            definitions,
+            result,
+        } => definitions.iter().any(|items| has_conditions(items)) || has_conditions(result),
+        DependencyRequirement::ResultCall { inputs, .. } => inputs
+            .iter()
             .any(|input| has_conditions(input.values()) || has_conditions(input.storage())),
         _ => false,
     })
@@ -43,7 +45,10 @@ pub(super) fn exact_predicate_requirements<C: CheckerRequestContext + ?Sized>(
     let values = request.semantic_values();
 
     if values.type_is_concrete(ty)
-        || matches!(values.type_data(ty).as_ref(), TypeData::TypeParameter(_) | TypeData::OwnedIndirection { .. })
+        || matches!(
+            values.type_data(ty).as_ref(),
+            TypeData::TypeParameter(_) | TypeData::OwnedIndirection { .. }
+        )
     {
         return Ok(Vec::new());
     }
@@ -64,7 +69,10 @@ pub(super) fn exact_predicate_requirements<C: CheckerRequestContext + ?Sized>(
     let mut result = Vec::new();
 
     for (part_ty, part) in parts.value() {
-        if part.as_ref().is_some_and(|part| part.release().is_some() || part.phases().includes_cancellation()) {
+        if part
+            .as_ref()
+            .is_some_and(|part| part.release().is_some() || part.phases().includes_cancellation())
+        {
             // An owned release or run makes cleanup unconditional for this type.
             return Ok(Vec::new());
         }

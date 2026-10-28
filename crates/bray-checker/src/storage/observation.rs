@@ -161,11 +161,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
         if let std::collections::btree_map::Entry::Vacant(e) = shapes.entry(ty) {
             e.insert(paths(
-                    request,
-                    ty,
-                    &mut BTreeSet::new(),
-                    &mut complete_reference_types,
-                )?);
+                request,
+                ty,
+                &mut BTreeSet::new(),
+                &mut complete_reference_types,
+            )?);
         }
 
         let mut observations = shapes[&ty]
@@ -290,11 +290,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
         if let std::collections::btree_map::Entry::Vacant(e) = shapes.entry(ty) {
             e.insert(paths(
-                    request,
-                    ty,
-                    &mut BTreeSet::new(),
-                    &mut complete_reference_types,
-                )?);
+                request,
+                ty,
+                &mut BTreeSet::new(),
+                &mut complete_reference_types,
+            )?);
         }
     }
 

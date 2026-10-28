@@ -12,7 +12,10 @@ use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 /// Checks body-local operations and records selected dependencies without certifying them.
-#[expect(clippy::too_many_arguments, reason = "execution certification consumes independently computed checker facts in query order")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "execution certification consumes independently computed checker facts in query order"
+)]
 pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     prepared: &crate::PreparedBodyAnalysis,
@@ -222,7 +225,10 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     CheckerOutcome::complete(candidate, diagnostics)
 }
 
-#[expect(clippy::too_many_arguments, reason = "operation certification keeps its execution mode, checked effects, proof output and diagnostics explicit")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "operation certification keeps its execution mode, checked effects, proof output and diagnostics explicit"
+)]
 fn check_operations<C: CheckerRequestContext + ?Sized>(
     reachable: &super::flow::ExecutionFlow<'_, '_, C>,
     property: ExecutionProperty,
@@ -454,7 +460,10 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
     Ok(())
 }
 
-#[expect(clippy::too_many_arguments, reason = "expression certification retains its checked facts and separate proof and diagnostic outputs")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "expression certification retains its checked facts and separate proof and diagnostic outputs"
+)]
 fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
@@ -505,7 +514,10 @@ fn check_expression_execution<C: CheckerRequestContext + ?Sized>(
     Ok(valid)
 }
 
-#[expect(clippy::too_many_arguments, reason = "termination certification keeps loop bounds, cycle states and accumulated proofs separate")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "termination certification keeps loop bounds, cycle states and accumulated proofs separate"
+)]
 fn check_completion<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     graph: &super::super::model::ControlFlowGraph,

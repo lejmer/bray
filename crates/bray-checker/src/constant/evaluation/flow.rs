@@ -82,10 +82,9 @@ where
                 };
 
                 match transfer.kind() {
-                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield {
-                        term,
-                        source_type,
-                    }),
+                    BoundControlTransferKind::Yield => {
+                        Ok(EvaluationFlow::Yield { term, source_type })
+                    }
                     BoundControlTransferKind::Return => {
                         let result_type = self.input.result_type().unwrap_or(source_type);
 

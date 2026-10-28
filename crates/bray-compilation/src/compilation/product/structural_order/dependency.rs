@@ -29,9 +29,10 @@ impl OrderEncoder<'_, '_> {
         requirement: &DependencyRequirement,
     ) -> Result<OrderKey, CodegenPreparationError> {
         Ok(match requirement {
-            DependencyRequirement::CleanupDependencies { ty, requirements } => {
-                term("cleanup_dependencies", [self.ty(*ty)?, self.dependencies(requirements)?])
-            }
+            DependencyRequirement::CleanupDependencies { ty, requirements } => term(
+                "cleanup_dependencies",
+                [self.ty(*ty)?, self.dependencies(requirements)?],
+            ),
             DependencyRequirement::SynchronousCleanup(ty) => {
                 term("synchronous_cleanup", [self.ty(*ty)?])
             }

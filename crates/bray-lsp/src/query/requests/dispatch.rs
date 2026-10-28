@@ -71,7 +71,9 @@ mod tests {
     fn ignored_results_offer_discard_quick_fixes_without_creating_a_symbol() {
         let document = document("module app; func main() { 1; }");
         let cancellation = bray_compilation::CancellationToken::new();
-        let report = diagnostics(&document, &cancellation).expect("fixture `diagnostics` call must succeed");
+
+        let report =
+            diagnostics(&document, &cancellation).expect("fixture `diagnostics` call must succeed");
 
         let warning = report
             .items
@@ -110,10 +112,16 @@ mod tests {
 
         let fixed = self::document("module app; func main() { _ = 1; }");
 
-        assert!(diagnostics(&fixed, &cancellation).expect("fixture `diagnostics` call must succeed").items.is_empty());
+        assert!(
+            diagnostics(&fixed, &cancellation)
+                .expect("fixture `diagnostics` call must succeed")
+                .items
+                .is_empty()
+        );
 
         assert!(!contains_symbol(
-            &document_symbols(&fixed, &cancellation).expect("fixed fixture source must resolve its document symbols"),
+            &document_symbols(&fixed, &cancellation)
+                .expect("fixed fixture source must resolve its document symbols"),
             "_"
         ));
     }

@@ -93,13 +93,19 @@ fn named_byte_extents_retain_checked_types_through_lowering() {
     );
 
     let key = source_callable_body_key(&compilation);
-    let types = compilation.expression_types(key.clone()).expect("fixture callable must complete expression typing");
+
+    let types = compilation
+        .expression_types(key.clone())
+        .expect("fixture callable must complete expression typing");
 
     assert!(types.diagnostics().is_empty(), "{:?}", types.diagnostics());
 
     assert!(!types.value().is_recovered(), "{:?}", types.value(),);
 
-    let result = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let result = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
+
     let mir = lowered_mir(&result);
 
     assert!(mir.operations().iter().any(|operation| matches!(

@@ -718,7 +718,10 @@ mod tests {
     #[test]
     fn delayed_wake_cannot_reach_a_retired_task_or_its_replacement() {
         let _isolation = crate::native::test_runtime_isolation();
-        let runtime = RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+
+        let runtime =
+            RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+
         let scheduler = scheduler(runtime.runtime().id());
 
         let task =
@@ -738,7 +741,13 @@ mod tests {
 
         assert_ne!(retired, replacement.id());
         assert!(matches!(wake.wake(), Err(SchedulerError::UnknownTask(task)) if task == retired));
-        assert!(scheduler.take_ready(cooperative_lane()).expect("fixture `take_ready` call must succeed").is_none());
+
+        assert!(
+            scheduler
+                .take_ready(cooperative_lane())
+                .expect("fixture `take_ready` call must succeed")
+                .is_none()
+        );
     }
 
     #[test]
@@ -982,7 +991,9 @@ mod tests {
         wake.wake()
             .unwrap_or_else(|error| panic!("running wake must succeed: {error:?}"));
 
-        let TaskResumeStatus::Suspended(_, execution) = task.resume().expect("fixture `resume` call must succeed") else {
+        let TaskResumeStatus::Suspended(_, execution) =
+            task.resume().expect("fixture `resume` call must succeed")
+        else {
             panic!("test frame must suspend into state one");
         };
 

@@ -489,7 +489,6 @@ impl ExecutionCallEvidence {
             }) == Some(true)
         })
     }
-
 }
 
 /// Local execution candidates keyed by property and guarded declaration, when present.

@@ -254,10 +254,22 @@ mod tests {
     fn filesystem_close_roles_report_release_with_expected_symbols() {
         for (role, symbol) in [
             (PlatformServiceRole::FileClose, "bray_platform_file_close"),
-            (PlatformServiceRole::DirectoryClose, "bray_platform_directory_close"),
+            (
+                PlatformServiceRole::DirectoryClose,
+                "bray_platform_directory_close",
+            ),
         ] {
             assert_eq!(role.native_symbol(), symbol);
-            assert_eq!(role.signature().parameters(), [PlatformAbiType::U64, PlatformAbiType::U32, PlatformAbiType::PointerU32]);
+
+            assert_eq!(
+                role.signature().parameters(),
+                [
+                    PlatformAbiType::U64,
+                    PlatformAbiType::U32,
+                    PlatformAbiType::PointerU32
+                ]
+            );
+
             assert_eq!(role.signature().result(), PlatformAbiType::Status);
         }
 

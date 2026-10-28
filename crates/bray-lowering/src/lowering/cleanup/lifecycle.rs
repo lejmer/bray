@@ -22,11 +22,11 @@ impl Lowerer<'_> {
             .receiver_cleanup
             .as_ref()
             .and_then(|receiver| receiver.mode)
-            && phase == MirCleanupPhase::LifecycleResolution && release.is_none() {
-                let operation = if abandoned
-                    || completed
-                    || self.input.type_finalizer_is_complete(place.ty())
-                {
+            && phase == MirCleanupPhase::LifecycleResolution
+            && release.is_none()
+        {
+            let operation =
+                if abandoned || completed || self.input.type_finalizer_is_complete(place.ty()) {
                     MirOperationKind::Destroy {
                         collection: None,
                         place,
@@ -45,8 +45,8 @@ impl Lowerer<'_> {
                     }
                 };
 
-                return self.resolve_structural_cleanup(block, source, operation);
-            }
+            return self.resolve_structural_cleanup(block, source, operation);
+        }
 
         self.push_ordinary_cleanup_action(block, source, phase, place, release, completed)
     }
@@ -157,8 +157,10 @@ impl Lowerer<'_> {
 
         let outcome = outcome.with_retention(retention);
 
-        let reports = matches!(operation,
-            MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. }));
+        let reports = matches!(
+            operation,
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveInactiveFrame { .. })
+        );
 
         self.push_operation(block, Self::retained_source(source), operation, None)?;
 

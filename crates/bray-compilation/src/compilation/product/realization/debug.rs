@@ -30,7 +30,9 @@ impl Compilation {
                     let source_anchor = origin.source_anchor();
                     let syntax = source_anchor.syntax();
 
-                    if let std::collections::btree_map::Entry::Vacant(e) = sources.entry(syntax.source_id()) {
+                    if let std::collections::btree_map::Entry::Vacant(e) =
+                        sources.entry(syntax.source_id())
+                    {
                         let source = self.source(syntax.source_id());
                         let actual_version = source.as_ref().map(|source| source.version());
 

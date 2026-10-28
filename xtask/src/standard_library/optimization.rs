@@ -331,7 +331,11 @@ mod tests {
         module.add_function("__cxa_atexit", context.i32_type().fn_type(&[], false), None);
 
         let buffer = module.write_bitcode_to_memory();
-        let bytes = buffer.as_slice().strip_suffix(&[0]).expect("fixture `strip_suffix` call must succeed");
+
+        let bytes = buffer
+            .as_slice()
+            .strip_suffix(&[0])
+            .expect("fixture `strip_suffix` call must succeed");
 
         let contract = super::inspect_module_contract(
             std::path::Path::new("C:\\workspace\\bray"),

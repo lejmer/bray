@@ -434,13 +434,17 @@ pub(crate) fn report_cleanup_recursion_limit<C: crate::CheckerRequestContext + ?
     let source = request.unit().key().source().syntax();
     let span = SourceSpan::new(source.source_id(), source.full_range());
 
-    let name = owner.and_then(|owner| request.symbols().member_name(owner)).map_or_else(
-        || DiagnosticArg::new(
-            DiagnosticArgName::DeclarationName,
-            DiagnosticArgValue::SyntaxKind(source.syntax_kind()),
-        ),
-        |name| DiagnosticArg::declaration_name(name.as_str()),
-    );
+    let name = owner
+        .and_then(|owner| request.symbols().member_name(owner))
+        .map_or_else(
+            || {
+                DiagnosticArg::new(
+                    DiagnosticArgName::DeclarationName,
+                    DiagnosticArgValue::SyntaxKind(source.syntax_kind()),
+                )
+            },
+            |name| DiagnosticArg::declaration_name(name.as_str()),
+        );
 
     diagnostics.add(
         Diagnostic::new(
@@ -460,7 +464,9 @@ pub(crate) fn report_cleanup_recursion_limit<C: crate::CheckerRequestContext + ?
         .with_arg(DiagnosticArg::maximum_count(
             u64::try_from(maximum).expect("semantic recursion limit fits diagnostic count"),
         ))
-        .with_note(DiagnosticNote::new(DiagnosticNoteKind::SimplifyRecursiveCleanup)),
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::SimplifyRecursiveCleanup,
+        )),
     );
 }
 

@@ -198,11 +198,8 @@ impl Compilation {
 
         let declaration = self.execution_unit_declaration(key)?;
 
-        let requirements = self.execution_condition_inputs(
-            key,
-            declaration.value().requirements(),
-            cancellation,
-        )?;
+        let requirements =
+            self.execution_condition_inputs(key, declaration.value().requirements(), cancellation)?;
 
         diagnostics.add_range(requirements.diagnostics().iter().cloned());
 
@@ -453,7 +450,9 @@ mod tests {
                 .execution_properties(source_function_body_key(&compilation, "root"))
                 .expect("fixture callable must resolve its execution properties");
 
-            let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+            let values = compilation
+                .semantic_value_store()
+                .expect("fixture compilation must provide its semantic value store");
 
             assert!(
                 proof
@@ -969,7 +968,8 @@ mod tests {
                 crate::SelectedTarget::baseline(),
             )
             .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
-                bray_base::NonEmptySharedStr::try_new("c").expect("fixture non empty shared str must be valid"),
+                bray_base::NonEmptySharedStr::try_new("c")
+                    .expect("fixture non empty shared str must be valid"),
                 bray_symbols::NativeLinkKind::Dynamic,
             )]);
 
@@ -1052,15 +1052,29 @@ mod tests {
         );
 
         let key = source_function_body_key(&original, "identity");
-        let first = original.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties");
+
+        let first = original
+            .execution_properties(key.clone())
+            .expect("fixture callable must resolve its execution properties");
 
         std::thread::scope(|scope| {
             let requests = (0..4)
-                .map(|_| scope.spawn(|| original.execution_properties(key.clone()).expect("fixture callable must resolve its execution properties")))
+                .map(|_| {
+                    scope.spawn(|| {
+                        original
+                            .execution_properties(key.clone())
+                            .expect("fixture callable must resolve its execution properties")
+                    })
+                })
                 .collect::<Vec<_>>();
 
             for request in requests {
-                assert!(std::sync::Arc::ptr_eq(&first, &request.join().expect("fixture query worker must join successfully")));
+                assert!(std::sync::Arc::ptr_eq(
+                    &first,
+                    &request
+                        .join()
+                        .expect("fixture query worker must join successfully")
+                ));
             }
         });
 

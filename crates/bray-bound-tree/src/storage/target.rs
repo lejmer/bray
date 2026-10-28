@@ -457,7 +457,11 @@ mod tests {
         assert!(projected.is_exact());
 
         assert_eq!(
-            projected.observation_path().expect("fixture `observation_path` call must succeed").projections.as_ref(),
+            projected
+                .observation_path()
+                .expect("fixture `observation_path` call must succeed")
+                .projections
+                .as_ref(),
             &[StorageProjection::TupleElement(SymbolOrdinal::new(1))]
         );
 
@@ -514,7 +518,9 @@ mod tests {
                     StorageProjection::TupleElement(SymbolOrdinal::new(1)),
                 ]);
 
-                let region = payload.allocation_region().expect("fixture `allocation_region` call must succeed");
+                let region = payload
+                    .allocation_region()
+                    .expect("fixture `allocation_region` call must succeed");
 
                 assert_eq!(region, header.project(&[StorageProjection::OwnedTarget]));
                 assert_eq!(region.previous, previous);

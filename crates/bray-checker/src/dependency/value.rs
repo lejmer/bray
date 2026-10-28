@@ -240,9 +240,10 @@ impl ValueInputs {
                             bray_symbols::ReceiverMode::Shared
                                 | bray_symbols::ReceiverMode::Mutable
                         )
-                    }) => {
-                        pending.push(scoped.initializer());
-                    }
+                    }) =>
+                {
+                    pending.push(scoped.initializer());
+                }
                 _ => {}
             }
         }

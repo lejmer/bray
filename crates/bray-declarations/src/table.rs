@@ -135,7 +135,12 @@ mod tests {
 
         let chunks = (0..inputs.len())
             .map(|index| {
-                let source = bray_testing::test_source_at(&sources, u32::try_from(index).expect("fixture value must fit the requested representation"));
+                let source = bray_testing::test_source_at(
+                    &sources,
+                    u32::try_from(index)
+                        .expect("fixture value must fit the requested representation"),
+                );
+
                 let syntax = crate::test_support::parse_valid_source_unit_for_test(source);
 
                 crate::discover_source_unit_declarations(&syntax)
@@ -189,7 +194,13 @@ mod tests {
                 .declarations()
                 .iter()
                 .copied()
-                .filter(|id| table.declaration(*id).expect("fixture `declaration` call must succeed").kind() == DeclarationKind::Using)
+                .filter(|id| {
+                    table
+                        .declaration(*id)
+                        .expect("fixture `declaration` call must succeed")
+                        .kind()
+                        == DeclarationKind::Using
+                })
                 .collect::<Vec<_>>();
 
             assert_eq!(
@@ -248,12 +259,17 @@ mod tests {
 
         assert_eq!(table.module_parts().len(), 1);
 
-        let imports = table.using_declarations(ModulePartId::new(0)).expect("fixture `using_declarations` call must succeed");
+        let imports = table
+            .using_declarations(ModulePartId::new(0))
+            .expect("fixture `using_declarations` call must succeed");
 
         assert_eq!(imports.len(), 1);
 
         assert_eq!(
-            table.declaration(imports[0]).expect("fixture `declaration` call must succeed").kind(),
+            table
+                .declaration(imports[0])
+                .expect("fixture `declaration` call must succeed")
+                .kind(),
             DeclarationKind::Using
         );
 
@@ -279,7 +295,11 @@ mod tests {
         "#]);
 
         let part = &table.module_parts()[0];
-        let imports = table.using_declarations(part.id()).expect("fixture `using_declarations` call must succeed");
+
+        let imports = table
+            .using_declarations(part.id())
+            .expect("fixture `using_declarations` call must succeed");
+
         let unresolved = DeclarationId::new(u32::MAX);
         let candidates = vec![imports[0], unresolved, imports[1]];
         let declarations = vec![imports[0], part.declarations()[1], unresolved, imports[1]];

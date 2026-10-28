@@ -214,7 +214,9 @@ impl Lowerer<'_> {
                     .enumerate()
                     .map(|(index, argument)| match argument {
                         MirCallArgument::Receiver { value, .. } => (None, value),
-                        MirCallArgument::Explicit { value, .. } if receiver.is_some() && index == 0 => {
+                        MirCallArgument::Explicit { value, .. }
+                            if receiver.is_some() && index == 0 =>
+                        {
                             (None, value)
                         }
                         MirCallArgument::Explicit { ordinal, value, .. } => (Some(*ordinal), value),

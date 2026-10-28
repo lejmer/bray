@@ -92,23 +92,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let status = self.apply_valid_memory_operation(state, operation, proven);
 
-            if status == MemoryOperationStatus::Valid && proven != Some(true)
-                && let Some((targets, element, purpose)) = targets {
-                    for (place, storage_type, definite) in targets {
-                        let same_type = storage_type == Some(element);
+            if status == MemoryOperationStatus::Valid
+                && proven != Some(true)
+                && let Some((targets, element, purpose)) = targets
+            {
+                for (place, storage_type, definite) in targets {
+                    let same_type = storage_type == Some(element);
 
-                        if purpose == StorageAccessPurpose::Move || !same_type {
-                            state.record_move(
-                                place,
-                                operation.expression(),
-                                storage_type.unwrap_or(element),
-                                definite && same_type,
-                            );
-                        } else if definite {
-                            state.initialize_path(&place);
-                        }
+                    if purpose == StorageAccessPurpose::Move || !same_type {
+                        state.record_move(
+                            place,
+                            operation.expression(),
+                            storage_type.unwrap_or(element),
+                            definite && same_type,
+                        );
+                    } else if definite {
+                        state.initialize_path(&place);
                     }
                 }
+            }
 
             status
         };
@@ -265,7 +267,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let allocation = state.memory.fresh(result.clone(), operation.expression());
 
-                if matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferAllocate) {
+                if matches!(
+                    operation.kind(),
+                    CheckedMemoryOperationKind::RawBufferAllocate
+                ) {
                     self.retain_allocated_buffer_pointer(state, &result, allocation);
                 }
             }

@@ -126,13 +126,14 @@ impl PackageImplementationArtifact {
         ] {
             if let Some(index) = self.native_index(kind)? {
                 if let Some(expected) = producer
-                    && index.producer() != expected {
-                        return Err(NativeIndexError::WrongProducer {
-                            expected,
-                            actual: index.producer(),
-                        }
-                        .into());
+                    && index.producer() != expected
+                {
+                    return Err(NativeIndexError::WrongProducer {
+                        expected,
+                        actual: index.producer(),
                     }
+                    .into());
+                }
 
                 producer = Some(index.producer());
                 seen.extend(index.units().iter().map(|unit| unit.digest().bytes()));

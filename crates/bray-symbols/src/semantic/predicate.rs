@@ -708,8 +708,12 @@ mod tests {
     }
     #[test]
     fn predicate_domains_control_invocation_failure_without_changing_deferred_execution() {
-        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-        let dependencies = store.empty_dependency_contract_template().expect("fixture `empty_dependency_contract_template` call must succeed");
+        let store =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+        let dependencies = store
+            .empty_dependency_contract_template()
+            .expect("fixture `empty_dependency_contract_template` call must succeed");
 
         for domain in [
             super::PredicateDomain::Value,

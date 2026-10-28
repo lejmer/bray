@@ -82,7 +82,10 @@ where
         Ok(value)
     }
 
-    #[expect(clippy::too_many_arguments, reason = "template calls retain their callable identity, substitution and staged argument ordinals")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "template calls retain their callable identity, substitution and staged argument ordinals"
+    )]
     pub(super) fn evaluate_call(
         &mut self,
         owner: CheckedTemplateNodeId,

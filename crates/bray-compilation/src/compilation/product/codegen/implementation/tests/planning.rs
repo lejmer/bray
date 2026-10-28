@@ -240,7 +240,8 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
     for source in [CONCRETE_GENERIC_SOURCE, storage_source, predicate_source] {
         let native_links = if source == storage_source {
             vec![NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("native").expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new("native")
+                    .expect("fixture non empty shared str must be valid"),
                 NativeLinkKind::Dynamic,
             )]
         } else {

@@ -465,7 +465,10 @@ fn string_requirement_lowering_preserves_imported_and_erased_checks() {
 
     for (name, erased) in [("direct", false), ("indirect", true)] {
         let key = crate::test_support::source_function_body_key(&consumer, name);
-        let lowered = consumer.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let lowered = consumer
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             !lowered.diagnostics().has_errors(),
@@ -473,7 +476,12 @@ fn string_requirement_lowering_preserves_imported_and_erased_checks() {
             lowered.diagnostics()
         );
 
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         let requirements = mir
             .operations()
@@ -1049,21 +1057,24 @@ fn checked_body_sequences_keep_discarded_calls_reachable_after_export() {
                 continue;
             }
 
-            template.nodes()[usize::try_from(node.raw()).expect("fixture value must fit the requested representation")]
-                .operation()
-                .try_for_each_node_reference(|child| {
-                    pending.push(child);
+            template.nodes()[usize::try_from(node.raw())
+                .expect("fixture value must fit the requested representation")]
+            .operation()
+            .try_for_each_node_reference(|child| {
+                pending.push(child);
 
-                    Ok::<_, std::convert::Infallible>(())
-                })
-                .expect("fixture for each node reference must succeed");
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .expect("fixture for each node reference must succeed");
         }
 
         assert_eq!(
             reachable
                 .iter()
                 .filter(|node| matches!(
-                    template.nodes()[usize::try_from(node.raw()).expect("fixture value must fit the requested representation")].operation(),
+                    template.nodes()[usize::try_from(node.raw())
+                        .expect("fixture value must fit the requested representation")]
+                    .operation(),
                     bray_package_interface::InterfaceCheckedTemplateOperation::Call { .. }
                 ))
                 .count(),

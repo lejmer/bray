@@ -251,7 +251,12 @@ mod tests {
     ) -> NativeStaticFinalizerStatus {
         PENDING_INCIDENT.with_borrow_mut(|slot| {
             assert!(slot.is_none());
-            *slot = Some(ProviderIncident(INCIDENT_PROVIDER.get().expect("fixture lookup must contain its requested entry")));
+
+            *slot = Some(ProviderIncident(
+                INCIDENT_PROVIDER
+                    .get()
+                    .expect("fixture lookup must contain its requested entry"),
+            ));
         });
 
         *output = bray_runtime_abi::NativeRunOutcome::panicked(crate::frame::native_report(
@@ -523,7 +528,12 @@ mod tests {
             _: &mut bray_runtime_abi::NativeRunOutcome,
         ) -> NativeStaticFinalizerStatus {
             assert!(crate::bootstrap::current_runtime_thread().is_some());
-            assert!(crate::native::retain_current_runtime().expect("fixture runtime must remain retained").is_none());
+
+            assert!(
+                crate::native::retain_current_runtime()
+                    .expect("fixture runtime must remain retained")
+                    .is_none()
+            );
 
             NativeStaticFinalizerStatus::SUCCESS
         }
@@ -552,7 +562,11 @@ mod tests {
                 ),
         ));
 
-        assert!(crate::native::retain_current_runtime().expect("fixture runtime must remain retained").is_none());
+        assert!(
+            crate::native::retain_current_runtime()
+                .expect("fixture runtime must remain retained")
+                .is_none()
+        );
 
         assert_eq!(
             control(descriptor, NativeProductHostOperation::FORM).status(),
@@ -565,13 +579,20 @@ mod tests {
         assert_eq!(closed.cleaned_statics(), 1);
         assert_eq!(closed.cleanup_incidents(), 0);
         assert!(crate::bootstrap::current_runtime_thread().is_none());
-        assert!(crate::native::retain_current_runtime().expect("fixture runtime must remain retained").is_none());
+
+        assert!(
+            crate::native::retain_current_runtime()
+                .expect("fixture runtime must remain retained")
+                .is_none()
+        );
     }
 
     #[test]
     fn cleanup_attachment_rejection_preserves_static_owners_for_retry() {
         let _isolation = crate::native::test_runtime_isolation();
-        let runtime = crate::native::retain_runtime().expect("fixture `crate::native::retain_runtime` call must succeed");
+
+        let runtime = crate::native::retain_runtime()
+            .expect("fixture `crate::native::retain_runtime` call must succeed");
 
         thread_local! {
             static RUNS: Cell<usize> = const { Cell::new(0) };
@@ -649,7 +670,9 @@ mod tests {
         })
         .expect("fixture static cleanup context must be installed");
 
-        let attachment = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+        let attachment = crate::bootstrap::RuntimeThreadScope::enter()
+            .expect("fixture execution scope must admit entry");
+
         let mut previous = Callbacks::default();
 
         let other = Callbacks {
@@ -703,7 +726,8 @@ mod tests {
             ),
         ));
 
-        let attachment = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+        let attachment = crate::bootstrap::RuntimeThreadScope::enter()
+            .expect("fixture execution scope must admit entry");
 
         let registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,
@@ -740,7 +764,9 @@ mod tests {
     #[test]
     fn thread_static_product_preserves_an_existing_cleanup_runtime() {
         let _isolation = crate::native::test_runtime_isolation();
-        let runtime = crate::native::retain_runtime().expect("fixture `crate::native::retain_runtime` call must succeed");
+
+        let runtime = crate::native::retain_runtime()
+            .expect("fixture `crate::native::retain_runtime` call must succeed");
 
         let descriptor = Box::leak(Box::new(
             NativeProductHostDescriptor::new(
@@ -1256,7 +1282,12 @@ mod tests {
             assert!(crate::context::current_task_execution_context().is_none());
             assert!(!crate::context::current_run_cancellation_observable());
             assert!(!crate::context::current_run_cancellation_requested());
-            assert!(crate::native::retain_current_runtime().expect("fixture runtime must remain retained").is_none());
+
+            assert!(
+                crate::native::retain_current_runtime()
+                    .expect("fixture runtime must remain retained")
+                    .is_none()
+            );
 
             #[cfg(feature = "test-output")]
             assert!(crate::context::current_task_output().is_none());
@@ -1295,7 +1326,11 @@ mod tests {
                     NativeProductHostStatus::SUCCESS
                 );
 
-                assert!(crate::native::retain_current_runtime().expect("fixture worker must start").is_none());
+                assert!(
+                    crate::native::retain_current_runtime()
+                        .expect("fixture worker must start")
+                        .is_none()
+                );
 
                 let registration = NativeThreadStaticCleanupRegistration::new(
                     descriptor,

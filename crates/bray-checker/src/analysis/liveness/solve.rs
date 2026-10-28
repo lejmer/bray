@@ -810,7 +810,10 @@ mod tests {
             );
 
             let completion = operation(crate::analysis::model::AnalysisCallPhase::Completion);
-            let completed = effects.operation_effect(&completion).expect("fixture `operation_effect` call must succeed");
+
+            let completed = effects
+                .operation_effect(&completion)
+                .expect("fixture `operation_effect` call must succeed");
 
             assert!(completed.definitions().next().is_none());
             assert!(view.retirement_subjects().next().is_none());
@@ -833,7 +836,10 @@ mod tests {
             );
 
             assert_eq!(
-                storage.borrow_capability(loan).expect("fixture `borrow_capability` call must succeed").occurrence(),
+                storage
+                    .borrow_capability(loan)
+                    .expect("fixture `borrow_capability` call must succeed")
+                    .occurrence(),
                 Some(site)
             );
         }

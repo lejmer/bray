@@ -868,12 +868,14 @@ fn dependency_reexports_keep_the_defining_visibility_and_identity() {
         "#,
     );
 
-    let package = PackageIdentity::try_new("proxy.package").expect("fixture package identity must be valid");
+    let package =
+        PackageIdentity::try_new("proxy.package").expect("fixture package identity must be valid");
 
     let identity = PackageInterfaceIdentity::try_new(
         package.clone(),
         crate::test_support::package_version(),
-        InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
+        InterfaceProductIdentity::try_new("library")
+            .expect("fixture interface product identity must be valid"),
         InterfaceProductKind::Library,
         "public",
     )

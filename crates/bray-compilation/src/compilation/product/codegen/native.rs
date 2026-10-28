@@ -455,12 +455,12 @@ impl Compilation {
                 && (artifact.identity() != previous_artifact.identity()
                     || index.producer() != previous_index.producer()
                     || rank == *previous_rank && index != *previous_index)
-                {
-                    return Err(NativeProductPlanningError::ConflictingNativeArtifacts {
-                        first: previous_input.path().to_owned(),
-                        second: input.path().to_owned(),
-                    });
-                }
+            {
+                return Err(NativeProductPlanningError::ConflictingNativeArtifacts {
+                    first: previous_input.path().to_owned(),
+                    second: input.path().to_owned(),
+                });
+            }
 
             if packages
                 .get(&package)

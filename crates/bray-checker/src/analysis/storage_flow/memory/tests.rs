@@ -1096,7 +1096,14 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
         Some(ty)
     );
 
-    state.begin_borrow(capability, state.referent(&alias, ty).expect("fixture `referent` call must succeed"), other);
+    state.begin_borrow(
+        capability,
+        state
+            .referent(&alias, ty)
+            .expect("fixture `referent` call must succeed"),
+        other,
+    );
+
     state.retain_borrow(capability, alias.clone());
     assert_eq!(state.referent(&alias, other), None);
 
@@ -1479,13 +1486,25 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
     state.transfer(&address, copied.clone());
 
     assert_eq!(
-        state.exact_references(&field_reference).next().expect("fixture iterator must provide its expected item").1,
+        state
+            .exact_references(&field_reference)
+            .next()
+            .expect("fixture iterator must provide its expected item")
+            .1,
         &super::model::Origin::entry(slot)
     );
 
     assert_ne!(
-        state.exact_references(&address).next().expect("fixture iterator must provide its expected item").1,
-        state.exact_references(&field_reference).next().expect("fixture iterator must provide its expected item").1
+        state
+            .exact_references(&address)
+            .next()
+            .expect("fixture iterator must provide its expected item")
+            .1,
+        state
+            .exact_references(&field_reference)
+            .next()
+            .expect("fixture iterator must provide its expected item")
+            .1
     );
 
     state.clear(&parameter);
@@ -2830,7 +2849,10 @@ fn null_join_retains_bounds_without_exact_identity_or_initialization() {
 
     state.begin_entry_borrow(capability, slot.clone(), ty);
 
-    let target = state.borrow_target(capability, ty).expect("fixture `borrow_target` call must succeed");
+    let target = state
+        .borrow_target(capability, ty)
+        .expect("fixture `borrow_target` call must succeed");
+
     let mut absent = state.clone();
 
     absent.null(slot.clone());
@@ -2855,7 +2877,9 @@ fn raw_exposure_of_an_entry_referent_revokes_its_shared_protection() {
 
     state.begin_entry_borrow(capability, parameter.clone(), ty);
 
-    let target = state.borrow_target(capability, ty).expect("fixture `borrow_target` call must succeed");
+    let target = state
+        .borrow_target(capability, ty)
+        .expect("fixture `borrow_target` call must succeed");
 
     state.stage_address(
         origins[0].into(),
@@ -3034,7 +3058,9 @@ fn independent_returned_references_may_alias_and_merge_with_input_alternatives()
 
     state.complete_transition(call);
 
-    let alternatives = state.value_targets(&Target::storage(first)).expect("fixture `value_targets` call must succeed");
+    let alternatives = state
+        .value_targets(&Target::storage(first))
+        .expect("fixture `value_targets` call must succeed");
 
     assert!(
         alternatives
@@ -3061,8 +3087,16 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     state.offset(&Target::storage(pointer.clone()), pointer.clone());
     state.expose_address(&pointer, view_type, origins[0]);
 
-    let region = state.owned_regions(&owner).expect("fixture `owned_regions` call must succeed").pop().expect("fixture `pop` call must succeed");
-    let contents = state.contents.get(&region).expect("fixture lookup must contain its requested entry");
+    let region = state
+        .owned_regions(&owner)
+        .expect("fixture `owned_regions` call must succeed")
+        .pop()
+        .expect("fixture `pop` call must succeed");
+
+    let contents = state
+        .contents
+        .get(&region)
+        .expect("fixture lookup must contain its requested entry");
 
     assert_eq!(contents.storage_type, Some(region_type));
     assert!(!contents.initialized.contains(&view_type));
@@ -3127,16 +3161,27 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
     assert!(!state.initialized(&destination, view_type));
 
     let exported = state.exit_references(
-        destination.storage_path().expect("fixture `storage_path` call must succeed").root,
+        destination
+            .storage_path()
+            .expect("fixture `storage_path` call must succeed")
+            .root,
         &Default::default(),
     );
 
     assert_eq!(
-        exported.slots[destination.storage_path().expect("fixture `storage_path` call must succeed")].targets,
+        exported.slots[destination
+            .storage_path()
+            .expect("fixture `storage_path` call must succeed")]
+        .targets,
         BTreeSet::from([payload])
     );
 
-    assert!(!exported.slots[destination.storage_path().expect("fixture `storage_path` call must succeed")].is_exact());
+    assert!(
+        !exported.slots[destination
+            .storage_path()
+            .expect("fixture `storage_path` call must succeed")]
+        .is_exact()
+    );
 }
 
 #[test]

@@ -528,7 +528,6 @@ impl InlineAssemblyContract {
         let mut label_index = 0_usize;
 
         let valid = self.operands().all(|operand| {
-
             if operand.kind() == InlineAssemblyOperandKind::Label {
                 let valid = labels.get(label_index).copied() == Some(operand.ty());
 

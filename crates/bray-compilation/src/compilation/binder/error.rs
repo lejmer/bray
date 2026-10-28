@@ -125,7 +125,8 @@ mod tests {
     #[test]
     fn checked_import_relationship_failures_panic_at_binding_boundary() {
         let cause = bray_binder::BindingError::<FactQueryError>::ImportedPackageUnavailable(
-            PackageIdentity::try_new("dependency.package").expect("fixture package identity must be valid"),
+            PackageIdentity::try_new("dependency.package")
+                .expect("fixture package identity must be valid"),
         );
 
         let panic = std::panic::catch_unwind(|| binding_error(cause))

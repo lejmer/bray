@@ -89,11 +89,15 @@ impl ReplacementState {
             }),
             moved: state
                 .moved
-                .keys().filter(|&access| Some(access.root) == root).cloned()
+                .keys()
+                .filter(|&access| Some(access.root) == root)
+                .cloned()
                 .collect(),
             definitely_absent: state
                 .definitely_absent
-                .keys().filter(|&access| Some(access.root) == root).cloned()
+                .keys()
+                .filter(|&access| Some(access.root) == root)
+                .cloned()
                 .collect(),
             recovered: state.recovered || root.is_none(),
         }

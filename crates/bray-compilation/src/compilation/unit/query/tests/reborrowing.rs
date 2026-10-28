@@ -212,15 +212,30 @@ func run(pos counter: &mut Counter)
             lowered.diagnostics()
         );
 
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
 
         for operation in mir.operations() {
             let bray_ir::MirOperationKind::Borrow { place, .. } = operation.kind() else {
                 continue;
             };
 
-            let result = mir.value(operation.result().expect("fixture `result` call must succeed")).expect("fixture `value` call must succeed");
+            let result = mir
+                .value(
+                    operation
+                        .result()
+                        .expect("fixture `result` call must succeed"),
+                )
+                .expect("fixture `value` call must succeed");
+
             let ty = values.type_data(result.ty());
 
             assert!(

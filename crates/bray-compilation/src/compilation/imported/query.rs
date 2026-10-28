@@ -1385,7 +1385,8 @@ mod tests {
 
         let root = write_standard_library_fixture(
             directory.path(),
-            TargetIdentity::try_new("x86_64-unknown-linux-gnu").expect("fixture target identity must be valid"),
+            TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+                .expect("fixture target identity must be valid"),
             b"discovered interface",
             b"discovered interface",
         );

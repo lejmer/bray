@@ -145,7 +145,9 @@ mod tests {
 
     #[test]
     fn implementation_round_trips_and_manifest_bytes_are_canonical() {
-        let target = TargetIdentity::try_new("x86_64-pc-windows-msvc").expect("fixture target identity must be valid");
+        let target = TargetIdentity::try_new("x86_64-pc-windows-msvc")
+            .expect("fixture target identity must be valid");
+
         let prefix = format!("targets/{}/1.0", target.as_str());
 
         let artifacts = [
@@ -178,11 +180,14 @@ mod tests {
         })
         .collect();
 
-        let target =
-            target_artifacts_for_test(target, RuntimeAbiVersion::new(1, 0), artifacts).expect("fixture `target_artifacts_for_test` call must succeed");
+        let target = target_artifacts_for_test(target, RuntimeAbiVersion::new(1, 0), artifacts)
+            .expect("fixture `target_artifacts_for_test` call must succeed");
 
-        let manifest = StandardLibraryBundleManifest::try_new([target]).expect("fixture standard library bundle manifest must be valid");
-        let bytes = encode_standard_library_manifest(&manifest).expect("fixture `encode_standard_library_manifest` call must succeed");
+        let manifest = StandardLibraryBundleManifest::try_new([target])
+            .expect("fixture standard library bundle manifest must be valid");
+
+        let bytes = encode_standard_library_manifest(&manifest)
+            .expect("fixture `encode_standard_library_manifest` call must succeed");
 
         assert_eq!(decode_standard_library_manifest(&bytes), Ok(manifest));
 
@@ -195,31 +200,41 @@ mod tests {
             Err(StandardLibraryManifestError::NonCanonicalEncoding),
         );
 
-        let mut tampered: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+        let mut tampered: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("fixture data must deserialize");
 
         tampered["targets"][0]["artifacts"][0]["byte_len"] = serde_json::json!(1);
 
         assert_eq!(
-            decode_standard_library_manifest(&serde_json::to_vec(&tampered).expect("fixture manifest JSON must serialize")),
+            decode_standard_library_manifest(
+                &serde_json::to_vec(&tampered).expect("fixture manifest JSON must serialize")
+            ),
             Err(StandardLibraryManifestError::BundleDigestMismatch),
         );
 
-        let mut metadata_tampered: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+        let mut metadata_tampered: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("fixture data must deserialize");
 
         metadata_tampered["targets"][0]["artifacts"][1]["metadata_digest"]["bytes"] =
             serde_json::json!("00".repeat(32));
 
         assert_eq!(
-            decode_standard_library_manifest(&serde_json::to_vec(&metadata_tampered).expect("fixture manifest JSON must serialize")),
+            decode_standard_library_manifest(
+                &serde_json::to_vec(&metadata_tampered)
+                    .expect("fixture manifest JSON must serialize")
+            ),
             Err(StandardLibraryManifestError::BundleDigestMismatch)
         );
 
-        let mut wrong_revision: serde_json::Value = serde_json::from_slice(&bytes).expect("fixture data must deserialize");
+        let mut wrong_revision: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("fixture data must deserialize");
 
         wrong_revision["format"] = serde_json::json!(2);
 
         assert_eq!(
-            decode_standard_library_manifest(&serde_json::to_vec(&wrong_revision).expect("fixture manifest JSON must serialize")),
+            decode_standard_library_manifest(
+                &serde_json::to_vec(&wrong_revision).expect("fixture manifest JSON must serialize")
+            ),
             Err(StandardLibraryManifestError::InvalidIdentity),
         );
     }

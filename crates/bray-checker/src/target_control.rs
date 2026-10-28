@@ -257,7 +257,10 @@ where
     }
 }
 
-#[expect(clippy::too_many_arguments, reason = "assembly validation retains independent input, output, label and continuation contracts")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "assembly validation retains independent input, output, label and continuation contracts"
+)]
 fn assembly_contract<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[BoundExpressionId],
@@ -382,7 +385,10 @@ where
     ))
 }
 
-type CheckedAssemblyOperands = ([Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS], u8);
+type CheckedAssemblyOperands = (
+    [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
+    u8,
+);
 
 #[expect(
     clippy::too_many_arguments,

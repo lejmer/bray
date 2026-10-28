@@ -160,7 +160,9 @@ fn numeric_constant_branch_removes_its_native_dependency() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -232,7 +234,9 @@ fn repeated_scalar_expression_uses_one_dominating_result() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -311,7 +315,9 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -381,7 +387,9 @@ fn runtime_division_by_zero_remains_in_optimized_mir() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -446,7 +454,9 @@ fn unknown_join_and_loop_values_keep_reachable_calls() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -503,7 +513,9 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -586,7 +598,9 @@ fn imported_generic_constant_prunes_its_transitive_native_dependency() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -669,7 +683,9 @@ fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
         .codegen_target()
         .expect("fixture target must support code generation");
 
-    let semantic = compilation.product_semantics().expect("fixture product semantics must resolve");
+    let semantic = compilation
+        .product_semantics()
+        .expect("fixture product semantics must resolve");
 
     let roots = compilation
         .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -744,7 +760,10 @@ fn assert_boolean_specialization_dependencies(
     assert_eq!(generic[0].key().template(), generic[1].key().template());
     assert_ne!(generic[0].mir(), generic[1].mir());
 
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
+
     let mut seen = BTreeSet::new();
 
     for instance in generic {

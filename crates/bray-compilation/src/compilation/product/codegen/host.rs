@@ -154,13 +154,14 @@ impl Compilation {
 
         for (identity, key) in key_inputs {
             if let Some(previous) = order_keys.insert(identity, key)
-                && previous != key {
-                    return Err(NativeProductPlanningError::NativeResolution(
-                        bray_native_artifact::NativeResolutionError::ConflictingStatic(
-                            identity.bytes(),
-                        ),
-                    ));
-                }
+                && previous != key
+            {
+                return Err(NativeProductPlanningError::NativeResolution(
+                    bray_native_artifact::NativeResolutionError::ConflictingStatic(
+                        identity.bytes(),
+                    ),
+                ));
+            }
         }
 
         for entry in entries {
@@ -734,18 +735,19 @@ fn order_product_statics(
             && (previous.host_symbol() != entry.host_symbol()
                 || previous.duration() != entry.duration()
                 || previous.dependencies() != entry.dependencies())
-            {
-                return Err(Error::ConflictingStatic(entry.identity().bytes()));
-            }
+        {
+            return Err(Error::ConflictingStatic(entry.identity().bytes()));
+        }
 
         if let Some(previous) =
             order_identities.insert(order_keys[&entry.identity()], entry.identity())
-            && previous != entry.identity() {
-                return Err(Error::AmbiguousStaticOrder {
-                    first: previous.bytes(),
-                    second: entry.identity().bytes(),
-                });
-            }
+            && previous != entry.identity()
+        {
+            return Err(Error::AmbiguousStaticOrder {
+                first: previous.bytes(),
+                second: entry.identity().bytes(),
+            });
+        }
 
         unique.insert(entry.identity(), entry);
     }
@@ -825,7 +827,8 @@ mod tests {
 
     fn entry(id: u8, dependencies: &[u8]) -> CodegenProductHostStatic {
         CodegenProductHostStatic::new(
-            BinarySymbolName::try_new(format!("static_{id}")).expect("fixture binary symbol name must be valid"),
+            BinarySymbolName::try_new(format!("static_{id}"))
+                .expect("fixture binary symbol name must be valid"),
             NativeStaticIdentity::new([id; 32]),
             StaticStorageDuration::Product,
             0,
@@ -839,7 +842,8 @@ mod tests {
     fn native_hosts_keep_lifecycle_providers_without_hosting_unrelated_plain_storage() {
         let entry = |identity: u8, requires_host: bool, dependencies: Vec<[u8; 32]>| {
             bray_native_artifact::NativeStatic::new(
-                bray_base::NonEmptySharedStr::try_new(format!("host_{identity}")).expect("fixture non empty shared str must be valid"),
+                bray_base::NonEmptySharedStr::try_new(format!("host_{identity}"))
+                    .expect("fixture non empty shared str must be valid"),
                 [identity; 32],
                 vec![identity].into(),
                 StaticStorageDuration::Product,
@@ -899,7 +903,8 @@ mod tests {
     #[test]
     fn imported_cleanup_retains_and_orders_runtime_providers_without_changing_portable_records() {
         let consumer = bray_native_artifact::NativeStatic::new(
-            bray_base::NonEmptySharedStr::try_new("consumer").expect("fixture non empty shared str must be valid"),
+            bray_base::NonEmptySharedStr::try_new("consumer")
+                .expect("fixture non empty shared str must be valid"),
             [2; 32],
             vec![2].into(),
             StaticStorageDuration::Product,
@@ -909,7 +914,8 @@ mod tests {
         );
 
         let provider = bray_native_artifact::NativeStatic::new(
-            bray_base::NonEmptySharedStr::try_new("provider").expect("fixture non empty shared str must be valid"),
+            bray_base::NonEmptySharedStr::try_new("provider")
+                .expect("fixture non empty shared str must be valid"),
             [1; 32],
             vec![1].into(),
             StaticStorageDuration::Product,

@@ -203,9 +203,10 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             let id = CheckedTemplateInputId::new(index(inputs.len()));
 
             if let Some(target) = input.target
-                && input_ids.insert(target, id).is_some() {
-                    return Err(incomplete("duplicate_template_input_target"));
-                }
+                && input_ids.insert(target, id).is_some()
+            {
+                return Err(incomplete("duplicate_template_input_target"));
+            }
 
             let state_type = (request.kind == CheckedTemplateKind::ConstantCallableBody)
                 .then(|| context.semantic_values().type_data(input.ty))

@@ -213,7 +213,8 @@ mod tests {
         let mut fixed = text.to_owned();
 
         fixed.insert_str(
-            usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation"),
+            usize::try_from(edit.span().start().bytes())
+                .expect("fixture value must fit the requested representation"),
             edit.replacement(),
         );
 
@@ -255,7 +256,8 @@ mod tests {
             let mut fixed = text.clone();
 
             fixed.insert_str(
-                usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation"),
+                usize::try_from(edit.span().start().bytes())
+                    .expect("fixture value must fit the requested representation"),
                 edit.replacement(),
             );
 
@@ -303,8 +305,10 @@ mod tests {
             let mut fixed = text.clone();
 
             for edit in warnings[0].suggestions()[0].edits().iter().rev() {
-                let range = usize::try_from(edit.span().start().bytes()).expect("fixture value must fit the requested representation")
-                    ..usize::try_from(edit.span().end().bytes()).expect("fixture value must fit the requested representation");
+                let range = usize::try_from(edit.span().start().bytes())
+                    .expect("fixture value must fit the requested representation")
+                    ..usize::try_from(edit.span().end().bytes())
+                        .expect("fixture value must fit the requested representation");
 
                 fixed.replace_range(range, edit.replacement());
             }

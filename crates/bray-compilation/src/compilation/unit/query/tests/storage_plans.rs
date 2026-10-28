@@ -439,7 +439,10 @@ func main(pos value: &(Guard?, Guard?)) -> usize
         let source = valid_source.replace("fresh", occupied);
         let compilation = compilation(&source);
         let key = source_function_body_key(&compilation, "main");
-        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .expect("fixture callable must bind successfully");
 
         let expected = bound
             .diagnostics()
@@ -448,14 +451,27 @@ func main(pos value: &(Guard?, Guard?)) -> usize
 
         assert_eq!(expected.len(), 1, "{source}: {:?}", bound.diagnostics());
 
-        let span = expected[0].primary_span().expect("fixture `primary_span` call must succeed");
+        let span = expected[0]
+            .primary_span()
+            .expect("fixture `primary_span` call must succeed");
 
         assert_eq!(
             span.start().bytes(),
-            u32::try_from(valid_source.find("fresh").expect("fixture lookup must find its expected value")).expect("fixture value must fit the requested representation")
+            u32::try_from(
+                valid_source
+                    .find("fresh")
+                    .expect("fixture lookup must find its expected value")
+            )
+            .expect("fixture value must fit the requested representation")
         );
 
-        assert_eq!(span.range().slice_str(&source).expect("fixture `slice_str` call must succeed"), occupied);
+        assert_eq!(
+            span.range()
+                .slice_str(&source)
+                .expect("fixture `slice_str` call must succeed"),
+            occupied
+        );
+
         assert!(!expected[0].related_locations().is_empty());
 
         let diagnostics = compilation.check_diagnostics();
@@ -465,7 +481,14 @@ func main(pos value: &(Guard?, Guard?)) -> usize
             .collect::<Vec<_>>();
 
         assert_eq!(actual, expected, "{source}: {diagnostics:?}");
-        assert!(compilation.lowered_unit(key).expect("fixture callable must lower successfully").value().is_none());
+
+        assert!(
+            compilation
+                .lowered_unit(key)
+                .expect("fixture callable must lower successfully")
+                .value()
+                .is_none()
+        );
     }
 }
 
@@ -493,8 +516,14 @@ func main(pos value: &Guard?) -> usize
     assert!(compilation.check_diagnostics().is_empty());
 
     let key = source_function_body_key(&compilation, "main");
-    let refinements = compilation.refinements(key.clone()).expect("fixture callable must have checked refinements");
-    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+    let refinements = compilation
+        .refinements(key.clone())
+        .expect("fixture callable must have checked refinements");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert!(!refinements.value().is_recovered());
     assert!(!refinements.value().occurrences().is_empty());
@@ -554,8 +583,14 @@ fn implementation_self_parameter_storage_uses_the_checked_body_type() {
 
         let key = source_trait_callable_fulfillment_body_key(&compilation, "forward");
 
-        let plan = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-        let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+        let plan = compilation
+            .storage_plan(key.clone())
+            .expect("fixture callable must have a storage plan");
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store");
+
         let mut parameters = 0;
 
         for (identity, storage) in plan.value().identity_entries() {
@@ -565,7 +600,11 @@ fn implementation_self_parameter_storage_uses_the_checked_body_type() {
 
             parameters += 1;
 
-            let ty = plan.value().storage_type(identity).expect("fixture `storage_type` call must succeed");
+            let ty = plan
+                .value()
+                .storage_type(identity)
+                .expect("fixture `storage_type` call must succeed");
+
             let data = values.type_data(ty);
 
             let TypeData::Borrow { target, .. } = data.as_ref() else {
@@ -577,8 +616,16 @@ fn implementation_self_parameter_storage_uses_the_checked_body_type() {
                 TypeData::Named { .. }
             ));
 
-            let lowered = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
-            let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+            let lowered = compilation
+                .lowered_unit(key.clone())
+                .expect("fixture callable must lower successfully");
+
+            let mir = lowered
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present")
+                .mir()
+                .expect("fixture instance must retain its MIR");
 
             assert_eq!(
                 mir.storages()

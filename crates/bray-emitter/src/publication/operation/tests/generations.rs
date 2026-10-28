@@ -103,7 +103,10 @@ fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
     let first = ArtifactPublisher::new(&never_cancelled)
         .publish(&plan, [contribution(&plan, b"first", None)]);
 
-    let pin = first.generation().expect("fixture `generation` call must succeed").clone();
+    let pin = first
+        .generation()
+        .expect("fixture `generation` call must succeed")
+        .clone();
 
     let first_path = pin
         .artifact_path(first.artifacts().artifacts()[0].id())
@@ -186,13 +189,17 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
         .expect("fixture `artifact_path` call must succeed");
 
     assert_eq!(
-        file_id::get_file_id(&first_path).expect("fixture `file_id::get_file_id` call must succeed"),
-        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed")
+        file_id::get_file_id(&first_path)
+            .expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(&second_path)
+            .expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     assert_ne!(
-        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed"),
-        file_id::get_file_id(output.path().join("second.brayd")).expect("fixture `file_id::get_file_id` call must succeed")
+        file_id::get_file_id(&second_path)
+            .expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(output.path().join("second.brayd"))
+            .expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     drop(first);
@@ -202,8 +209,8 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
         ..crate::StorageSelection::default()
     };
 
-    let clean =
-        crate::clean_storage(output.path(), &first_selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
+    let clean = crate::clean_storage(output.path(), &first_selection, false, &never_cancelled)
+        .expect("fixture storage cleanup must succeed");
 
     assert!(clean.iter().all(|row| row.removed));
     assert!(!first_path.exists());
@@ -215,8 +222,10 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
     assert_complete_artifact(&first, bytes);
 
     assert_eq!(
-        file_id::get_file_id(&first_path).expect("fixture `file_id::get_file_id` call must succeed"),
-        file_id::get_file_id(&second_path).expect("fixture `file_id::get_file_id` call must succeed")
+        file_id::get_file_id(&first_path)
+            .expect("fixture `file_id::get_file_id` call must succeed"),
+        file_id::get_file_id(&second_path)
+            .expect("fixture `file_id::get_file_id` call must succeed")
     );
 
     drop(first);
@@ -250,7 +259,12 @@ fn products_share_immutable_content_until_the_last_retained_reference_is_removed
         serde_json::from_slice(&file_bytes(&output.path().join(".bray/storage-index.json")))
             .expect("fixture data must deserialize");
 
-    assert!(index["content"].as_object().expect("fixture `as_object` call must succeed").is_empty());
+    assert!(
+        index["content"]
+            .as_object()
+            .expect("fixture `as_object` call must succeed")
+            .is_empty()
+    );
 }
 
 #[test]
@@ -289,7 +303,15 @@ fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
         .collect();
 
     assert_eq!(paths.len(), 2);
-    assert_eq!(retained.identity(), first.generation().expect("fixture `generation` call must succeed").identity());
+
+    assert_eq!(
+        retained.identity(),
+        first
+            .generation()
+            .expect("fixture `generation` call must succeed")
+            .identity()
+    );
+
     drop(first);
 
     let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);

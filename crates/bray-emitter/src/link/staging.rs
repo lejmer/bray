@@ -711,7 +711,9 @@ mod tests {
         assert_eq!(input_path.parent(), output_directory.parent());
 
         for output in first.outputs() {
-            let planned = plan.artifact(output.artifact()).expect("fixture `artifact` call must succeed");
+            let planned = plan
+                .artifact(output.artifact())
+                .expect("fixture `artifact` call must succeed");
 
             let destination = match planned.destination() {
                 crate::PlannedArtifactDestination::Publish(crate::OutputSink::Filesystem(path)) => {
@@ -838,7 +840,8 @@ mod tests {
                 .all(|row| !row.active && row.category == crate::StorageCategory::Reclaimable)
         );
 
-        crate::clean_storage(directory.path(), &selection, false, &never_cancelled).expect("fixture storage cleanup must succeed");
+        crate::clean_storage(directory.path(), &selection, false, &never_cancelled)
+            .expect("fixture storage cleanup must succeed");
 
         assert!(
             crate::inspect_storage(
@@ -877,7 +880,8 @@ mod tests {
             Some(digest.clone()),
         );
 
-        let error = LinkStaging::prepare(&plan, [contribution], &never_cancelled).expect_err("invalid staged contribution must fail storage validation");
+        let error = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
+            .expect_err("invalid staged contribution must fail storage validation");
 
         let super::LinkStagingError::Storage(error) = error else {
             panic!("invalid staged bytes must preserve a managed-storage failure");

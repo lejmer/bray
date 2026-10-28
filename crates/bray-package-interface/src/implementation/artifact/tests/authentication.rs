@@ -28,16 +28,20 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
         identity.runtime_requirements().iter().cloned(),
     );
 
-    let original = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
+    let original = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[])
+        .expect("fixture implementation artifact must encode");
 
-    let replacement =
-        encode_artifact(&replacement_identity, &[], &[], &[], &[], None, &[], &[]).expect("fixture implementation artifact must encode");
+    let replacement = encode_artifact(&replacement_identity, &[], &[], &[], &[], None, &[], &[])
+        .expect("fixture implementation artifact must encode");
 
     let limits = InterfaceValidationLimits::default();
-    let parsed = PackageImplementationArtifact::try_from_bytes(original.clone(), limits).expect("fixture from bytes must succeed");
+
+    let parsed = PackageImplementationArtifact::try_from_bytes(original.clone(), limits)
+        .expect("fixture from bytes must succeed");
 
     let replacement_parsed =
-        PackageImplementationArtifact::try_from_bytes(replacement.clone(), limits).expect("fixture from bytes must succeed");
+        PackageImplementationArtifact::try_from_bytes(replacement.clone(), limits)
+            .expect("fixture from bytes must succeed");
 
     assert_eq!(original.len(), replacement.len());
     assert_ne!(parsed.identity(), replacement_parsed.identity());
@@ -47,7 +51,8 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
 
     std::fs::write(&path, &original).expect("fixture contents must be written");
 
-    let opened = PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
+    let opened =
+        PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
 
     std::fs::write(&path, &replacement).expect("fixture contents must be written");
 
@@ -63,7 +68,9 @@ fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
     ] {
         std::fs::write(&path, &original).expect("fixture contents must be written");
 
-        let opened = PackageImplementationArtifact::try_open(&path, limits).expect("fixture open must succeed");
+        let opened = PackageImplementationArtifact::try_open(&path, limits)
+            .expect("fixture open must succeed");
+
         let mut changed = original.to_vec();
 
         changed[offset] ^= 1;
@@ -188,7 +195,10 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
     )
     .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let bytes = artifact
+        .shared_bytes()
+        .expect("fixture `shared_bytes` call must succeed");
+
     let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
@@ -245,7 +255,10 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
     )
     .expect("fixture package implementation artifact must be valid");
 
-    let bytes = artifact.shared_bytes().expect("fixture `shared_bytes` call must succeed");
+    let bytes = artifact
+        .shared_bytes()
+        .expect("fixture `shared_bytes` call must succeed");
+
     let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let path = directory.path().join("library.brayimpl");
 
@@ -257,7 +270,10 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
 
     let mut damaged = bytes.to_vec();
 
-    *damaged.last_mut().expect("fixture `last_mut` call must succeed") ^= 1;
+    *damaged
+        .last_mut()
+        .expect("fixture `last_mut` call must succeed") ^= 1;
+
     std::fs::write(&path, damaged).expect("fixture contents must be written");
 
     assert!(matches!(

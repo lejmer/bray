@@ -126,7 +126,8 @@ mod tests {
 
     #[test]
     fn owned_targets_require_a_policy_call_instead_of_a_static_projection() {
-        let values = bray_symbols::SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let values = bray_symbols::SemanticValueStore::try_new()
+            .expect("fixture semantic value store must be valid");
 
         let ty = values
             .intern_type(bray_symbols::TypeData::tuple([]))
@@ -148,7 +149,8 @@ mod tests {
 
     #[test]
     fn pattern_field_moves_retain_the_exact_nested_place() {
-        let values = bray_symbols::SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let values = bray_symbols::SemanticValueStore::try_new()
+            .expect("fixture semantic value store must be valid");
 
         let ty = values
             .intern_type(bray_symbols::TypeData::Tuple([].into()))

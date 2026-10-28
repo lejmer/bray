@@ -371,14 +371,23 @@ mod tests {
             parser.parse_expression_until(&mut |parser| parser.at(SyntaxKind::SemicolonToken));
 
         assert_eq!(
-            expression.operator_token().expect("fixture `operator_token` call must succeed").kind(),
+            expression
+                .operator_token()
+                .expect("fixture `operator_token` call must succeed")
+                .kind(),
             SyntaxKind::AmpersandAmpersandToken
         );
 
-        let tested = expression.expressions().next().expect("fixture iterator must provide its expected item");
+        let tested = expression
+            .expressions()
+            .next()
+            .expect("fixture iterator must provide its expected item");
 
         assert_eq!(
-            tested.operator_token().expect("fixture `operator_token` call must succeed").kind(),
+            tested
+                .operator_token()
+                .expect("fixture `operator_token` call must succeed")
+                .kind(),
             SyntaxKind::MatchesKeyword
         );
 

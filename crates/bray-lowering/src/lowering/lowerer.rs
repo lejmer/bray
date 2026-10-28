@@ -490,7 +490,9 @@ mod tests {
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = lower_unit(fixture.input());
         }))
-        .expect_err("lowering an incomplete checked fixture must expose the missing phase contract");
+        .expect_err(
+            "lowering an incomplete checked fixture must expose the missing phase contract",
+        );
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 
@@ -508,7 +510,11 @@ mod tests {
         let fixture = lowering_fixture(95, BoundOperator::Add);
         let mut lowerer = super::Lowerer::new(fixture.input());
         let source = MirSourceAnchor::from(fixture.unit.key().source());
-        let ty = fixture.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+
+        let ty = fixture
+            .values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
 
         let entry = lowerer
             .builder
@@ -594,17 +600,35 @@ mod tests {
             then_edge,
             else_edge,
             ..
-        } = mir.block(entry).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(entry)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("expected branch")
         };
 
         assert_ne!(then_edge.target(), consumed);
         assert_eq!(else_edge.target(), retained);
-        assert!(mir.block(entry).expect("fixture MIR block must exist").operations().is_empty());
-        assert!(mir.block(retained).expect("fixture MIR block must exist").operations().is_empty());
 
-        let bridge = mir.block(then_edge.target()).expect("fixture MIR block must exist");
+        assert!(
+            mir.block(entry)
+                .expect("fixture MIR block must exist")
+                .operations()
+                .is_empty()
+        );
+
+        assert!(
+            mir.block(retained)
+                .expect("fixture MIR block must exist")
+                .operations()
+                .is_empty()
+        );
+
+        let bridge = mir
+            .block(then_edge.target())
+            .expect("fixture MIR block must exist");
 
         assert_eq!(bridge.operations().len(), 1);
 
@@ -659,7 +683,10 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .expect("fixture block must fit its identity space");
 
-        let ty = fixture.values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let ty = fixture
+            .values
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
 
         let shared_storage = lowerer
             .builder
@@ -753,28 +780,44 @@ mod tests {
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: first_edge,
-        } = mir.block(first).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(first)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("first abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: second_edge,
-        } = mir.block(second).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(second)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("second abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: different_edge,
-        } = mir.block(different).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(different)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("different abnormal exit must begin cancellation cleanup")
         };
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: different_occurrence_edge,
-        } = mir.block(different_occurrence).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(different_occurrence)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("different source occurrence must begin cancellation cleanup")
         };
@@ -782,7 +825,11 @@ mod tests {
         let MirTerminatorKind::Panic {
             cleanup: panic_edge,
             ..
-        } = mir.block(panicking).expect("fixture MIR block must exist").terminator().kind()
+        } = mir
+            .block(panicking)
+            .expect("fixture MIR block must exist")
+            .terminator()
+            .kind()
         else {
             panic!("panic exit must begin panic cleanup")
         };
@@ -805,7 +852,10 @@ mod tests {
                     if cases.len() == 2
                         && cases.iter().any(|case| {
                             matches!(
-                                mir.block(case.edge().target()).expect("fixture `iter` call must succeed").terminator().kind(),
+                                mir.block(case.edge().target())
+                                    .expect("fixture `iter` call must succeed")
+                                    .terminator()
+                                    .kind(),
                                 MirTerminatorKind::Return { value: Some(_), .. }
                             )
                         }) =>
@@ -1262,7 +1312,11 @@ mod tests {
             let operations = CheckedMemoryOperations::try_new(
                 fixture.unit.unit(),
                 fixture.unit.key().kind(),
-                [CheckedMemoryOperation::new(expression, kind.clone(), arguments)],
+                [CheckedMemoryOperation::new(
+                    expression,
+                    kind.clone(),
+                    arguments,
+                )],
                 false,
             )
             .unwrap_or_else(|error| panic!("checked memory operation must validate: {error:?}"));

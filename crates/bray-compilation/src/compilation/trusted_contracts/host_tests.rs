@@ -29,7 +29,9 @@ fn production_report_consumers_check_their_callback_protocol() {
         "retained_address",
     ];
 
-    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+    let symbols = compilation
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
 
     let sources = symbols
         .functions()
@@ -350,7 +352,10 @@ using core.target;
         "release_attachment_exit",
     ] {
         let key = source_function_body_key(&compilation, name);
-        let checked = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
+
+        let checked = compilation
+            .execution_properties(key)
+            .expect("fixture callable must resolve its execution properties");
 
         assert!(!checked.diagnostics().has_errors(), "{name}: {checked:#?}");
     }
@@ -992,7 +997,9 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
                 && key.source().syntax().source_id() == exit_source
         })
     {
-        let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let checked = compilation
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         assert!(!checked.diagnostics().has_errors(), "{key:?}: {checked:#?}");
     }
@@ -1033,11 +1040,15 @@ fn production_lease_destructor_checks_and_remains_total() {
         })
         .expect("actual acquisition lease destructor must exist");
 
-    let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+    let checked = compilation
+        .lowered_unit(key.clone())
+        .expect("fixture callable must lower successfully");
 
     assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
 
-    let proof = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
+    let proof = compilation
+        .execution_properties(key)
+        .expect("fixture callable must resolve its execution properties");
 
     assert!(!proof.diagnostics().has_errors(), "{proof:#?}");
 
@@ -1069,7 +1080,9 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
         })
         .expect("actual selected exit destructor must exist");
 
-    let checked = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+    let checked = compilation
+        .lowered_unit(key)
+        .expect("fixture callable must lower successfully");
 
     assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
 }
@@ -2109,7 +2122,9 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
     let mut failures = Vec::new();
     let mut sources = std::collections::HashSet::new();
 
-    let mut pending = compilation.declared_unit_keys_for_test().expect("fixture declarations must resolve their units");
+    let mut pending = compilation
+        .declared_unit_keys_for_test()
+        .expect("fixture declarations must resolve their units");
 
     while let Some(key) = pending.pop() {
         if !matches!(
@@ -2137,7 +2152,9 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         sources.insert(key.source().syntax().source_id());
 
-        let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
+        let bound = compilation
+            .bound_unit(key.clone())
+            .expect("fixture callable must bind successfully");
 
         if bound.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", bound.diagnostics()));
@@ -2150,7 +2167,9 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 
         pending.extend(bound.value().nested_units().iter().cloned());
 
-        let lowered = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key.clone())
+            .expect("fixture callable must lower successfully");
 
         if lowered.diagnostics().has_errors() {
             failures.push(format!("{key:?}: {:?}", lowered.diagnostics()));

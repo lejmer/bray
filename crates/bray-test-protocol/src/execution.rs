@@ -192,8 +192,14 @@ pub enum TestInfrastructureFailureKind {
 
 /// Native termination observed after a test host stopped.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(feature = "serialization", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serialization", serde(tag = "kind", rename_all = "snake_case"))]
+#[cfg_attr(
+    feature = "serialization",
+    derive(serde::Serialize, serde::Deserialize)
+)]
+#[cfg_attr(
+    feature = "serialization",
+    serde(tag = "kind", rename_all = "snake_case")
+)]
 pub enum TestHostTermination {
     /// The host returned a native exit code.
     ExitCode {
@@ -218,7 +224,11 @@ pub struct TestInfrastructureFailure {
 impl TestInfrastructureFailure {
     /// Creates an infrastructure failure with an optional domain-specific code.
     pub const fn new(kind: TestInfrastructureFailureKind, detail_code: Option<u64>) -> Self {
-        Self { kind, detail_code, host_termination: None }
+        Self {
+            kind,
+            detail_code,
+            host_termination: None,
+        }
     }
 
     /// Retains native termination alongside the failure that prevented a host result.

@@ -279,7 +279,10 @@ impl DependencyRequirement {
         ty: super::TypeId,
         requirements: impl IntoIterator<Item = DependencyRequirement>,
     ) -> Self {
-        Self::CleanupDependencies { ty, requirements: sorted_unique_shared_slice(requirements) }
+        Self::CleanupDependencies {
+            ty,
+            requirements: sorted_unique_shared_slice(requirements),
+        }
     }
 
     /// Creates a finite group of dependency equations.

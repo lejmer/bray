@@ -142,7 +142,9 @@ mod tests {
             );
         }
 
-        let backing = crate::backing::Backing::admit(65537, 256).expect("fixture outgoing records must admit the supplied values");
+        let backing = crate::backing::Backing::admit(65537, 256)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let address = backing.address();
 
         let incidents = crate::product::collect_finalizer_incidents(|destination, _| {
@@ -400,7 +402,10 @@ mod tests {
             ))
         ));
 
-        let crate::RunOutcome::Panicked(report) = task.take_outcome().expect("fixture `take_outcome` call must succeed") else {
+        let crate::RunOutcome::Panicked(report) = task
+            .take_outcome()
+            .expect("fixture `take_outcome` call must succeed")
+        else {
             panic!("cleanup failures must retain a panic outcome");
         };
 
@@ -492,17 +497,25 @@ mod tests {
         impl Drop for FailingRelease {
             fn drop(&mut self) {
                 record("release", 1);
-                panic_any(self.0.take().expect("fixture owner must contain the value being taken"));
+
+                panic_any(
+                    self.0
+                        .take()
+                        .expect("fixture owner must contain the value being taken"),
+                );
             }
         }
 
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(2).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(2)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let nested = RuntimePanic::new(Release(2), &mut admitted);
         let mut panic = RuntimePanic::new(FailingRelease(Some(nested)), &mut admitted);
 
         panic.push_suppressed(
             Box::new(Release(3)),
-            &mut crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values"),
+            &mut crate::outgoing::OutgoingRecords::admit(1)
+                .expect("fixture outgoing records must admit the supplied values"),
         );
 
         drop(panic);
@@ -514,7 +527,9 @@ mod tests {
     }
 
     fn transfer(sink: &CleanupReportSink, payload: Box<dyn std::any::Any + Send>) {
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let panic = RuntimePanic::from_payload(payload, &mut admitted);
 
         sink.transfer(
@@ -533,7 +548,9 @@ mod tests {
         outcome: &mut bray_runtime_abi::NativeRunOutcome,
     ) -> NativeRuntimeStatus {
         REENTRANT.with_borrow(|sink| {
-            let sink = sink.as_ref().expect("fixture optional value must be present");
+            let sink = sink
+                .as_ref()
+                .expect("fixture optional value must be present");
 
             transfer(sink, Box::new(Release(3)));
             sink.drain(|_| panic!("nested reporting must defer to the active drain"));
@@ -548,7 +565,9 @@ mod tests {
         release: &mut bray_runtime_abi::NativeRunOutcome,
     ) {
         REENTRANT.with_borrow(|sink| {
-            let sink = sink.as_ref().expect("fixture optional value must be present");
+            let sink = sink
+                .as_ref()
+                .expect("fixture optional value must be present");
 
             transfer(sink, Box::new(Release(4)));
             sink.drain(|_| panic!("nested release must defer to the active drain"));
@@ -665,12 +684,16 @@ mod tests {
 
     #[test]
     fn runtime_primary_and_nested_children_release_in_encounter_order() {
-        let mut child_admitted = crate::outgoing::OutgoingRecords::admit(2).expect("fixture outgoing records must admit the supplied values");
+        let mut child_admitted = crate::outgoing::OutgoingRecords::admit(2)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let mut child = RuntimePanic::new(Release(2), &mut child_admitted);
 
         child.push_suppressed(Box::new(Release(3)), &mut child_admitted);
 
-        let mut primary_admitted = crate::outgoing::OutgoingRecords::admit(3).expect("fixture outgoing records must admit the supplied values");
+        let mut primary_admitted = crate::outgoing::OutgoingRecords::admit(3)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let mut primary = RuntimePanic::new(Release(1), &mut primary_admitted);
 
         primary.push_suppressed(Box::new(child), &mut primary_admitted);
@@ -695,11 +718,15 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(128 * 1024)
             .spawn(|| {
-                let mut initial = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+                let mut initial = crate::outgoing::OutgoingRecords::admit(1)
+                    .expect("fixture outgoing records must admit the supplied values");
+
                 let mut panic = RuntimePanic::new(Release(0), &mut initial);
 
                 for index in 1..20_000 {
-                    let mut admitted = crate::outgoing::OutgoingRecords::admit(2).expect("fixture outgoing records must admit the supplied values");
+                    let mut admitted = crate::outgoing::OutgoingRecords::admit(2)
+                        .expect("fixture outgoing records must admit the supplied values");
+
                     let mut parent = RuntimePanic::new(Release(index), &mut admitted);
 
                     parent.push_suppressed(Box::new(panic), &mut admitted);
@@ -743,11 +770,14 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(128 * 1024)
             .spawn(|| {
-                let mut initial = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+                let mut initial = crate::outgoing::OutgoingRecords::admit(1)
+                    .expect("fixture outgoing records must admit the supplied values");
+
                 let mut report = RuntimePanic::new(Release(0), &mut initial);
 
                 for _ in 0..2_000 {
-                    let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+                    let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
+                        .expect("fixture outgoing records must admit the supplied values");
 
                     report = RuntimePanic::new(Next(Some(report)), &mut admitted);
                 }
@@ -768,7 +798,10 @@ mod tests {
 
         impl Drop for Payload {
             fn drop(&mut self) {
-                self.0.lock().expect("fixture mutex must not be poisoned").push(std::ptr::from_ref(self).addr());
+                self.0
+                    .lock()
+                    .expect("fixture mutex must not be poisoned")
+                    .push(std::ptr::from_ref(self).addr());
             }
         }
 
@@ -784,6 +817,11 @@ mod tests {
             assert!(incident.dispose().is_success());
         });
 
-        assert_eq!(*released.lock().expect("fixture release counter mutex must not be poisoned"), [address]);
+        assert_eq!(
+            *released
+                .lock()
+                .expect("fixture release counter mutex must not be poisoned"),
+            [address]
+        );
     }
 }

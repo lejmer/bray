@@ -1553,10 +1553,12 @@ mod tests {
         let workspace = ProjectWorkspace::basic();
         let executor = RecordingExecutor::default();
         let root = workspace.path().join("build");
-        let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu").expect("fixture target identity must be valid");
 
-        let cache =
-            bray_emitter::ManagedCache::thin_lto(&root, &target, "test-llvm", &|| false).expect("fixture `bray_emitter::ManagedCache::thin_lto` call must succeed");
+        let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            .expect("fixture target identity must be valid");
+
+        let cache = bray_emitter::ManagedCache::thin_lto(&root, &target, "test-llvm", &|| false)
+            .expect("fixture `bray_emitter::ManagedCache::thin_lto` call must succeed");
 
         let file = cache.directory().join("content");
 
@@ -1593,7 +1595,8 @@ mod tests {
 
             assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
 
-            let report: serde_json::Value = serde_json::from_str(result.stdout()).expect("fixture data must parse");
+            let report: serde_json::Value =
+                serde_json::from_str(result.stdout()).expect("fixture data must parse");
 
             assert_eq!(report["kind"], "storage_report");
             assert_eq!(report["clean"], command == "clean");
@@ -1996,8 +1999,10 @@ mod tests {
             let workspace = ProjectWorkspace::basic();
             let manifest_path = workspace.path().join("app/bray-package.json");
 
-            let mut manifest: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&manifest_path).expect("fixture contents must be readable")).expect("fixture data must deserialize");
+            let mut manifest: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&manifest_path).expect("fixture contents must be readable"),
+            )
+            .expect("fixture data must deserialize");
 
             manifest["products"][0]["kind"] = kind.into();
             manifest["products"][0]["outputs"] = serde_json::json!([artifact.replace('-', "_")]);

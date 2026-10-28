@@ -477,8 +477,17 @@ fn checked_writes_preserve_unrelated_raw_initialization() {
 
         let compilation = compilation_with_target_operations(&source, true, true);
         let key = crate::test_support::source_function_body_key(&compilation, "main");
-        let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
-        let status = flow.value().memory_operations().last().expect("fixture sequence must contain its last item").status();
+
+        let flow = compilation
+            .storage_flow(key)
+            .expect("fixture callable must complete storage-flow analysis");
+
+        let status = flow
+            .value()
+            .memory_operations()
+            .last()
+            .expect("fixture sequence must contain its last item")
+            .status();
 
         assert_eq!(
             status,
@@ -828,7 +837,11 @@ fn cleanup_without_external_mutation_preserves_raw_initialization() {
     assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
 
     assert_eq!(
-        flow.value().memory_operations().last().expect("fixture sequence must contain its last item").status(),
+        flow.value()
+            .memory_operations()
+            .last()
+            .expect("fixture sequence must contain its last item")
+            .status(),
         bray_bound_tree::MemoryOperationStatus::Valid
     );
 }

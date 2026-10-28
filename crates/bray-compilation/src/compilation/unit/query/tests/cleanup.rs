@@ -54,7 +54,10 @@ fn partial_cleanup_ignores_repaired_moves_at_retained_inner_exits() {
         );
 
         let key = source_function_body_key(&compilation, "probe");
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(
             lowered
@@ -193,12 +196,23 @@ func reinitialized(pos flag: bool, pos mut guard: Guard) -> i32
 
     for name in ["conditional", "reinitialized"] {
         let key = source_function_body_key(&compilation, name);
-        let analysis = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+
+        let analysis = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(lowered.value().is_some(), "{name}: {lowered:?}");
 
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         if name == "conditional" {
             assert!(mir.blocks().iter().any(|block| {
@@ -258,7 +272,10 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
 
     for name in ["projected", "tupled"] {
         let key = source_function_body_key(&compilation, name);
-        let analysis = compilation.async_analysis(key.clone()).expect("fixture callable must complete async analysis");
+
+        let analysis = compilation
+            .async_analysis(key.clone())
+            .expect("fixture callable must complete async analysis");
 
         let partitions = analysis
             .value()
@@ -270,11 +287,18 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
         assert_eq!(partitions.len(), 1, "{name}: {analysis:?}");
         assert_eq!(partitions[0].len(), 2, "{name}: {analysis:?}");
 
-        let lowered = compilation.lowered_unit(key).expect("fixture callable must lower successfully");
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("fixture callable must lower successfully");
 
         assert!(lowered.value().is_some(), "{name}: {lowered:?}");
 
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
                 bray_ir::MirOperationKind::Cleanup { place, .. } if !place.projections().is_empty()
@@ -299,9 +323,18 @@ fn failing_calls_transfer_owned_inputs_without_initializing_results() {
     );
 
     let key = source_function_body_key(&compilation, "caller");
-    let bound = compilation.bound_unit(key.clone()).expect("fixture callable must bind successfully");
-    let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+    let bound = compilation
+        .bound_unit(key.clone())
+        .expect("fixture callable must bind successfully");
+
+    let storage = compilation
+        .storage_plan(key.clone())
+        .expect("fixture callable must have a storage plan");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("fixture callable must complete storage-flow analysis");
 
     let call = bound
         .value()
@@ -319,7 +352,12 @@ fn failing_calls_transfer_owned_inputs_without_initializing_results() {
         .find(|plan| {
             storage.value().effective_purpose(**plan) == bray_bound_tree::StorageAccessPurpose::Move
         })
-        .map(|plan| storage.value().root_identity(plan.access()).expect("fixture `root_identity` call must succeed"));
+        .map(|plan| {
+            storage
+                .value()
+                .root_identity(plan.access())
+                .expect("fixture `root_identity` call must succeed")
+        });
 
     assert!(argument.is_some(), "{storage:?}");
 

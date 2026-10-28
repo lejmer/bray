@@ -67,8 +67,11 @@ pub(in super::super) fn run_native_caller(
 
     std::fs::write(&source, caller).expect("fixture contents must be written");
 
-    let compiler = std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.expect("native fixture requires the configured LLVM toolchain prefix"))
-        .join("bin/clang.exe");
+    let compiler = std::path::Path::new(
+        bray_codegen_llvm::COMPILED_LLVM_PREFIX
+            .expect("native fixture requires the configured LLVM toolchain prefix"),
+    )
+    .join("bin/clang.exe");
 
     let linked = std::process::Command::new(compiler)
         .args(["--target=x86_64-pc-windows-msvc", "-fuse-ld=lld"])

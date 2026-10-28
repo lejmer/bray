@@ -182,28 +182,29 @@ impl Compilation {
 
                 if let (Some(expected_context), Some(provided_context)) =
                     (expected_context, arm.context)
-                    && provided_context != expected_context {
-                        diagnostics.add(problem_diagnostic(
-                            *anchor,
-                            DiagnosticKind::CheckingInvalidCallableOverloadArm,
-                            DiagnosticCallableOverloadProblem::ContextMismatch {
-                                arm: arm.diagnostic,
-                                required: diagnostic_callable_context(
-                                    symbols,
-                                    imported,
-                                    expected_context,
-                                )?,
-                                provided: diagnostic_callable_context(
-                                    symbols,
-                                    imported,
-                                    provided_context,
-                                )?,
-                            },
-                            &[],
-                        ));
+                    && provided_context != expected_context
+                {
+                    diagnostics.add(problem_diagnostic(
+                        *anchor,
+                        DiagnosticKind::CheckingInvalidCallableOverloadArm,
+                        DiagnosticCallableOverloadProblem::ContextMismatch {
+                            arm: arm.diagnostic,
+                            required: diagnostic_callable_context(
+                                symbols,
+                                imported,
+                                expected_context,
+                            )?,
+                            provided: diagnostic_callable_context(
+                                symbols,
+                                imported,
+                                provided_context,
+                            )?,
+                        },
+                        &[],
+                    ));
 
-                        continue;
-                    }
+                    continue;
+                }
 
                 arms.push(arm);
             }

@@ -434,7 +434,9 @@ mod tests {
         "#,
         );
 
-        let index = compilation.declared_units().expect("fixture declarations must bind their units");
+        let index = compilation
+            .declared_units()
+            .expect("fixture declarations must bind their units");
 
         let constraints = index
             .keys
@@ -477,17 +479,26 @@ mod tests {
         "#,
         );
 
-        let index = compilation.declared_units().expect("fixture declarations must bind their units");
-        let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+        let index = compilation
+            .declared_units()
+            .expect("fixture declarations must bind their units");
+
+        let symbols = compilation
+            .symbol_graph()
+            .expect("fixture compilation must build its symbol graph");
 
         assert_eq!(index.primary.len(), 5);
         assert_eq!(index.keys.len(), 7);
 
         for key in index.primary.values() {
-            let owner = symbols.symbol_for_key(key.declared_owner()).expect("fixture `symbol_for_key` call must succeed");
+            let owner = symbols
+                .symbol_for_key(key.declared_owner())
+                .expect("fixture `symbol_for_key` call must succeed");
 
             assert_eq!(
-                compilation.declared_unit_key(owner, key.kind()).expect("fixture `declared_unit_key` call must succeed"),
+                compilation
+                    .declared_unit_key(owner, key.kind())
+                    .expect("fixture `declared_unit_key` call must succeed"),
                 Some(key.clone()),
             );
         }
@@ -498,7 +509,9 @@ mod tests {
             .find(|key| key.kind() == BoundUnitKind::CallableBody)
             .expect("fixture lookup must find its expected value");
 
-        let callable_owner = symbols.symbol_for_key(callable.declared_owner()).expect("fixture `symbol_for_key` call must succeed");
+        let callable_owner = symbols
+            .symbol_for_key(callable.declared_owner())
+            .expect("fixture `symbol_for_key` call must succeed");
 
         assert_eq!(
             compilation
@@ -514,11 +527,18 @@ mod tests {
             None
         );
 
-        assert!(std::ptr::eq(index, compilation.declared_units().expect("fixture declarations must bind their units")));
+        assert!(std::ptr::eq(
+            index,
+            compilation
+                .declared_units()
+                .expect("fixture declarations must bind their units")
+        ));
 
         assert!(std::ptr::eq(
             index.keys.as_ref(),
-            compilation.declared_unit_keys().expect("fixture `declared_unit_keys` call must succeed"),
+            compilation
+                .declared_unit_keys()
+                .expect("fixture `declared_unit_keys` call must succeed"),
         ));
     }
 
@@ -542,23 +562,38 @@ mod tests {
                     scope.spawn(move || {
                         barrier.wait();
 
-                        compilation.declared_units().expect("fixture declarations must bind their units")
+                        compilation
+                            .declared_units()
+                            .expect("fixture declarations must bind their units")
                     })
                 })
                 .collect::<Vec<_>>();
 
             let inventories = requests
                 .into_iter()
-                .map(|request| request.join().expect("fixture worker must join successfully"))
+                .map(|request| {
+                    request
+                        .join()
+                        .expect("fixture worker must join successfully")
+                })
                 .collect::<Vec<_>>();
 
-            assert!(
-                inventories
-                    .iter()
-                    .all(|index| std::ptr::eq(*index, compilation.declared_units().expect("fixture declarations must bind their units"),))
-            );
+            assert!(inventories.iter().all(|index| {
+                std::ptr::eq(
+                    *index,
+                    compilation
+                        .declared_units()
+                        .expect("fixture declarations must bind their units"),
+                )
+            }));
 
-            assert_eq!(compilation.declared_unit_keys().expect("fixture `declared_unit_keys` call must succeed").len(), 2);
+            assert_eq!(
+                compilation
+                    .declared_unit_keys()
+                    .expect("fixture `declared_unit_keys` call must succeed")
+                    .len(),
+                2
+            );
         });
     }
 
@@ -569,13 +604,21 @@ mod tests {
         static STORED: i32 = 1;";
 
         let previous = compilation(SOURCE);
-        let index = previous.declared_units().expect("fixture declarations must bind their units");
+
+        let index = previous
+            .declared_units()
+            .expect("fixture declarations must bind their units");
 
         let unchanged = previous
             .updated_sources(vec![source_input(SOURCE, 0)])
             .expect("fixture `updated_sources` call must succeed");
 
-        assert!(std::ptr::eq(index, unchanged.declared_units().expect("fixture declarations must bind their units")));
+        assert!(std::ptr::eq(
+            index,
+            unchanged
+                .declared_units()
+                .expect("fixture declarations must bind their units")
+        ));
 
         let changed = previous
             .updated_sources(vec![source_input(
@@ -588,9 +631,29 @@ mod tests {
             .expect("fixture `updated_sources` call must succeed");
 
         assert!(changed.state.declared_units.get().is_none());
-        assert_eq!(changed.declared_unit_keys().expect("fixture `declared_unit_keys` call must succeed").len(), 2);
-        assert_eq!(previous.declared_unit_keys().expect("fixture `declared_unit_keys` call must succeed").len(), 1);
-        assert!(!std::ptr::eq(index, changed.declared_units().expect("fixture declarations must bind their units")));
+
+        assert_eq!(
+            changed
+                .declared_unit_keys()
+                .expect("fixture `declared_unit_keys` call must succeed")
+                .len(),
+            2
+        );
+
+        assert_eq!(
+            previous
+                .declared_unit_keys()
+                .expect("fixture `declared_unit_keys` call must succeed")
+                .len(),
+            1
+        );
+
+        assert!(!std::ptr::eq(
+            index,
+            changed
+                .declared_units()
+                .expect("fixture declarations must bind their units")
+        ));
     }
 
     #[test]
@@ -601,7 +664,11 @@ mod tests {
         static STORED: i32 = 1;",
         );
 
-        let key = compilation.declared_unit_keys().expect("fixture `declared_unit_keys` call must succeed").first().expect("fixture sequence must contain its first item");
+        let key = compilation
+            .declared_unit_keys()
+            .expect("fixture `declared_unit_keys` call must succeed")
+            .first()
+            .expect("fixture sequence must contain its first item");
 
         assert_eq!(key.kind(), BoundUnitKind::ConstantTemplate);
 

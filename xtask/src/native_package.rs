@@ -355,7 +355,11 @@ mod tests {
         assert_eq!(optimized.bitcode_toolchain(), Some("llvm-test-revision"));
 
         assert_eq!(
-            artifact.native_representation(None).expect("fixture `native_representation` call must succeed").expect("successful fixture query must contain its expected result").0,
+            artifact
+                .native_representation(None)
+                .expect("fixture `native_representation` call must succeed")
+                .expect("successful fixture query must contain its expected result")
+                .0,
             NativeUnitKind::Object
         );
 

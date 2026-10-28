@@ -460,9 +460,7 @@ where
                 DependencyRequirementKind::BorrowCapabilityActive(_)
             )
         {
-            return Ok(BoundDependencySubject::StorageAccess(
-                staged,
-            ));
+            return Ok(BoundDependencySubject::StorageAccess(staged));
         }
 
         let frame_access = self.deferred_frame_access(root);

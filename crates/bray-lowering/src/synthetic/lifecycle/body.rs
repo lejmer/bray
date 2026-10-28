@@ -447,8 +447,15 @@ mod tests {
 
     #[test]
     fn array_cleanup_mir_size_is_independent_of_the_extent() {
-        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
-        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let context = TupleContext(
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid"),
+        );
+
+        let leaf = context
+            .0
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
         let mut sizes = Vec::new();
 
         for length in [1, 4, 257, u64::from(u32::MAX) + 1] {
@@ -514,8 +521,14 @@ mod tests {
 
     #[test]
     fn tuple_destruction_lowers_reverse_order_without_compilation_queries() {
-        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
-        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
+        let context = TupleContext(
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid"),
+        );
+
+        let leaf = context
+            .0
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
 
         let pair = context
             .0
@@ -551,8 +564,11 @@ mod tests {
                     _ => return None,
                 };
 
-                let MirProjectionKind::TupleField(index) =
-                    place.projections().last().expect("fixture sequence must contain its last item").kind()
+                let MirProjectionKind::TupleField(index) = place
+                    .projections()
+                    .last()
+                    .expect("fixture sequence must contain its last item")
+                    .kind()
                 else {
                     panic!("tuple teardown must retain the element projection");
                 };
@@ -566,9 +582,19 @@ mod tests {
 
     #[test]
     fn nullable_cleanup_lowers_both_phases_with_generated_provenance() {
-        let context = TupleContext(SemanticValueStore::try_new().expect("fixture semantic value store must be valid"));
-        let leaf = context.0.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
-        let nullable = context.0.intern_type(TypeData::Nullable(leaf)).expect("fixture type must be interned");
+        let context = TupleContext(
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid"),
+        );
+
+        let leaf = context
+            .0
+            .intern_type(TypeData::tuple([]))
+            .expect("fixture type must be interned");
+
+        let nullable = context
+            .0
+            .intern_type(TypeData::Nullable(leaf))
+            .expect("fixture type must be interned");
 
         for phase in [
             MirCleanupPhase::TaskCancellation,

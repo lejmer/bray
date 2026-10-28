@@ -850,7 +850,11 @@ fn recursive_result_dependencies_share_one_component_publication() {
 
     let key = crate::fact::CompilationFactKey::ResultDependencyComponent(owner.1.clone());
     let cancellation = &application.state.cancellation;
-    let context = application.binding_context(cancellation).expect("fixture compilation must provide a binding context");
+
+    let context = application
+        .binding_context(cancellation)
+        .expect("fixture compilation must provide a binding context");
+
     let start = std::sync::Barrier::new(members.len());
 
     std::thread::scope(|scope| {
@@ -874,7 +878,9 @@ fn recursive_result_dependencies_share_one_component_publication() {
             .collect::<Vec<_>>();
 
         for handle in handles {
-            let result = handle.join().expect("fixture worker must join successfully");
+            let result = handle
+                .join()
+                .expect("fixture worker must join successfully");
 
             assert!(!result.diagnostics().has_errors(), "{result:?}");
         }
@@ -887,8 +893,8 @@ fn recursive_result_dependencies_share_one_component_publication() {
             bray_symbols::CallableResultDependenciesQuery,
         >::new(*callable);
 
-        let result =
-            bray_binder::SymbolQueryProvider::resolve_symbol_query(&context, request).expect("fixture symbol query must resolve");
+        let result = bray_binder::SymbolQueryProvider::resolve_symbol_query(&context, request)
+            .expect("fixture symbol query must resolve");
 
         assert!(!result.diagnostics().has_errors(), "{result:?}");
 
@@ -998,7 +1004,10 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
     );
 
     let cancellation = &application.state.cancellation;
-    let context = application.binding_context(cancellation).expect("fixture compilation must provide a binding context");
+
+    let context = application
+        .binding_context(cancellation)
+        .expect("fixture compilation must provide a binding context");
 
     let callable: bray_symbols::CallableSymbolId =
         crate::test_support::source_function(&application, "repeat").into();
@@ -1020,7 +1029,12 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
         .expect("successful fixture query must contain its expected result");
 
     let members = [(callable.into_any(), body), (provider.symbol(), default)];
-    let owner = members.iter().min_by_key(|(symbol, _)| *symbol).expect("fixture `min_by_key` call must succeed");
+
+    let owner = members
+        .iter()
+        .min_by_key(|(symbol, _)| *symbol)
+        .expect("fixture `min_by_key` call must succeed");
+
     let start = std::sync::Barrier::new(2);
 
     std::thread::scope(|scope| {
@@ -1041,7 +1055,9 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
             .collect::<Vec<_>>();
 
         for handle in handles {
-            let body = handle.join().expect("fixture worker must join successfully");
+            let body = handle
+                .join()
+                .expect("fixture worker must join successfully");
 
             assert!(!body.result().diagnostics().has_errors(), "{body:?}");
         }
@@ -1061,8 +1077,10 @@ fn recursive_runtime_default_and_callable_share_checked_component() {
 
     assert_eq!(published.result().value().len(), 2);
 
-    let summary =
-        crate::compilation::binder::default_result_dependencies(&context, provider).expect("fixture `crate::compilation::binder::default_result_dependencies` call must succeed");
+    let summary = crate::compilation::binder::default_result_dependencies(&context, provider)
+        .expect(
+            "fixture `crate::compilation::binder::default_result_dependencies` call must succeed",
+        );
 
     assert_eq!(
         summary,

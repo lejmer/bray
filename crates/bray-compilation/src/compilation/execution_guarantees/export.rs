@@ -23,8 +23,17 @@ type SourceProofs = BTreeMap<
     BTreeSet<(bray_checker::ExecutionDependencyTarget, ExecutionObligation)>,
 >;
 
-type CollectedExecutionProofs = (SourceProofs, BTreeMap<bray_declarations::SyntaxAnchor, CallableExecutionOrigin>, BTreeMap<bray_declarations::SyntaxAnchor, AnySymbolId>);
-type PortableExecutionContract = (Vec<CallableExecutionDomain<bray_symbols::ConstantTermId>>, BTreeMap<ExecutionObligation, PortableObligation>, Vec<(PortableObligation, PortableObligation)>, DiagnosticBag);
+type CollectedExecutionProofs = (
+    SourceProofs,
+    BTreeMap<bray_declarations::SyntaxAnchor, CallableExecutionOrigin>,
+    BTreeMap<bray_declarations::SyntaxAnchor, AnySymbolId>,
+);
+type PortableExecutionContract = (
+    Vec<CallableExecutionDomain<bray_symbols::ConstantTermId>>,
+    BTreeMap<ExecutionObligation, PortableObligation>,
+    Vec<(PortableObligation, PortableObligation)>,
+    DiagnosticBag,
+);
 
 impl Compilation {
     pub(in crate::compilation) fn export_execution_contracts(

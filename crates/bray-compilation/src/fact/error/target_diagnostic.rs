@@ -157,19 +157,9 @@ fn push_target_properties_with_names(
 
     let symbols = properties.native_symbols();
 
-    push_boolean_property(
-        context,
-        names,
-        "native_symbol.ordinals",
-        symbols.ordinals(),
-    );
+    push_boolean_property(context, names, "native_symbol.ordinals", symbols.ordinals());
 
-    push_boolean_property(
-        context,
-        names,
-        "native_symbol.versions",
-        symbols.versions(),
-    );
+    push_boolean_property(context, names, "native_symbol.versions", symbols.versions());
 
     push_boolean_property(
         context,

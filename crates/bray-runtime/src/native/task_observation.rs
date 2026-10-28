@@ -555,10 +555,12 @@ mod tests {
             Some(failing_lifecycle),
         );
 
-        let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("failing cleanup must propagate its retained panic");
+        let failure = catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task()))
+            .expect_err("failing cleanup must propagate its retained panic");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
+        let failure = failure
+            .downcast::<crate::RuntimePanic>()
+            .expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 1);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -582,8 +584,12 @@ mod tests {
     }
 
     extern "C" fn release_written(context: usize, _: usize, _: &mut NativeRunOutcome) {
-        CLEANUP_EVENTS
-            .with_borrow_mut(|events| events.push(("release", u8::try_from(context).expect("fixture value must fit the requested representation"))));
+        CLEANUP_EVENTS.with_borrow_mut(|events| {
+            events.push((
+                "release",
+                u8::try_from(context).expect("fixture value must fit the requested representation"),
+            ))
+        });
     }
 
     extern "C-unwind" fn write_then_unwind(_: *mut u8, outcome: &mut NativeRunOutcome) {
@@ -611,10 +617,12 @@ mod tests {
         let observation = observation(&completed, Some(write_then_unwind), Some(failing_lifecycle));
         let _denied = crate::outgoing::tests::reject_admission();
 
-        let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("cleanup unwind must preserve its written report");
+        let failure = catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task()))
+            .expect_err("cleanup unwind must preserve its written report");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
+        let failure = failure
+            .downcast::<crate::RuntimePanic>()
+            .expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 2);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -641,10 +649,12 @@ mod tests {
         let completed = 42_u64;
         let observation = observation(&completed, Some(cancel_cleanup), Some(failing_lifecycle));
 
-        let failure =
-            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).expect_err("failing lifecycle must propagate after cancelled cleanup");
+        let failure = catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task()))
+            .expect_err("failing lifecycle must propagate after cancelled cleanup");
 
-        let failure = failure.downcast::<crate::RuntimePanic>().expect("fixture `downcast` call must succeed");
+        let failure = failure
+            .downcast::<crate::RuntimePanic>()
+            .expect("fixture `downcast` call must succeed");
 
         assert_eq!(failure.suppressed_count(), 0);
         assert!(observation.retired.load(Ordering::Acquire));
@@ -661,7 +671,10 @@ mod tests {
         lifecycle: Option<super::NativeValueCleanupCallback>,
     ) -> TaskObservation {
         let layout = result_layout();
-        let backing = crate::backing::Backing::admit(layout.size(), layout.alignment()).expect("fixture outgoing records must admit the supplied values");
+
+        let backing = crate::backing::Backing::admit(layout.size(), layout.alignment())
+            .expect("fixture outgoing records must admit the supplied values");
+
         let result = backing.address();
 
         transfer_outcome(
@@ -699,9 +712,11 @@ mod tests {
             },
             result,
             outgoing: Mutex::new(
-                crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS).expect("fixture outgoing records must admit the supplied values"),
+                crate::outgoing::OutgoingRecords::admit(super::OUTGOING_RECORDS)
+                    .expect("fixture outgoing records must admit the supplied values"),
             ),
-            task: bray_runtime_abi::NativeTaskHandle::new(1).expect("fixture native task handle must be valid"),
+            task: bray_runtime_abi::NativeTaskHandle::new(1)
+                .expect("fixture native task handle must be valid"),
             layout,
             cancellation,
             lifecycle,

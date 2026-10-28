@@ -34,11 +34,14 @@ mod tests {
             MirCapacityError::IdentityCapacityExceeded,
         ));
 
-        let failure = codegen_preparation_failure_kind(&error).expect("fixture `codegen_preparation_failure_kind` call must succeed");
+        let failure = codegen_preparation_failure_kind(&error)
+            .expect("fixture `codegen_preparation_failure_kind` call must succeed");
 
-        let product =
-            ProductIdentity::try_new(PackageIdentity::try_new("example").expect("fixture package identity must be valid"), "application")
-                .expect("fixture product identity must be valid");
+        let product = ProductIdentity::try_new(
+            PackageIdentity::try_new("example").expect("fixture package identity must be valid"),
+            "application",
+        )
+        .expect("fixture product identity must be valid");
 
         let diagnostic =
             native_product_preparation_diagnostic(failure, &product, "x86_64-pc-windows-msvc");

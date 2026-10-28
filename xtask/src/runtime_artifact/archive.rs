@@ -203,7 +203,9 @@ mod tests {
                 if error.unexpected == [symbol]));
         }
 
-        let misplaced = support_exports(RuntimeArchiveKind::Host).next().expect("fixture iterator must provide its expected item");
+        let misplaced = support_exports(RuntimeArchiveKind::Host)
+            .next()
+            .expect("fixture iterator must provide its expected item");
 
         let mut callback = exports(RuntimeArchiveKind::Callback);
 

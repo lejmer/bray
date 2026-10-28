@@ -213,16 +213,17 @@ pub(super) fn decode_directory_entry(
         })?;
 
     if encoding == crate::InterfaceSectionEncoding::Raw
-        && encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX) {
-            return Err(InterfaceValidationError::Malformed {
-                context,
-                cause: InterfaceMalformedCause::LengthMismatch {
-                    field: InterfaceValidationField::DecodedLength,
-                    expected: decoded_length,
-                    actual: encoded_length as u64,
-                },
-            });
-        }
+        && encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX)
+    {
+        return Err(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::LengthMismatch {
+                field: InterfaceValidationField::DecodedLength,
+                expected: decoded_length,
+                actual: encoded_length as u64,
+            },
+        });
+    }
 
     let entry = ImplementationDirectoryEntry {
         index,
@@ -420,10 +421,11 @@ fn validate_payload_address(
             }
         }
         Some(ImplementationPayloadKind::NativeBinding)
-            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() => {
-                return Err(crate::implementation::invalid_value(
-                    InterfaceValidationField::Value,
-                ));
+            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() =>
+        {
+            return Err(crate::implementation::invalid_value(
+                InterfaceValidationField::Value,
+            ));
         }
         Some(ImplementationPayloadKind::NativeBinding) | None => {}
     }

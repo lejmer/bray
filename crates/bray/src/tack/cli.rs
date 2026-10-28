@@ -867,7 +867,8 @@ mod tests {
 
     #[test]
     fn unexpected_argument_error_names_the_argument() {
-        let error = TackInvocation::try_from_arguments(["bray", "--release", "test"]).expect_err("unsupported release argument must be rejected");
+        let error = TackInvocation::try_from_arguments(["bray", "--release", "test"])
+            .expect_err("unsupported release argument must be rejected");
 
         let (_, _, stderr) = error.into_output();
 

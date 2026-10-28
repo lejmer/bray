@@ -223,8 +223,7 @@ impl Lowerer<'_> {
             None => self.unit_operand(result_type),
         };
 
-        if check_outcome
-        {
+        if check_outcome {
             let (completed, value) = self.finish_typed_call_panic_check(
                 id,
                 current,

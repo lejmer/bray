@@ -19,10 +19,10 @@ use bray_test_protocol::{
 };
 use bray_tooling::OutputFormat;
 
-use super::host::{HOST_POLL_INTERVAL, command_cancellation_result, run_host};
 use super::super::model::{BuiltTestHost, HostLocation, LoadedTestHost};
 use super::super::progress::TestProgress;
 use super::super::report::{product_reports, render_batch_report, render_report};
+use super::host::{HOST_POLL_INTERVAL, command_cancellation_result, run_host};
 use crate::tack::error::{operation_diagnostics, selection_diagnostics};
 use crate::tack::model::TackTestOptions;
 

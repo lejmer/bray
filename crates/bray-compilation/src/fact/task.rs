@@ -474,7 +474,9 @@ mod tests {
                 CompilationFactKey::DeclarationTable,
             );
 
-            context.finish().expect("fixture operation must finish successfully");
+            context
+                .finish()
+                .expect("fixture operation must finish successfully");
 
             let panic =
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match operation {
@@ -528,8 +530,13 @@ mod tests {
         let first = crate::fact::fact_fingerprint(&fact, &1_u8);
         let changed = crate::fact::fact_fingerprint(&fact, &2_u8);
 
-        context.record_input(&input, first).expect("fixture `record_input` call must succeed");
-        context.record_input(&input, first).expect("fixture `record_input` call must succeed");
+        context
+            .record_input(&input, first)
+            .expect("fixture `record_input` call must succeed");
+
+        context
+            .record_input(&input, first)
+            .expect("fixture `record_input` call must succeed");
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

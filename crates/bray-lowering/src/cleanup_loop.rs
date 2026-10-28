@@ -172,11 +172,18 @@ mod tests {
             for pending in [false, true] {
                 let bound = bray_testing::test_bound_unit(1801);
                 let source = MirSourceAnchor::from(bound.key().source());
-                let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-                let ty = values.intern_type(TypeData::tuple([])).expect("fixture type must be interned");
 
-                let constant =
-                    |value| crate::operand::integer_constant(&values, ty, value).expect("fixture `crate::operand::integer_constant` call must succeed");
+                let values = SemanticValueStore::try_new()
+                    .expect("fixture semantic value store must be valid");
+
+                let ty = values
+                    .intern_type(TypeData::tuple([]))
+                    .expect("fixture type must be interned");
+
+                let constant = |value| {
+                    crate::operand::integer_constant(&values, ty, value)
+                        .expect("fixture `crate::operand::integer_constant` call must succeed")
+                };
 
                 let mut builder = MirUnitBuilder::for_bound(
                     bound.identity(),
@@ -243,7 +250,9 @@ mod tests {
             MirOperand::Value(value) => temporaries[value],
             MirOperand::Copy(place) => stored[&place.storage()],
             MirOperand::Constant { value, .. } => match values.constant_value_data(*value).kind() {
-                ConstantValueKind::Integer(value) => value.to_u64().expect("fixture `to_u64` call must succeed"),
+                ConstantValueKind::Integer(value) => {
+                    value.to_u64().expect("fixture `to_u64` call must succeed")
+                }
                 other => panic!("unexpected loop constant: {other:?}"),
             },
             other => panic!("unexpected loop operand: {other:?}"),
@@ -252,11 +261,10 @@ mod tests {
         loop {
             let current = unit.block(block).expect("fixture MIR block must exist");
 
-            for operation in current
-                .operations()
-                .iter()
-                .map(|id| unit.operation(*id).expect("fixture MIR operation must exist"))
-            {
+            for operation in current.operations().iter().map(|id| {
+                unit.operation(*id)
+                    .expect("fixture MIR operation must exist")
+            }) {
                 match operation.kind() {
                     MirOperationKind::Store {
                         destination, value, ..
@@ -275,11 +283,18 @@ mod tests {
 
                         let value = match operator {
                             MirBinaryOperator::GreaterThan => u64::from(left > right),
-                            MirBinaryOperator::Subtract => left.checked_sub(right).expect("fixture `checked_sub` call must succeed"),
+                            MirBinaryOperator::Subtract => left
+                                .checked_sub(right)
+                                .expect("fixture `checked_sub` call must succeed"),
                             other => panic!("unexpected loop operator: {other:?}"),
                         };
 
-                        temporaries.insert(operation.result().expect("fixture `result` call must succeed"), value);
+                        temporaries.insert(
+                            operation
+                                .result()
+                                .expect("fixture `result` call must succeed"),
+                            value,
+                        );
                     }
                     other => panic!("unexpected loop operation: {other:?}"),
                 }

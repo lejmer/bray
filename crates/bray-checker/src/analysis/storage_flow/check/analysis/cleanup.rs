@@ -79,16 +79,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 };
 
                 let inactive_captures = match &mutation {
-                    CleanupMutation::Opaque { ty, .. } => task_path.and_then(|path|
-                        domain.inactive_future_captures(execution, *ty, path)),
+                    CleanupMutation::Opaque { ty, .. } => task_path
+                        .and_then(|path| domain.inactive_future_captures(execution, *ty, path)),
                     _ => None,
                 };
 
                 let inactive_broadcast = inactive_captures.is_some()
                     && matches!(identity, StorageMutation::Cancellation { .. })
-                    && task_path.is_some_and(|path| memory
-                        .unexposed_storage(std::slice::from_ref(path), [])
-                        .next().is_some());
+                    && task_path.is_some_and(|path| {
+                        memory
+                            .unexposed_storage(std::slice::from_ref(path), [])
+                            .next()
+                            .is_some()
+                    });
 
                 let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
@@ -112,7 +115,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     self.record_cleanup_obligations(operation, &mutation, effects.as_deref());
 
                 if let Some(report) = self.inactive_cleanup_report(
-                    operation, &mutation, inactive_captures, inherited_tail,
+                    operation,
+                    &mutation,
+                    inactive_captures,
+                    inherited_tail,
                 ) {
                     report_outputs.push(report);
                 }
@@ -163,7 +169,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     && let Some(path) = task_path
                     && let Some(effects) = &effects
                 {
-                    preserve_run_descriptor(&memory, path, effects, inactive_broadcast, &mut invalidation);
+                    preserve_run_descriptor(
+                        &memory,
+                        path,
+                        effects,
+                        inactive_broadcast,
+                        &mut invalidation,
+                    );
                 }
 
                 self.preserve_borrowed_carriers(state, &memory, &mut invalidation);

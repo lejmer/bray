@@ -9,7 +9,10 @@ use crate::ExecutionCondition;
 
 use super::expression_condition;
 
-#[expect(clippy::too_many_arguments, reason = "condition normalization consumes independent path, pattern, evaluation and predicate facts")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "condition normalization consumes independent path, pattern, evaluation and predicate facts"
+)]
 pub(super) fn selected_condition(
     unit: &BoundUnit,
     semantics: &CheckedExpressionSemantics,
@@ -184,7 +187,10 @@ pub(crate) fn selected_call_condition(
     ExecutionCondition::Expression(expression)
 }
 
-#[expect(clippy::too_many_arguments, reason = "argument normalization consumes independent path, pattern, evaluation and predicate facts")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "argument normalization consumes independent path, pattern, evaluation and predicate facts"
+)]
 fn call_argument_conditions(
     call: &bray_bound_tree::SelectedCall,
     unit: &BoundUnit,

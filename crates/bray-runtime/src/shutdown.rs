@@ -313,7 +313,9 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(1),
         );
 
-        let mut admitted = OutgoingRecords::admit(4).expect("fixture outgoing records must admit the supplied values");
+        let mut admitted = OutgoingRecords::admit(4)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let denied = crate::outgoing::tests::reject_admission();
         let mut first = RuntimePanic::new(Payload(1), &mut admitted);
 
@@ -349,7 +351,11 @@ mod tests {
             assert_eq!(incident.origin(), origin);
 
             assert_eq!(
-                incident.payload.as_ref().expect("fixture `sink` call must succeed").suppressed_count(),
+                incident
+                    .payload
+                    .as_ref()
+                    .expect("fixture `sink` call must succeed")
+                    .suppressed_count(),
                 if ordinal == 0 { 2 } else { 0 }
             );
 
@@ -372,7 +378,9 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(3),
         );
 
-        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let first = crate::RuntimePanic::new("first", &mut first_admitted);
 
         reports.transfer(
@@ -382,7 +390,9 @@ mod tests {
             &mut first_admitted,
         );
 
-        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).expect("fixture outgoing records must admit the supplied values");
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1)
+            .expect("fixture outgoing records must admit the supplied values");
+
         let second = crate::RuntimePanic::new("second", &mut second_admitted);
 
         reports.transfer(

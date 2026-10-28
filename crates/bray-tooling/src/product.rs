@@ -385,8 +385,7 @@ type SystemLinkerSelection = (SystemLinkerFamily, PathBuf, Vec<(OsString, OsStri
 #[cfg(feature = "compiler")]
 fn system_linker_configuration(
     target: NativeTarget,
-) -> Result<Option<SystemLinkerSelection>, NativeLinkerBuildError>
-{
+) -> Result<Option<SystemLinkerSelection>, NativeLinkerBuildError> {
     if NativeTarget::current().is_none_or(|host| host.architecture() != target.architecture()) {
         return Ok(None);
     }
@@ -505,7 +504,9 @@ mod tests {
         ));
 
         let relative = PathBuf::from("relative/windows");
-        let error = super::system_root_path(Some(relative.clone().into_os_string())).expect_err("relative system root must be rejected");
+
+        let error = super::system_root_path(Some(relative.clone().into_os_string()))
+            .expect_err("relative system root must be rejected");
 
         assert!(
             matches!(&error, NativeLinkerBuildError::InvalidEnvironment { value, .. } if value == &relative)
@@ -518,10 +519,13 @@ mod tests {
         assert!(rendered.message().contains("relative/windows"));
         assert!(rendered.message().contains("absolute"));
 
-        let absolute = std::env::current_dir().expect("fixture `std::env::current_dir` call must succeed").join("windows");
+        let absolute = std::env::current_dir()
+            .expect("fixture `std::env::current_dir` call must succeed")
+            .join("windows");
 
         assert_eq!(
-            super::system_root_path(Some(absolute.clone().into_os_string())).expect("fixture `super::system_root_path` call must succeed"),
+            super::system_root_path(Some(absolute.clone().into_os_string()))
+                .expect("fixture `super::system_root_path` call must succeed"),
             absolute
         );
     }

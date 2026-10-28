@@ -569,11 +569,18 @@ mod tests {
         use bray_base::NonEmptySharedStr;
         use bray_symbols::{NativeSymbolContract, NativeSymbolIdentity};
 
-        let name =
-            |value: &str| NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(value).expect("fixture non empty shared str must be valid"));
+        let name = |value: &str| {
+            NativeSymbolIdentity::Name(
+                NonEmptySharedStr::try_new(value)
+                    .expect("fixture non empty shared str must be valid"),
+            )
+        };
 
         let required = |value: &str| {
-            NativeSymbolContract::required_name(NonEmptySharedStr::try_new(value).expect("fixture non empty shared str must be valid"))
+            NativeSymbolContract::required_name(
+                NonEmptySharedStr::try_new(value)
+                    .expect("fixture non empty shared str must be valid"),
+            )
         };
 
         let optional = symbol(
@@ -666,7 +673,10 @@ mod tests {
             )
             .expect("fixture native artifact index must be valid");
 
-            assert_eq!(index.units()[0].summary().references(), std::slice::from_ref(&reference));
+            assert_eq!(
+                index.units()[0].summary().references(),
+                std::slice::from_ref(&reference)
+            );
         }
     }
 
@@ -699,9 +709,14 @@ mod tests {
         .expect("fixture native artifact index must be valid");
 
         let bytes = index.encode().expect("fixture artifact must encode");
-        let decoded = NativeArtifactIndex::decode(&bytes, digest(&bytes), index.target()).expect("fixture `NativeArtifactIndex::decode` call must succeed");
 
-        assert_eq!(decoded.units()[0].statics(), std::slice::from_ref(&contribution));
+        let decoded = NativeArtifactIndex::decode(&bytes, digest(&bytes), index.target())
+            .expect("fixture `NativeArtifactIndex::decode` call must succeed");
+
+        assert_eq!(
+            decoded.units()[0].statics(),
+            std::slice::from_ref(&contribution)
+        );
 
         let conflicting = crate::NativeStatic::new(
             name("different_host"),
@@ -1263,10 +1278,14 @@ mod large_metadata_tests {
 
         assert!(bytes.len() > 16 * 1024 * 1024);
 
-        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
+        let digest = NativeContentDigest::new(
+            bray_base::sha256_reader(bytes.as_slice())
+                .expect("fixture contents must have a complete SHA-256 digest"),
+        );
 
         assert_eq!(
-            NativeArtifactIndex::decode(&bytes, digest, index.target()).expect("fixture `NativeArtifactIndex::decode` call must succeed"),
+            NativeArtifactIndex::decode(&bytes, digest, index.target())
+                .expect("fixture `NativeArtifactIndex::decode` call must succeed"),
             index
         );
     }

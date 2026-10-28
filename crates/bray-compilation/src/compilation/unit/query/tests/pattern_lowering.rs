@@ -53,7 +53,12 @@ fn observed_call_result_patterns_evaluate_their_subject_once() {
                 .lowered_unit(source_function_body_key(&compilation, "main"))
                 .expect("fixture callable must lower successfully");
 
-            let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+            let mir = lowered
+                .value()
+                .as_ref()
+                .expect("fixture optional value must be present")
+                .mir()
+                .expect("fixture instance must retain its MIR");
 
             let calls = mir
                 .operations()
@@ -96,8 +101,14 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "unpack");
-            let storage = compilation.storage_plan(key.clone()).expect("fixture callable must have a storage plan");
-            let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+            let storage = compilation
+                .storage_plan(key.clone())
+                .expect("fixture callable must have a storage plan");
+
+            let flow = compilation
+                .storage_flow(key.clone())
+                .expect("fixture callable must complete storage-flow analysis");
 
             if !whole_value_cleanup {
                 assert!(
@@ -156,7 +167,9 @@ fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
                     "{source}"
                 );
 
-                let analysis = compilation.async_analysis(key).expect("fixture callable must complete async analysis");
+                let analysis = compilation
+                    .async_analysis(key)
+                    .expect("fixture callable must complete async analysis");
 
                 bray_testing::assert_goal_state_diagnostic_kind(
                     analysis.diagnostics(),
@@ -190,7 +203,10 @@ fn cleanup_mutation_does_not_fold_branches_using_old_contents() {
 
     let compilation = compilation(source);
     let key = source_function_body_key(&compilation, "main");
-    let flow = compilation.storage_flow(key).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key)
+        .expect("fixture callable must complete storage-flow analysis");
 
     let writes = flow
         .value()
@@ -229,8 +245,15 @@ fn literal_string_cleanup_publishes_its_proven_empty_effect() {
     );
 
     let key = source_function_body_key(&compilation, "main");
-    let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
-    let cleanup = compilation.async_analysis(key).expect("fixture callable must complete async analysis");
+
+    let flow = compilation
+        .storage_flow(key.clone())
+        .expect("fixture callable must complete storage-flow analysis");
+
+    let cleanup = compilation
+        .async_analysis(key)
+        .expect("fixture callable must complete async analysis");
+
     let mut checked = 0;
 
     for plan in cleanup.value().scope_exits() {
@@ -293,7 +316,10 @@ fn moved_destination_reinitialization_has_no_old_finalizer_transition() {
         ));
 
         let key = source_function_body_key(&compilation, "main");
-        let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+        let flow = compilation
+            .storage_flow(key.clone())
+            .expect("fixture callable must complete storage-flow analysis");
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -345,7 +371,11 @@ fn replacement_cleanup_retains_the_previous_nullable_presence() {
         ));
 
         let key = source_function_body_key(&compilation, "main");
-        let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+        let flow = compilation
+            .storage_flow(key.clone())
+            .expect("fixture callable must complete storage-flow analysis");
+
         let decisions = flow.value().replacements();
 
         assert_eq!(decisions.len(), 1);
@@ -409,7 +439,11 @@ fn replacement_cleanup_retains_the_previous_union_variant() {
     );
 
     let key = source_function_body_key(&compilation, "main");
-    let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key.clone())
+        .expect("fixture callable must complete storage-flow analysis");
+
     let decisions = flow.value().replacements();
 
     assert_eq!(decisions.len(), 1);
@@ -449,7 +483,10 @@ fn compound_assignment_publishes_replacement_after_the_operation_completes() {
     );
 
     let key = source_function_body_key(&compilation, "main");
-    let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key.clone())
+        .expect("fixture callable must complete storage-flow analysis");
 
     assert_eq!(flow.value().replacements().len(), 1);
 
@@ -510,7 +547,11 @@ fn compound_assignment_retains_its_async_replacement_cleanup() {
     );
 
     let key = source_function_body_key(&compilation, "main");
-    let flow = compilation.storage_flow(key.clone()).expect("fixture callable must complete storage-flow analysis");
+
+    let flow = compilation
+        .storage_flow(key.clone())
+        .expect("fixture callable must complete storage-flow analysis");
+
     let replacement = flow.value().replacements()[0].expression();
 
     assert!(

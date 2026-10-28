@@ -280,7 +280,7 @@ pub(super) fn decode_callable_type(
                     context.charge_items::<crate::InterfaceCallablePhaseBehavior>(1)?;
 
                     Some(super::contract::decode_callable_behavior(reader, limits, context)?.into())
-                },
+                }
                 _ => {
                     return Err(crate::semantic::codec::invalid_discriminant(
                         crate::InterfaceValidationField::Type,
@@ -687,14 +687,17 @@ mod tests {
         .into();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
 
-        let decoded =
-            decode_semantics(&encoded_section_views(&sections), &surface, limits).expect("fixture interface semantics must decode");
+        let sections = encode_semantics(&semantics, &surface, limits)
+            .expect("fixture `encode_semantics` call must succeed");
+
+        let decoded = decode_semantics(&encoded_section_views(&sections), &surface, limits)
+            .expect("fixture interface semantics must decode");
 
         assert_eq!(decoded, semantics);
 
-        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let store =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         assert!(matches!(decoded.intern(&store, &resolver(&surface)),
             Err(crate::InterfaceSemanticInternError::InvalidSymbolKind(reference)) if reference == provider));
@@ -787,15 +790,22 @@ mod tests {
         .into();
 
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
 
-        let decoded =
-            decode_semantics(&encoded_section_views(&sections), &surface, limits).expect("fixture interface semantics must decode");
+        let sections = encode_semantics(&semantics, &surface, limits)
+            .expect("fixture `encode_semantics` call must succeed");
+
+        let decoded = decode_semantics(&encoded_section_views(&sections), &surface, limits)
+            .expect("fixture interface semantics must decode");
 
         assert_eq!(decoded, semantics);
 
-        let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
-        let imported = decoded.intern(&store, &resolver(&surface)).expect("fixture `intern` call must succeed");
+        let store =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+        let imported = decoded
+            .intern(&store, &resolver(&surface))
+            .expect("fixture `intern` call must succeed");
+
         let template = store.dependency_contract_template_data(imported.dependency_contracts()[0]);
 
         assert_eq!(template.effects().len(), 12);
@@ -869,7 +879,9 @@ mod tests {
             panic!("fixture retains its deferred callable phase");
         };
 
-        std::sync::Arc::make_mut(behavior).receiver_cleanup = vec![InterfaceTypeId::new(0), InterfaceTypeId::new(2)].into();
+        std::sync::Arc::make_mut(behavior).receiver_cleanup =
+            vec![InterfaceTypeId::new(0), InterfaceTypeId::new(2)].into();
+
         semantics.types = types.into();
 
         let limits = InterfaceValidationLimits::default();
@@ -1437,7 +1449,9 @@ mod tests {
 
         let semantics = InterfaceSemantics::new().with_values([contract], [], [], []);
         let limits = InterfaceValidationLimits::default();
-        let sections = encode_semantics(&semantics, &surface, limits).expect("fixture `encode_semantics` call must succeed");
+
+        let sections = encode_semantics(&semantics, &surface, limits)
+            .expect("fixture `encode_semantics` call must succeed");
 
         assert_eq!(
             decode_semantics(&encoded_section_views(&sections), &surface, limits),
@@ -1613,7 +1627,8 @@ mod tests {
                                 [bray_symbols::LifecycleObligationKind::Finalization],
                                 InterfaceDependencyContractId::new(0),
                                 bray_symbols::CurrentRunCancellation::MayEnter,
-                            ).into(),
+                            )
+                            .into(),
                         ),
                     },
                 ],

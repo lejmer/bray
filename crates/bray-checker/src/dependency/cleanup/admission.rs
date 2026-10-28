@@ -81,9 +81,10 @@ where
                     maximum_depth,
                     &mut proofs,
                     completed,
-                )? {
-                    schemes.push(scheme);
-                }
+                )?
+            {
+                schemes.push(scheme);
+            }
 
             let scheme = schemes
                 .iter()

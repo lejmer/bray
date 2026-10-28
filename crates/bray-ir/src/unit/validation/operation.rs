@@ -178,9 +178,7 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         MirOperationKind::Async(
             MirAsyncOperation::ResolveInactiveFrame { .. }
             | MirAsyncOperation::DestroyInactiveFrame { .. },
-        ) => {
-            block_kind != MirBlockKind::CleanupBroadcast
-        }
+        ) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation { .. }) => {
             block_kind != MirBlockKind::LifecycleResolution
         }

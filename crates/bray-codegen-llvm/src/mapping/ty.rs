@@ -675,7 +675,10 @@ mod tests {
     fn alignment_carriers_preserve_small_and_overaligned_aggregate_layouts() {
         let fixture = codegen_request();
         let request = fixture.request();
-        let machine = LlvmTargetMachine::create(request.target()).expect("fixture `LlvmTargetMachine::create` call must succeed");
+
+        let machine = LlvmTargetMachine::create(request.target())
+            .expect("fixture `LlvmTargetMachine::create` call must succeed");
+
         let target_data = machine.target_data();
         let context = Context::create();
 
@@ -826,7 +829,10 @@ mod tests {
 
             let request = fixture.request();
             let mut types = mapped_type_fixture();
-            let store = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
+            let store =
+                SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+
             let mut exact = Vec::new();
 
             for (width, bytes, scalar) in [
@@ -858,7 +864,10 @@ mod tests {
             }
 
             let mappings = combined_mappings(request, &types);
-            let machine = LlvmTargetMachine::create(request.target()).expect("fixture `LlvmTargetMachine::create` call must succeed");
+
+            let machine = LlvmTargetMachine::create(request.target())
+                .expect("fixture `LlvmTargetMachine::create` call must succeed");
+
             let target_data = machine.target_data();
             let context = Context::create();
 

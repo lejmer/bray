@@ -579,9 +579,9 @@ fn lifecycle(
         for predicate in predicates {
             let condition = {
                 let condition = predicate
-                .condition()
-                .map(|term| crate::execution_condition_from_term(values, term, &references))
-                .transpose()?;
+                    .condition()
+                    .map(|term| crate::execution_condition_from_term(values, term, &references))
+                    .transpose()?;
 
                 condition.unwrap_or(ExecutionCondition::Unknown)
             };

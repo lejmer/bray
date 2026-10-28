@@ -33,13 +33,16 @@ impl NativePlatformText {
     pub const fn length(self) -> u64 {
         self.length
     }
-
 }
 
 impl NativePlatformPath {
     /// Creates one native path view.
     pub const fn new(address: *const u8, length: u64) -> Self {
-        Self { address, length, terminated: 0 }
+        Self {
+            address,
+            length,
+            terminated: 0,
+        }
     }
 
     /// Creates a native path whose logical bytes are followed by a native NUL unit.
@@ -49,7 +52,11 @@ impl NativePlatformPath {
     /// be aligned to the target's native character width, and the complete range must fit
     /// in the target address space.
     pub const fn new_terminated(address: *const u8, length: u64) -> Self {
-        Self { address, length, terminated: 1 }
+        Self {
+            address,
+            length,
+            terminated: 1,
+        }
     }
 
     /// Returns the first native path byte.

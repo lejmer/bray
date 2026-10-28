@@ -81,8 +81,14 @@ mod tests {
             arguments.push(OsString::from_vec(vec![0xFF, 0x61]));
         }
 
-        write_compiler_request(&path, &arguments).expect("fixture `write_compiler_request` call must succeed");
-        assert_eq!(read_compiler_request(&path).expect("fixture `read_compiler_request` call must succeed"), arguments);
+        write_compiler_request(&path, &arguments)
+            .expect("fixture `write_compiler_request` call must succeed");
+
+        assert_eq!(
+            read_compiler_request(&path)
+                .expect("fixture `read_compiler_request` call must succeed"),
+            arguments
+        );
     }
 
     #[test]
@@ -103,7 +109,8 @@ mod tests {
                 problem,
                 detail,
                 ..
-            } = read_compiler_request(&path).expect_err("malformed compiler request must retain its document failure")
+            } = read_compiler_request(&path)
+                .expect_err("malformed compiler request must retain its document failure")
             else {
                 panic!("expected document failure");
             };

@@ -47,21 +47,33 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
             };
 
             for (callable, target) in &node.edges {
-                let mut retained = cleanup_parameters.map(|_| relevant.get(target)
-                    .into_iter().flatten().copied().collect::<Parameters>());
+                let mut retained = cleanup_parameters.map(|_| {
+                    relevant
+                        .get(target)
+                        .into_iter()
+                        .flatten()
+                        .copied()
+                        .collect::<Parameters>()
+                });
 
-                if let (Some(retained), Some(all)) = (retained.as_mut(), cleanup_parameters.and_then(|all| all.get(target))) {
+                if let (Some(retained), Some(all)) = (
+                    retained.as_mut(),
+                    cleanup_parameters.and_then(|all| all.get(target)),
+                ) {
                     let selected = values.generic_substitution_data(callable.substitution());
 
                     for binding in selected.bindings() {
-                        if !all.contains(&binding.parameter()) || retained.contains(&binding.parameter()) {
+                        if !all.contains(&binding.parameter())
+                            || retained.contains(&binding.parameter())
+                        {
                             continue;
                         }
 
                         // Cleanup presence is independent of constant arguments.
                         // Type projections that need them remain exact above.
                         if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
-                            requirements.extend(super::cleanup::exact_predicate_requirements(request, ty)?);
+                            requirements
+                                .extend(super::cleanup::exact_predicate_requirements(request, ty)?);
                         }
                     }
                 }

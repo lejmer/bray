@@ -68,11 +68,13 @@ fn module_summary(
             && line
                 .split_whitespace()
                 .any(|token| matches!(token, "alias" | "ifunc"))
-            && !line.contains(" = internal ") && !line.contains(" = private ")
-                && let Some(name) = alias_name(line)
-                    && let Some(name) = object_symbol(target, &name) {
-                        aliases_provided.insert(NativeSymbolIdentity::Name(name));
-                    }
+            && !line.contains(" = internal ")
+            && !line.contains(" = private ")
+            && let Some(name) = alias_name(line)
+            && let Some(name) = object_symbol(target, &name)
+        {
+            aliases_provided.insert(NativeSymbolIdentity::Name(name));
+        }
 
         module_assembly |= line.starts_with("module asm ");
 
@@ -347,13 +349,16 @@ mod tests {
         let buffer =
             MemoryBuffer::create_from_memory_range(terminated.as_bytes(), "native fixture");
 
-        let module = context.create_module_from_ir(buffer).expect("fixture `create_module_from_ir` call must succeed");
+        let module = context
+            .create_module_from_ir(buffer)
+            .expect("fixture `create_module_from_ir` call must succeed");
 
         crate::serialization::bitcode_bytes(&module)
     }
 
     fn summary(ir: &str, target: NativeTarget) -> NativeUnitSummary {
-        inspect_bitcode_unit_summary(&bitcode(ir), target).expect("fixture bitcode unit must have a native summary")
+        inspect_bitcode_unit_summary(&bitcode(ir), target)
+            .expect("fixture bitcode unit must have a native summary")
     }
 
     #[test]
@@ -388,7 +393,10 @@ mod tests {
             );
 
             let bytes = bitcode(&ir);
-            let observed = inspect_bitcode_unit_summary(&bytes, target).expect("fixture bitcode unit must have a native summary");
+
+            let observed = inspect_bitcode_unit_summary(&bytes, target)
+                .expect("fixture bitcode unit must have a native summary");
+
             let file = TemporaryFile::write("native-summary.bc", &bytes);
 
             let output = Command::new(
@@ -413,14 +421,22 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr)
             );
 
-            let symbols = String::from_utf8(output.stdout).expect("fixture text must be valid UTF-8");
+            let symbols =
+                String::from_utf8(output.stdout).expect("fixture text must be valid UTF-8");
+
             let mut expected_provided = BTreeSet::new();
             let mut expected_references = BTreeSet::new();
 
             for line in symbols.lines() {
                 let mut fields = line.split_whitespace();
-                let name = fields.next().expect("fixture iterator must provide its expected item");
-                let class = fields.next().expect("fixture iterator must provide its expected item");
+
+                let name = fields
+                    .next()
+                    .expect("fixture iterator must provide its expected item");
+
+                let class = fields
+                    .next()
+                    .expect("fixture iterator must provide its expected item");
 
                 if matches!(class, "U" | "w" | "v") {
                     expected_references.insert(name);
@@ -432,7 +448,9 @@ mod tests {
             assert_eq!(
                 observed
                     .defined_symbols()
-                    .map(|s| s.name().expect("fixture symbol inventory must contain the selected symbol"))
+                    .map(|s| s
+                        .name()
+                        .expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 expected_provided
             );
@@ -441,7 +459,10 @@ mod tests {
                 observed
                     .references()
                     .iter()
-                    .map(|s| s.identity().name().expect("fixture symbol inventory must contain the selected symbol"))
+                    .map(|s| s
+                        .identity()
+                        .name()
+                        .expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 expected_references
             );
@@ -658,7 +679,9 @@ mod tests {
         assert_eq!(
             observed
                 .defined_symbols()
-                .map(|s| s.name().expect("fixture symbol inventory must contain the selected symbol"))
+                .map(|s| s
+                    .name()
+                    .expect("fixture symbol inventory must contain the selected symbol"))
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["_a b", "unmangled"])
         );
@@ -682,7 +705,9 @@ mod tests {
         assert_eq!(
             observed
                 .defined_symbols()
-                .map(|symbol| symbol.name().expect("fixture symbol inventory must contain the selected symbol"))
+                .map(|symbol| symbol
+                    .name()
+                    .expect("fixture symbol inventory must contain the selected symbol"))
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from(["_base", "_redirect value", "_table"])
         );
@@ -741,7 +766,10 @@ mod tests {
                 observed
                     .references()
                     .iter()
-                    .map(|symbol| symbol.identity().name().expect("fixture symbol inventory must contain the selected symbol"))
+                    .map(|symbol| symbol
+                        .identity()
+                        .name()
+                        .expect("fixture symbol inventory must contain the selected symbol"))
                     .collect::<BTreeSet<_>>(),
                 BTreeSet::from([dependency.as_ref()]),
             );

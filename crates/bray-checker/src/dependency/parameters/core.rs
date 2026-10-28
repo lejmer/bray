@@ -68,9 +68,15 @@ impl ResultParameters {
 
                 if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
                     if values.type_is_concrete(ty) {
-                        let cleanup = cleanup.get_or_insert_with(|| crate::asynchronous::CleanupShapeResolver::new(request));
+                        let cleanup = cleanup.get_or_insert_with(|| {
+                            crate::asynchronous::CleanupShapeResolver::new(request)
+                        });
 
-                        conditions.push((binding.parameter(), cleanup.requirement(ty)? != bray_bound_tree::AsyncStorageCleanupRequirement::None));
+                        conditions.push((
+                            binding.parameter(),
+                            cleanup.requirement(ty)?
+                                != bray_bound_tree::AsyncStorageCleanupRequirement::None,
+                        ));
                     } else {
                         retained.insert(binding.parameter());
                     }
@@ -84,10 +90,13 @@ impl ResultParameters {
             retained.as_ref().or(Some(relevant)),
         ).unwrap_or_else(|error| panic!("The canonical semantic value store rejected a construction or lookup operation. in key: {error:?}"));
 
-        Ok((ResultKey {
-            callable,
-            ..selected
-        }, (!conditions.is_empty()).then(|| bray_base::shared_slice(conditions))))
+        Ok((
+            ResultKey {
+                callable,
+                ..selected
+            },
+            (!conditions.is_empty()).then(|| bray_base::shared_slice(conditions)),
+        ))
     }
 
     fn discover<C: CheckerRequestContext + ?Sized>(
@@ -139,9 +148,16 @@ impl ResultParameters {
 
         solve_parameters(request, &nodes, &mut self.relevant, None)?;
 
-        if nodes.values().any(|node|
-            super::cleanup::has_conditions(values.dependency_contract_template_data(node.local).requirements())
-                || node.edges.iter().any(|(_, target)| self.exact.contains_key(target))) {
+        if nodes.values().any(|node| {
+            super::cleanup::has_conditions(
+                values
+                    .dependency_contract_template_data(node.local)
+                    .requirements(),
+            ) || node
+                .edges
+                .iter()
+                .any(|(_, target)| self.exact.contains_key(target))
+        }) {
             solve_parameters(request, &nodes, &mut self.exact, Some(&self.relevant))?;
         }
 

@@ -634,9 +634,10 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         if let Some((link, outcome)) = &linked
-            && !matches!(outcome.status(), bray_linker::LinkStatus::Complete(_)) {
-                return Ok(publisher.publish_linked(plan, contributions, link, outcome));
-            }
+            && !matches!(outcome.status(), bray_linker::LinkStatus::Complete(_))
+        {
+            return Ok(publisher.publish_linked(plan, contributions, link, outcome));
+        }
 
         if let Some((interface, bundle)) = package_implementation {
             let artifacts = match (native, staging.as_ref(), backend.as_ref()) {
@@ -777,7 +778,11 @@ mod tests {
             .expect("fixture source must be constructed");
         }
 
-        let compilation = Arc::new(compilation(&source, WorkerBudget::new(4).expect("fixture worker budget must be valid")));
+        let compilation = Arc::new(compilation(
+            &source,
+            WorkerBudget::new(4).expect("fixture worker budget must be valid"),
+        ));
+
         let checked_compilation = Arc::downgrade(&compilation);
         let contracts = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&contracts);
@@ -789,7 +794,9 @@ mod tests {
             .fact_runtime
             .set_test_observer(FactEvaluationTestObserver::new(move |key| {
                 if *key == CompilationFactKey::SemanticDiagnostics {
-                    let compilation = checked_compilation.upgrade().expect("fixture `upgrade` call must succeed");
+                    let compilation = checked_compilation
+                        .upgrade()
+                        .expect("fixture `upgrade` call must succeed");
 
                     assert!(
                         compilation

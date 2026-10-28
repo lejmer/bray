@@ -3490,7 +3490,10 @@ fn production_path_view_preserves_its_borrowed_storage() {
     ]);
 
     let key = source_function_body_key(&compilation, "platform_path");
-    let checked = compilation.lowered_unit(key.clone()).expect("fixture callable must lower successfully");
+
+    let checked = compilation
+        .lowered_unit(key.clone())
+        .expect("fixture callable must lower successfully");
 
     assert!(
         !checked.diagnostics().has_errors(),
@@ -3498,7 +3501,9 @@ fn production_path_view_preserves_its_borrowed_storage() {
         checked.diagnostics()
     );
 
-    let proof = compilation.execution_properties(key).expect("fixture callable must resolve its execution properties");
+    let proof = compilation
+        .execution_properties(key)
+        .expect("fixture callable must resolve its execution properties");
 
     assert!(
         !proof.diagnostics().has_errors(),

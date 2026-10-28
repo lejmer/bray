@@ -247,7 +247,9 @@ fn operation_runtime_references(
             std::array::from_fn(|_| roles.next().map(|role| MirRuntimeReference::new(role, abi)))
         }
         MirOperationKind::Binary { operator, .. } => [
-            operator.runtime_role().map(|role| MirRuntimeReference::new(role, abi)),
+            operator
+                .runtime_role()
+                .map(|role| MirRuntimeReference::new(role, abi)),
             None,
             None,
         ],
@@ -454,7 +456,8 @@ mod tests {
             symbol.signature().clone(),
         );
 
-        let references = mapped_runtime_references(request.unit(), std::slice::from_ref(&direct), &[]);
+        let references =
+            mapped_runtime_references(request.unit(), std::slice::from_ref(&direct), &[]);
 
         assert!(
             !references

@@ -30,9 +30,8 @@ fn growing_owned_cleanup_shapes_report_the_configured_limit() {
                     }}
                     "#,
                 ),
-                CompilationOptions::default().with_semantic_analysis_limits(
-                    SemanticAnalysisLimits::new(maximum, 100_000),
-                ),
+                CompilationOptions::default()
+                    .with_semantic_analysis_limits(SemanticAnalysisLimits::new(maximum, 100_000)),
             );
 
             let diagnostics = application.check_diagnostics();
@@ -42,20 +41,32 @@ fn growing_owned_cleanup_shapes_report_the_configured_limit() {
                 .find(|diagnostic| {
                     diagnostic.kind() == DiagnosticKind::CheckingCleanupRecursionLimitExceeded
                 })
-                .unwrap_or_else(|| panic!("growing cleanup must report its limit: {diagnostics:?}"));
+                .unwrap_or_else(|| {
+                    panic!("growing cleanup must report its limit: {diagnostics:?}")
+                });
 
             assert_eq!(
                 limit.args(),
                 [
                     DiagnosticArg::declaration_name("main"),
-                    DiagnosticArg::actual_count(u64::try_from(maximum + 1).expect("test depth fits")),
+                    DiagnosticArg::actual_count(
+                        u64::try_from(maximum + 1).expect("test depth fits")
+                    ),
                     DiagnosticArg::maximum_count(u64::try_from(maximum).expect("test limit fits")),
                 ]
             );
 
             assert!(limit.primary_span().is_some());
-            assert_eq!(limit.labels()[0].kind(), DiagnosticLabelKind::CleanupRecursionLimitExceeded);
-            assert_eq!(limit.notes()[0].kind(), DiagnosticNoteKind::SimplifyRecursiveCleanup);
+
+            assert_eq!(
+                limit.labels()[0].kind(),
+                DiagnosticLabelKind::CleanupRecursionLimitExceeded
+            );
+
+            assert_eq!(
+                limit.notes()[0].kind(),
+                DiagnosticNoteKind::SimplifyRecursiveCleanup
+            );
         }
     }
 }

@@ -58,7 +58,10 @@ fn string_release_collects_deallocation_failure_before_returning() {
 fn inactive_frame_broadcast_and_destruction_keep_valid_outcome_checks() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .compiler_known_type(RepresentationRole::Unit)
@@ -226,7 +229,10 @@ fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
 fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
     let compilation = compilation("module app;");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .compiler_known_type(RepresentationRole::Unit)
@@ -645,7 +651,10 @@ fn imported_raw_storage_cannot_adopt_an_allocation_twice() {
 fn cancellation_and_quiescence_retain_terminal_task_ownership() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
@@ -703,7 +712,10 @@ fn cancellation_and_quiescence_retain_terminal_task_ownership() {
 fn incident_quiescence_visits_children_without_parent_finalization_or_destruction() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
@@ -715,7 +727,9 @@ fn incident_quiescence_visits_children_without_parent_finalization_or_destructio
         .expect("fixture unary representation must resolve")
         .expect("successful fixture query must contain its expected result");
 
-    let nullable = values.intern_type(TypeData::Nullable(task)).expect("fixture type must be interned");
+    let nullable = values
+        .intern_type(TypeData::Nullable(task))
+        .expect("fixture type must be interned");
 
     let pair = values
         .intern_type(TypeData::tuple([task, nullable]))
@@ -780,7 +794,9 @@ fn incident_quiescence_does_not_select_declared_graceful_or_destructive_calls() 
 
     assert!(!compilation.check_diagnostics().has_errors());
 
-    let symbols = compilation.symbol_graph().expect("fixture compilation must build its symbol graph");
+    let symbols = compilation
+        .symbol_graph()
+        .expect("fixture compilation must build its symbol graph");
 
     let definition = symbols
         .structures()
@@ -789,7 +805,9 @@ fn incident_quiescence_does_not_select_declared_graceful_or_destructive_calls() 
         .expect("fixture lookup must find its expected value");
 
     let ty = crate::compilation::substitution::named_type(
-        compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store"),
+        compilation
+            .semantic_value_store()
+            .expect("fixture compilation must provide its semantic value store"),
         bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
     )
     .expect("fixture `crate::compilation::substitution::named_type` call must succeed");
@@ -804,7 +822,10 @@ fn incident_quiescence_does_not_select_declared_graceful_or_destructive_calls() 
 #[test]
 fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
     let compilation = compilation("module app; func main() {}");
-    let values = compilation.semantic_value_store().expect("fixture compilation must provide its semantic value store");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("fixture compilation must provide its semantic value store");
 
     let unit = compilation
         .codegen_representation_type(RepresentationRole::Unit)
@@ -816,7 +837,9 @@ fn incident_quiescence_keeps_erased_capture_work_nontrivial() {
         .expect("fixture unary representation must resolve")
         .expect("successful fixture query must contain its expected result");
 
-    let nullable = values.intern_type(TypeData::Nullable(future)).expect("fixture type must be interned");
+    let nullable = values
+        .intern_type(TypeData::Nullable(future))
+        .expect("fixture type must be interned");
 
     let pair = values
         .intern_type(TypeData::tuple([future, nullable]))
@@ -858,7 +881,8 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
     .with_dependency_interfaces([super::lifecycle_fixtures::standard_memory_dependency()]);
 
     let source_authority = CompilationRequest::new(
-        bray_symbols::PackageIdentity::try_new("std").expect("fixture package identity must be valid"),
+        bray_symbols::PackageIdentity::try_new("std")
+            .expect("fixture package identity must be valid"),
         crate::test_support::source_inputs(&[
             include_str!("../../../../../../../../standard-library/std/src/std.bray"),
             include_str!("../../../../../../../../standard-library/std/src/memory/pointer.bray"),
@@ -885,7 +909,12 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             lowered.diagnostics()
         );
 
-        let mir = lowered.value().as_ref().expect("fixture optional value must be present").mir().expect("fixture instance must retain its MIR");
+        let mir = lowered
+            .value()
+            .as_ref()
+            .expect("fixture optional value must be present")
+            .mir()
+            .expect("fixture instance must retain its MIR");
 
         let parameter = mir
             .storages()
@@ -977,7 +1006,11 @@ fn buffer_child_cleanup_uses_the_retained_initialized_prefix() {
             );
 
             assert!(matches!(
-                children[0].projections().last().expect("fixture sequence must contain its last item").kind(),
+                children[0]
+                    .projections()
+                    .last()
+                    .expect("fixture sequence must contain its last item")
+                    .kind(),
                 MirProjectionKind::Index(_)
             ));
 

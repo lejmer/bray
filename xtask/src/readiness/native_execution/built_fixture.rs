@@ -112,11 +112,14 @@ mod tests {
 
         use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 
-        let product =
-            ProductIdentity::try_new(PackageIdentity::try_new("fixture").expect("fixture package identity must be valid"), "application")
-                .expect("fixture product identity must be valid");
+        let product = ProductIdentity::try_new(
+            PackageIdentity::try_new("fixture").expect("fixture package identity must be valid"),
+            "application",
+        )
+        .expect("fixture product identity must be valid");
 
-        let target = bray_target::NativeTarget::current().expect("fixture `bray_target::NativeTarget::current` call must succeed");
+        let target = bray_target::NativeTarget::current()
+            .expect("fixture `bray_target::NativeTarget::current` call must succeed");
 
         let outputs = bray_target::TargetOutputDescription::for_native(
             target,
@@ -141,7 +144,9 @@ mod tests {
             .expect("fixture `plan` call must succeed");
 
         let planned = &plan.artifacts()[0];
-        let content = bray_codegen::ArtifactContent::try_memory(b"fixture".as_slice()).expect("fixture memory must succeed");
+
+        let content = bray_codegen::ArtifactContent::try_memory(b"fixture".as_slice())
+            .expect("fixture memory must succeed");
 
         let contribution = ArtifactContribution::new(
             planned.id().clone(),
@@ -157,6 +162,7 @@ mod tests {
             "{outcome:?}"
         );
 
-        bray_emitter::resolve_published_artifact(root, &product, kind, 0).expect("fixture published artifact must resolve")
+        bray_emitter::resolve_published_artifact(root, &product, kind, 0)
+            .expect("fixture published artifact must resolve")
     }
 }

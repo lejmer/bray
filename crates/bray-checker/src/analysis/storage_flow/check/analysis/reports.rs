@@ -137,16 +137,26 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         mutation: &crate::analysis::guarantee::CleanupMutation<'_>,
         captures: Option<&[bray_symbols::TypeId]>,
         inherited_tail: bool,
-    ) -> Option<(bray_bound_tree::StorageAccessId, Vec<bray_symbols::DependencyRequirement>, bool)> {
-        let crate::analysis::guarantee::CleanupMutation::Opaque { ty, access, .. } = mutation else {
+    ) -> Option<(
+        bray_bound_tree::StorageAccessId,
+        Vec<bray_symbols::DependencyRequirement>,
+        bool,
+    )> {
+        let crate::analysis::guarantee::CleanupMutation::Opaque { ty, access, .. } = mutation
+        else {
             return None;
         };
 
         if crate::representation::type_representation(self.request, *ty)
             != Some(bray_compiler_known::RepresentationRole::Future)
-            || matches!(operation, AnalysisOperationKind::ScopeExit {
-                phase: crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast, ..
-            })
+            || matches!(
+                operation,
+                AnalysisOperationKind::ScopeExit {
+                    phase:
+                        crate::analysis::model::AnalysisScopeExitPhase::TaskCancellationBroadcast,
+                    ..
+                }
+            )
         {
             return None;
         }
@@ -157,16 +167,26 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         );
 
         let requirements = match captures {
-            Some(captures) => captures.iter().map(|capture| {
-                // Each capture shares the same immutable owner-dependency path.
-                bray_symbols::DependencyRequirement::cleanup_dependencies(*capture, [dependencies.clone()])
-            }).collect(),
+            Some(captures) => captures
+                .iter()
+                .map(|capture| {
+                    // Each capture shares the same immutable owner-dependency path.
+                    bray_symbols::DependencyRequirement::cleanup_dependencies(
+                        *capture,
+                        [dependencies.clone()],
+                    )
+                })
+                .collect(),
             None => vec![dependencies],
         };
 
         // A receiver tail retains the callable's report dependencies, but owns
         // collection after the source body hands off rather than within that body.
-        Some((*access, requirements, operation.is_normal_cleanup() && !inherited_tail))
+        Some((
+            *access,
+            requirements,
+            operation.is_normal_cleanup() && !inherited_tail,
+        ))
     }
 
     pub(super) fn retain_operation_reports(

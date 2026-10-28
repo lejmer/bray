@@ -144,7 +144,8 @@ impl Compilation {
 
         let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
-        let inputs = self.execution_callable_inputs(callable.definition().symbol(), cancellation)?;
+        let inputs =
+            self.execution_callable_inputs(callable.definition().symbol(), cancellation)?;
 
         match required {
             ExecutionObligation::FiniteIteration => Ok(contract

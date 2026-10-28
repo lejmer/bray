@@ -558,8 +558,8 @@ mod tests {
 
     use super::continuation_values;
     use crate::{
-        MirBlock, MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind,
-        MirSourceAnchor, MirTerminatorKind, MirUnaryOperator, MirUnitBuilder, MirUnitKind,
+        MirBlock, MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirSourceAnchor,
+        MirTerminatorKind, MirUnaryOperator, MirUnitBuilder, MirUnitKind,
     };
 
     #[test]
@@ -583,21 +583,42 @@ mod tests {
                 .push_operation(
                     entry,
                     source.clone(),
-                    MirOperationKind::Unary { operator: MirUnaryOperator::Not, operand },
+                    MirOperationKind::Unary {
+                        operator: MirUnaryOperator::Not,
+                        operand,
+                    },
                     Some(ty),
                 )
                 .expect("fixture operation must fit its identity space")
         };
 
-        let prefix = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(false) });
-        let suffix = unary(MirOperand::Value(prefix.result().expect("fixture `result` call must succeed")));
-        let use_suffix = unary(MirOperand::Value(suffix.result().expect("fixture `result` call must succeed")));
-        let site = unary(MirOperand::Immediate { ty, value: MirImmediateValue::Boolean(true) });
+        let prefix = unary(MirOperand::Immediate {
+            ty,
+            value: MirImmediateValue::Boolean(false),
+        });
+
+        let suffix = unary(MirOperand::Value(
+            prefix.result().expect("fixture `result` call must succeed"),
+        ));
+
+        let use_suffix = unary(MirOperand::Value(
+            suffix.result().expect("fixture `result` call must succeed"),
+        ));
+
+        let site = unary(MirOperand::Immediate {
+            ty,
+            value: MirImmediateValue::Boolean(true),
+        });
 
         builder.set_terminator(
             entry,
             source,
-            MirTerminatorKind::Return { value: Some(MirOperand::Value(site.result().expect("fixture `result` call must succeed"))), report: None },
+            MirTerminatorKind::Return {
+                value: Some(MirOperand::Value(
+                    site.result().expect("fixture `result` call must succeed"),
+                )),
+                report: None,
+            },
         );
 
         let mut unit = builder.finish(entry);
@@ -608,7 +629,12 @@ mod tests {
             block.source().clone(),
             block.kind(),
             block.parameters().to_vec(),
-            vec![prefix.operation(), site.operation(), suffix.operation(), use_suffix.operation()],
+            vec![
+                prefix.operation(),
+                site.operation(),
+                suffix.operation(),
+                use_suffix.operation(),
+            ],
             block.terminator().clone(),
         );
 

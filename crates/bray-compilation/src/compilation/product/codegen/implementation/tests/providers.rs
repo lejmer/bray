@@ -42,7 +42,10 @@ fn source_authority_selects_native_provider_units_and_flags() {
     let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let selected = SelectedTarget::baseline();
     let target = selected.profile().identity().clone();
-    let native_target = NativeTarget::for_identity(&target).expect("fixture `NativeTarget::for_identity` call must succeed");
+
+    let native_target = NativeTarget::for_identity(&target)
+        .expect("fixture `NativeTarget::for_identity` call must succeed");
+
     let runtime_abi = selected.runtime_abi();
 
     let prefix = format!(
@@ -65,7 +68,9 @@ fn source_authority_selects_native_provider_units_and_flags() {
 
         let path = artifact.beneath(directory.path());
 
-        fs::create_dir_all(path.parent().expect("fixture `parent` call must succeed")).expect("fixture directories must be created");
+        fs::create_dir_all(path.parent().expect("fixture `parent` call must succeed"))
+            .expect("fixture directories must be created");
+
         fs::write(path, bytes).expect("fixture contents must be written");
 
         artifact
@@ -96,7 +101,11 @@ fn source_authority_selects_native_provider_units_and_flags() {
     .into_iter()
     .map(|(name, role, library)| {
         let bytes = name.as_bytes();
-        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes).expect("fixture contents must have a complete SHA-256 digest"));
+
+        let digest = NativeContentDigest::new(
+            bray_base::sha256_reader(bytes)
+                .expect("fixture contents must have a complete SHA-256 digest"),
+        );
 
         let kind = if role.is_some() {
             NativeUnitKind::Object
@@ -108,7 +117,8 @@ fn source_authority_selects_native_provider_units_and_flags() {
             NativeUnitSummary::Exact {
                 definitions: Arc::from([NativeDefinition::new(
                     NativeSymbolContract::required_name(
-                        NonEmptySharedStr::try_new(role.native_symbol()).expect("fixture non empty shared str must be valid"),
+                        NonEmptySharedStr::try_new(role.native_symbol())
+                            .expect("fixture non empty shared str must be valid"),
                     ),
                     NativeDefinitionSelection::Ordinary,
                 )]),
@@ -119,7 +129,8 @@ fn source_authority_selects_native_provider_units_and_flags() {
 
         let links = library.into_iter().map(|name| {
             NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new(name).expect("fixture non empty shared str must be valid"),
+                NonEmptySharedStr::try_new(name)
+                    .expect("fixture non empty shared str must be valid"),
                 NativeLinkKind::System,
             )
         });
@@ -139,8 +150,10 @@ fn source_authority_selects_native_provider_units_and_flags() {
     let native_index = index.encode().expect("fixture artifact must encode");
     let bitcode_bytes = b"optional bitcode";
 
-    let bitcode_digest =
-        NativeContentDigest::new(bray_base::sha256_reader(bitcode_bytes.as_slice()).expect("fixture contents must have a complete SHA-256 digest"));
+    let bitcode_digest = NativeContentDigest::new(
+        bray_base::sha256_reader(bitcode_bytes.as_slice())
+            .expect("fixture contents must have a complete SHA-256 digest"),
+    );
 
     let bitcode_index = NativeArtifactIndex::try_new(
         native_target,
@@ -157,12 +170,14 @@ fn source_authority_selects_native_provider_units_and_flags() {
     .encode()
     .expect("fixture artifact must encode");
 
-    let package = PackageIdentity::try_new("example.nativefixture").expect("fixture package identity must be valid");
+    let package = PackageIdentity::try_new("example.nativefixture")
+        .expect("fixture package identity must be valid");
 
     let identity = PackageInterfaceIdentity::try_new(
         package.clone(),
         crate::test_support::package_version(),
-        InterfaceProductIdentity::try_new("library").expect("fixture interface product identity must be valid"),
+        InterfaceProductIdentity::try_new("library")
+            .expect("fixture interface product identity must be valid"),
         InterfaceProductKind::Library,
         "public",
     )
@@ -199,7 +214,8 @@ fn source_authority_selects_native_provider_units_and_flags() {
         .as_ref()
         .expect("fixture optional value must be present");
 
-    let interface = encode_package_interface(bundle).expect("fixture package interface must encode");
+    let interface =
+        encode_package_interface(bundle).expect("fixture package interface must encode");
 
     let implementation = PackageImplementationArtifact::try_from_export_bundle(
         &interface,
@@ -227,26 +243,34 @@ fn source_authority_selects_native_provider_units_and_flags() {
     let implementation_artifact = StandardLibraryArtifact::try_for_bytes(
         StandardLibraryArtifactKind::PackageImplementation,
         format!("{prefix}/std.brayimpl"),
-        &implementation.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        &implementation
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
     )
     .expect("fixture for bytes must succeed");
 
     fs::write(
         implementation_artifact.beneath(directory.path()),
-        implementation.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        implementation
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
     )
     .expect("fixture contents must be written");
 
     let native_artifact = StandardLibraryArtifact::try_for_bytes(
         StandardLibraryArtifactKind::NativeImplementation,
         format!("{prefix}/std-native.brayimpl"),
-        &native_implementation.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        &native_implementation
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
     )
     .expect("fixture for bytes must succeed");
 
     fs::write(
         native_artifact.beneath(directory.path()),
-        native_implementation.shared_bytes().expect("fixture `shared_bytes` call must succeed"),
+        native_implementation
+            .shared_bytes()
+            .expect("fixture `shared_bytes` call must succeed"),
     )
     .expect("fixture contents must be written");
 
@@ -263,11 +287,13 @@ fn source_authority_selects_native_provider_units_and_flags() {
 
     fs::write(
         directory.path().join("manifest.json"),
-        encode_standard_library_manifest(&manifest).expect("fixture `encode_standard_library_manifest` call must succeed"),
+        encode_standard_library_manifest(&manifest)
+            .expect("fixture `encode_standard_library_manifest` call must succeed"),
     )
     .expect("fixture contents must be written");
 
-    let root = StandardLibraryRoot::try_new(directory.path()).expect("fixture standard library root must be valid");
+    let root = StandardLibraryRoot::try_new(directory.path())
+        .expect("fixture standard library root must be valid");
 
     let native_input = bray_package_interface::PackageArtifactInput::file(
         native_artifact.beneath(root.path()),
@@ -332,11 +358,11 @@ fn source_authority_selects_native_provider_units_and_flags() {
             |unit| unit.digest == unit_digests["streams"] && unit.bytes.as_ref() == b"streams"
         ));
 
-    assert!(
-        streams_links
-            .iter()
-            .any(|input| input.source() == &LinkInputSource::try_native_library("c").expect("fixture native library name must be valid"))
-    );
+    assert!(streams_links.iter().any(|input| {
+        input.source()
+            == &LinkInputSource::try_native_library("c")
+                .expect("fixture native library name must be valid")
+    }));
 
     assert!(
         streams

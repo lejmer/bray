@@ -17,7 +17,6 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     product: &ProductIdentity,
     target: &str,
 ) -> Diagnostic {
-
     Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::NativeProductPreparationFailed,

@@ -245,8 +245,11 @@ mod tests {
             static RETIRING_RUNTIME: std::cell::RefCell<Option<super::super::state::RetainedRuntime>> = const { std::cell::RefCell::new(None) };
         }
 
-        let runtime = super::super::state::retain_runtime().expect("fixture `super::super::state::retain_runtime` call must succeed");
-        let attachment = crate::bootstrap::RuntimeThreadScope::enter().expect("fixture execution scope must admit entry");
+        let runtime = super::super::state::retain_runtime()
+            .expect("fixture `super::super::state::retain_runtime` call must succeed");
+
+        let attachment = crate::bootstrap::RuntimeThreadScope::enter()
+            .expect("fixture execution scope must admit entry");
 
         RETIRING_RUNTIME.set(Some(runtime.clone()));
         assert!(crate::bootstrap::register_thread_cleanup(cleanup));

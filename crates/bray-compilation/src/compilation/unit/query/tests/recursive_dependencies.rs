@@ -727,7 +727,10 @@ fn awaiting_a_future_consumes_it_and_unawaited_frames_remain_owned() {
     );
 
     let key = crate::test_support::source_function_body_key(&valid, "caller");
-    let analysis = valid.async_analysis(key).expect("fixture callable must complete async analysis");
+
+    let analysis = valid
+        .async_analysis(key)
+        .expect("fixture callable must complete async analysis");
 
     assert!(
         analysis

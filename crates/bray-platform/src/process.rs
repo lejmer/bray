@@ -321,7 +321,9 @@ impl NativePipeReader {
                 Self::Stderr(reader) => reader.num_ready_bytes()?,
             };
 
-            usize::try_from(ready).unwrap_or(usize::MAX).min(buffer.len())
+            usize::try_from(ready)
+                .unwrap_or(usize::MAX)
+                .min(buffer.len())
         };
 
         #[cfg(windows)]

@@ -99,10 +99,12 @@ impl InterfaceDependencyRequirement {
         ty: crate::InterfaceTypeId,
         requirements: impl IntoIterator<Item = InterfaceDependencyRequirement>,
     ) -> Self {
-        Self { value: InterfaceDependencyRequirementValue::CleanupDependencies {
-            ty,
-            requirements: bray_base::sorted_unique_shared_slice(requirements),
-        } }
+        Self {
+            value: InterfaceDependencyRequirementValue::CleanupDependencies {
+                ty,
+                requirements: bray_base::sorted_unique_shared_slice(requirements),
+            },
+        }
     }
 
     /// Requires the selected type's remaining cleanup to execute synchronously.
