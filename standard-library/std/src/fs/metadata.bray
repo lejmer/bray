@@ -69,6 +69,7 @@ trusted internal func path_metadata(pos path: &std.path.Path) -> Result<FileMeta
     );
 
     try checked_platform_status(status);
+
     return decode_platform_metadata(result_metadata);
 }
 
