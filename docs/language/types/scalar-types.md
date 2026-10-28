@@ -47,6 +47,35 @@ Scalar operations use the exact operand types after literal adaptation and expli
 Non-literal scalar values do not implicitly convert, promote, widen, narrow, or change numeric domain for assignment,
 calls, operators, overload selection, construction, or pattern matching.
 
+## Real exponentiation
+
+Real operands of `**` have the same real type, and the result has that type. `**=` and built-in generic exponentiation
+use the same rules. These operations do not implicitly change precision or convert a real-domain result to complex.
+
+A positive or negative zero exponent returns positive one for every base, including zero, infinity, and NaN. A base of
+positive one returns positive one for every exponent, including NaN. Negative one raised to either infinite exponent
+also returns positive one. Other NaN inputs produce the selected format's positive quiet NaN without preserving payloads.
+
+A finite negative nonzero base with a finite nonintegral exponent produces NaN. An integral exponent produces a negative
+result exactly when the base is negative and the exponent is odd. Integrality and parity use all bits of the selected
+exponent representation, including exponents larger than a machine integer.
+
+For zero bases and finite nonzero exponents, a positive exponent produces zero and a negative exponent produces infinity.
+The result is negative only for a negative zero base with an odd integral exponent. For infinite bases and finite
+nonzero exponents, a positive exponent produces infinity and a negative exponent produces zero. The same odd-integral
+rule determines the sign, including for negative infinity with a fractional exponent.
+
+For infinite exponents, only the base's magnitude matters. A magnitude greater than one produces positive infinity for a
+positive infinite exponent and positive zero for a negative infinite exponent. A magnitude less than one produces
+positive zero and positive infinity respectively. A magnitude of one produces positive one.
+
+Constant evaluation and native execution share software arithmetic in the selected IEEE format, including binary16 and
+binary128. Finite powers use bounded integer exponentiation or logarithm/exponential composition with at least 128 guard
+bits beyond the selected precision. Working precision also grows with the exponent's magnitude. Final encoding rounds
+to nearest with ties to even, preserving the sign of underflowed zeros and overflowed infinities. General power results
+are not guaranteed to be correctly rounded. Zero raised to a negative exponent follows these power rules in constants
+as well as at runtime, independently of real division's constant-expression zero-divisor rule.
+
 ## Complex arithmetic
 
 Complex operands of `+`, `-`, `*`, `/`, and `**` have the same complex type. Unary `-` negates both components.

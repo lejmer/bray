@@ -1625,6 +1625,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirBinaryOperator::ComplexMultiply => 17,
             MirBinaryOperator::ComplexDivide => 18,
             MirBinaryOperator::ComplexExponentiate => 19,
+            MirBinaryOperator::RealExponentiate => 20,
         });
     }
 

@@ -351,8 +351,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Operator::Subtract => llvm(self.builder.build_int_sub(left, right, "subtract"))?.into(),
             Operator::Multiply => llvm(self.builder.build_int_mul(left, right, "multiply"))?.into(),
             Operator::Exponentiate => self.integer_power(left, right)?.into(),
-            Operator::ComplexMultiply | Operator::ComplexDivide | Operator::ComplexExponentiate => {
-                panic!("complex helper operator has complex operands")
+            Operator::RealExponentiate
+            | Operator::ComplexMultiply
+            | Operator::ComplexDivide
+            | Operator::ComplexExponentiate => {
+                panic!("numeric helper operator has its selected real or complex operands")
             }
             Operator::Divide => {
                 if signed {
@@ -534,7 +537,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     }
 
     pub(super) fn float_binary(
-        &self,
+        &mut self,
         operator: MirBinaryOperator,
         left: inkwell::values::FloatValue<'context>,
         right: inkwell::values::FloatValue<'context>,
@@ -552,6 +555,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Operator::Divide => llvm(self.builder.build_float_div(left, right, "divide"))?.into(),
             Operator::Remainder => {
                 llvm(self.builder.build_float_rem(left, right, "remainder"))?.into()
+            }
+            Operator::RealExponentiate => {
+                let [result] = self.numeric_arithmetic(
+                    bray_runtime_interface::RuntimeAbiRole::RealPower,
+                    [left],
+                    [right],
+                )?;
+
+                result.into()
             }
             Operator::Equal
             | Operator::NotEqual

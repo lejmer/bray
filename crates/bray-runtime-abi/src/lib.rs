@@ -22,7 +22,7 @@ pub mod symbols;
 mod temporal;
 
 pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
-pub use numeric::NativeComplexBits;
+pub use numeric::{NativeComplexBits, NativeRealBits};
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,
     NativePanicPrimary, NativePanicReport, NativePanicReportConsumer, NativeSourceAnchor,

@@ -1,6 +1,6 @@
 use astro_float_num::{BigFloat, INF_NEG, INF_POS, NAN, Sign, WORD_BIT_SIZE};
 
-/// IEEE binary format used for each real component of a complex value.
+/// IEEE binary format used for real scalars and complex components.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BinaryFormat {
     /// IEEE binary16.
@@ -116,7 +116,7 @@ impl BinaryFormat {
     pub(crate) fn encode(self, value: &BigFloat) -> u128 {
         assert!(
             value.err().is_none(),
-            "complex arithmetic failed: {:?}",
+            "numeric arithmetic failed: {:?}",
             value.err()
         );
 

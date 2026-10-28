@@ -998,6 +998,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             17 => Ok(MirBinaryOperator::ComplexMultiply),
             18 => Ok(MirBinaryOperator::ComplexDivide),
             19 => Ok(MirBinaryOperator::ComplexExponentiate),
+            20 => Ok(MirBinaryOperator::RealExponentiate),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1536,7 +1537,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
-        validate_decoded_protected_memory_types(&kind, &operand_types, result_type, self.semantics)?;
+        validate_decoded_protected_memory_types(
+            &kind,
+            &operand_types,
+            result_type,
+            self.semantics,
+        )?;
+
         validate_decoded_atomic_result(&kind, result_type, self.semantics)?;
 
         let operation = MirMemoryOperation::new(kind, operands, operand_types, result_type)
@@ -3118,7 +3125,8 @@ mod tests {
         bytes: &[u8],
         symbols: &ProjectionSymbols,
     ) -> Result<bray_ir::MirProjectionKind, ExecutableTemplateDecodeError> {
-        let values = SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
+        let values =
+            SemanticValueStore::try_new().expect("fixture semantic value store must be valid");
 
         let semantics = crate::InterfaceSemantics::new()
             .intern(&values, symbols)
@@ -3135,7 +3143,8 @@ mod tests {
             owner: symbols.0,
             identity: bray_ir::MirExecutableTemplateId::new(0),
             family_size: 1,
-            target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc").expect("fixture target identity must be valid"),
+            target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc")
+                .expect("fixture target identity must be valid"),
         };
 
         decoder.projection_kind()
@@ -3154,9 +3163,13 @@ mod tests {
                 ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
             };
 
-            let bytes =
-                super::super::encoding::encode_projection_for_test(&projection, &mut symbols)
-                    .expect("fixture `super::super::encoding::encode_projection_for_test` call must succeed");
+            let bytes = super::super::encoding::encode_projection_for_test(
+                &projection,
+                &mut symbols,
+            )
+            .expect(
+                "fixture `super::super::encoding::encode_projection_for_test` call must succeed",
+            );
 
             assert_eq!(decode_projection(&bytes, &symbols), Ok(projection));
 
@@ -3319,7 +3332,11 @@ mod tests {
 
         let malformed = [
             (valid[0].0.clone(), Vec::new(), Some(fixture.other)),
-            (valid[1].0.clone(), vec![fixture.mutable_storage], valid[1].2),
+            (
+                valid[1].0.clone(),
+                vec![fixture.mutable_storage],
+                valid[1].2,
+            ),
             (valid[2].0.clone(), vec![fixture.shared_storage], valid[2].2),
             (
                 valid[3].0.clone(),

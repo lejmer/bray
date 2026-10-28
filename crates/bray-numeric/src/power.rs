@@ -46,12 +46,7 @@ pub fn power(format: BinaryFormat, base: [u128; 2], exponent: [u128; 2]) -> [u12
         .unwrap_or(0)
         .max(0);
 
-    let precision = (format.fraction_bits()
-        + 1
-        + 128
-        + usize::try_from(growth).expect("positive IEEE exponent fits usize"))
-    .max(256)
-    .next_multiple_of(64);
+    let precision = working_precision(format, growth);
 
     let base = base.map(|bits| format.decode(bits, precision));
     let exponent = exponent.map(|bits| format.decode(bits, precision));
@@ -59,6 +54,61 @@ pub fn power(format: BinaryFormat, base: [u128; 2], exponent: [u128; 2]) -> [u12
     let result = evaluate(&base, &exponent, precision, &mut constants);
 
     result.map(|value| format.encode(&value))
+}
+
+pub(crate) fn working_precision(format: BinaryFormat, exponent_growth: i32) -> usize {
+    (format.fraction_bits()
+        + 1
+        + 128
+        + usize::try_from(exponent_growth.max(0)).expect("positive IEEE exponent fits usize"))
+    .max(256)
+    .next_multiple_of(64)
+}
+
+pub(crate) fn magnitude_power(
+    base: &BigFloat,
+    exponent: &BigFloat,
+    precision: usize,
+    constants: &mut Consts,
+) -> BigFloat {
+    let zero = BigFloat::from_u8(0, precision);
+    let one = BigFloat::from_u8(1, precision);
+
+    if exponent.is_zero() || base.cmp(&one) == Some(0) {
+        return one;
+    }
+
+    if exponent.is_inf() {
+        let grows =
+            (base.cmp(&one).is_some_and(|order| order > 0)) == (exponent.sign() == Some(Sign::Pos));
+
+        return if grows { INF_POS } else { zero };
+    }
+
+    if base.is_zero() || base.is_inf() {
+        let grows = (exponent.sign() == Some(Sign::Pos)) == base.is_inf();
+
+        return if grows { INF_POS } else { zero };
+    }
+
+    if let Some((negative, count)) =
+        integer_exponent(exponent, base.exponent().unwrap_or(0).unsigned_abs())
+    {
+        let count = usize::try_from(count).expect("bounded power exponent fits usize");
+        let result = base.powi(count, precision, ROUND);
+
+        return if negative {
+            one.div(&result, precision, ROUND)
+        } else {
+            result
+        };
+    }
+
+    // Generic adaptive pow can stall on exact dyadic results. Explicit guarded
+    // composition matches the complex power policy without that convergence loop.
+    base.ln(precision, ROUND, constants)
+        .mul(exponent, precision, ROUND)
+        .exp(precision, ROUND, constants)
 }
 
 fn evaluate(
@@ -80,18 +130,7 @@ fn evaluate(
     }
 
     if b.is_zero() && a.cmp(&zero).is_some_and(|order| order > 0) && d.is_zero() {
-        let real = if c.is_inf() {
-            let above_one = a.cmp(&one).is_some_and(|order| order > 0);
-            let positive_exponent = c.sign() == Some(Sign::Pos);
-
-            if above_one == positive_exponent {
-                INF_POS
-            } else {
-                BigFloat::from_u8(0, precision)
-            }
-        } else {
-            a.pow(c, precision, ROUND, constants)
-        };
+        let real = magnitude_power(a, c, precision, constants);
 
         let mut imaginary = zero;
         let negative = (b.sign() == Some(Sign::Neg)) != (c.sign() == Some(Sign::Neg));
@@ -133,17 +172,13 @@ fn evaluate(
     }
 
     if d.is_zero() {
-        if let Some((negative, mut count)) = integer_exponent(c)
-            && count
-                <= u64::try_from(i32::MAX / 4).expect("positive power limit fits u64")
-                    / u64::from(
-                        a.exponent()
-                            .unwrap_or(0)
-                            .unsigned_abs()
-                            .max(b.exponent().unwrap_or(0).unsigned_abs())
-                            .max(1),
-                    )
-        {
+        if let Some((negative, mut count)) = integer_exponent(
+            c,
+            a.exponent()
+                .unwrap_or(0)
+                .unsigned_abs()
+                .max(b.exponent().unwrap_or(0).unsigned_abs()),
+        ) {
             let mut result = [one, zero];
 
             // Each clone retains a numerical accumulator that the loop mutates independently.
@@ -232,13 +267,13 @@ fn axis_power(
         return None;
     };
 
-    let mut quadrant = integer_quadrant(&turns)?;
+    let mut quadrant = integer_modulo_four(&turns)?;
 
     if imaginary.sign() == Some(Sign::Neg) {
         quadrant = (4 - quadrant) % 4;
     }
 
-    let scale = magnitude.pow(exponent, precision, ROUND, constants);
+    let scale = magnitude_power(&magnitude, exponent, precision, constants);
     let mut zero = BigFloat::from_u8(0, precision);
 
     let negative_angle =
@@ -255,7 +290,7 @@ fn axis_power(
     })
 }
 
-fn integer_quadrant(value: &BigFloat) -> Option<u8> {
+pub(crate) fn integer_modulo_four(value: &BigFloat) -> Option<u8> {
     let (words, _, sign, exponent, _) = value.as_raw_parts()?;
 
     let total = words.len() * astro_float_num::WORD_BIT_SIZE;
@@ -431,7 +466,7 @@ fn square_root(real: &BigFloat, imaginary: &BigFloat, precision: usize) -> [BigF
     }
 }
 
-fn integer_exponent(value: &BigFloat) -> Option<(bool, u64)> {
+fn integer_exponent(value: &BigFloat, maximum_factor_exponent: u32) -> Option<(bool, u64)> {
     let exponent = value.exponent()?;
 
     if !(1..=64).contains(&exponent) {
@@ -459,7 +494,10 @@ fn integer_exponent(value: &BigFloat) -> Option<(bool, u64)> {
         integer = (integer << 1) | u64::from(bit(index));
     }
 
-    Some((sign == Sign::Neg, integer))
+    let limit = u64::try_from(i32::MAX / 4).expect("positive power limit fits u64")
+        / u64::from(maximum_factor_exponent.max(1));
+
+    (integer <= limit).then_some((sign == Sign::Neg, integer))
 }
 
 #[cfg(test)]

@@ -1,0 +1,22 @@
+module bray.standard_library_tests.real_power;
+
+func generic_power<Value>(pos base: Value, pos exponent: Value) -> Value(Exponentiate<Value>).Output
+    with(Value: Exponentiate<Value>)
+{
+    return base ** exponent;
+}
+
+func integer_power(pos base: i64, pos exponent: i64) -> i64
+{
+    return base ** exponent;
+}
+
+@test
+func integer_powers_keep_their_native_dispatch()
+{
+    let base: i64 = 2;
+    let exponent: i64 = 10;
+
+    assert(integer_power(base, exponent) == 1024);
+    assert(generic_power<i64>(base, exponent) == 1024);
+}

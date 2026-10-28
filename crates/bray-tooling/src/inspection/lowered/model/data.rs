@@ -2850,6 +2850,7 @@ fn binary_operator(operator: MirBinaryOperator) -> &'static str {
         MirBinaryOperator::ComplexMultiply => "complex_multiply",
         MirBinaryOperator::ComplexDivide => "complex_divide",
         MirBinaryOperator::ComplexExponentiate => "complex_exponentiate",
+        MirBinaryOperator::RealExponentiate => "real_exponentiate",
     }
 }
 
