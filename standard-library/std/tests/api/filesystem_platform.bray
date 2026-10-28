@@ -149,6 +149,7 @@ trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result
     let raw_close: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw);
 
     assert(raw_close.1);
+
     try raw_close.0;
 
     let mut handle: u64 = 0;
@@ -231,7 +232,9 @@ trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result
     );
 
     assert(closed.category == 0 && released == 1);
+
     try std.fs.remove_file(&child);
     try std.fs.remove_directory(&parent);
+
     return Ok(unit);
 }
