@@ -9,7 +9,7 @@ using std.order;
 
 trusted internal func windows_environment(
     pos entries: &[PlatformEnvironmentEntry],
-) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+) -> Result<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>
     uses(raw_memory)
 {
     let count: usize = entries.length();
@@ -22,30 +22,62 @@ trusted internal func windows_environment(
 
     let mut total: usize = if count == 0
     {
-        yield 4;
+        yield 2;
     }
     else
     {
-        yield 2;
+        yield 1;
     };
 
     let mut index: usize = 0;
+    let mut key_total: usize = 0;
 
     while index < count
     {
         let entry: PlatformEnvironmentEntry = entries[index];
         let key_units: usize = try internal windows_text_units(entry.key, allow_empty = false, allow_equals = false);
         let value_units: usize = try internal windows_text_units(entry.value, allow_empty = true, allow_equals = true);
-        let bytes: usize = (key_units + value_units + 2) * 2;
+        let units: usize = key_units + value_units + 2;
 
-        if total > std.numeric.USIZE_MAX - bytes
+        if total > (std.numeric.USIZE_MAX >> 1) - units || key_total > (std.numeric.USIZE_MAX >> 1) - key_units
         {
             return Error(internal std.platform.exhausted_status());
         }
 
-        total += bytes;
+        total += units;
+        key_total += key_units;
 
         trusted internal std.memory.initialize_spare<usize>(&mut ordered, index);
+
+        index += 1;
+    }
+
+    let mut keys: std.memory.RawBuffer<u16> = try trusted internal std.platform.zeroed_windows_text(key_total);
+    let key_units: &mut [u16] = trusted std.memory.initialized_slice_mut<u16>(&mut keys);
+
+    let mut offsets: std.memory.RawBuffer<usize> = match trusted std.memory.RawBuffer<usize>(capacity = count)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.exhausted_status()); }
+    };
+
+    let mut key_offset: usize = 0;
+
+    index = 0;
+
+    while index < count
+    {
+        trusted internal std.memory.initialize_spare<usize>(&mut offsets, key_offset);
+
+        let key: &[u8] = entries[index].key;
+        let mut unit_index: usize = 0;
+
+        while unit_index < key.length() / 2
+        {
+            key_units[key_offset] = trusted internal windows_text_unit(key, unit_index);
+            key_offset += 1;
+            unit_index += 1;
+        }
 
         index += 1;
     }
@@ -54,12 +86,14 @@ trusted internal func windows_environment(
     {
         indices = trusted std.memory.initialized_slice_mut<usize>(&mut ordered),
         entries = entries,
+        keys = trusted std.memory.initialized_slice<u16>(&keys),
+        offsets = trusted std.memory.initialized_slice<usize>(&offsets),
     };
 
     order.sort_unstable();
 
-    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(total);
-    let destination: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut storage);
+    let mut storage: std.memory.RawBuffer<u16> = try trusted internal std.platform.zeroed_windows_text(total);
+    let destination: &mut [u16] = trusted std.memory.initialized_slice_mut<u16>(&mut storage);
     let values: &[usize] = trusted std.memory.initialized_slice<usize>(&ordered);
     let mut offset: usize = 0;
 
@@ -69,22 +103,27 @@ trusted internal func windows_environment(
     {
         let entry: PlatformEnvironmentEntry = entries[values[index]];
 
-        trusted internal std.memory.copy_bytes(
-            &mut destination[offset..offset + entry.key.length()],
-            source = entry.key,
-        );
+        let mut unit_index: usize = 0;
 
-        offset += entry.key.length();
+        while unit_index < entry.key.length() / 2
+        {
+            destination[offset] = trusted internal windows_text_unit(entry.key, unit_index);
+            offset += 1;
+            unit_index += 1;
+        }
+
         destination[offset] = 61;
-        offset += 2;
+        offset += 1;
+        unit_index = 0;
 
-        trusted internal std.memory.copy_bytes(
-            &mut destination[offset..offset + entry.value.length()],
-            source = entry.value,
-        );
+        while unit_index < entry.value.length() / 2
+        {
+            destination[offset] = trusted internal windows_text_unit(entry.value, unit_index);
+            offset += 1;
+            unit_index += 1;
+        }
 
-        offset += entry.value.length();
-        offset += 2;
+        offset += 1;
         index += 1;
     }
 
@@ -95,11 +134,13 @@ internal struct WindowsEnvironmentOrder
 {
     mut indices: &mut [usize];
     entries: &[PlatformEnvironmentEntry];
+    keys: &[u16];
+    offsets: &[usize];
 }
 
 impl WindowsEnvironmentOrderedSequence = WindowsEnvironmentOrder(std.order.OrderedSequence)
 {
-    type Element = [u8];
+    type Element = [u16];
 
     func order_length() -> usize
     {
@@ -110,7 +151,9 @@ impl WindowsEnvironmentOrderedSequence = WindowsEnvironmentOrder(std.order.Order
     {
         let left_index: usize = self.indices[left];
         let right_index: usize = self.indices[right];
-        let compared: Ordering = self.compare_value(left, self.entries[right_index].key);
+        let start: usize = self.offsets[right_index];
+        let length: usize = self.entries[right_index].key.length() / 2;
+        let compared: Ordering = self.compare_value(left, &self.keys[start..start + length]);
 
         if compared != Ordering.Equal
         {
@@ -130,10 +173,12 @@ impl WindowsEnvironmentOrderedSequence = WindowsEnvironmentOrder(std.order.Order
         return Ordering.Equal;
     }
 
-    func compare_value(pos index: usize, pos value: &[u8]) -> Ordering
+    func compare_value(pos index: usize, pos value: &[u16]) -> Ordering
     {
         let left: usize = self.indices[index];
-        let compared: i32 = trusted internal windows_environment_compare(self.entries[left].key, value);
+        let start: usize = self.offsets[left];
+        let length: usize = self.entries[left].key.length() / 2;
+        let compared: i32 = trusted internal windows_environment_compare(&self.keys[start..start + length], value);
 
         if compared == 1
         {
@@ -162,16 +207,14 @@ impl WindowsEnvironmentOrderedSequence = WindowsEnvironmentOrder(std.order.Order
     }
 }
 
-trusted internal func windows_environment_compare(pos left: &[u8], pos right: &[u8]) -> i32
-    uses(foreign_call, layout_reinterpret)
+trusted internal func windows_environment_compare(pos left: &[u16], pos right: &[u16]) -> i32
+    uses(foreign_call)
 {
     return trusted std.os.windows.compare_string_ordinal(
-        trusted std.memory.reinterpret<u16, u8>(internal std.memory.slice_pointer(left, count = left.length())),
-        left_length = std.numeric.truncate_to<i32>(left.length() / 2),
-        right = trusted std.memory.reinterpret<u16, u8>(
-            internal std.memory.slice_pointer(right, count = right.length())
-        ),
-        right_length = std.numeric.truncate_to<i32>(right.length() / 2),
+        internal std.memory.slice_pointer(left, count = left.length()),
+        left_length = std.numeric.truncate_to<i32>(left.length()),
+        right = internal std.memory.slice_pointer(right, count = right.length()),
+        right_length = std.numeric.truncate_to<i32>(right.length()),
         ignore_case = 1,
     );
 }

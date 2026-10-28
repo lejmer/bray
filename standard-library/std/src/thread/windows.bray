@@ -18,7 +18,7 @@ trusted func current_platform_identity() -> u64
 }
 
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
-    uses(foreign_call, layout_reinterpret)
+    uses(foreign_call)
 {
     let native: std.path.NativeText = match consume std.path.NativeText.from_string(name)
     {
@@ -29,17 +29,16 @@ trusted internal func platform_set_current_thread_name(pos name: &string) -> Res
 
     let bytes: &[u8] = internal std.path.native_bytes(&native);
 
-    let mut terminated: std.memory.RawBuffer<u8> = match trusted internal std.platform.terminated_native_text(
-        internal std.memory.slice_pointer(bytes, count = bytes.length()),
-        length = bytes.length() as u64,
-        terminator_bytes = 2,
+    let terminated: std.memory.RawBuffer<u16> = match trusted internal std.platform.owned_windows_text(
+        bytes,
+        terminate = true,
     )
     {
         case Ok(value) { yield value; }
         case Error(_) { return Error(ThreadNameError.Allocation); }
     };
 
-    let description: DataPointer<u16> = trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(&terminated));
+    let description: DataPointer<u16> = std.memory.pointer<u16>(&terminated);
 
     let status: i32 = trusted std.os.windows.set_thread_description(
         trusted std.os.windows.get_current_thread(),

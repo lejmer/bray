@@ -12,15 +12,15 @@ trusted internal func windows_spawn_storage(
     working_directory: &[u8],
 ) -> Result<WindowsSpawnStorage, std.platform.PlatformStatus>
 {
-    let executable_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
+    let executable_storage: std.memory.RawBuffer<u16> = try trusted internal windows_terminated_text(
         executable,
         allow_empty = false,
     );
 
-    let command_line: std.memory.RawBuffer<u8> = try trusted internal windows_command_line(executable, arguments);
-    let environment_storage: std.memory.RawBuffer<u8> = try trusted internal windows_environment(environment);
+    let command_line: std.memory.RawBuffer<u16> = try trusted internal windows_command_line(executable, arguments);
+    let environment_storage: std.memory.RawBuffer<u16> = try trusted internal windows_environment(environment);
 
-    let working_storage: std.memory.RawBuffer<u8> = try trusted internal windows_terminated_text(
+    let working_storage: std.memory.RawBuffer<u16> = try trusted internal windows_terminated_text(
         working_directory,
         allow_empty = true,
     );
@@ -76,28 +76,16 @@ trusted internal func windows_text_unit(pos text: &[u8], pos index: usize) -> u1
 trusted internal func windows_terminated_text(
     pos text: &[u8],
     allow_empty: bool,
-) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
-    uses(raw_memory)
+) -> Result<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>
 {
     _ = try internal windows_text_units(text, allow_empty = allow_empty, allow_equals = true);
-    let bytes: usize = text.length();
 
-    if bytes == 0
+    if text.length() == 0
     {
-        return trusted internal windows_buffer(0);
+        return trusted internal std.platform.zeroed_windows_text(0);
     }
 
-    if bytes > std.numeric.USIZE_MAX - 2
-    {
-        return Error(internal std.platform.exhausted_status());
-    }
-
-    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(bytes + 2);
-
-    let destination: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut storage);
-
-    trusted internal std.memory.copy_bytes(destination, source = text);
-    return Ok(storage);
+    return trusted internal std.platform.owned_windows_text(text, terminate = true);
 }
 
 trusted internal func windows_buffer(pos size: usize) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>

@@ -8,7 +8,7 @@ using internal std.platform;
 trusted internal func windows_command_line(
     pos executable: &[u8],
     pos arguments: &[&[u8]],
-) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
+) -> Result<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>
     uses(raw_memory)
 {
     let mut units: usize = try internal quoted_windows_units(executable);
@@ -33,8 +33,8 @@ trusted internal func windows_command_line(
         return Error(internal std.platform.exhausted_status());
     }
 
-    let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer((units + 1) * 2);
-    let destination: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(&mut storage);
+    let mut storage: std.memory.RawBuffer<u16> = try trusted internal std.platform.zeroed_windows_text(units + 1);
+    let destination: &mut [u16] = trusted std.memory.initialized_slice_mut<u16>(&mut storage);
     let mut written: usize = trusted internal write_quoted_windows_argument(destination, executable, index = 0);
 
     index = 0;
@@ -101,7 +101,7 @@ internal func quoted_windows_units(pos text: &[u8]) -> Result<usize, std.platfor
     return Ok(result + slashes * 2);
 }
 
-trusted internal func write_quoted_windows_argument(pos destination: &mut [u8], pos text: &[u8], index: usize) -> usize
+trusted internal func write_quoted_windows_argument(pos destination: &mut [u16], pos text: &[u8], index: usize) -> usize
 {
     let units: usize = text.length() / 2;
     let mut written: usize = index;

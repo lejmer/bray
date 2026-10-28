@@ -12,7 +12,7 @@ trusted internal func windows_child_handles(
     reads: bool,
     security: DataPointer<u8>,
 ) -> Result<WindowsChildHandles, std.platform.PlatformStatus>
-    uses(foreign_call, layout_reinterpret)
+    uses(foreign_call)
 {
     match policy
     {
@@ -52,7 +52,7 @@ trusted internal func windows_child_handles(
         }
         case 1
         {
-            let null_name: bytes = b"N\0U\0L\0\0\0";
+            let null_name: [u16; 4] = [78, 85, 76, 0];
 
             let access: u32 = if reads
             {
@@ -64,7 +64,7 @@ trusted internal func windows_child_handles(
             };
 
             let handle: DataPointer<u8> = trusted std.os.windows.create_file_w(
-                trusted std.memory.reinterpret<u16, u8>(std.memory.address_of<u8>(&null_name[0])),
+                std.memory.address_of<u16>(&null_name[0]),
                 access = access,
                 share = std.os.windows.FILE_SHARE_READ | std.os.windows.FILE_SHARE_WRITE |
                     std.os.windows.FILE_SHARE_DELETE,
