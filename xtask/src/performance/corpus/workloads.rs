@@ -5,7 +5,7 @@ use super::model::{
     NO_RETENTION_CONTRACT, RetentionContract, StorageExpectation, Workload,
 };
 
-pub(in crate::performance) const WORKLOADS: [Workload; 25] = [
+pub(in crate::performance) const WORKLOADS: [Workload; 26] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -600,6 +600,72 @@ func main() -> Result<unit, std.io.IoError>
         storage: None,
     },
     Workload {
+        id: "filesystem_reused_paths",
+        category: WorkloadCategory::Filesystem,
+        scale: 8,
+        units: "operation cycles",
+        batching: BatchingPolicy::SingleExecution,
+        source: r#"module filesystem_reused_paths;
+
+using std.fs;
+using std.io;
+using std.path;
+using std.testing;
+
+func path(pos text: string) -> std.path.Path
+{
+    match std.path.Path.from_string(&text)
+    {
+        case Ok(value) { return value; }
+        case Error(_) { panic("performance path must be valid"); }
+    }
+}
+
+trusted func main() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    let source: std.path.Path = path("bray-performance-path-a");
+    let destination: std.path.Path = path("bray-performance-path-b");
+    let directory: std.path.Path = path("bray-performance-path-dir");
+    let mut index: usize = 0;
+
+    while index < 8
+    {
+        try std.fs.create_directory(&directory);
+        let mut listing: std.fs.Directory = try trusted std.fs.Directory.open(&directory);
+        std.testing.assert_ok<unit, std.io.IoError>(listing.close());
+        assert(listing.is_complete());
+        let options: std.fs.OpenOptions = std.fs.OpenOptions(
+            access = std.fs.FileAccess.Write,
+            creation = std.fs.FileCreation.CreateNew,
+        );
+        let mut file: std.fs.File = try std.fs.File.open(&source, options = options);
+        std.testing.assert_ok<unit, std.io.IoError>(file.close());
+        assert(file.is_complete());
+        _ = try std.fs.metadata(&source);
+        try std.fs.rename(&source, &destination);
+        try std.fs.remove_file(&destination);
+        try std.fs.remove_directory(&directory);
+        index += 1;
+    }
+
+    return Ok(unit);
+}
+"#,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-path-dir"),
+        platform_operations: &[
+            "platform.file.open",
+            "platform.path.metadata",
+            "platform.path.rename",
+            "platform.path.remove_file",
+            "platform.path.create_directory",
+            "platform.path.remove_directory",
+        ],
+        retention: NO_RETENTION_CONTRACT,
+        storage: None,
+    },
+    Workload {
         id: "file_output",
         category: WorkloadCategory::Filesystem,
         scale: 4096,
@@ -618,22 +684,21 @@ func main() -> Result<unit, std.io.IoError>
         ],
         retention: RetentionContract {
             required_symbols: &[
-                "bray_platform_file_open",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_close",
                 "bray_platform_path_remove_file",
             ],
+            // Resource-completion assertions can report failures on standard error.
             forbidden_symbols: &[
                 "bray_platform_context_native_text_width",
                 "bray_platform_standard_output_write",
-                "bray_platform_standard_error_write",
                 "bray_platform_process_pipe_read",
                 "bray_platform_process_pipe_write",
                 "bray_platform_process_pipe_flush",
                 "bray_platform_process_pipe_close",
             ],
-            required_provenance: &["bray_platform_filesystem"],
+            required_provenance: &[],
             forbidden_provenance: &[
                 "bray_platform_core",
                 "bray_platform_process",
@@ -897,9 +962,9 @@ mod tests {
             assert_eq!(
                 workload.storage_expectation(target),
                 Some(super::StorageExpectation {
-                    allocation_count: 5,
-                    allocated_bytes: 371,
-                    copied_bytes: 112,
+                    allocation_count: 3,
+                    allocated_bytes: 313,
+                    copied_bytes: 56,
                 })
             );
         }
@@ -911,9 +976,9 @@ mod tests {
             assert_eq!(
                 workload.storage_expectation(target),
                 Some(super::StorageExpectation {
-                    allocation_count: 5,
-                    allocated_bytes: 486,
-                    copied_bytes: 168,
+                    allocation_count: 3,
+                    allocated_bytes: 371,
+                    copied_bytes: 56,
                 })
             );
         }

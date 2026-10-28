@@ -10,6 +10,8 @@ struct BrayPlatformPath
 {
     const std::uint8_t* address;
     std::uint64_t length;
+    // 1 promises a readable, aligned native NUL unit after the logical bytes.
+    std::uint64_t terminated;
 };
 
 struct BrayPlatformStatus

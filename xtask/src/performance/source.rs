@@ -79,8 +79,10 @@ using std.fs.FileWriter;
 using std.io;
 using std.io.BufferedWriterSinkWriter;
 using std.path;
+using std.testing;
 
 func main() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let path: std.path.Path = output_path();
 
@@ -95,15 +97,20 @@ func main() -> Result<unit, std.io.IoError>
         creation = std.fs.FileCreation.CreateNew,
     );
 
-    let opened: std.fs.File = try std.fs.File.open(&path, options = options);
+    let opened: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+        std.fs.File.open(&path, options = options),
+    );
     let mut writer: std.io.BufferedWriter<std.fs.File> =
-        try std.io.BufferedWriter<std.fs.File>(opened, capacity = 256);
+        std.testing.assert_ok<std.io.BufferedWriter<std.fs.File>, std.io.IoError>(
+            std.io.BufferedWriter<std.fs.File>(opened, capacity = 256),
+        );
     let bytes: [u8; 4096] = [120; 4096];
 
-    try writer.write_all(&bytes[..]);
+    std.testing.assert_ok<unit, std.io.IoError>(writer.write_all(&bytes[..]));
 
-    let mut completed: std.fs.File = try writer.into_sink();
-    try completed.close();
+    let mut completed: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(writer.into_sink());
+    std.testing.assert_ok<unit, std.io.IoError>(completed.close());
+    assert(completed.is_complete());
     try std.fs.remove_file(&path);
 
     return Ok(unit);

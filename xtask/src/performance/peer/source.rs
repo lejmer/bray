@@ -27,6 +27,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "hash_map_collision_lookup" => ("hash_map_collision_lookup", "19"),
         "ordered_collections_monotonic_updates" => ("ordered_collections_monotonic_updates", "20"),
         "filesystem_metadata" => ("filesystem_metadata", "4"),
+        "filesystem_reused_paths" => ("filesystem_reused_paths", "26"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
         "borrowed_text" => ("borrowed_text", "7"),
@@ -110,6 +111,9 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         "filesystem_metadata" => {
             Some("read metadata successfully for the same existing path 256 times")
         }
+        "filesystem_reused_paths" => Some(
+            "reuse three paths across eight cycles of directory creation and opening, file opening and metadata, rename, and removal",
+        ),
         "process_context" => Some("read the current process identity 1024 times"),
         "monotonic_clock" => Some("read a monotonic clock successfully 1024 times"),
         "borrowed_text" => Some(

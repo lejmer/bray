@@ -137,6 +137,7 @@ trusted internal func rename_path(
 {
     let native_source: PlatformPath = platform_path(source);
     let native_destination: PlatformPath = platform_path(destination);
+
     let status: std.platform.PlatformStatus = trusted platform_path_rename(native_source, native_destination);
 
     return checked_platform_status(status);

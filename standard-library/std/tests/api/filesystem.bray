@@ -2,9 +2,16 @@ module bray.standard_library_tests.filesystem;
 
 using std.bytes;
 using std.fs;
+using internal std.fs.PlatformPath;
+using internal std.fs.PreparedPath;
+using internal std.fs.prepare_native_path;
 using internal std.fs.FileReader;
 using internal std.fs.FileWriter;
 using std.io;
+using std.memory;
+using internal std.memory.slice_pointer;
+using internal std.platform;
+using internal std.platform.PlatformStatus;
 using std.io.IoErrorKindEquatable;
 using internal std.io.BufferedReaderSourceReader;
 using internal std.io.BufferedWriterSinkWriter;
@@ -370,6 +377,175 @@ func discard_existing_directory(pos path: &std.path.Path)
     {
         case Ok(_) {}
         case Error(_) {}
+    }
+}
+
+@test
+trusted func owned_platform_paths_expose_terminated_storage()
+{
+    let path: std.path.Path = test_path("bray-platform-path");
+    let native: std.fs.PlatformPath = internal std.fs.platform_path(&path);
+    let original: u64 = trusted internal std.platform.pointer_handle(native.address);
+
+    assert(native.terminated == 1);
+
+    let prepared_result: Result<std.fs.PreparedPath, std.platform.PlatformStatus> =
+        trusted internal std.fs.prepare_native_path(native);
+
+    let prepared: std.fs.PreparedPath = match consume prepared_result
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the owned path must be prepared"); }
+    };
+
+    assert(trusted internal std.platform.pointer_handle(prepared.pointer) == original);
+
+    let empty: std.path.Path = test_path("");
+    let empty_native: std.fs.PlatformPath = internal std.fs.platform_path(&empty);
+
+    assert(empty_native.terminated == 0);
+
+    let empty_result: Result<std.fs.PreparedPath, std.platform.PlatformStatus> =
+        trusted internal std.fs.prepare_native_path(empty_native);
+
+    let empty_prepared: std.fs.PreparedPath = match consume empty_result
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the empty path must be prepared"); }
+    };
+
+    assert(!std.memory.is_null<u8>(empty_prepared.pointer));
+}
+
+@test(serial)
+trusted func rename_accepts_mixed_owned_and_length_delimited_paths() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    let source: std.path.Path = test_path("bray-rename-mixed-source");
+    let destination: std.path.Path = test_path("bray-rename-mixed-destination");
+
+    discard_existing_file(&source);
+    discard_existing_file(&destination);
+    try write_file(&source, value = 7);
+
+    let source_owned: std.fs.PlatformPath = internal std.fs.platform_path(&source);
+    let destination_owned: std.fs.PlatformPath = internal std.fs.platform_path(&destination);
+
+    let source_borrowed: std.fs.PlatformPath =
+    {
+        address = source_owned.address,
+        length = source_owned.length,
+        terminated = 0,
+    };
+
+    let first: std.platform.PlatformStatus = trusted internal std.fs.platform_path_rename(
+        source_borrowed,
+        destination_owned
+    );
+
+    assert(first.category == 0);
+
+    let source_again: std.fs.PlatformPath = internal std.fs.platform_path(&source);
+    let destination_again: std.fs.PlatformPath = internal std.fs.platform_path(&destination);
+
+    let destination_borrowed: std.fs.PlatformPath =
+    {
+        address = destination_again.address,
+        length = destination_again.length,
+        terminated = 0,
+    };
+
+    let second: std.platform.PlatformStatus = trusted internal std.fs.platform_path_rename(
+        destination_borrowed,
+        source_again
+    );
+
+    assert(second.category == 0);
+    try std.fs.remove_file(&source);
+    return Ok(unit);
+}
+
+@test
+trusted func length_delimited_native_paths_remain_supported()
+    uses(raw_memory)
+{
+    let bytes: bytes<4> = [65, 0, 66, 0];
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+
+    let length: usize = if width == 2
+    {
+        yield 4;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    let original: u64 = trusted internal std.platform.pointer_handle(std.memory.address_of<u8>(&bytes[0]));
+
+    let path: std.fs.PlatformPath =
+    {
+        address = trusted internal std.memory.slice_pointer<u8>(&bytes[..], count = length),
+        length = length as u64,
+        terminated = 0,
+    };
+
+    let prepared_result: Result<std.fs.PreparedPath, std.platform.PlatformStatus> =
+        trusted internal std.fs.prepare_native_path(path);
+
+    let prepared: std.fs.PreparedPath = match consume prepared_result
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the borrowed path must be prepared"); }
+    };
+
+    let prepared_address: u64 = trusted internal std.platform.pointer_handle(prepared.pointer);
+
+    assert(prepared_address != original);
+
+    let storage: std.memory.RawBuffer<u8> = match consume prepared.storage
+    {
+        case ?value { yield value; }
+        case none { panic("the borrowed path must own temporary storage"); }
+    };
+
+    let base: u64 = trusted internal std.platform.pointer_handle(std.memory.pointer<u8>(&storage));
+
+    let offset: usize = if prepared_address == base
+    {
+        yield 0;
+    }
+    else
+    {
+        assert(prepared_address == base + 1);
+        yield 1;
+    };
+
+    let actual: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
+
+    assert(actual[offset] == 65);
+    assert(actual[offset + length] == 0);
+
+    if width == 2
+    {
+        assert(prepared_address % 2 == 0);
+        assert(actual[offset + length + 1] == 0);
+
+        let odd: std.fs.PlatformPath =
+        {
+            address = trusted internal std.memory.slice_pointer<u8>(&bytes[..], count = 1),
+            length = 1,
+            terminated = 0,
+        };
+
+        let odd_result: Result<std.fs.PreparedPath, std.platform.PlatformStatus> =
+            trusted internal std.fs.prepare_native_path(odd);
+
+        match consume odd_result
+        {
+            case Ok(_) { panic("odd native byte count must be rejected"); }
+            case Error(_) {}
+        }
     }
 }
 

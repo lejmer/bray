@@ -123,6 +123,8 @@ macro_rules! platform_role_catalog {
                 PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close",
                 Filesystem, [U64] -> Status, bootstrap: ()
             }
+            // Path-bearing entry points use distinct symbols for the extended path record,
+            // so an archive built for the old by-value layout cannot satisfy these roles.
             FileOpen {
                 "Opens one file stream.", 0x0211, "platform.file.open",
                 PLATFORM_FILE_OPEN_SYMBOL = "bray_platform_file_open",

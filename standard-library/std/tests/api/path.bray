@@ -1,9 +1,14 @@
 module bray.standard_library_tests.path;
 
+using std.bytes;
 using std.io;
+using std.memory;
 using std.path;
+using std.path.PathEquatable;
+using std.path.PathComparable;
 using internal std.platform;
 using std.string;
+using std.testing;
 
 @test
 trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.path.PathError>
@@ -54,6 +59,133 @@ trusted func native_paths_round_trip_join_and_normalize() -> Result<unit, std.pa
 
         assert(normalized_drive_text == "C:child");
     }
+
+    return Ok(unit);
+}
+
+@test
+trusted func owned_paths_keep_a_terminated_native_view() -> Result<unit, std.path.PathError>
+{
+    let empty: std.path.Path = try std.path.Path.from_string(&"");
+    let source: std.path.Path = try std.path.Path.from_string(&"alpha/./beta");
+    let normalized: std.path.Path = try source.normalize();
+    let child: std.path.Path = try std.path.Path.from_string(&"gamma");
+    let joined: std.path.Path = try normalized.join(&child);
+    let same_source: std.path.Path = try std.path.Path.from_string(&"alpha/./beta");
+    let same: std.path.Path = try same_source.normalize();
+
+    assert(normalized == same);
+    assert(source != normalized);
+
+    _ = std.testing.assert_error<std.path.Path, std.path.PathError>(std.path.Path.from_string(&"a\0b"));
+
+    assert_terminated(&empty);
+    assert_terminated(&source);
+    assert_terminated(&normalized);
+    assert_terminated(&joined);
+
+    let empty_text: string = try empty.to_string();
+    let joined_text: string = try joined.to_string();
+
+    assert(empty_text == "");
+    assert(joined_text == "alpha/beta/gamma" || joined_text == "alpha\\beta\\gamma");
+
+    return Ok(unit);
+}
+
+trusted func assert_terminated(pos path: &std.path.Path)
+{
+    let logical: &[u8] = internal std.path.native_bytes(path.to_native());
+    let terminated: &[u8] = internal std.path.terminated_native_bytes(path.to_native());
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+
+    assert(terminated.length() == logical.length() + width);
+    assert(terminated[logical.length()] == 0);
+
+    if width == 2
+    {
+        assert(terminated[logical.length() + 1] == 0);
+        assert(trusted internal std.platform.pointer_handle(std.memory.address_of<u8>(&terminated[0])) % 2 == 0);
+    }
+}
+
+@test
+trusted func native_path_terminator_reservation_checks_capacity_overflow()
+{
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+
+    let extra: usize = if width == 2
+    {
+        yield 3;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    let maximum: usize = ~0;
+
+    let capacity: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
+        current_length = maximum - extra,
+        current_capacity = maximum - extra,
+        additional = extra,
+        growth = internal std.memory.CapacityGrowth.Exact,
+    );
+
+    let overflow: Result<usize, std.memory.MemoryLayoutError> = internal std.memory.growth_capacity(
+        current_length = maximum - extra + 1,
+        current_capacity = maximum - extra + 1,
+        additional = extra,
+        growth = internal std.memory.CapacityGrowth.Exact,
+    );
+
+    assert(std.testing.assert_ok<usize, std.memory.MemoryLayoutError>(capacity) == maximum);
+
+    assert(
+        std.testing.assert_error<usize, std.memory.MemoryLayoutError>(overflow) matches
+            std.memory.MemoryLayoutError.SizeOverflow
+    );
+}
+
+@test
+trusted func path_ordering_uses_native_units() -> Result<unit, std.path.PathError>
+{
+    let empty: std.path.Path = try std.path.Path.from_string(&"");
+    let short: std.path.Path = try std.path.Path.from_string(&"a");
+    let long: std.path.Path = try std.path.Path.from_string(&"aa");
+    let lower: std.path.Path = try std.path.Path.from_string(&"ÿ");
+    let higher: std.path.Path = try std.path.Path.from_string(&"Ā");
+
+    assert(empty < short);
+    assert(short < long);
+    assert(lower < higher);
+    assert(higher > lower);
+
+    return Ok(unit);
+}
+
+@test
+trusted func native_paths_preserve_non_utf8_units() -> Result<unit, std.path.PathError>
+{
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+
+    let bytes: bytes<2> = if width == 2
+    {
+        yield[0, 216];
+    }
+    else
+    {
+        yield[255, 0];
+    };
+
+    let native: std.path.NativeText = try trusted internal std.path.native_text_from_bytes(&bytes[0..width]);
+    let path: std.path.Path = try std.path.Path.from_native(native);
+    let actual: &[u8] = internal std.path.native_bytes(path.to_native());
+
+    assert(std.bytes.equals(actual, &bytes[0..width]));
+    assert_terminated(&path);
+
+    _ = std.testing.assert_error<string, std.path.PathError>(path.to_string());
 
     return Ok(unit);
 }

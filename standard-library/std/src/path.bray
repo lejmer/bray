@@ -16,7 +16,9 @@ union PathError
 
 struct NativeText
 {
-    internal bytes: std.bytes.Buffer;
+    internal mut bytes: std.bytes.Buffer;
+    internal mut start: usize;
+    internal length: usize;
 
     /// Encodes UTF-8 text in the target's native path representation.
     construct from_string(pos value: &string) -> Result<Self, PathError>
@@ -28,11 +30,7 @@ struct NativeText
         {
             let buffer: std.bytes.Buffer = try buffer_from_utf8(encoded);
 
-            return Ok(
-                {
-                    bytes = buffer
-                }
-            );
+            return Ok(native_text_from_buffer(buffer));
         }
 
         if width != 16
@@ -45,11 +43,7 @@ struct NativeText
 
         try append_utf16_encoded(&mut buffer, encoded);
 
-        return Ok(
-            {
-                bytes = buffer
-            }
-        );
+        return Ok(native_text_from_buffer(buffer));
     }
 
     func to_string() -> Result<string, PathError>
@@ -58,7 +52,7 @@ struct NativeText
 
         if width == 8
         {
-            return decode_utf8(self.bytes.as_slice());
+            return decode_utf8(native_bytes(&self));
         }
 
         if width != 16
@@ -66,7 +60,7 @@ struct NativeText
             return Error(PathError.InvalidNativeValue);
         }
 
-        return decode_utf16(self.bytes.as_slice());
+        return decode_utf16(native_bytes(&self));
     }
 }
 
@@ -75,12 +69,14 @@ struct Path
     internal native: NativeText;
 
     /// Validates and adopts target-native path text.
-    construct from_native(pos value: NativeText) -> Result<Self, PathError>
+    construct from_native(pos mut value: NativeText) -> Result<Self, PathError>
     {
         if !valid_native_text(&value)
         {
             return Error(PathError.InvalidNativeValue);
         }
+
+        try trusted internal terminate_native_text(&mut value);
 
         return Ok(
             {
@@ -110,8 +106,8 @@ struct Path
 
     func join(pos child: &Path) -> Result<Path, PathError>
     {
-        let child_bytes: &[u8] = child.native.bytes.as_slice();
-        let own_bytes: &[u8] = self.native.bytes.as_slice();
+        let child_bytes: &[u8] = native_bytes(&child.native);
+        let own_bytes: &[u8] = native_bytes(&self.native);
 
         if path_replaces_base(child_bytes)
         {
@@ -145,7 +141,7 @@ struct Path
 
     func normalize() -> Result<Path, PathError>
     {
-        let source: &[u8] = self.native.bytes.as_slice();
+        let source: &[u8] = native_bytes(&self.native);
         let width: usize = native_unit_bytes();
         let prefix_length: usize = path_prefix_length(source);
         let rooted: bool = path_has_root(source);
@@ -235,20 +231,66 @@ struct Path
     }
 }
 
-internal func native_bytes(pos value: &NativeText) -> &[u8]
-    executes(pure, total)
+impl PathEquatable = Path(Equatable<Path>)
 {
-    return value.bytes.as_slice();
+    func equals(pos rhs: &Path) -> bool
+    {
+        return std.bytes.equals(native_bytes(&self.native), native_bytes(&rhs.native));
+    }
+}
+
+impl PathComparable = Path(Comparable<Path>)
+{
+    func compare(pos rhs: &Path) -> Ordering
+    {
+        let left: &[u8] = native_bytes(&self.native);
+        let right: &[u8] = native_bytes(&rhs.native);
+        let width: usize = native_unit_bytes();
+        let mut index: usize = 0;
+
+        while index < left.length() && index < right.length()
+        {
+            let left_unit: u32 = native_unit(left, index = index);
+            let right_unit: u32 = native_unit(right, index = index);
+
+            if left_unit < right_unit
+            {
+                return Ordering.Less;
+            }
+
+            if left_unit > right_unit
+            {
+                return Ordering.Greater;
+            }
+
+            index += width;
+        }
+
+        if left.length() < right.length()
+        {
+            return Ordering.Less;
+        }
+
+        if left.length() > right.length()
+        {
+            return Ordering.Greater;
+        }
+
+        return Ordering.Equal;
+    }
+}
+
+internal func native_bytes(pos value: &NativeText) -> &[u8]
+    executes(pure)
+{
+    return &value.bytes.as_slice()[value.start..value.start + value.length];
 }
 
 trusted internal func native_text_from_bytes(pos bytes: &[u8]) -> Result<NativeText, PathError>
 {
     let buffer: std.bytes.Buffer = try buffer_from_utf8(bytes);
 
-    let native: NativeText =
-    {
-        bytes = buffer
-    };
+    let native: NativeText = native_text_from_buffer(buffer);
 
     if !valid_native_text(&native)
     {
@@ -256,6 +298,80 @@ trusted internal func native_text_from_bytes(pos bytes: &[u8]) -> Result<NativeT
     }
 
     return Ok(native);
+}
+
+internal func native_text_from_buffer(pos buffer: std.bytes.Buffer) -> NativeText
+{
+    let length: usize = std.bytes.length(&buffer);
+
+    return
+    {
+        bytes = buffer,
+        start = 0,
+        length = length,
+    };
+}
+
+// Reserve before choosing the aligned start so the address cannot change during initialization.
+trusted internal func terminate_native_text(pos value: &mut NativeText) -> Result<unit, PathError>
+{
+    let width: usize = native_unit_bytes();
+
+    let extra: usize = if width == 2
+    {
+        yield 3;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    if value.start != 0
+    {
+        let start: usize = value.start;
+        let bytes: &mut [u8] = trusted value.bytes.as_slice_mut();
+        let mut index: usize = 0;
+
+        while index < value.length
+        {
+            bytes[index] = bytes[start + index];
+            index += 1;
+        }
+
+        value.start = 0;
+    }
+
+    trusted std.bytes.truncate(&mut value.bytes, new_length = value.length);
+
+    match trusted std.bytes.reserve_exact(&mut value.bytes, additional = extra)
+    {
+        case Ok(_) {}
+        case Error(_) { return Error(PathError.MemoryLayout); }
+    }
+
+    if width == 2 && trusted internal std.platform.pointer_handle(std.memory.pointer<u8>(&value.bytes.storage)) % 2 != 0
+    {
+        try append_byte(&mut value.bytes, 0);
+
+        let bytes: &mut [u8] = trusted value.bytes.as_slice_mut();
+        let mut index: usize = value.length;
+
+        while index > 0
+        {
+            bytes[index] = bytes[index - 1];
+            index -= 1;
+        }
+
+        value.start = 1;
+    }
+
+    return append_native_unit(&mut value.bytes, 0);
+}
+
+internal func terminated_native_bytes(pos value: &NativeText) -> &[u8]
+    executes(pure)
+{
+    return &value.bytes.as_slice()[value.start..];
 }
 
 internal func path_from_bytes(pos bytes: &[u8]) -> Result<Path, PathError>
@@ -267,10 +383,7 @@ internal func path_from_bytes(pos bytes: &[u8]) -> Result<Path, PathError>
 
 internal func path_from_buffer(pos buffer: std.bytes.Buffer) -> Result<Path, PathError>
 {
-    let native: NativeText =
-    {
-        bytes = buffer
-    };
+    let native: NativeText = native_text_from_buffer(buffer);
 
     return Path.from_native(native);
 }
@@ -515,7 +628,7 @@ internal func append_utf8_scalar(pos buffer: &mut std.bytes.Buffer, pos value: c
 
 internal func valid_native_text(pos value: &NativeText) -> bool
 {
-    let bytes: &[u8] = value.bytes.as_slice();
+    let bytes: &[u8] = native_bytes(value);
     let width: usize = native_unit_bytes();
 
     if width == 2 && bytes.length() % 2 != 0
