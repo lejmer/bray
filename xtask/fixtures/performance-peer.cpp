@@ -692,29 +692,58 @@ bool workload()
 bool workload()
 {
     const std::filesystem::path directory = "bray-performance-listing";
-    const std::filesystem::path files[] = {
-        "bray-performance-listing/a", "bray-performance-listing/b",
-        "bray-performance-listing/c", "bray-performance-listing/d",
-        "bray-performance-listing/e", "bray-performance-listing/f",
-        "bray-performance-listing/g", "bray-performance-listing/h",
+    const std::filesystem::path files[] =
+    {
+        "bray-performance-listing/a",
+        "bray-performance-listing/b",
+        "bray-performance-listing/c",
+        "bray-performance-listing/d",
+        "bray-performance-listing/e",
+        "bray-performance-listing/f",
+        "bray-performance-listing/g",
+        "bray-performance-listing/h",
     };
     std::error_code error;
-    if (!std::filesystem::create_directory(directory, error) || error) return false;
-    for (const auto& path : files) { std::ofstream file(path); if (!file) return false; }
+
+    if (!std::filesystem::create_directory(directory, error) || error)
+        return false;
+
+    for (const auto& path : files)
+    {
+        std::ofstream file(path);
+
+        if (!file)
+            return false;
+    }
+
     std::size_t count = 0;
+
     for (std::size_t round = 0; round < 128; ++round)
     {
         std::filesystem::directory_iterator it(directory, error), end;
-        if (error) return false;
+
+        if (error)
+            return false;
+
         for (; it != end; it.increment(error))
         {
-            if (error || !std::filesystem::is_regular_file(it->status(error)) || error) return false;
+            if (error || !std::filesystem::is_regular_file(it->status(error)) || error)
+                return false;
+
             ++count;
         }
-        if (error) return false;
+
+        if (error)
+            return false;
     }
-    if (count != 1024) return false;
-    for (const auto& path : files) if (!std::filesystem::remove(path, error) || error) return false;
+
+    if (count != 1024)
+        return false;
+
+    for (const auto& path : files)
+        if (!std::filesystem::remove(path, error) || error)
+            return false;
+
     return std::filesystem::remove(directory, error) && !error;
 }
 #elif BRAY_WORKLOAD == 11
