@@ -18,10 +18,10 @@ internal struct WindowsChildHandles
 
 internal struct WindowsSpawnStorage
 {
-    executable: std.memory.RawBuffer<u8>;
-    command_line: std.memory.RawBuffer<u8>;
-    environment: std.memory.RawBuffer<u8>;
-    working_directory: std.memory.RawBuffer<u8>;
+    executable: std.memory.RawBuffer<u16>;
+    command_line: std.memory.RawBuffer<u16>;
+    environment: std.memory.RawBuffer<u16>;
+    working_directory: std.memory.RawBuffer<u16>;
 }
 
 trusted internal func platform_child_spawn(
@@ -242,7 +242,7 @@ trusted internal func platform_child_spawn(
         thread_security = std.memory.null<u8>(),
         inherit_handles = 1,
         creation_flags = std.os.windows.CREATE_UNICODE_ENVIRONMENT | std.os.windows.EXTENDED_STARTUPINFO_PRESENT,
-        environment = std.memory.pointer<u8>(&storage.environment),
+        environment = std.memory.byte_address<u16>(std.memory.pointer<u16>(&storage.environment)),
         working_directory = working_pointer,
         startup = startup_pointer,
         process_information = process_information_pointer,

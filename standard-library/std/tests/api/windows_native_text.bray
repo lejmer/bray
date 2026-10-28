@@ -1,0 +1,197 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module bray.standard_library_tests.windows_native_text;
+
+using std.memory;
+using std.testing;
+using internal std.platform;
+using internal std.platform.AlignedWindowsText;
+using internal std.platform.PlatformStatus;
+using internal std.process;
+using internal std.process.PlatformEnvironmentEntry;
+
+@test
+trusted func native_text_storage_is_aligned_and_terminated()
+    uses(raw_memory)
+{
+    let bytes: bytes = b"A\0B\0";
+
+    let storage: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.platform.owned_windows_text(&bytes[..], terminate = true));
+
+    let units: &[u16] = trusted std.memory.initialized_slice<u16>(&storage);
+
+    assert(units.length() == 3);
+    assert(units[0] == 65 && units[1] == 66 && units[2] == 0);
+
+    assert(
+        trusted internal std.platform.pointer_handle(std.memory.byte_address<u16>(std.memory.pointer<u16>(&storage))) %
+            2 == 0
+    );
+
+    let empty: bytes = b"";
+
+    let empty_storage: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.platform.owned_windows_text(&empty[..], terminate = true));
+
+    let empty_units: &[u16] = trusted std.memory.initialized_slice<u16>(&empty_storage);
+
+    assert(empty_units.length() == 1 && empty_units[0] == 0);
+
+    let odd: bytes = b"A";
+
+    _ = std.testing.assert_error<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>(
+        trusted internal std.platform.owned_windows_text(&odd[..], terminate = true)
+    );
+}
+
+@test
+trusted func borrowed_unaligned_windows_text_remains_valid_for_comparison()
+    uses(raw_memory)
+{
+    let mut bytes: [u8; 5] = [0; 5];
+    let base: u64 = trusted internal std.platform.pointer_handle(std.memory.address_of<u8>(&bytes[0]));
+
+    let offset: usize = if base % 2 == 0
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    bytes[offset] = 65;
+    bytes[offset + 1] = 0;
+    bytes[offset + 2] = 98;
+    bytes[offset + 3] = 0;
+
+    let borrowed: &[u8] = &bytes[offset..offset + 4];
+
+    let aligned: std.platform.AlignedWindowsText = std.testing.assert_ok<
+        std.platform.AlignedWindowsText,
+        std.platform.PlatformStatus
+    >(trusted internal std.platform.aligned_windows_text(borrowed));
+
+    assert(trusted internal std.platform.pointer_handle(std.memory.byte_address<u16>(aligned.pointer)) % 2 == 0);
+
+    match consume aligned.storage
+    {
+        case ?owned
+        {
+            let units: &[u16] = trusted std.memory.initialized_slice<u16>(&owned);
+
+            assert(units.length() == 2 && units[0] == 65 && units[1] == 98);
+        }
+        case none { panic("unaligned text must retain its aligned copy"); }
+    }
+
+    let equivalent: bytes = b"a\0B\0";
+    let different: bytes = b"a\0C\0";
+
+    assert(trusted internal std.platform.environment_keys_equal(borrowed, &equivalent[..]));
+    assert(!trusted internal std.platform.environment_keys_equal(borrowed, &different[..]));
+}
+
+@test
+trusted func windows_process_text_buffers_preserve_validation_and_layout()
+    uses(raw_memory)
+{
+    let executable: bytes = b"C\0:\0\\\0x\0";
+    let argument: bytes = b"a\0";
+    let arguments: [&[u8]; 1] = [&argument[..]];
+
+    let application: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.process.windows_terminated_text(&executable[..], allow_empty = false));
+
+    let application_units: &[u16] = trusted std.memory.initialized_slice<u16>(&application);
+
+    assert(application_units.length() == 5 && application_units[0] == 67 && application_units[4] == 0);
+
+    assert(
+        trusted internal std.platform.pointer_handle(
+            std.memory.byte_address<u16>(std.memory.pointer<u16>(&application))
+        ) % 2 == 0
+    );
+
+    let empty: bytes = b"";
+
+    let absent_directory: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.process.windows_terminated_text(&empty[..], allow_empty = true));
+
+    assert(std.memory.initialized_count<u16>(&absent_directory) == 0);
+
+    let command: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.process.windows_command_line(&executable[..], &arguments[..]));
+
+    let units: &[u16] = trusted std.memory.initialized_slice<u16>(&command);
+
+    assert(units.length() == 11);
+    assert(units[0] == 34 && units[1] == 67 && units[2] == 58 && units[3] == 92 && units[4] == 120);
+    assert(units[5] == 34 && units[6] == 32 && units[7] == 34 && units[8] == 97 && units[9] == 34 && units[10] == 0);
+
+    assert(
+        trusted internal std.platform.pointer_handle(std.memory.byte_address<u16>(std.memory.pointer<u16>(&command))) %
+            2 == 0
+    );
+
+    let invalid: bytes = b"x\0\0\0y\0";
+
+    _ = std.testing.assert_error<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>(
+        trusted internal std.process.windows_terminated_text(&invalid[..], allow_empty = false)
+    );
+
+    let entries: [std.process.PlatformEnvironmentEntry; 1] = [
+        {
+            key = &argument[..],
+            value = &argument[..]
+        }
+    ];
+
+    let environment: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.process.windows_environment(&entries[0..0]));
+
+    let block: &[u16] = trusted std.memory.initialized_slice<u16>(&environment);
+
+    assert(block.length() == 2 && block[0] == 0 && block[1] == 0);
+
+    let first_key: bytes = b"z\0";
+    let second_key: bytes = b"A\0";
+
+    let sorted_entries: [std.process.PlatformEnvironmentEntry; 2] = [
+        {
+            key = &first_key[..],
+            value = &argument[..]
+        },
+        {
+            key = &second_key[..],
+            value = &argument[..]
+        },
+    ];
+
+    let sorted: std.memory.RawBuffer<u16> = std.testing.assert_ok<
+        std.memory.RawBuffer<u16>,
+        std.platform.PlatformStatus
+    >(trusted internal std.process.windows_environment(&sorted_entries[..]));
+
+    let sorted_block: &[u16] = trusted std.memory.initialized_slice<u16>(&sorted);
+
+    assert(sorted_block.length() == 9);
+    assert(sorted_block[0] == 65 && sorted_block[1] == 61 && sorted_block[2] == 97 && sorted_block[3] == 0);
+
+    assert(
+        sorted_block[4] == 122 && sorted_block[5] == 61 && sorted_block[6] == 97 && sorted_block[7] == 0 &&
+            sorted_block[8] == 0
+    );
+}

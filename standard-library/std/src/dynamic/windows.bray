@@ -6,6 +6,7 @@ trusted module std.dynamic;
 
 using core.memory;
 using std.fs;
+using internal std.fs.PreparedPath;
 using std.memory;
 using std.os.windows;
 using internal std.platform;
@@ -38,8 +39,8 @@ trusted internal func prepare_dynamic_library_open_path(
         return Error(internal std.platform.invalid_input_status());
     }
 
-    let terminated: Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus> =
-        trusted internal std.platform.terminated_native_text(path.address, length = path.length, terminator_bytes = 2);
+    let terminated: Result<std.fs.PreparedPath, std.platform.PlatformStatus> =
+        trusted internal std.fs.prepare_native_path(path);
 
     match consume terminated
     {

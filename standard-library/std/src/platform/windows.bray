@@ -306,7 +306,7 @@ trusted internal func copy_native_environment_entry(
 }
 
 trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) -> bool
-    uses(foreign_call, layout_reinterpret)
+    uses(foreign_call)
 {
     let left_bytes: usize = left.length();
     let right_bytes: usize = right.length();
@@ -324,12 +324,22 @@ trusted internal func environment_keys_equal(pos left: &[u8], pos right: &[u8]) 
         return false;
     }
 
+    let left_text: AlignedWindowsText = match trusted internal aligned_windows_text(left)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the platform environment comparison cannot be allocated"); }
+    };
+
+    let right_text: AlignedWindowsText = match trusted internal aligned_windows_text(right)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("the platform environment comparison cannot be allocated"); }
+    };
+
     return trusted std.os.windows.compare_string_ordinal(
-        trusted std.memory.reinterpret<u16, u8>(internal std.memory.slice_pointer(left, count = left.length())),
+        left_text.pointer,
         left_length = std.numeric.truncate_to<i32>(left_units),
-        right = trusted std.memory.reinterpret<u16, u8>(
-            internal std.memory.slice_pointer(right, count = right.length())
-        ),
+        right = right_text.pointer,
         right_length = std.numeric.truncate_to<i32>(right_units),
         ignore_case = 1,
     ) == std.os.windows.CSTR_EQUAL;
@@ -1036,19 +1046,17 @@ trusted internal func handle_transfer_status(pos succeeded: i32) -> PlatformStat
 
 trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuffer<u8>, required: u32) -> (bool, usize)
     ensures(trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result.1))
-    uses(foreign_call, layout_reinterpret, unchecked_init)
+    uses(foreign_call, raw_memory, unchecked_init)
 {
-    let initialized: usize = trusted internal std.memory.fill_spare_bytes(
-        buffer,
-        value = 0,
-        count = required as usize * 2
-    );
-
-    trusted std.memory.set_initialized_count<u8>(buffer, count = initialized);
+    let wide: std.memory.RawBuffer<u16> = match trusted internal zeroed_windows_text(required as usize)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return (false, 0); }
+    };
 
     let written: u32 = trusted std.os.windows.get_current_directory_w(
         required,
-        destination = trusted std.memory.reinterpret<u16, u8>(std.memory.pointer<u8>(&buffer)),
+        destination = std.memory.pointer<u16>(&wide),
     );
 
     if written == 0 || written >= required
@@ -1056,5 +1064,21 @@ trusted internal func fill_working_directory(pos buffer: &mut std.memory.RawBuff
         return (false, 0);
     }
 
-    return (true, written as usize * 2);
+    let count: usize = written as usize * 2;
+    let initialized: usize = trusted internal std.memory.fill_spare_bytes(buffer, value = 0, count = count);
+
+    trusted std.memory.set_initialized_count<u8>(buffer, count = initialized);
+
+    let bytes: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(buffer);
+    let units: &[u16] = trusted std.memory.initialized_slice<u16>(&wide);
+    let mut index: usize = 0;
+
+    while index < written as usize
+    {
+        bytes[index * 2] = std.numeric.truncate_to<u8>(units[index]);
+        bytes[index * 2 + 1] = std.numeric.truncate_to<u8>(units[index] >> 8);
+        index += 1;
+    }
+
+    return (true, count);
 }

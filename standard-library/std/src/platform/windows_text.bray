@@ -1,0 +1,132 @@
+@target(target.identity.SYSTEM == "windows")
+trusted internal module std.platform;
+
+using std.memory;
+using std.numeric;
+
+internal static EMPTY_WINDOWS_TEXT: u16 = 0;
+
+// The optional storage keeps an unaligned borrowed input alive in aligned form.
+internal struct AlignedWindowsText
+{
+    pointer: DataPointer<u16>;
+    storage: std.memory.RawBuffer<u16>?;
+}
+
+trusted internal func zeroed_windows_text(pos units: usize) -> Result<std.memory.RawBuffer<u16>, PlatformStatus>
+{
+    if units > (std.numeric.USIZE_MAX >> 1)
+    {
+        return Error(exhausted_status());
+    }
+
+    let mut buffer: std.memory.RawBuffer<u16> = match trusted std.memory.RawBuffer<u16>(capacity = units)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(exhausted_status()); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < units
+    {
+        trusted internal std.memory.initialize_spare<u16>(&mut buffer, 0);
+        index += 1;
+    }
+
+    return Ok(buffer);
+}
+
+trusted internal func owned_windows_text(
+    pos bytes: &[u8],
+    terminate: bool,
+) -> Result<std.memory.RawBuffer<u16>, PlatformStatus>
+{
+    if bytes.length() % 2 != 0
+    {
+        return Error(invalid_input_status());
+    }
+
+    let units: usize = bytes.length() / 2;
+
+    let extra: usize = if terminate
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    if units > (std.numeric.USIZE_MAX >> 1) - extra
+    {
+        return Error(exhausted_status());
+    }
+
+    let mut storage: std.memory.RawBuffer<u16> = match trusted std.memory.RawBuffer<u16>(capacity = units + extra)
+    {
+        case Ok(buffer) { yield buffer; }
+        case Error(_) { return Error(exhausted_status()); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < bytes.length()
+    {
+        let code_unit: u16 = bytes[index] as u16 | bytes[index + 1] as u16 << 8;
+
+        trusted internal std.memory.initialize_spare<u16>(&mut storage, code_unit);
+        index += 2;
+    }
+
+    if terminate
+    {
+        trusted internal std.memory.initialize_spare<u16>(&mut storage, 0);
+    }
+
+    return Ok(storage);
+}
+
+trusted internal func aligned_windows_text(pos bytes: &[u8]) -> Result<AlignedWindowsText, PlatformStatus>
+    uses(layout_reinterpret)
+{
+    if bytes.length() % 2 != 0
+    {
+        return Error(invalid_input_status());
+    }
+
+    if bytes.length() == 0
+    {
+        return Ok(
+            {
+                pointer = std.memory.address_of<u16>(&EMPTY_WINDOWS_TEXT),
+                storage = none
+            }
+        );
+    }
+
+    let address: DataPointer<u8> = internal std.memory.slice_pointer(bytes, count = bytes.length());
+
+    if trusted internal pointer_handle(address) % 2 == 0
+    {
+        return Ok(
+            {
+                pointer = trusted std.memory.reinterpret<u16, u8>(address),
+                storage = none
+            }
+        );
+    }
+
+    let buffer: std.memory.RawBuffer<u16> = try trusted internal owned_windows_text(bytes, terminate = false);
+    let pointer: DataPointer<u16> = std.memory.pointer<u16>(&buffer);
+    let mut storage: std.memory.RawBuffer<u16>? = none;
+
+    storage = buffer;
+
+    return Ok(
+        {
+            pointer = pointer,
+            storage = storage
+        }
+    );
+}

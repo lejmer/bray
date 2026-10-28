@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <new>
@@ -173,8 +174,13 @@ BrayPlatformStatus load_path(BrayPlatformPath path, std::uint32_t policy, Native
         return status(invalid_input);
 
     const auto length = path.length / sizeof(wchar_t);
-    const auto* units = reinterpret_cast<const wchar_t*>(path.address);
-    std::wstring native_path{units, units + length};
+    std::wstring native_path;
+
+    if (path.length > std::numeric_limits<std::size_t>::max() || length > native_path.max_size())
+        return status(exhausted);
+
+    native_path.resize(static_cast<std::size_t>(length));
+    std::memcpy(native_path.data(), path.address, static_cast<std::size_t>(path.length));
 
     if (
         native_path.find(L'\0') != std::wstring::npos ||
