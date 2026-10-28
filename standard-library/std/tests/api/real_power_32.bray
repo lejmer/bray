@@ -1,0 +1,31 @@
+module bray.standard_library_tests.real_power;
+
+func power_32(pos base: r32, pos exponent: r32) -> r32
+{
+    return base ** exponent;
+}
+
+const CLOSED_POWER_32: r32 = (-2.0) ** 3.0;
+
+const CLOSED_ROOT_32: r32 = 9.0 ** 0.5;
+
+const CLOSED_DOMAIN_32: r32 = (-2.0) ** 0.5;
+
+@test
+func real_32_powers_preserve_domain_and_dispatch()
+{
+    let base: r32 = -2.0;
+    let exponent: r32 = 3.0;
+    let expected: r32 = -8.0;
+    let mut assigned = base;
+
+    assert(power_32(base, exponent) == expected);
+    assert(generic_power<r32>(base, exponent) == expected);
+    assert(CLOSED_POWER_32 == expected);
+    assert(CLOSED_ROOT_32 == 3.0);
+    assert(CLOSED_DOMAIN_32 != CLOSED_DOMAIN_32);
+    assigned **= exponent;
+    assert(assigned == expected);
+    assert(power_32(16.0, 0.25) == 2.0);
+    assert(power_32(2.0, -3.0) == 0.125);
+}

@@ -104,3 +104,14 @@ native_adapter! {
         implementation::bray_runtime_complex_power(width, left, right, output)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_real_power(
+        width: u32,
+        left: &bray_runtime_abi::NativeRealBits,
+        right: &bray_runtime_abi::NativeRealBits,
+        output: &mut bray_runtime_abi::NativeRealBits,
+    ) {
+        implementation::bray_runtime_real_power(width, left, right, output)
+    }
+}

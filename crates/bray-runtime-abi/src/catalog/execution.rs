@@ -30,6 +30,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
+            RealPower {
+                "Compute the real power in the selected IEEE format.", "real_power",
+                native: (REAL_POWER_SYMBOL = "bray_runtime_real_power", [U32, Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             ComplexMultiply {
                 "Multiply complex IEEE components in the selected format.", "complex_multiply",
                 native: (COMPLEX_MULTIPLY_SYMBOL = "bray_runtime_complex_multiply", [U32, Pointer, Pointer, Pointer] -> Void),

@@ -5,7 +5,6 @@ pub use super::activation::{
     bray_runtime_activation_callback_admission,
 };
 pub use super::callback::bray_runtime_native_thread_execution;
-pub use super::numeric::{bray_runtime_complex_multiply, bray_runtime_complex_divide, bray_runtime_complex_power};
 pub use super::export::{
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,
     bray_runtime_cleanup_shield_enter, bray_runtime_cleanup_shield_leave,
@@ -25,3 +24,7 @@ pub use super::export::{
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
+pub use super::numeric::{
+    bray_runtime_complex_divide, bray_runtime_complex_multiply, bray_runtime_complex_power,
+    bray_runtime_real_power,
+};

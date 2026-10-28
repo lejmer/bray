@@ -56,6 +56,8 @@ pub enum MirBinaryOperator {
     Multiply,
     /// Integer exponentiation with a nonnegative exponent.
     Exponentiate,
+    /// Real exponentiation through the deterministic numeric helper.
+    RealExponentiate,
     /// Numeric division.
     Divide,
     /// Complex multiplication through the deterministic numeric helper.
@@ -91,6 +93,14 @@ pub enum MirBinaryOperator {
 }
 
 impl MirBinaryOperator {
+    /// Selects the representation-specific real arithmetic implementation.
+    pub const fn for_real(self) -> Self {
+        match self {
+            Self::Exponentiate => Self::RealExponentiate,
+            operator => operator,
+        }
+    }
+
     /// Selects the representation-specific complex arithmetic implementation.
     pub const fn for_complex(self) -> Self {
         match self {
@@ -106,6 +116,7 @@ impl MirBinaryOperator {
         use bray_runtime_interface::RuntimeAbiRole;
 
         match self {
+            Self::RealExponentiate => Some(RuntimeAbiRole::RealPower),
             Self::ComplexMultiply => Some(RuntimeAbiRole::ComplexMultiply),
             Self::ComplexDivide => Some(RuntimeAbiRole::ComplexDivide),
             Self::ComplexExponentiate => Some(RuntimeAbiRole::ComplexPower),

@@ -1,0 +1,83 @@
+module bray.standard_library_tests.real_power;
+
+using std.format;
+
+func power_64(pos base: r64, pos exponent: r64) -> r64
+{
+    return base ** exponent;
+}
+
+const CLOSED_POWER_64: r64 = (-2.0) ** 3.0;
+
+const CLOSED_ROOT_64: r64 = 9.0 ** 0.5;
+
+const CLOSED_DOMAIN_64: r64 = (-2.0) ** 0.5;
+
+@test
+func real_64_powers_preserve_domain_and_dispatch()
+{
+    let base: r64 = -2.0;
+    let exponent: r64 = 3.0;
+    let expected: r64 = -8.0;
+    let mut assigned = base;
+
+    assert(power_64(base, exponent) == expected);
+    assert(generic_power<r64>(base, exponent) == expected);
+    assert(CLOSED_POWER_64 == expected);
+    assert(CLOSED_ROOT_64 == 3.0);
+    assert(CLOSED_DOMAIN_64 != CLOSED_DOMAIN_64);
+    assigned **= exponent;
+    assert(assigned == expected);
+    assert(power_64(16.0, 0.25) == 2.0);
+    assert(power_64(2.0, -3.0) == 0.125);
+}
+
+const POWER_INFINITY: r64 = 1.7976931348623157e308 * 2.0;
+
+const NEGATIVE_ZERO_ODD: r64 = (-0.0) ** 3.0;
+
+const NEGATIVE_ZERO_RECIPROCAL: r64 = (-0.0) ** -3.0;
+
+const NEGATIVE_INFINITY_ODD: r64 = (-POWER_INFINITY) ** -3.0;
+
+const NEGATIVE_INFINITY_FRACTION: r64 = (-POWER_INFINITY) ** 0.5;
+
+const NAN_ZERO_IDENTITY: r64 = CLOSED_DOMAIN_64 ** -0.0;
+
+@test
+trusted func real_power_boundaries_preserve_ieee_bits()
+{
+    let negative_zero: r64 = -0.0;
+    let infinity: r64 = 1.7976931348623157e308 * 2.0;
+    let negative_infinity = -infinity;
+    let nan = power_64(-2.0, 0.5);
+    let zero_odd = power_64(negative_zero, 3.0);
+    let zero_negative_odd = power_64(negative_zero, -3.0);
+    let infinity_negative_odd = power_64(negative_infinity, -3.0);
+    let smallest = power_64(2.0, -1074.0);
+    let underflow = power_64(-2.0, -1075.0);
+    let near_one = power_64(1.0000000000000002, 2.0);
+    let constant_zero_odd = NEGATIVE_ZERO_ODD;
+    let constant_zero_reciprocal = NEGATIVE_ZERO_RECIPROCAL;
+    let constant_infinity_odd = NEGATIVE_INFINITY_ODD;
+
+    assert(internal std.format.real64_bits(&zero_odd) == 0x8000000000000000);
+    assert(internal std.format.real64_bits(&zero_negative_odd) == 0xfff0000000000000);
+    assert(internal std.format.real64_bits(&infinity_negative_odd) == 0x8000000000000000);
+    assert(internal std.format.real64_bits(&smallest) == 1);
+    assert(internal std.format.real64_bits(&underflow) == 0x8000000000000000);
+    assert(internal std.format.real64_bits(&near_one) == 0x3ff0000000000002);
+    assert(internal std.format.real64_bits(&constant_zero_odd) == 0x8000000000000000);
+    assert(internal std.format.real64_bits(&constant_zero_reciprocal) == 0xfff0000000000000);
+    assert(internal std.format.real64_bits(&constant_infinity_odd) == 0x8000000000000000);
+    assert(NEGATIVE_INFINITY_FRACTION == infinity);
+    assert(NAN_ZERO_IDENTITY == 1.0);
+    assert(power_64(2.0, infinity) == infinity);
+    assert(power_64(2.0, negative_infinity) == 0.0);
+    assert(power_64(0.5, infinity) == 0.0);
+    assert(power_64(0.5, negative_infinity) == infinity);
+    assert(power_64(-1.0, infinity) == 1.0);
+    assert(power_64(nan, -0.0) == 1.0);
+    assert(power_64(1.0, nan) == 1.0);
+    assert(nan != nan);
+}

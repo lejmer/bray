@@ -321,6 +321,7 @@ pub(super) const fn integer_predicate(operator: MirBinaryOperator, signed: bool)
         | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::ComplexMultiply
         | MirBinaryOperator::ComplexDivide
+        | MirBinaryOperator::RealExponentiate
         | MirBinaryOperator::ComplexExponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder
@@ -346,6 +347,7 @@ pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredica
         | MirBinaryOperator::Exponentiate
         | MirBinaryOperator::ComplexMultiply
         | MirBinaryOperator::ComplexDivide
+        | MirBinaryOperator::RealExponentiate
         | MirBinaryOperator::ComplexExponentiate
         | MirBinaryOperator::Divide
         | MirBinaryOperator::Remainder

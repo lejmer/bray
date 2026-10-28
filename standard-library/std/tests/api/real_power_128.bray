@@ -1,0 +1,32 @@
+@target(target.scalar.R128)
+module bray.standard_library_tests.real_power;
+
+func power_128(pos base: r128, pos exponent: r128) -> r128
+{
+    return base ** exponent;
+}
+
+const CLOSED_POWER_128: r128 = (-2.0) ** 3.0;
+
+const CLOSED_ROOT_128: r128 = 9.0 ** 0.5;
+
+const CLOSED_DOMAIN_128: r128 = (-2.0) ** 0.5;
+
+@test
+func real_128_powers_preserve_domain_and_dispatch()
+{
+    let base: r128 = -2.0;
+    let exponent: r128 = 3.0;
+    let expected: r128 = -8.0;
+    let mut assigned = base;
+
+    assert(power_128(base, exponent) == expected);
+    assert(generic_power<r128>(base, exponent) == expected);
+    assert(CLOSED_POWER_128 == expected);
+    assert(CLOSED_ROOT_128 == 3.0);
+    assert(CLOSED_DOMAIN_128 != CLOSED_DOMAIN_128);
+    assigned **= exponent;
+    assert(assigned == expected);
+    assert(power_128(16.0, 0.25) == 2.0);
+    assert(power_128(2.0, -3.0) == 0.125);
+}

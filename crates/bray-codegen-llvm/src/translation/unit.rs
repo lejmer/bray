@@ -11,6 +11,7 @@ mod edge;
 mod effect;
 mod generator;
 mod memory;
+mod numeric;
 mod outgoing;
 mod panic;
 mod place;

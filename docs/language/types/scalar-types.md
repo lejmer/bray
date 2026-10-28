@@ -47,48 +47,9 @@ Scalar operations use the exact operand types after literal adaptation and expli
 Non-literal scalar values do not implicitly convert, promote, widen, narrow, or change numeric domain for assignment,
 calls, operators, overload selection, construction, or pattern matching.
 
-## Complex arithmetic
-
-Complex operands of `+`, `-`, `*`, `/`, and `**` have the same complex type. Unary `-` negates both components.
-The result has that complex type. These operators do not implicitly convert real values to complex values or change
-component precision. Equality compares both real components using IEEE equality. Inequality is true if either component
-is unequal, including an unordered comparison with NaN.
-
-Addition and subtraction use the selected IEEE component arithmetic. Negation flips each component's sign, including
-signed zeros. For finite multiplication and division, intermediate products and sums have sufficient range and precision
-to avoid intermediate overflow, underflow, and cancellation loss. Each final component rounds to its selected IEEE format
-using round to nearest with ties to even. Constant evaluation and native execution use the same deterministic numerical
-implementation for multiplication, division, and exponentiation. Native addition, subtraction, and negation use component
-instructions directly.
-
-For multiplication and division, a complex value with an infinite component represents complex infinity, even if its other
-component is NaN. Multiplication normalizes its infinite components to signed ones and its other components to signed zeros, computes the component
-products, and scales the result by positive infinity. A NaN component in the other operand becomes signed zero for this
-recovery. This preserves the direction of determinate infinite results. An indeterminate component such as infinity times
-zero is NaN.
-
-Division by a complex zero scales each numerator component by an infinity with the sign of the divisor's real zero.
-Consequently zero divided by zero has two NaN components. A finite numerator divided by complex infinity yields signed
-zeros determined by the normalized divisor. Complex infinity divided by a finite nonzero divisor yields the corresponding
-infinite or indeterminate components. Infinity divided by infinity has two NaN components. These rules also apply to closed
-constant expressions. Real division's existing constant-expression zero-divisor rule is separate.
-
-Complex exponentiation computes the principal value of `exp(exponent * log(base))`. The argument lies between negative pi
-and positive pi. On the negative real axis, a positive imaginary zero selects positive pi and a negative imaginary zero
-selects negative pi. Square roots therefore preserve the two sides of that branch cut. Powers on exact real, imaginary,
-and diagonal axes preserve exact zero components when the resulting phase is a multiple of half pi. Infinite magnitudes
-retain these zero components.
-
-A zero exponent returns `1 + 0i`, including for a NaN or infinite base. A base of `1 + 0i` or `1 - 0i` returns `1 + 0i`,
-including for a nonfinite exponent. An exponent of `1 + 0i` or `1 - 0i` returns the base. Other NaN inputs produce two NaN
-components. A zero base with a positive real exponent has zero magnitude. A negative real exponent gives it infinite
-magnitude. A zero or infinite base with a nonreal exponent produces two NaN components. Infinite exponents are supported
-on the positive real axis by the real magnitude limit and otherwise produce two NaN components.
-
-General powers use software transcendental arithmetic with at least 128 guard bits beyond component precision. Working
-precision also grows with the exponent's magnitude to preserve phase accuracy. Composite power results are not guaranteed
-to be correctly rounded. Multiplication, division, and power results use positive quiet NaNs for indeterminate components
-and do not preserve NaN payloads. The exponent-one case preserves base bits except for NaN normalization.
+Arithmetic expression rules are defined under
+[real exponentiation](../expressions/unary-and-binary-expressions.md#real-exponentiation) and
+[complex arithmetic](../expressions/unary-and-binary-expressions.md#complex-arithmetic).
 
 ## Navigation
 

@@ -63,8 +63,17 @@ pub(super) enum ConcreteCodegenCallee {
     Intrinsic(IntrinsicCall),
 }
 
-type ConcreteReachabilityParts = (CodegenReachability, BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>, Arc<[super::codegen::NativeDemand]>, BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>);
-type ConcreteStaticSelection = (StaticInstanceKey, CodegenSpecialization, Vec<(CodegenImplementationWitness, ImplementationInstanceId)>);
+type ConcreteReachabilityParts = (
+    CodegenReachability,
+    BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
+    Arc<[super::codegen::NativeDemand]>,
+    BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
+);
+type ConcreteStaticSelection = (
+    StaticInstanceKey,
+    CodegenSpecialization,
+    Vec<(CodegenImplementationWitness, ImplementationInstanceId)>,
+);
 
 impl ConcreteCodegenReachability {
     pub(super) fn new(
@@ -139,9 +148,7 @@ impl ConcreteCodegenReachability {
         self
     }
 
-    pub(super) fn into_parts(
-        self,
-    ) -> ConcreteReachabilityParts {
+    pub(super) fn into_parts(self) -> ConcreteReachabilityParts {
         (
             self.graph,
             self.instances,
@@ -831,15 +838,14 @@ impl Compilation {
                         _ => subject,
                     };
 
-                    let complex = self
+                    let representation = self
                         .available_compiler_known_symbols()
-                        .type_representation(values, operand)
-                        .is_some_and(|role| role.complex_component().is_some());
+                        .type_representation(values, operand);
 
-                    IntrinsicCall::Binary(if complex {
-                        operator.for_complex()
-                    } else {
-                        operator
+                    IntrinsicCall::Binary(match representation {
+                        Some(role) if role.complex_component().is_some() => operator.for_complex(),
+                        Some(role) if role.real_format().is_some() => operator.for_real(),
+                        _ => operator,
                     })
                 }
                 bray_ir::MirCallIntrinsic::Comparison {
@@ -1178,12 +1184,8 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
         let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
-        let callable = substitute_callable_instance(
-            values,
-            *callable,
-            owner.substitution(),
-            contextual_self,
-        )?;
+        let callable =
+            substitute_callable_instance(values, *callable, owner.substitution(), contextual_self)?;
 
         let callable = self.normalize_codegen_callable_arguments(callable, owner, cancellation)?;
 
