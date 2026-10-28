@@ -71,6 +71,35 @@ trusted func metadata_records_validate_provider_values()
     };
 
     _ = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(internal std.fs.decode_platform_metadata(value));
+
+    value =
+    {
+        kind = 3,
+        present = 0,
+        bytes = 0,
+        modified_seconds = 0,
+        modified_nanoseconds = 0,
+        reserved = 0
+    };
+
+    _ = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(internal std.fs.decode_platform_metadata(value));
+
+    value =
+    {
+        kind = 2,
+        present = 0,
+        bytes = 7,
+        modified_seconds = 0,
+        modified_nanoseconds = 0,
+        reserved = 0
+    };
+
+    let other: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        internal std.fs.decode_platform_metadata(value)
+    );
+
+    assert(other.kind matches std.fs.FileKind.Other && other.bytes == 7);
+    std.testing.assert_absent<std.time.Timestamp>(other.modified);
 }
 
 @test(serial)
@@ -101,6 +130,27 @@ trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result
     std.testing.assert_ok<unit, std.io.IoError>(file.close());
     assert(file.is_complete());
 
+    let raw_options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.Read,
+        creation = std.fs.FileCreation.OpenExisting,
+    );
+
+    let raw: u64 = try trusted std.fs.open_file_handle(&child, options = raw_options);
+    let mut file_released: u32 = 9;
+
+    let invalid_file_close: std.platform.PlatformStatus = trusted internal std.fs.platform_file_close(
+        raw,
+        2,
+        std.memory.address_of_mut<u32>(&mut file_released),
+    );
+
+    assert(invalid_file_close.category == 5 && file_released == 0);
+
+    let raw_close: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw);
+
+    assert(raw_close.1);
+    try raw_close.0;
+
     let mut handle: u64 = 0;
     let path: std.fs.PlatformPath = internal std.fs.platform_path(&parent);
 
@@ -110,6 +160,16 @@ trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result
     );
 
     assert(opened.category == 0 && opened.reserved == 0);
+
+    let mut invalid_released: u32 = 9;
+
+    let invalid_close: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_close(
+        handle,
+        2,
+        std.memory.address_of_mut<u32>(&mut invalid_released),
+    );
+
+    assert(invalid_close.category == 5 && invalid_released == 0);
 
     let mut tiny: [u8; 1] = [0];
     let mut length: u64 = 0;
@@ -166,6 +226,7 @@ trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result
 
     let closed: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_close(
         handle,
+        0,
         std.memory.address_of_mut<u32>(&mut released),
     );
 

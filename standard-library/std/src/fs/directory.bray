@@ -64,7 +64,12 @@ struct Directory
         if self.is_open
         {
             let mut released: u32 = 0;
-            _ = trusted platform_directory_close(self.handle, std.memory.address_of_mut<u32>(&mut released));
+
+            _ = trusted platform_directory_close(
+                self.handle,
+                CLOSE_TERMINAL,
+                std.memory.address_of_mut<u32>(&mut released)
+            );
         }
     }
 
@@ -128,6 +133,7 @@ trusted internal func close_directory(pos directory: &mut Directory) -> Result<u
 
     let status: std.platform.PlatformStatus = trusted platform_directory_close(
         directory.handle,
+        CLOSE_RETRYABLE,
         std.memory.address_of_mut<u32>(&mut released),
     );
 

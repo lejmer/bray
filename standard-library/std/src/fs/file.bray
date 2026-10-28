@@ -48,6 +48,7 @@ struct File
 
             _ = trusted platform_file_close(
                 handle = self.handle,
+                disposition = CLOSE_TERMINAL,
                 released = std.memory.address_of_mut<u32>(&mut released)
             );
         }
@@ -217,6 +218,7 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
 
     let status: std.platform.PlatformStatus = trusted platform_file_close(
         file.handle,
+        CLOSE_RETRYABLE,
         std.memory.address_of_mut<u32>(&mut released),
     );
 
@@ -239,13 +241,22 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
 /// Closes one owned scalar file handle and reports whether the provider released it.
 /// A false release flag leaves the handle owned by the caller, even after an error.
 /// A true release flag can accompany an error and means the handle must not be retried.
-trusted func close_file_handle(pos handle: u64) -> (Result<unit, std.io.IoError>, bool)
+/// Set terminal when abandoning the handle; the provider must consume it and the caller must not retry.
+trusted func close_file_handle(pos handle: u64, terminal: bool = false) -> (Result<unit, std.io.IoError>, bool)
     requires(blocking_execution())
 {
     let mut released: u32 = 0;
 
     let status: std.platform.PlatformStatus = trusted platform_file_close(
         handle,
+        if terminal
+        {
+            yield CLOSE_TERMINAL;
+        }
+        else
+        {
+            yield CLOSE_RETRYABLE;
+        },
         std.memory.address_of_mut<u32>(&mut released),
     );
 

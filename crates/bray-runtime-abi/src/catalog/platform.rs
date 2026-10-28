@@ -119,9 +119,9 @@ macro_rules! platform_role_catalog {
                 Filesystem, [U64, U64, U32, PointerU64] -> Status, bootstrap: ()
             }
             FileClose {
-                "Closes an owned file owner; the output is one if it was released, even on error, or zero otherwise.", 0x0205, "platform.file.close",
-                PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close_v2",
-                Filesystem, [U64, PointerU32] -> Status, bootstrap: ()
+                "Closes an owned file. Disposition 0 permits retry; 1 is terminal and must consume provider ownership even on error. Other dispositions are invalid. The output is 1 when consumed and 0 when retained.", 0x0205, "platform.file.close",
+                PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close_v3",
+                Filesystem, [U64, U32, PointerU32] -> Status, bootstrap: ()
             }
             // Path-bearing entry points use distinct symbols for the extended path record,
             // so an archive built for the old by-value layout cannot satisfy these roles.
@@ -146,14 +146,14 @@ macro_rules! platform_role_catalog {
                 Filesystem, [Path, PointerU64] -> Status, bootstrap: ()
             }
             DirectoryNext {
-                "Returns state zero at end, one with an entry byte length, or two with sufficient capacity without consuming the entry.", 0x0222, "platform.directory.next",
+                "Reads a target-native name into the byte buffer. On success, state 0 means end with length 0; state 1 writes a nonzero name byte length no greater than capacity and metadata; state 2 writes a required capacity greater than the supplied byte capacity without advancing.", 0x0222, "platform.directory.next",
                 PLATFORM_DIRECTORY_NEXT_SYMBOL = "bray_platform_directory_next_v2",
                 Filesystem, [U64, PointerU8, U64, PointerU64, PointerU32, FileMetadataPointer] -> Status, bootstrap: ()
             }
             DirectoryClose {
-                "Closes a directory traversal; the output is one if it was released, even on error, or zero otherwise.", 0x0223, "platform.directory.close",
-                PLATFORM_DIRECTORY_CLOSE_SYMBOL = "bray_platform_directory_close_v2",
-                Filesystem, [U64, PointerU32] -> Status, bootstrap: ()
+                "Closes an owned directory. Disposition 0 permits retry; 1 is terminal and must consume provider ownership even on error. Other dispositions are invalid. The output is 1 when consumed and 0 when retained.", 0x0223, "platform.directory.close",
+                PLATFORM_DIRECTORY_CLOSE_SYMBOL = "bray_platform_directory_close_v3",
+                Filesystem, [U64, U32, PointerU32] -> Status, bootstrap: ()
             }
             PathCreateDirectory {
                 "Creates one directory.", 0x0230, "platform.path.create_directory",

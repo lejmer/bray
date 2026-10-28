@@ -5,7 +5,7 @@ use super::model::{
     NO_RETENTION_CONTRACT, RetentionContract, StorageExpectation, Workload,
 };
 
-pub(in crate::performance) const WORKLOADS: [Workload; 26] = [
+pub(in crate::performance) const WORKLOADS: [Workload; 27] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -465,7 +465,7 @@ func main()
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_seek",
-                "bray_platform_file_close_v2",
+                "bray_platform_file_close_v3",
                 "bray_platform_process_pipe_read",
                 "bray_platform_process_pipe_write",
                 "bray_platform_process_pipe_flush",
@@ -666,6 +666,28 @@ trusted func main() -> Result<unit, std.io.IoError>
         storage: None,
     },
     Workload {
+        id: "filesystem_directory_iteration",
+        category: WorkloadCategory::Filesystem,
+        scale: 1024,
+        units: "entries",
+        batching: BatchingPolicy::SingleExecution,
+        source: crate::performance::source::FILESYSTEM_DIRECTORY_ITERATION,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-listing"),
+        platform_operations: &[
+            "platform.file.open",
+            "platform.file.close",
+            "platform.directory.open",
+            "platform.directory.next",
+            "platform.directory.close",
+            "platform.path.create_directory",
+            "platform.path.remove_file",
+            "platform.path.remove_directory",
+        ],
+        retention: NO_RETENTION_CONTRACT,
+        storage: None,
+    },
+    Workload {
         id: "file_output",
         category: WorkloadCategory::Filesystem,
         scale: 4096,
@@ -686,7 +708,7 @@ trusted func main() -> Result<unit, std.io.IoError>
             required_symbols: &[
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
-                "bray_platform_file_close_v2",
+                "bray_platform_file_close_v3",
                 "bray_platform_path_remove_file",
             ],
             // Resource-completion assertions can report failures on standard error.

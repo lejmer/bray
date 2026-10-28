@@ -127,34 +127,6 @@ trusted internal func prepare_file_seek(
     return Ok(std.numeric.truncate_to<u64>(native_position));
 }
 
-@abi(c)
-trusted internal func platform_file_close(
-    pos handle: u64,
-    pos released: DataPointer<u32>
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
-        trusted core.memory.aligned_for<u32>(pointer = released),
-    )
-    uses(raw_memory, unchecked_init)
-{
-    let observed: (std.platform.PlatformStatus, bool) = trusted internal prepare_file_close(handle, released);
-
-    trusted std.memory.write<u32>(
-        released,
-        value = if observed.1
-        {
-            yield 1;
-        }
-        else
-        {
-            yield 0;
-        }
-    );
-
-    return observed.0;
-}
-
 trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
@@ -510,10 +482,31 @@ trusted internal func native_directory_next_handle(
 ) -> Result<NativeDirectoryEntry?, std.io.IoError>
     requires(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
     ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
-    uses(raw_memory, unchecked_init)
+    uses(raw_memory, unchecked_alias)
 {
     let pointer: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
-    let mut native: NativeWindowsDirectory = trusted std.memory.read<NativeWindowsDirectory>(pointer);
+    let mut capability: u64 = handle;
+
+    // Directory.next owns the only mutable traversal access while the provider call runs.
+    let authorize = trusted lambda(pos pointer: DataPointer<NativeWindowsDirectory>)
+        ensures(
+            trusted core.memory.valid_write<NativeWindowsDirectory>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.initialized_as<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.epoch_current<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.synchronized_access<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.movement_stable<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.finalization_pending<NativeWindowsDirectory>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    authorize(pointer);
+
+    let native: &mut NativeWindowsDirectory = trusted std.memory.borrow_mut_from<NativeWindowsDirectory, u64>(
+        &mut capability,
+        pointer,
+    );
 
     let result: Result<NativeDirectoryEntry?, std.io.IoError> = trusted native_directory_next(
         native.handle,
@@ -522,10 +515,6 @@ trusted internal func native_directory_next_handle(
         destination,
         capacity,
     );
-
-    let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
-
-    trusted std.memory.write<NativeWindowsDirectory>(current, native);
 
     // Native directory operations only touch their own state and the supplied output buffer.
     let preserve = trusted lambda(pos destination: DataPointer<u8>, pos capacity: usize)
@@ -661,7 +650,10 @@ trusted internal func native_directory_next(
     }
 }
 
-trusted internal func native_directory_close_handle(pos handle: u64) -> (std.platform.PlatformStatus, bool)
+trusted internal func native_directory_close_handle(
+    pos handle: u64,
+    pos terminal: bool
+) -> (std.platform.PlatformStatus, bool)
     uses(foreign_call, raw_memory)
 {
     let pointer: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
@@ -669,7 +661,17 @@ trusted internal func native_directory_close_handle(pos handle: u64) -> (std.pla
 
     if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(native.handle)) == 0
     {
-        return (trusted internal std.platform.windows_error_status(), false);
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
+        if terminal
+        {
+            let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
+
+            trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(current);
+            return (status, true);
+        }
+
+        return (status, false);
     }
 
     let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);

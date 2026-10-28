@@ -132,34 +132,6 @@ trusted internal func prepare_file_seek(
     return Ok(std.numeric.truncate_to<u64>(result));
 }
 
-@abi(c)
-trusted internal func platform_file_close(
-    pos handle: u64,
-    pos released: DataPointer<u32>
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
-        trusted core.memory.aligned_for<u32>(pointer = released),
-    )
-    uses(raw_memory, unchecked_init)
-{
-    let observed: (std.platform.PlatformStatus, bool) = trusted internal prepare_file_close(handle, released);
-
-    trusted std.memory.write<u32>(
-        released,
-        value = if observed.1
-        {
-            yield 1;
-        }
-        else
-        {
-            yield 0;
-        }
-    );
-
-    return observed.0;
-}
-
 trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
@@ -571,7 +543,10 @@ trusted internal func native_directory_next(
     }
 }
 
-trusted internal func native_directory_close_handle(pos handle: u64) -> (std.platform.PlatformStatus, bool)
+trusted internal func native_directory_close_handle(
+    pos handle: u64,
+    pos terminal: bool
+) -> (std.platform.PlatformStatus, bool)
 {
     let closed: i32 = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
 

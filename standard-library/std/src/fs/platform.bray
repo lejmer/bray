@@ -9,6 +9,10 @@ using std.memory;
 using std.numeric;
 using std.time;
 
+internal const CLOSE_RETRYABLE: u32 = 0;
+
+internal const CLOSE_TERMINAL: u32 = 1;
+
 @layout(c)
 internal struct PlatformPath
 {
@@ -240,6 +244,41 @@ trusted internal func prepare_file_close(
     )
 {
     return trusted internal std.platform.resource.close(handle);
+}
+
+@abi(c)
+trusted internal func platform_file_close(
+    pos handle: u64,
+    pos disposition: u32,
+    pos released: DataPointer<u32>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    if disposition > CLOSE_TERMINAL
+    {
+        trusted std.memory.write<u32>(released, 0);
+        return internal std.platform.invalid_input_status();
+    }
+
+    let observed: (std.platform.PlatformStatus, bool) = trusted internal prepare_file_close(handle, released);
+
+    trusted std.memory.write<u32>(
+        released,
+        if observed.1 || disposition == CLOSE_TERMINAL
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    return observed.0;
 }
 
 internal func platform_path(pos path: &std.path.Path) -> PlatformPath

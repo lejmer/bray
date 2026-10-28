@@ -335,3 +335,82 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
     return Ok(unit);
 }
 "#;
+
+pub(super) const FILESYSTEM_DIRECTORY_ITERATION: &str = r#"module filesystem_directory_iteration;
+
+using std.fs;
+using std.io;
+using std.path;
+using std.testing;
+
+func path(pos text: string) -> std.path.Path
+{
+    return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.from_string(&text));
+}
+
+func create_file(pos name: &std.path.Path) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.Write, creation = std.fs.FileCreation.CreateNew,
+    );
+    let mut file: std.fs.File = try std.fs.File.open(name, options = options);
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+    return Ok(unit);
+}
+
+trusted func main() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+{
+    let directory: std.path.Path = path("bray-performance-listing");
+    let a: std.path.Path = path("bray-performance-listing/a");
+    let b: std.path.Path = path("bray-performance-listing/b");
+    let c: std.path.Path = path("bray-performance-listing/c");
+    let d: std.path.Path = path("bray-performance-listing/d");
+    let e: std.path.Path = path("bray-performance-listing/e");
+    let f: std.path.Path = path("bray-performance-listing/f");
+    let g: std.path.Path = path("bray-performance-listing/g");
+    let h: std.path.Path = path("bray-performance-listing/h");
+    try std.fs.create_directory(&directory);
+    try create_file(&a);
+    try create_file(&b);
+    try create_file(&c);
+    try create_file(&d);
+    try create_file(&e);
+    try create_file(&f);
+    try create_file(&g);
+    try create_file(&h);
+    let mut rounds: usize = 0;
+    let mut count: usize = 0;
+    while rounds < 128
+    {
+        let mut listing: std.fs.Directory = try trusted std.fs.Directory.open(&directory);
+        loop
+        {
+            let next: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
+                trusted listing.next()
+            );
+            match consume next
+            {
+                case ?entry { assert(entry.metadata.kind matches std.fs.FileKind.File); count += 1; }
+                case none { break; }
+            }
+        }
+        std.testing.assert_ok<unit, std.io.IoError>(listing.close());
+        assert(listing.is_complete());
+        rounds += 1;
+    }
+    assert(count == 1024);
+    try std.fs.remove_file(&a);
+    try std.fs.remove_file(&b);
+    try std.fs.remove_file(&c);
+    try std.fs.remove_file(&d);
+    try std.fs.remove_file(&e);
+    try std.fs.remove_file(&f);
+    try std.fs.remove_file(&g);
+    try std.fs.remove_file(&h);
+    try std.fs.remove_directory(&directory);
+    return Ok(unit);
+}
+"#;

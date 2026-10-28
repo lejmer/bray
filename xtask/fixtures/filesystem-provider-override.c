@@ -21,6 +21,10 @@ _Static_assert(sizeof(Status) == 16, "status ABI layout");
 static unsigned file_close_attempts;
 static unsigned directory_close_attempts;
 static unsigned directory_phase;
+static unsigned file_abandon_attempts;
+static unsigned file_terminal_calls;
+static unsigned directory_abandon_attempts;
+static unsigned directory_terminal_calls;
 static Status success(void) { return (Status){0, 0, 0}; }
 static Status invalid(void) { return (Status){5, 0, 0}; }
 static int terminated_path(Path path)
@@ -37,16 +41,24 @@ Status bray_platform_file_open_v2(Path path, Options options, uint64_t* opened)
     (void)options;
     if (!terminated_path(path) || !opened) return invalid();
     if (path.address[0] == 'b') { *opened = 0; return (Status){0, 1, 0}; }
-    *opened = path.address[0] == 'c' ? 0x2222 : 0x1111;
+    if (path.address[0] == 'z') { file_abandon_attempts = 0; file_terminal_calls = 0; }
+    *opened = path.address[0] == 'c' ? 0x2222 : path.address[0] == 'z' ? 0x7777 : 0x1111;
     file_close_attempts = 0;
     return success();
 }
 
-Status bray_platform_file_close_v2(uint64_t handle, uint32_t* released)
+Status bray_platform_file_close_v3(uint64_t handle, uint32_t disposition, uint32_t* released)
 {
     if (!released) return invalid();
+    if (disposition > 1) { *released = 0; return invalid(); }
+    *released = 0;
+    if (handle == 0x7777) {
+        if (disposition == 0) { file_abandon_attempts++; *released = 0; return (Status){6, 0, 0}; }
+        file_terminal_calls++; *released = 1; return (Status){6, 0, 0};
+    }
     if (handle == 0x2222) { *released = 1; return (Status){6, 0, 0}; }
     if (handle != 0x1111) return invalid();
+    if (disposition == 1) { *released = 1; return success(); }
     if (file_close_attempts++ == 0) { *released = 0; return (Status){6, 0, 0}; }
     *released = 1;
     return success();
@@ -61,7 +73,16 @@ Status bray_platform_file_metadata(uint64_t handle, Metadata* output)
 
 Status bray_platform_path_metadata_v2(Path path, Metadata* output)
 {
-    if (!terminated_path(path) || !output || path.address[0] != 'p') return invalid();
+    if (!terminated_path(path) || !output) return invalid();
+    if (path.address[0] == 'f') {
+        if (!file_abandon_attempts || file_terminal_calls != 1) return invalid();
+        *output = (Metadata){0, 0, file_abandon_attempts, 0, 0, 0}; return success();
+    }
+    if (path.address[0] == 'g') {
+        if (!directory_abandon_attempts || directory_terminal_calls != 1) return invalid();
+        *output = (Metadata){0, 0, directory_abandon_attempts, 0, 0, 0}; return success();
+    }
+    if (path.address[0] != 'p') return invalid();
     *output = (Metadata){1, 0, 77, 0, 0, 0};
     return success();
 }
@@ -92,8 +113,8 @@ Status bray_platform_file_seek(uint64_t handle, uint64_t offset, uint32_t origin
 
 Status bray_platform_directory_open_v2(Path path, uint64_t* opened)
 {
-    if (!terminated_path(path) || !opened || (path.address[0] != 'v' && path.address[0] != 'd' && path.address[0] != 'm')) return invalid();
-    *opened = path.address[0] == 'd' ? 0x4444 : path.address[0] == 'm' ? 0x5555 : 0x3333;
+    if (!terminated_path(path) || !opened || (path.address[0] != 'v' && path.address[0] != 'd' && path.address[0] != 'm' && path.address[0] != 'e')) return invalid();
+    *opened = path.address[0] == 'd' ? 0x4444 : path.address[0] == 'm' ? 0x5555 : path.address[0] == 'e' ? 0x6666 : 0x3333;
     directory_phase = 0;
     directory_close_attempts = 0;
     return success();
@@ -126,12 +147,19 @@ Status bray_platform_directory_next_v2(
     return success();
 }
 
-Status bray_platform_directory_close_v2(uint64_t handle, uint32_t* released)
+Status bray_platform_directory_close_v3(uint64_t handle, uint32_t disposition, uint32_t* released)
 {
     if (!released) return invalid();
+    if (disposition > 1) { *released = 0; return invalid(); }
+    *released = 0;
+    if (handle == 0x6666) {
+        if (disposition == 0) { directory_abandon_attempts++; *released = 0; return (Status){6, 0, 0}; }
+        directory_terminal_calls++; *released = 1; return (Status){6, 0, 0};
+    }
     if (handle == 0x4444) { *released = 1; return (Status){6, 0, 0}; }
     if (handle == 0x5555) { *released = 1; return success(); }
     if (handle != 0x3333) return invalid();
+    if (disposition == 1) { *released = 1; return success(); }
     if (directory_close_attempts++ == 0) { *released = 0; return (Status){6, 0, 0}; }
     *released = 1;
     return success();

@@ -20,37 +20,39 @@ trusted func main() -> i32
 {
     let retry_path: std.path.Path = path("retry");
 
-    let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
-        std.fs.File.open(&retry_path, options = options())
-    );
+    {
+        let mut file: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+            std.fs.File.open(&retry_path, options = options())
+        );
 
-    let file_metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
-        file.metadata()
-    );
+        let file_metadata: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+            file.metadata()
+        );
 
-    assert(file_metadata.bytes == 123 && file_metadata.kind matches std.fs.FileKind.File);
+        assert(file_metadata.bytes == 123 && file_metadata.kind matches std.fs.FileKind.File);
 
-    let mut bytes: [u8; 1] = [0];
-    let count: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut bytes[..]));
+        let mut bytes: [u8; 1] = [0];
+        let count: usize = std.testing.assert_ok<usize, std.io.IoError>(file.read(&mut bytes[..]));
 
-    assert(count == 1 && bytes[0] == 81);
+        assert(count == 1 && bytes[0] == 81);
 
-    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&bytes[..]));
+        let written: usize = std.testing.assert_ok<usize, std.io.IoError>(file.write(&bytes[..]));
 
-    assert(written == 1);
-    std.testing.assert_ok<unit, std.io.IoError>(file.flush());
+        assert(written == 1);
+        std.testing.assert_ok<unit, std.io.IoError>(file.flush());
 
-    let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
-        file.seek(offset = 17, origin = std.io.SeekOrigin.Start)
-    );
+        let position: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+            file.seek(offset = 17, origin = std.io.SeekOrigin.Start)
+        );
 
-    assert(position == 17);
+        assert(position == 17);
 
-    _ = std.testing.assert_error<unit, std.io.IoError>(file.close());
+        _ = std.testing.assert_error<unit, std.io.IoError>(file.close());
 
-    assert(!file.is_complete());
-    std.testing.assert_ok<unit, std.io.IoError>(file.close());
-    assert(file.is_complete());
+        assert(!file.is_complete());
+        std.testing.assert_ok<unit, std.io.IoError>(file.close());
+        assert(file.is_complete());
+    }
 
     let raw: u64 = std.testing.assert_ok<u64, std.io.IoError>(
         trusted std.fs.open_file_handle(&retry_path, options = options())
@@ -68,13 +70,15 @@ trusted func main() -> i32
 
     let consumed_path: std.path.Path = path("consumed");
 
-    let mut consumed: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
-        std.fs.File.open(&consumed_path, options = options())
-    );
+    {
+        let mut consumed: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+            std.fs.File.open(&consumed_path, options = options())
+        );
 
-    _ = std.testing.assert_error<unit, std.io.IoError>(consumed.close());
+        _ = std.testing.assert_error<unit, std.io.IoError>(consumed.close());
 
-    assert(consumed.is_complete());
+        assert(consumed.is_complete());
+    }
 
     let raw_consumed: u64 = std.testing.assert_ok<u64, std.io.IoError>(
         trusted std.fs.open_file_handle(&consumed_path, options = options())
@@ -85,6 +89,34 @@ trusted func main() -> i32
     assert(raw_consumed_close.1);
 
     _ = std.testing.assert_error<unit, std.io.IoError>(raw_consumed_close.0);
+
+    let raw_abandon_path: std.path.Path = path("z-raw");
+
+    let raw_abandon: u64 = std.testing.assert_ok<u64, std.io.IoError>(
+        trusted std.fs.open_file_handle(&raw_abandon_path, options = options())
+    );
+
+    let raw_retry: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(raw_abandon);
+
+    assert(!raw_retry.1);
+
+    _ = std.testing.assert_error<unit, std.io.IoError>(raw_retry.0);
+
+    let raw_terminal: (Result<unit, std.io.IoError>, bool) = trusted std.fs.close_file_handle(
+        raw_abandon,
+        terminal = true
+    );
+
+    assert(raw_terminal.1);
+
+    _ = std.testing.assert_error<unit, std.io.IoError>(raw_terminal.0);
+    let raw_probe: std.path.Path = path("final-raw");
+
+    let raw_cleanup: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        std.fs.metadata(&raw_probe)
+    );
+
+    assert(raw_cleanup.bytes > 0);
 
     let bad_path: std.path.Path = path("bad");
     _ = std.testing.assert_error<std.fs.File, std.io.IoError>(std.fs.File.open(&bad_path, options = options()));
@@ -99,52 +131,111 @@ trusted func main() -> i32
 
     let directory_path: std.path.Path = path("virtual");
 
-    let mut directory: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-        trusted std.fs.Directory.open(&directory_path)
-    );
+    {
+        let mut directory: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+            trusted std.fs.Directory.open(&directory_path)
+        );
 
-    let optional_entry: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
-        trusted directory.next()
-    );
+        let optional_entry: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
+            trusted directory.next()
+        );
 
-    let entry: std.fs.DirectoryEntry = std.testing.assert_present<std.fs.DirectoryEntry>(optional_entry);
+        let entry: std.fs.DirectoryEntry = std.testing.assert_present<std.fs.DirectoryEntry>(optional_entry);
 
-    assert(entry.metadata.bytes == 99);
+        assert(entry.metadata.bytes == 99);
 
-    let entry_text: string = std.testing.assert_ok<string, std.path.PathError>(entry.path.to_native().to_string());
+        let entry_text: string = std.testing.assert_ok<string, std.path.PathError>(entry.path.to_native().to_string());
 
-    assert(entry_text.length() == 1100);
+        assert(entry_text.length() == 1100);
 
-    let end: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
-        trusted directory.next()
-    );
+        let end: std.fs.DirectoryEntry? = std.testing.assert_ok<std.fs.DirectoryEntry?, std.io.IoError>(
+            trusted directory.next()
+        );
 
-    std.testing.assert_absent<std.fs.DirectoryEntry>(end);
+        std.testing.assert_absent<std.fs.DirectoryEntry>(end);
 
-    _ = std.testing.assert_error<unit, std.io.IoError>(directory.close());
+        _ = std.testing.assert_error<unit, std.io.IoError>(directory.close());
 
-    assert(!directory.is_complete());
-    std.testing.assert_ok<unit, std.io.IoError>(directory.close());
-    assert(directory.is_complete());
+        assert(!directory.is_complete());
+        std.testing.assert_ok<unit, std.io.IoError>(directory.close());
+        assert(directory.is_complete());
+    }
 
     let done_path: std.path.Path = path("done");
 
-    let mut done: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-        trusted std.fs.Directory.open(&done_path)
-    );
+    {
+        let mut done: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+            trusted std.fs.Directory.open(&done_path)
+        );
 
-    _ = std.testing.assert_error<unit, std.io.IoError>(done.close());
+        _ = std.testing.assert_error<unit, std.io.IoError>(done.close());
 
-    assert(done.is_complete());
+        assert(done.is_complete());
+    }
 
     let malformed_path: std.path.Path = path("malformed");
 
-    let mut malformed: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
-        trusted std.fs.Directory.open(&malformed_path)
+    {
+        let mut malformed: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+            trusted std.fs.Directory.open(&malformed_path)
+        );
+
+        _ = std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(trusted malformed.next());
+
+        std.testing.assert_ok<unit, std.io.IoError>(malformed.close());
+        assert(malformed.is_complete());
+    }
+
+    let abandoned_file: Result<unit, PanicReport> = catch
+    {
+        let abandon_path: std.path.Path = path("z-abandon");
+
+        let mut abandoned: std.fs.File = std.testing.assert_ok<std.fs.File, std.io.IoError>(
+            std.fs.File.open(&abandon_path, options = options())
+        );
+
+        _ = std.testing.assert_error<unit, std.io.IoError>(abandoned.close());
+
+        assert(!abandoned.is_complete());
+        panic("abandon file after close failure");
+        std.testing.assert_ok<unit, std.io.IoError>(abandoned.close());
+        assert(abandoned.is_complete());
+        yield unit;
+    };
+
+    _ = std.testing.assert_error<unit, PanicReport>(abandoned_file);
+    let file_probe: std.path.Path = path("final-file");
+
+    let file_cleanup: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        std.fs.metadata(&file_probe)
     );
 
-    _ = std.testing.assert_error<std.fs.DirectoryEntry?, std.io.IoError>(trusted malformed.next());
+    assert(file_cleanup.bytes > 0);
 
-    std.testing.assert_ok<unit, std.io.IoError>(malformed.close());
+    let abandoned_directory: Result<unit, PanicReport> = catch
+    {
+        let abandon_path: std.path.Path = path("e-abandon");
+
+        let mut abandoned: std.fs.Directory = std.testing.assert_ok<std.fs.Directory, std.io.IoError>(
+            trusted std.fs.Directory.open(&abandon_path)
+        );
+
+        _ = std.testing.assert_error<unit, std.io.IoError>(abandoned.close());
+
+        assert(!abandoned.is_complete());
+        panic("abandon directory after close failure");
+        std.testing.assert_ok<unit, std.io.IoError>(abandoned.close());
+        assert(abandoned.is_complete());
+        yield unit;
+    };
+
+    _ = std.testing.assert_error<unit, PanicReport>(abandoned_directory);
+    let directory_probe: std.path.Path = path("gone-directory");
+
+    let directory_cleanup: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        std.fs.metadata(&directory_probe)
+    );
+
+    assert(directory_cleanup.bytes > 0);
     return 0;
 }

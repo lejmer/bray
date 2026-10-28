@@ -181,6 +181,7 @@ trusted internal func platform_directory_next(
 
 trusted internal func prepare_directory_close(
     pos handle: u64,
+    pos terminal: bool,
     pos released: DataPointer<u32>
 ) -> (std.platform.PlatformStatus, bool)
     requires(
@@ -192,12 +193,13 @@ trusted internal func prepare_directory_close(
         trusted core.memory.aligned_for<u32>(pointer = released),
     )
 {
-    return trusted native_directory_close_handle(handle);
+    return trusted native_directory_close_handle(handle, terminal);
 }
 
 @abi(c)
 trusted internal func platform_directory_close(
     pos handle: u64,
+    pos disposition: u32,
     pos released: DataPointer<u32>
 ) -> std.platform.PlatformStatus
     requires(
@@ -206,7 +208,17 @@ trusted internal func platform_directory_close(
     )
     uses(raw_memory, unchecked_init)
 {
-    let observed: (std.platform.PlatformStatus, bool) = trusted prepare_directory_close(handle, released);
+    if disposition > CLOSE_TERMINAL
+    {
+        trusted std.memory.write<u32>(released, 0);
+        return internal std.platform.invalid_input_status();
+    }
+
+    let observed: (std.platform.PlatformStatus, bool) = trusted prepare_directory_close(
+        handle,
+        disposition == CLOSE_TERMINAL,
+        released
+    );
 
     trusted std.memory.write<u32>(
         released,
