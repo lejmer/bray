@@ -329,7 +329,7 @@ impl NativePipeReader {
             use std::os::windows::io::AsHandle;
             use system_interface::io::IoExt;
 
-            let handle = match self {
+            let handle = match &*self {
                 Self::Stdout(reader) => reader.as_handle(),
                 Self::Stderr(reader) => reader.as_handle(),
             };

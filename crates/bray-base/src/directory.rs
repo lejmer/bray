@@ -18,7 +18,7 @@ pub fn atomic_rename_exclusive(source: &Path, destination: &Path) -> io::Result<
         windows_extended_path(destination)?,
     );
 
-    retry_permission_denied(|| renamore::rename_exclusive(source, destination))
+    retry_permission_denied(|| renamore::rename_exclusive(&source, &destination))
 }
 
 #[cfg(windows)]

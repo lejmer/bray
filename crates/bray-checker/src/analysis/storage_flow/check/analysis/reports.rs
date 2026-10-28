@@ -88,6 +88,49 @@ impl StorageFlowInput {
 }
 
 impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysis, C> {
+    pub(super) fn collect_lifecycle_reports(
+        &self,
+        operation: AnalysisOperationKind,
+        call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
+        reports: &mut Vec<(
+            bray_bound_tree::StorageAccessId,
+            Vec<bray_symbols::DependencyRequirement>,
+            bool,
+        )>,
+    ) {
+        let contract = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
+
+        if let Some(requirements) = contract.completion_reports() {
+            reports.push((
+                call.access,
+                requirements.to_vec(),
+                operation.is_normal_cleanup(),
+            ));
+        }
+
+        if !self.on_normal_path {
+            if let Some(requirements) = contract.abnormal_reports() {
+                reports.push((call.access, requirements.to_vec(), false));
+            }
+
+            if call
+                .lifecycle
+                .call
+                .callable
+                .definition()
+                .callable_symbol()
+                .kind()
+                == bray_symbols::SymbolKind::Finalizer
+                && crate::representation::type_representation(
+                    self.request,
+                    call.lifecycle.call.result.completion_type(),
+                ) == Some(bray_compiler_known::RepresentationRole::Result)
+            {
+                reports.push((call.access, contract.requirements().to_vec(), false));
+            }
+        }
+    }
+
     pub(super) fn inactive_cleanup_report(
         &self,
         operation: AnalysisOperationKind,

@@ -285,16 +285,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     expression,
                     phase: super::super::model::AnalysisResultPhase::Begin,
                 } if property == ExecutionProperty::Pure => {
-                    let eligibility = super::predicate::expression_eligibility(
-                        request,
-                        expression,
-                        expressions,
-                        storage,
-                        body.storage_flow(),
-                        reachable.domain.yield_targets,
-                    );
-
-                    record_eligibility(request, candidate, expression.into(), eligibility);
+                    check_expression_eligibility(reachable, body, expression, candidate);
 
                     true
                 }
@@ -381,16 +372,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
 
                     if visited.insert(expression.into()) {
                         if property == ExecutionProperty::Pure {
-                            let eligibility = super::predicate::expression_eligibility(
-                                request,
-                                expression,
-                                expressions,
-                                storage,
-                                body.storage_flow(),
-                                reachable.domain.yield_targets,
-                            );
-
-                            record_eligibility(request, candidate, expression.into(), eligibility);
+                            check_expression_eligibility(reachable, body, expression, candidate);
                         }
 
                         let predicate_valid = !predicate
@@ -563,20 +545,31 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-fn record_eligibility<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
+fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
+    flow: &super::flow::ExecutionFlow<'_, '_, C>,
+    body: &CheckedBodySemantics,
+    expression: bray_bound_tree::BoundExpressionId,
     candidate: &mut ExecutionCandidate,
-    node: AnyBoundNodeId,
-    eligibility: super::predicate::ExpressionEligibility,
 ) {
+    let request = flow.domain.request;
+
+    let eligibility = super::predicate::expression_eligibility(
+        request,
+        expression,
+        flow.domain.semantics,
+        flow.domain.storage,
+        body.storage_flow(),
+        flow.domain.yield_targets,
+    );
+
     if eligibility != super::predicate::ExpressionEligibility::Constant {
-        record_constant_failure(request, candidate, node);
+        record_constant_failure(request, candidate, expression.into());
     }
 
     if eligibility == super::predicate::ExpressionEligibility::Forbidden {
         candidate
             .observation_failure
-            .get_or_insert(node_span(request, node));
+            .get_or_insert(node_span(request, expression.into()));
     }
 }
 
