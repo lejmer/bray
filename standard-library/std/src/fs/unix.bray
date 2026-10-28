@@ -143,7 +143,6 @@ trusted internal func prepare_file_open(
     pos path: PlatformPath,
     pos options: PlatformFileOptions,
     pos opened: DataPointer<u64>,
-    already_terminated: bool,
 ) -> Result<File, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
@@ -162,10 +161,7 @@ trusted internal func prepare_file_open(
         case Error(status) { return Error(status); }
     };
 
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        path,
-        already_terminated = already_terminated
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -204,22 +200,7 @@ trusted internal func platform_path_create_directory(pos path: PlatformPath) -> 
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
 {
-    return trusted internal path_create_directory_implementation(path, already_terminated = false);
-}
-
-trusted internal func path_create_directory_implementation(
-    pos path: PlatformPath,
-    already_terminated: bool
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
-    )
-{
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        path,
-        already_terminated = already_terminated
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -240,22 +221,7 @@ trusted internal func platform_path_remove_file(pos path: PlatformPath) -> std.p
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
 {
-    return trusted internal path_remove_file_implementation(path, already_terminated = false);
-}
-
-trusted internal func path_remove_file_implementation(
-    pos path: PlatformPath,
-    already_terminated: bool
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
-    )
-{
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        path,
-        already_terminated = already_terminated
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -274,22 +240,7 @@ trusted internal func platform_path_remove_directory(pos path: PlatformPath) -> 
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
 {
-    return trusted internal path_remove_directory_implementation(path, already_terminated = false);
-}
-
-trusted internal func path_remove_directory_implementation(
-    pos path: PlatformPath,
-    already_terminated: bool
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
-    )
-{
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        path,
-        already_terminated = already_terminated
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -315,24 +266,8 @@ trusted internal func platform_path_rename(
         trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
     )
 {
-    return trusted internal path_rename_implementation(source, new_path, already_terminated = false);
-}
-
-trusted internal func path_rename_implementation(
-    pos source: PlatformPath,
-    pos new_path: PlatformPath,
-    already_terminated: bool,
-) -> std.platform.PlatformStatus
-    requires(
-        trusted core.memory.valid_read<u8>(pointer = source.address, count = source.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = source.address, count = source.length as usize),
-        trusted core.memory.valid_read<u8>(pointer = new_path.address, count = new_path.length as usize),
-        trusted core.memory.initialized_range_as<u8>(pointer = new_path.address, count = new_path.length as usize),
-    )
-{
     let terminated_source: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        source,
-        already_terminated = already_terminated
+        source
     );
 
     match consume terminated_source
@@ -340,7 +275,7 @@ trusted internal func path_rename_implementation(
         case Ok(source_path)
         {
             let terminated_destination: Result<PreparedPath, std.platform.PlatformStatus> =
-                trusted internal prepare_native_path(new_path, already_terminated = already_terminated);
+                trusted internal prepare_native_path(new_path);
 
             match consume terminated_destination
             {
@@ -438,10 +373,7 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
 {
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        path,
-        already_terminated = true
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -473,8 +405,7 @@ trusted internal func platform_directory_open(
 ) -> Result<u64, std.io.IoError>
 {
     let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        platform_path(path),
-        already_terminated = true
+        platform_path(path)
     );
 
     match consume terminated

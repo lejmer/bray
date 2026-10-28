@@ -123,9 +123,11 @@ macro_rules! platform_role_catalog {
                 PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close",
                 Filesystem, [U64] -> Status, bootstrap: ()
             }
+            // Path-bearing entry points use distinct symbols for the extended path record,
+            // so an archive built for the old by-value layout cannot satisfy these roles.
             FileOpen {
                 "Opens one file stream.", 0x0211, "platform.file.open",
-                PLATFORM_FILE_OPEN_SYMBOL = "bray_platform_file_open",
+                PLATFORM_FILE_OPEN_SYMBOL = "bray_platform_file_open_v2",
                 Filesystem, [Path, FileOptions, PointerU64] -> Status, bootstrap: ()
             }
             FileMetadata {
@@ -135,12 +137,12 @@ macro_rules! platform_role_catalog {
             }
             PathMetadata {
                 "Reads metadata for one path.", 0x0213, "platform.path.metadata",
-                PLATFORM_PATH_METADATA_SYMBOL = "bray_platform_path_metadata",
+                PLATFORM_PATH_METADATA_SYMBOL = "bray_platform_path_metadata_v2",
                 Filesystem, [Path, FileMetadataPointer] -> Status, bootstrap: ()
             }
             DirectoryOpen {
                 "Opens one directory traversal.", 0x0221, "platform.directory.open",
-                PLATFORM_DIRECTORY_OPEN_SYMBOL = "bray_platform_directory_open",
+                PLATFORM_DIRECTORY_OPEN_SYMBOL = "bray_platform_directory_open_v2",
                 Filesystem, [Path, PointerU64] -> Status, bootstrap: ()
             }
             DirectoryNext {
@@ -155,22 +157,22 @@ macro_rules! platform_role_catalog {
             }
             PathCreateDirectory {
                 "Creates one directory.", 0x0230, "platform.path.create_directory",
-                PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL = "bray_platform_path_create_directory",
+                PLATFORM_PATH_CREATE_DIRECTORY_SYMBOL = "bray_platform_path_create_directory_v2",
                 Filesystem, [Path] -> Status, bootstrap: ()
             }
             PathRemoveFile {
                 "Removes one file.", 0x0231, "platform.path.remove_file",
-                PLATFORM_PATH_REMOVE_FILE_SYMBOL = "bray_platform_path_remove_file",
+                PLATFORM_PATH_REMOVE_FILE_SYMBOL = "bray_platform_path_remove_file_v2",
                 Filesystem, [Path] -> Status, bootstrap: ()
             }
             PathRemoveDirectory {
                 "Removes one empty directory.", 0x0232, "platform.path.remove_directory",
-                PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL = "bray_platform_path_remove_directory",
+                PLATFORM_PATH_REMOVE_DIRECTORY_SYMBOL = "bray_platform_path_remove_directory_v2",
                 Filesystem, [Path] -> Status, bootstrap: ()
             }
             PathRename {
                 "Renames one filesystem entry.", 0x0233, "platform.path.rename",
-                PLATFORM_PATH_RENAME_SYMBOL = "bray_platform_path_rename",
+                PLATFORM_PATH_RENAME_SYMBOL = "bray_platform_path_rename_v2",
                 Filesystem, [Path, Path] -> Status, bootstrap: ()
             }
             ProcessPipeRead {
@@ -330,7 +332,7 @@ macro_rules! platform_role_catalog {
             }
             DynamicLibraryOpenPath {
                 "Opens one dynamic library from an explicit path.", 0x0801, "platform.dynamic_library.open_path",
-                PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL = "bray_platform_dynamic_library_open_path",
+                PLATFORM_DYNAMIC_LIBRARY_OPEN_PATH_SYMBOL = "bray_platform_dynamic_library_open_path_v2",
                 DynamicLibrary, [Path, U32, PointerU64] -> Status, bootstrap: ()
             }
             DynamicLibraryOpenSystem {

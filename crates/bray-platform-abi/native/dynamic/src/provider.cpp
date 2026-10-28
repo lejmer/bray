@@ -349,7 +349,7 @@ void discard_library(NativeLibrary library)
 
 }
 
-extern "C" BrayPlatformStatus bray_platform_dynamic_library_open_path(
+extern "C" BrayPlatformStatus bray_platform_dynamic_library_open_path_v2(
     BrayPlatformPath path,
     std::uint32_t policy,
     std::uint64_t* opened

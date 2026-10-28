@@ -453,6 +453,7 @@ fn platform_abi_type_matches(
             &[
                 AbiField::Pointer(RepresentationRole::ScalarU8),
                 AbiField::Scalar(RepresentationRole::ScalarU64),
+                AbiField::Scalar(RepresentationRole::ScalarU64),
             ],
             cancellation,
             diagnostics,

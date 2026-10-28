@@ -683,12 +683,12 @@ trusted func main() -> Result<unit, std.io.IoError>
             "platform.path.remove_file",
         ],
         retention: RetentionContract {
-            // Owned paths call native filesystem leaves directly; the length-delimited ABI
-            // wrappers and their archive provenance are no longer required by this workload.
             required_symbols: &[
+                "bray_platform_file_open_v2",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_close",
+                "bray_platform_path_remove_file_v2",
             ],
             // Resource-completion assertions can report failures on standard error.
             forbidden_symbols: &[

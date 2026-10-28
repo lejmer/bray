@@ -794,6 +794,75 @@ fn assert_native_platform_cleanup_emits(
 }
 
 #[test]
+fn path_role_dispatches_to_the_runtime_override() {
+    let source = r#"trusted module app;
+using core.memory;
+
+@layout(c)
+internal struct NativePath
+{
+    address: DataPointer<u8>;
+    length: u64;
+    terminated: u64;
+}
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+trusted internal func create_directory(pos path: NativePath) -> PlatformStatus
+{
+    return { category = 0, reserved = 0, native_code = 0 };
+}
+
+@test
+func platform_path_override_test()
+{
+    let path: NativePath = { address = core.memory.null<u8>(), length = 0, terminated = 0 };
+    let status: PlatformStatus = trusted create_directory(path);
+}
+"#;
+
+    let role = PlatformServiceRole::PathCreateDirectory;
+
+    let binding = PlatformServiceBinding::try_new(role, "app.create_directory")
+        .unwrap_or_else(|| panic!("platform service binding must validate"));
+
+    let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_overrides(
+        &[source],
+        ProductKind::Test,
+        SelectedTarget::baseline(),
+        &[],
+        [binding],
+        [role],
+        crate::BuildConfiguration::Development,
+    );
+
+    let symbol = role.native_symbol();
+
+    assert_eq!(symbol, "bray_platform_path_create_directory_v2");
+
+    let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+        .into_iter()
+        .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
+        .collect::<String>();
+
+    assert!(plan.mappings().iter().any(|mappings| {
+        mappings.symbols().iter().any(|mapping| {
+            mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Import
+        })
+    }));
+
+    assert!(ir.lines().any(|line| line.starts_with("declare ") && line.contains(symbol)));
+    assert!(!ir.lines().any(|line| line.starts_with("define ") && line.contains(symbol)));
+}
+
+#[test]
 fn bray_platform_service_implementations_are_native_fallbacks() {
     let source = concat!(
         "trusted module app;\n",

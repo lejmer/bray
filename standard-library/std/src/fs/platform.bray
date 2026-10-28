@@ -13,6 +13,9 @@ internal struct PlatformPath
 {
     address: DataPointer<u8>;
     length: u64;
+    // A value of 1 promises a readable native NUL after the logical bytes and
+    // native-unit alignment for the duration of the call. Zero is length-delimited.
+    terminated: u64;
 }
 
 @layout(c)
@@ -32,10 +35,22 @@ internal func platform_path(pos path: &std.path.Path) -> PlatformPath
 {
     let bytes: &[u8] = internal std.path.native_bytes(path.to_native());
 
+    // A zero-length slice can have a null pointer. The provider uses a static
+    // terminator for that case without allocating.
+    let terminated: u64 = if bytes.length() == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 1;
+    };
+
     return
     {
         address = internal std.memory.slice_pointer(bytes, count = bytes.length()),
         length = bytes.length() as u64,
+        terminated = terminated,
     };
 }
 
@@ -164,12 +179,7 @@ trusted internal func platform_file_open(
     )
     uses(raw_memory, unchecked_init)
 {
-    let prepared: Result<File, std.platform.PlatformStatus> = trusted internal prepare_file_open(
-        path,
-        options,
-        opened,
-        already_terminated = false
-    );
+    let prepared: Result<File, std.platform.PlatformStatus> = trusted internal prepare_file_open(path, options, opened);
 
     match consume prepared
     {
@@ -195,37 +205,14 @@ internal struct PreparedPath
     storage: std.memory.RawBuffer<u8>?;
 }
 
-// An already terminated input must come from platform_path and remain borrowed for the call.
-trusted internal func prepare_native_path(
-    pos path: PlatformPath,
-    already_terminated: bool,
-) -> Result<PreparedPath, std.platform.PlatformStatus>
+// A terminated input must carry the PlatformPath guarantee for the entire call.
+trusted internal func prepare_native_path(pos path: PlatformPath) -> Result<PreparedPath, std.platform.PlatformStatus>
     requires(
         trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
         trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
     )
     uses(manual_alloc, raw_memory, unchecked_init)
 {
-    if already_terminated
-    {
-        if path.length == 0
-        {
-            return Ok(
-                {
-                    pointer = std.memory.byte_address<u16>(std.memory.address_of<u16>(&EMPTY_PATH_TERMINATOR)),
-                    storage = none,
-                }
-            );
-        }
-
-        return Ok(
-            {
-                pointer = path.address,
-                storage = none
-            }
-        );
-    }
-
     let width: usize = if target.identity.SYSTEM == "windows"
     {
         yield 2;
@@ -250,6 +237,31 @@ trusted internal func prepare_native_path(
         std.memory.is_null<u8>(path.address))
     {
         return Error(internal std.platform.invalid_input_status());
+    }
+
+    if path.length == 0
+    {
+        return Ok(
+            {
+                pointer = std.memory.byte_address<u16>(std.memory.address_of<u16>(&EMPTY_PATH_TERMINATOR)),
+                storage = none,
+            }
+        );
+    }
+
+    if path.terminated == 1
+    {
+        if width == 2 && trusted internal std.platform.pointer_handle(path.address) % 2 != 0
+        {
+            return Error(internal std.platform.invalid_input_status());
+        }
+
+        return Ok(
+            {
+                pointer = path.address,
+                storage = none
+            }
+        );
     }
 
     let capacity: usize = count + extra;

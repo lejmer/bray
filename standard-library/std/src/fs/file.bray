@@ -153,18 +153,23 @@ trusted internal func acquire(pos path: &std.path.Path, options: OpenOptions) ->
     let mut handle: u64 = 0;
     let handle_pointer: DataPointer<u64> = std.memory.address_of_mut(&mut handle);
 
-    let prepared = trusted prepare_file_open(
+    let status: std.platform.PlatformStatus = trusted platform_file_open(
         platform_path_value,
         platform_options,
         handle_pointer,
-        already_terminated = true
     );
 
-    match consume prepared
+    if status.category != 0
     {
-        case Ok(owner) { return Ok(owner); }
-        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
+        return Error(internal std.io.platform_status_error(status));
     }
+
+    return Ok(
+        {
+            handle = handle,
+            is_open = true
+        }
+    );
 }
 
 /// Opens one file as a scalar handle owned until `close_file_handle` or process termination.

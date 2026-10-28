@@ -1,9 +1,13 @@
 /// Call-only target-native path bytes passed across the platform ABI.
+///
+/// The logical length excludes any terminator. The termination capability describes
+/// storage owned by the caller and remains valid only for the duration of the call.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativePlatformPath {
     address: *const u8,
     length: u64,
+    terminated: u64,
 }
 
 /// Call-only target-native text units passed across the platform ABI.
@@ -29,12 +33,23 @@ impl NativePlatformText {
     pub const fn length(self) -> u64 {
         self.length
     }
+
 }
 
 impl NativePlatformPath {
     /// Creates one native path view.
     pub const fn new(address: *const u8, length: u64) -> Self {
-        Self { address, length }
+        Self { address, length, terminated: 0 }
+    }
+
+    /// Creates a native path whose logical bytes are followed by a native NUL unit.
+    ///
+    /// Callers passing this record to a platform service must keep `length` logical bytes
+    /// followed by an initialized native NUL unit readable for the call. The address must
+    /// be aligned to the target's native character width, and the complete range must fit
+    /// in the target address space.
+    pub const fn new_terminated(address: *const u8, length: u64) -> Self {
+        Self { address, length, terminated: 1 }
     }
 
     /// Returns the first native path byte.
@@ -45,6 +60,11 @@ impl NativePlatformPath {
     /// Returns the native path byte length.
     pub const fn length(self) -> u64 {
         self.length
+    }
+
+    /// Whether the caller guarantees an aligned native terminator after the logical bytes.
+    pub const fn is_terminated(self) -> bool {
+        self.terminated == 1
     }
 }
 
@@ -277,9 +297,10 @@ mod tests {
 
     #[test]
     fn platform_records_have_the_native_abi_layout() {
-        assert_abi_layout!(NativePlatformPath, size: 16, align: 8, fields: {
+        assert_abi_layout!(NativePlatformPath, size: 24, align: 8, fields: {
             address: 0,
             length: 8,
+            terminated: 16,
         });
 
         assert_abi_layout!(NativePlatformText, size: 16, align: 8, fields: {
@@ -322,5 +343,21 @@ mod tests {
             reserved: 4,
             native_code: 8,
         });
+    }
+
+    #[test]
+    fn native_path_construction_distinguishes_terminated_storage() {
+        let path = [u16::from_ne_bytes([b'a', 0]), 0];
+        let length = if cfg!(windows) { 2 } else { 1 };
+        let address = path.as_ptr().cast::<u8>();
+        let borrowed = NativePlatformPath::new(address, length);
+
+        // The initialized, aligned array contains a native terminator on both targets.
+        let terminated = NativePlatformPath::new_terminated(address, length);
+
+        assert!(!borrowed.is_terminated());
+        assert!(terminated.is_terminated());
+        assert_eq!(borrowed.length(), terminated.length());
+        assert_eq!(borrowed.address(), terminated.address());
     }
 }
