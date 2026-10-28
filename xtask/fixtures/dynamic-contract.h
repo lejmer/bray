@@ -1,4 +1,4 @@
-BrayPlatformStatus bray_platform_dynamic_library_open_path_v2(
+BrayPlatformStatus bray_platform_dynamic_library_open_path(
     BrayPlatformPath,
     std::uint32_t,
     std::uint64_t*

@@ -27,7 +27,7 @@ int main()
         return 2;
 
     std::uint64_t handle = 0;
-    auto status = bray_platform_dynamic_library_open_path_v2(borrowed, 0, &handle);
+    auto status = bray_platform_dynamic_library_open_path(borrowed, 0, &handle);
 
     if (status.category != 0 || handle == 0)
         return 3;
@@ -41,14 +41,14 @@ int main()
 
     auto odd = borrowed;
     --odd.length;
-    status = bray_platform_dynamic_library_open_path_v2(odd, 0, &handle);
+    status = bray_platform_dynamic_library_open_path(odd, 0, &handle);
 
     if (status.category != 5)
         return 5;
 
     bytes[offset + 3 * sizeof(wchar_t)] = 0;
     bytes[offset + 3 * sizeof(wchar_t) + 1] = 0;
-    status = bray_platform_dynamic_library_open_path_v2(borrowed, 0, &handle);
+    status = bray_platform_dynamic_library_open_path(borrowed, 0, &handle);
 
     if (status.category != 5)
         return 6;
