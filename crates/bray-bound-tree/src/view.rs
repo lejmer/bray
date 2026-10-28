@@ -57,6 +57,54 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    /// Returns the real and imaginary literal operands of a complex literal expression.
+    ///
+    /// The real literal may have a leading minus. Addition or subtraction supplies the
+    /// imaginary sign. Already-typed operands remain ordinary arithmetic expressions.
+    pub fn complex_literal_components(
+        self,
+        id: BoundExpressionId,
+    ) -> Option<[BoundExpressionId; 2]> {
+        let BoundExpression::Binary(binary) = self.expression(id)? else {
+            return None;
+        };
+
+        if !matches!(
+            binary.operator(),
+            crate::BoundOperator::Add | crate::BoundOperator::Subtract
+        ) {
+            return None;
+        }
+
+        let [real, imaginary] = binary.operands() else {
+            return None;
+        };
+
+        let real_literal = match self.expression(*real)? {
+            BoundExpression::Literal(literal) => literal,
+            BoundExpression::Unary(unary) if unary.operator() == crate::BoundOperator::Subtract => {
+                let [operand] = unary.operands() else {
+                    return None;
+                };
+
+                let BoundExpression::Literal(literal) = self.expression(*operand)? else {
+                    return None;
+                };
+
+                literal
+            }
+            _ => return None,
+        };
+
+        let BoundExpression::Literal(imaginary_literal) = self.expression(*imaginary)? else {
+            return None;
+        };
+
+        (real_literal.kind() == crate::BoundLiteralKind::Real
+            && imaginary_literal.kind() == crate::BoundLiteralKind::Imaginary)
+            .then_some([*real, *imaginary])
+    }
+
     /// Returns lexical name access for a reference, selection, or construction head.
     ///
     /// Call and aggregate syntax retain the access of their explicit head. Other expressions

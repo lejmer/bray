@@ -1,4 +1,4 @@
-use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundOperator, ExpressionTypeStatus};
+use bray_bound_tree::{BoundExpressionId, ExpressionTypeStatus};
 use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
@@ -19,32 +19,6 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn is_complex_literal(
-        &self,
-        binary: &bray_bound_tree::BoundBinaryExpression,
-    ) -> bool {
-        if !matches!(
-            binary.operator(),
-            BoundOperator::Add | BoundOperator::Subtract
-        ) {
-            return false;
-        }
-
-        let [real, imaginary] = binary.operands() else {
-            return false;
-        };
-
-        matches!(
-            self.request.view().expression(*real),
-            Some(BoundExpression::Literal(literal))
-                if literal.kind() == bray_bound_tree::BoundLiteralKind::Real
-        ) && matches!(
-            self.request.view().expression(*imaginary),
-            Some(BoundExpression::Literal(literal))
-                if literal.kind() == bray_bound_tree::BoundLiteralKind::Imaginary
-        )
-    }
-
     pub(super) fn expression_type(
         &self,
         expression: BoundExpressionId,

@@ -464,7 +464,13 @@ where
             BoundExpression::Unary(unary) => {
                 self.evaluate_operator(expression, unary.operator(), unary.operands(), ty?)
             }
-            BoundExpression::Binary(binary) if self.is_complex_literal(binary) => {
+            BoundExpression::Binary(binary)
+                if self
+                    .request
+                    .view()
+                    .complex_literal_components(expression)
+                    .is_some() =>
+            {
                 self.evaluate_complex_literal(expression, binary, ty?)
             }
             BoundExpression::Binary(binary) => {

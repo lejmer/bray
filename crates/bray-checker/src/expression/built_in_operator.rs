@@ -20,11 +20,13 @@ pub(super) struct PreparedBuiltInOperator {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum PreparedBuiltInOperatorKind {
     Ordinary,
+    ComplexLiteral,
     CompoundAssignment,
 }
 
 impl PreparedBuiltInOperator {
     pub(super) fn for_expression(
+        view: bray_bound_tree::BoundUnitView<'_>,
         expression: BoundExpressionId,
         bound: &BoundExpression,
     ) -> Option<Self> {
@@ -32,8 +34,14 @@ impl PreparedBuiltInOperator {
             BoundExpression::Unary(expression) if expression.operands().len() == 1 => {
                 (expression.operator(), PreparedBuiltInOperatorKind::Ordinary)
             }
-            BoundExpression::Binary(expression) if expression.operands().len() == 2 => {
-                (expression.operator(), PreparedBuiltInOperatorKind::Ordinary)
+            BoundExpression::Binary(binary) if binary.operands().len() == 2 => {
+                let kind = if view.complex_literal_components(expression).is_some() {
+                    PreparedBuiltInOperatorKind::ComplexLiteral
+                } else {
+                    PreparedBuiltInOperatorKind::Ordinary
+                };
+
+                (binary.operator(), kind)
             }
             BoundExpression::Assignment(expression) if expression.operands().len() == 2 => (
                 expression.operator().binary_operator()?,
@@ -88,6 +96,10 @@ pub(super) fn apply_evidence<C>(
     let boolean = representation_type(request, RepresentationRole::ScalarBool);
 
     for operation in prepared {
+        if operation.kind == PreparedBuiltInOperatorKind::ComplexLiteral {
+            continue;
+        }
+
         let Some(expression) = request.view().expression(operation.expression) else {
             panic!(
                 "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_evidence"
@@ -143,6 +155,10 @@ pub(super) fn apply_operand_expectations<C>(
     C: CheckerRequestContext + ?Sized,
 {
     for operation in prepared {
+        if operation.kind == PreparedBuiltInOperatorKind::ComplexLiteral {
+            continue;
+        }
+
         let Some(source) = request.view().expression(operation.expression) else {
             panic!(
                 "Semantic-selection inputs do not describe the requested bound unit or operation category. in apply_operand_expectations"
@@ -262,6 +278,29 @@ fn selected_result_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    if operation.kind == PreparedBuiltInOperatorKind::ComplexLiteral {
+        let result = types
+            .expression(operation.expression)
+            .filter(|result| !result.is_recovered())?;
+
+        let component = type_representation(request, result.ty())?.complex_component()?;
+        let component = representation_type(request, component);
+
+        let operands = request
+            .view()
+            .complex_literal_components(operation.expression)
+            .expect("prepared complex literal retains its source components");
+
+        return operands
+            .iter()
+            .all(|operand| {
+                types
+                    .expression(*operand)
+                    .is_some_and(|ty| !ty.is_recovered() && ty.ty() == component)
+            })
+            .then_some(result.ty());
+    }
+
     let Some(expression) = request.view().expression(operation.expression) else {
         panic!(
             "Semantic-selection inputs do not describe the requested bound unit or operation category. in selected_result_type"

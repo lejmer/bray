@@ -266,8 +266,11 @@ where
             }
             ExpressionCandidateSet::Operation(source) => {
                 if source.kind() == SelectionKind::Operator
-                    && let Some(operator) =
-                        PreparedBuiltInOperator::for_expression(source.expression(), expression)
+                    && let Some(operator) = PreparedBuiltInOperator::for_expression(
+                        request.view(),
+                        source.expression(),
+                        expression,
+                    )
                 {
                     built_in_operators.push(operator);
                 } else if !matches!(expression, BoundExpression::BoxConstruction(_)) {

@@ -2,15 +2,16 @@
 
 use bray_bound_tree::{
     BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
-    BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, OperatorTarget,
-    SelectedArgument, SelectedOperation, SemanticSelection, StorageIdentity, StorageIdentityId,
+    BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, ConversionTarget,
+    OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
+    StorageIdentity, StorageIdentityId,
 };
 use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
-    MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
-    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
-    MirUnaryOperator,
+    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
+    MirCallArgument, MirCallIntrinsic, MirCallTarget, MirCallableReference, MirEdge,
+    MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
+    MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnaryOperator,
 };
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, ConstantValueData,
@@ -96,7 +97,11 @@ impl Lowerer<'_> {
                 self.lower_unary(id, expression.operator(), expression.operands(), current)
             }
             BoundExpression::Binary(expression) => {
-                self.lower_binary(id, expression.operator(), expression.operands(), current)
+                if let Some(components) = self.input.unit().view().complex_literal_components(id) {
+                    self.lower_complex_literal(id, expression.operator(), components, current)
+                } else {
+                    self.lower_binary(id, expression.operator(), expression.operands(), current)
+                }
             }
             BoundExpression::Assignment(expression) => {
                 self.lower_assignment(id, expression.operator(), expression.operands(), current)
@@ -422,6 +427,88 @@ impl Lowerer<'_> {
                 )?
             }
         };
+
+        Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn lower_complex_literal(
+        &mut self,
+        id: BoundExpressionId,
+        operator: BoundOperator,
+        components: [BoundExpressionId; 2],
+        mut current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let source = self.expression_source(id);
+        let component_type = self.expression_type(components[0]);
+        let mut operands = Vec::with_capacity(2);
+
+        for component in components {
+            let lowered = self.lower_expression(component, current)?;
+
+            current = lowered
+                .block
+                .expect("complex literal component continues evaluation");
+
+            operands.push(
+                lowered
+                    .value
+                    .expect("checked complex literal component produces a value"),
+            );
+        }
+
+        if operator == BoundOperator::Subtract {
+            let imaginary = operands.pop().expect("complex literal has two components");
+
+            let imaginary = self.push_typed_value_operation(
+                id,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Unary {
+                    operator: MirUnaryOperator::Negate,
+                    operand: imaginary,
+                },
+                component_type,
+            )?;
+
+            operands.push(imaginary);
+        }
+
+        let tuple_type = self
+            .input
+            .semantic_values()
+            .intern_type(TypeData::tuple([component_type; 2]))?;
+
+        let tuple = self.push_typed_value_operation(
+            id,
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Aggregate(MirAggregate::new(MirAggregateKind::Tuple, operands)),
+            tuple_type,
+        )?;
+
+        let conversion = SelectedConversion::new(
+            tuple_type,
+            self.expression_type(id),
+            ConversionTarget::Composite(
+                vec![
+                    SelectedConversion::new(
+                        component_type,
+                        component_type,
+                        ConversionTarget::Identity,
+                    );
+                    2
+                ]
+                .into(),
+            ),
+        );
+
+        let (current, value) = self.convert_operand(
+            id,
+            current,
+            Self::retained_source(&source),
+            tuple,
+            &conversion,
+        )?;
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
@@ -923,11 +1010,7 @@ impl Lowerer<'_> {
             return Ok(lowered);
         }
 
-        if let Some(operation) = self
-            .input
-            .storage_flow()
-            .checked_memory_operation(id)
-        {
+        if let Some(operation) = self.input.storage_flow().checked_memory_operation(id) {
             return self.lower_memory_call(id, current, source, &selection, operation);
         }
 
