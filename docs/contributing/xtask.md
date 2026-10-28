@@ -1,6 +1,6 @@
 # Repository tasks
 
-Run repository automation from the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM with `cargo
+Run repository automation from the root of the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM with `cargo
 llvm`, which works before compiler crates can build. These are contributor tools, separate from Bray Tack's user-facing
 commands.
 
@@ -25,9 +25,11 @@ readiness audits exclude native execution.
 Use `cargo xtask-incremental` to run the same tasks with Cargo's opt-in `tooling` profile:
 
 ```text
+cargo build --profile tooling
+cargo brayc-incremental --help
+cargo bray-incremental --help
 cargo xtask-incremental style
 cargo xtask-incremental format
-cargo build --profile tooling -p xtask -p brayc
 ```
 
 The profile inherits release settings, enables incremental compilation, and keeps optimization level 3 and 16 codegen
@@ -35,13 +37,30 @@ units. Its first build populates a separate cache; later edits can reuse compila
 checkout rather than cleaning between commands. See [artifact storage](build-artifacts.md) for checkout isolation and
 shared final outputs.
 
-Keep the selected packages and features consistent when comparing profiles. Cargo can build different dependency
-variants when their unified feature sets differ.
+The workspace defaults select `bray`, `brayc`, and `xtask` together. The named-binary aliases retain that selection, so
+compiler, CLI, style, format, and runtime preparation commands share dependency features. Cargo compiles only the
+requested binary and its dependencies when running an alias. Nested compiler builds use the same workspace defaults.
+The focused `cargo llvm` bootstrap remains independent so it can provision LLVM before compiler tools build.
+Use `cargo build --workspace` to build every workspace package, including other binaries such as `brayfmt` and `bray-lsp`.
+
+Run these shared tool commands from the checkout root. Cargo selects the enclosing package when invoked inside a
+member directory, which changes the feature set. Explicit `-p` selections are still useful for focused crate work, but
+can produce another dependency variant. Use `cargo test --workspace` to run every workspace package, or
+`cargo test -p <crate>` for focused Rust tests. Test-only and native runtime component features intentionally remain
+separate from the developer tool graph.
+
+Keep packages, features, and profiles consistent when comparing build times. The shared workflow removes feature-set
+changes between tool commands. Actual source edits still rebuild their affected crates and consumers.
 
 `cargo xtask` continues to use the release profile. Use it for release baselines. The experimental profile changes how
 the Rust tools are built; it does not change the optimization selected for Bray programs by a task or by `brayc`.
 Tasks that explicitly build compiler executables with `--release` continue to use release compiler executables, even
 when the task runner itself uses the `tooling` profile.
+
+In one warm sequence on a four-CPU Linux VM with Rust 1.97.0, Cargo preparation for compiler help, CLI help, style, and
+format took 0.20-0.40 seconds per command without recompiling dependencies. Style and formatting work took additional
+time. A controlled compiler entry-source edit rebuilt only `brayc`, while shared compiler libraries and the CLI stayed
+fresh. These observations describe command reuse after cache population, not cold build times.
 
 Cargo places the compiler executable in `<target-dir>/tooling/brayc` (`brayc.exe` on Windows), where `<target-dir>`
 defaults to the checkout's `target` directory. When invoking that compiler directly, select compatible standard-library

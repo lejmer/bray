@@ -48,6 +48,8 @@ members = [
     "tools/llvm-toolchain",
     "xtask",
 ]
+# Select the developer tools together so named binary runs share dependency features.
+default-members = ["crates/bray", "crates/brayc", "xtask"]
 resolver = "3"
 
 [workspace.package]

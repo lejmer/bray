@@ -17,6 +17,9 @@ cargo nextest run -p <crate>
 
 > `cargo test` must also remain supported, as required by the repository rules.
 
+Use `cargo test --workspace` to include every workspace package. Plain `cargo test` at the checkout root selects the
+workspace's default developer tool packages.
+
 ## Testing Bray programs
 
 Use `bray test` to compile and run tests written in Bray. This workflow matters when developing the compiler because it
