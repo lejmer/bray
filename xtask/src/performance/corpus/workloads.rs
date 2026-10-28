@@ -687,7 +687,7 @@ trusted func main() -> Result<unit, std.io.IoError>
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_close",
-                "bray_platform_path_remove_file_v2",
+                "bray_platform_path_remove_file",
             ],
             // Resource-completion assertions can report failures on standard error.
             forbidden_symbols: &[

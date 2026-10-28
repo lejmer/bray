@@ -845,7 +845,7 @@ func platform_path_override_test()
 
     let symbol = role.native_symbol();
 
-    assert_eq!(symbol, "bray_platform_path_create_directory_v2");
+    assert_eq!(symbol, "bray_platform_path_create_directory");
 
     let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
         .into_iter()
