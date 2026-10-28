@@ -200,6 +200,7 @@ trusted func main() -> i32
         panic("abandon file after close failure");
         std.testing.assert_ok<unit, std.io.IoError>(abandoned.close());
         assert(abandoned.is_complete());
+
         yield unit;
     };
 
