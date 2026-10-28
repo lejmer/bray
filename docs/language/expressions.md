@@ -25,6 +25,8 @@ later language checks.
 - [Defaulted arguments](expressions/defaulted-arguments.md)
 - [Method call expressions](expressions/method-call-expressions.md)
 - [Unary and binary expressions](expressions/unary-and-binary-expressions.md)
+    - [Real exponentiation](expressions/unary-and-binary-expressions.md#real-exponentiation)
+    - [Complex arithmetic](expressions/unary-and-binary-expressions.md#complex-arithmetic)
 - [Static function call expressions](expressions/static-function-call-expressions.md)
 - [Tuple expressions](expressions/tuple-expressions.md)
 - [Array expressions](expressions/array-expressions.md)
