@@ -657,13 +657,33 @@ bool workload()
     {
         if (!std::filesystem::create_directory(directory, error) || error)
             return false;
-        { std::filesystem::directory_iterator listing(directory, error); if (error) return false; }
-        { std::ofstream file(source); if (!file) return false; }
+
+        {
+            std::filesystem::directory_iterator listing(directory, error);
+
+            if (error)
+                return false;
+        }
+
+        {
+            std::ofstream file(source);
+
+            if (!file)
+                return false;
+        }
+
         (void)std::filesystem::status(source, error);
-        if (error) return false;
+
+        if (error)
+            return false;
+
         std::filesystem::rename(source, destination, error);
-        if (error || !std::filesystem::remove(destination, error) || error ||
-            !std::filesystem::remove(directory, error) || error) return false;
+
+        if (
+            error || !std::filesystem::remove(destination, error) || error ||
+            !std::filesystem::remove(directory, error) || error
+        )
+            return false;
     }
 
     return true;
