@@ -74,7 +74,27 @@ pub(super) fn audit(
         &[TIMEZONE_MEMBER, DATABASE_MEMBER],
         &[CIVIL_MEMBER, TEXT_MEMBER],
         "named-timezone",
-    )
+    )?;
+
+    if target.object_format() == ObjectFormat::Coff {
+        let dynamic = platform_archive(toolchain, target, PlatformServiceRole::DynamicLibraryOpenPath)?;
+        let dynamic_include = root.join("crates/bray-platform-abi/native/dynamic/include");
+        let contract = output.join("bray_dynamic_contract.h");
+
+        fs::copy(root.join("xtask/fixtures/dynamic-contract.h"), &contract)
+            .map_err(|error| BuildError::write(&contract, error))?;
+
+        link_fixture(
+            root,
+            &output,
+            &dynamic_include,
+            &dynamic,
+            target,
+            "dynamic-unaligned-path",
+        )?;
+    }
+
+    Ok(())
 }
 
 struct ProviderArchive {
@@ -156,6 +176,7 @@ fn link_fixture(
     command
         .args(["--driver-mode=g++", "-std=c++17", "-O2", "-fuse-ld=lld"])
         .arg(format!("-I{}", include.display()))
+        .arg(format!("-I{}", output.display()))
         .arg(&source)
         .arg(&provider.path)
         .arg("-o")
