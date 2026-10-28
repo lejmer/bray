@@ -310,6 +310,12 @@ fn test_in(
         })?;
     }
 
+    if selected(parts, TestPart::Api) {
+        crate::progress::run("Testing filesystem provider overrides", || {
+            super::filesystem_override::audit(root, directory, &toolchain, &runtime, target)
+        })?;
+    }
+
     if selected(parts, TestPart::Api) || selected(parts, TestPart::Outcomes) {
         let workspace = directory.join("workspace");
 

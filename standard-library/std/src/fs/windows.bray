@@ -2,12 +2,10 @@
 trusted module std.fs;
 
 using core.memory;
-using std.bytes;
 using std.io;
 using std.memory;
 using std.numeric;
 using std.os.windows;
-using std.path;
 using internal std.platform;
 using std.time;
 
@@ -127,12 +125,6 @@ trusted internal func prepare_file_seek(
     }
 
     return Ok(std.numeric.truncate_to<u64>(native_position));
-}
-
-@abi(c)
-trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
-{
-    return (trusted internal std.platform.resource.close(handle)).0;
 }
 
 trusted internal func prepare_file_open(
@@ -409,20 +401,141 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
     }
 }
 
-trusted internal func platform_directory_state_capacity() -> usize
+@copy
+@layout(c)
+internal struct NativeWindowsDirectory
 {
-    return 76;
+    handle: u64;
+    mut state: [u64; 76];
+    mut first: u8;
 }
 
-trusted internal func platform_directory_open(
-    pos path: &std.path.Path,
+trusted internal func native_directory_required_capacity() -> u64
+{
+    return 520;
+}
+
+trusted internal func native_directory_open_handle(pos path: PlatformPath) -> Result<u64, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
+{
+    let mut state: [u64; 76] = [0; 76];
+    let handle: u64 = try trusted native_directory_open(path, &mut state[..]);
+
+    let native: NativeWindowsDirectory =
+    {
+        handle = handle,
+        state = state,
+        first = 1
+    };
+
+    let pointer: DataPointer<NativeWindowsDirectory> = trusted internal std.memory.allocate_value<
+        NativeWindowsDirectory
+    >(native);
+
+    return Ok(trusted internal std.platform.pointer_handle(std.memory.byte_address<NativeWindowsDirectory>(pointer)));
+}
+
+trusted internal func native_windows_directory_pointer(pos handle: u64) -> DataPointer<NativeWindowsDirectory>
+    ensures(
+        trusted core.memory.valid_read<NativeWindowsDirectory>(pointer = result, count = 1),
+        trusted core.memory.valid_write<NativeWindowsDirectory>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<NativeWindowsDirectory>(pointer = result),
+        trusted core.memory.initialized_as<NativeWindowsDirectory>(pointer = result),
+        trusted core.memory.owned_allocation(
+            pointer = std.memory.byte_address<NativeWindowsDirectory>(result),
+            bytes = internal std.memory.value_allocation_bytes<NativeWindowsDirectory>(),
+            align = std.memory.align_of<NativeWindowsDirectory>(),
+        ),
+    )
+    uses(layout_reinterpret)
+{
+    let pointer: DataPointer<NativeWindowsDirectory> = trusted std.memory.reinterpret<NativeWindowsDirectory, u8>(
+        trusted internal std.platform.handle_pointer(handle)
+    );
+
+    // Only this fallback's open operation creates handles consumed by these functions.
+    let authorize = trusted lambda(pos pointer: DataPointer<NativeWindowsDirectory>)
+        ensures(
+            trusted core.memory.valid_read<NativeWindowsDirectory>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<NativeWindowsDirectory>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.initialized_as<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.owned_allocation(
+                pointer = std.memory.byte_address<NativeWindowsDirectory>(pointer),
+                bytes = internal std.memory.value_allocation_bytes<NativeWindowsDirectory>(),
+                align = std.memory.align_of<NativeWindowsDirectory>(),
+            ),
+        )
+        executes(pure, total) {};
+
+    authorize(pointer);
+    return pointer;
+}
+
+trusted internal func native_directory_next_handle(
+    pos handle: u64,
+    pos destination: DataPointer<u8>,
+    pos capacity: usize
+) -> Result<NativeDirectoryEntry?, std.io.IoError>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
+    let mut capability: u64 = handle;
+
+    // Directory.next owns the only mutable traversal access while the provider call runs.
+    let authorize = trusted lambda(pos pointer: DataPointer<NativeWindowsDirectory>)
+        ensures(
+            trusted core.memory.valid_write<NativeWindowsDirectory>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.initialized_as<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.epoch_current<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.synchronized_access<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.movement_stable<NativeWindowsDirectory>(pointer = pointer),
+            trusted core.memory.finalization_pending<NativeWindowsDirectory>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    authorize(pointer);
+
+    let native: &mut NativeWindowsDirectory = trusted std.memory.borrow_mut_from<NativeWindowsDirectory, u64>(
+        &mut capability,
+        pointer,
+    );
+
+    let result: Result<NativeDirectoryEntry?, std.io.IoError> = trusted native_directory_next(
+        native.handle,
+        &mut native.state[..],
+        &mut native.first,
+        destination,
+        capacity,
+    );
+
+    // Native directory operations only touch their own state and the supplied output buffer.
+    let preserve = trusted lambda(pos destination: DataPointer<u8>, pos capacity: usize)
+        ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+        executes(pure, total) {};
+
+    preserve(destination, capacity);
+    return result;
+}
+
+trusted internal func native_directory_open(
+    pos path: PlatformPath,
     pos state: &mut [u64],
 ) -> Result<u64, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
     uses(foreign_call, layout_reinterpret)
 {
-    let pattern: std.memory.RawBuffer<u16> = match trusted internal windows_directory_pattern(
-        internal std.path.native_bytes(path.to_native())
-    )
+    let pattern: std.memory.RawBuffer<u16> = match trusted internal windows_directory_pattern(path)
     {
         case Ok(buffer) { yield buffer; }
         case Error(status) { return Error(internal std.io.platform_status_error(status)); }
@@ -445,13 +558,21 @@ trusted internal func platform_directory_open(
     return Ok(trusted internal std.platform.pointer_handle(search_handle));
 }
 
-trusted internal func platform_directory_next(
+trusted internal func native_directory_next(
     pos handle: u64,
     pos state: &mut [u64],
     pos first: &mut u8,
-) -> Result<DirectoryEntry?, std.io.IoError>
+    pos destination: DataPointer<u8>,
+    pos capacity: usize,
+) -> Result<NativeDirectoryEntry?, std.io.IoError>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
     uses(foreign_call, layout_reinterpret)
 {
+    if state.length() < 76 || capacity < 520
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
     let native_handle: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
 
     loop
@@ -469,7 +590,7 @@ trusted internal func platform_directory_next(
 
             if error == 18
             {
-                let exhausted: DirectoryEntry? = none;
+                let exhausted: NativeDirectoryEntry? = none;
 
                 return Ok(exhausted);
             }
@@ -484,7 +605,7 @@ trusted internal func platform_directory_next(
             units += 1;
         }
 
-        if units == 260
+        if units >= 260
         {
             return Error(internal std.io.invalid_transfer_error());
         }
@@ -494,7 +615,20 @@ trusted internal func platform_directory_next(
             continue;
         }
 
-        let entry_path: std.path.Path = try trusted internal windows_directory_entry_path(&state, units = units);
+        let length: usize = units * 2;
+
+        if length > capacity
+        {
+            return Error(internal std.io.invalid_transfer_error());
+        }
+
+        // FindNextFileW only writes the private native state, leaving the caller's buffer valid.
+        let preserve = trusted lambda(pos destination: DataPointer<u8>, pos capacity: usize)
+            ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+            executes(pure, total) {};
+
+        preserve(destination, capacity);
+        trusted internal copy_windows_directory_name(&state, units, destination, capacity);
 
         let entry_metadata: FileMetadata = try internal windows_metadata(
             &state,
@@ -502,13 +636,13 @@ trusted internal func platform_directory_next(
             size_low_offset = 32,
         );
 
-        let entry: DirectoryEntry =
+        let entry: NativeDirectoryEntry =
         {
-            path = entry_path,
+            length = length,
             metadata = entry_metadata,
         };
 
-        let mut result: DirectoryEntry? = none;
+        let mut result: NativeDirectoryEntry? = none;
 
         result = entry;
 
@@ -516,24 +650,34 @@ trusted internal func platform_directory_next(
     }
 }
 
-trusted internal func platform_directory_close(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
-    ensures(result matches Error(_) || Directory.complete(value = &directory))
-    uses(foreign_call)
+trusted internal func native_directory_close_handle(
+    pos handle: u64,
+    pos terminal: bool
+) -> (std.platform.PlatformStatus, bool)
+    uses(foreign_call, raw_memory)
 {
-    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(directory.handle)) == 0
+    let pointer: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
+    let native: NativeWindowsDirectory = trusted std.memory.read<NativeWindowsDirectory>(pointer);
+
+    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(native.handle)) == 0
     {
-        return Error(trusted internal windows_io_error());
+        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
+        if terminal
+        {
+            let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
+
+            trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(current);
+            return (status, true);
+        }
+
+        return (status, false);
     }
 
-    directory.is_open = false;
+    let current: DataPointer<NativeWindowsDirectory> = trusted native_windows_directory_pointer(handle);
 
-    return Ok(unit);
-}
-
-trusted internal func platform_directory_discard(pos handle: u64) -> unit
-    uses(foreign_call)
-{
-    _ = trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle));
+    trusted internal std.memory.deallocate_value<NativeWindowsDirectory>(current);
+    return (internal std.platform.success_status(), true);
 }
 
 internal func windows_metadata(
@@ -575,34 +719,38 @@ internal func windows_metadata(
 }
 
 trusted internal func windows_directory_pattern(
-    pos bytes: &[u8]
+    pos path: PlatformPath
 ) -> Result<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
+    uses(raw_memory)
 {
-    let path_bytes: usize = bytes.length();
+    let path_bytes: usize = path.length as usize;
 
-    if path_bytes % 2 != 0 || path_bytes > (std.numeric.USIZE_MAX >> 1) - 6
+    if path_bytes as u64 != path.length || path_bytes % 2 != 0 || path_bytes > (std.numeric.USIZE_MAX >> 1) - 6
     {
         return Error(internal std.platform.invalid_input_status());
     }
 
-    let mut pattern: std.memory.RawBuffer<u16> = match trusted std.memory.RawBuffer<u16>(capacity = path_bytes / 2 + 3)
+    let mut pattern: std.memory.RawBuffer<u16> = try trusted allocate_windows_directory_pattern(
+        path.address,
+        path_bytes
+    );
+
+    trusted copy_windows_directory_path(path.address, path_bytes, &mut pattern);
+
+    let units: &[u16] = trusted std.memory.initialized_slice<u16>(&pattern);
+
+    let last: u16 = if path_bytes > 0
     {
-        case Ok(buffer) { yield buffer; }
-        case Error(_) { return Error(internal std.platform.invalid_input_status()); }
-    };
-
-    let mut index: usize = 0;
-    let mut last: u16 = 0;
-
-    while index < path_bytes
-    {
-        let low: u16 = bytes[index] as u16;
-        let high: u16 = bytes[index + 1] as u16;
-
-        last = low | high << 8;
-        trusted internal std.memory.initialize_spare<u16>(&mut pattern, last);
-        index += 2;
+        yield units[path_bytes / 2 - 1];
     }
+    else
+    {
+        yield 0;
+    };
 
     if path_bytes > 0 && last != 47 && last != 92
     {
@@ -613,6 +761,70 @@ trusted internal func windows_directory_pattern(
     trusted internal std.memory.initialize_spare<u16>(&mut pattern, 0);
 
     return Ok(pattern);
+}
+
+trusted internal func allocate_windows_directory_pattern(
+    pos address: DataPointer<u8>,
+    pos count: usize
+) -> Result<std.memory.RawBuffer<u16>, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = address, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = address, count = count),
+    )
+    ensures(
+        trusted core.memory.valid_read<u8>(pointer = address, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = address, count = count),
+    )
+{
+    let mut buffer: std.memory.RawBuffer<u16> = match trusted std.memory.RawBuffer<u16>(capacity = count / 2 + 3)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return Error(internal std.platform.invalid_input_status()); }
+    };
+
+    let mut initialized: usize = 0;
+
+    while initialized < count / 2
+    {
+        trusted internal std.memory.initialize_spare<u16>(&mut buffer, 0);
+        initialized += 1;
+    }
+
+    return Ok(buffer);
+}
+
+trusted internal func copy_windows_directory_path(
+    pos address: DataPointer<u8>,
+    pos count: usize,
+    pos buffer: &mut std.memory.RawBuffer<u16>
+)
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = address, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = address, count = count),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let initialized: usize = std.memory.initialized_count<u16>(&buffer);
+
+    assert(count == initialized * 2, "directory pattern storage must match the source byte count");
+
+    let units: &mut [u16] = trusted std.memory.initialized_slice_mut<u16>(buffer);
+
+    let destination: DataPointer<u8> = std.memory.byte_address<u16>(
+        internal std.memory.slice_pointer_mut<u16>(units, count = initialized)
+    );
+
+    // The initialized UTF-16 buffer spans count writable bytes; the input remains readable.
+    let authorize = trusted lambda(pos source: DataPointer<u8>, pos destination: DataPointer<u8>, pos count: usize)
+        ensures(
+            trusted core.memory.valid_read<u8>(pointer = source, count = count),
+            trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+            trusted core.memory.valid_write<u8>(pointer = destination, count = count),
+        )
+        executes(pure, total) {};
+
+    authorize(address, destination, count);
+    trusted std.memory.copy_overlapping<u8>(address, destination, count = count);
 }
 
 internal func windows_data_u32(pos data: &[u64], offset: usize) -> u32
@@ -637,40 +849,42 @@ internal func windows_dot_entry(pos data: &[u64], units: usize) -> bool
     ) == 46 && internal windows_data_u16(data, offset = 46) == 46;
 }
 
-trusted internal func windows_directory_entry_path(
+trusted internal func copy_windows_directory_name(
     pos data: &[u64],
-    units: usize
-) -> Result<std.path.Path, std.io.IoError>
+    pos units: usize,
+    pos destination: DataPointer<u8>,
+    pos capacity: usize,
+) -> unit
+    requires(
+        data.length() >= 76,
+        (units < 260),
+        capacity >= 520,
+        trusted core.memory.valid_write<u8>(pointer = destination, count = capacity),
+    )
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    uses(raw_memory, unchecked_init)
 {
-    let mut storage: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = units * 2)
-    {
-        case Ok(buffer) { yield buffer; }
-        case Error(_) { return Error(internal std.io.buffer_allocation_error()); }
-    };
+    let words: DataPointer<u64> = internal std.memory.slice_pointer<u64>(data, count = data.length());
+    let source: DataPointer<u8> = std.memory.byte_offset<u8>(std.memory.byte_address<u64>(words), bytes = 44);
+    let length: usize = units * 2;
 
-    let mut index: usize = 0;
+    // The initialized native state contains the name at byte 44, and Windows stores UTF-16 in little endian.
+    let authorize = trusted lambda(
+        pos source: DataPointer<u8>,
+        pos destination: DataPointer<u8>,
+        pos length: usize,
+        pos capacity: usize
+    )
+        ensures(
+            trusted core.memory.valid_read<u8>(pointer = source, count = length),
+            trusted core.memory.initialized_range_as<u8>(pointer = source, count = length),
+            trusted core.memory.valid_write<u8>(pointer = destination, count = length),
+            trusted core.memory.valid_write<u8>(pointer = destination, count = capacity),
+        )
+        executes(pure, total) {};
 
-    while index < units
-    {
-        let value: u16 = internal windows_data_u16(data, offset = 44 + index * 2);
-
-        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.numeric.truncate_to<u8>(value));
-        trusted internal std.memory.initialize_spare<u8>(&mut storage, std.numeric.truncate_to<u8>(value >> 8));
-        index += 1;
-    }
-
-    let buffer: std.bytes.Buffer =
-    {
-        storage = storage
-    };
-
-    let native: std.path.NativeText = internal std.path.native_text_from_buffer(buffer);
-
-    match std.path.Path.from_native(native)
-    {
-        case Ok(path) { return Ok(path); }
-        case Error(_) { return Error(internal std.io.invalid_transfer_error()); }
-    }
+    authorize(source, destination, length, capacity);
+    trusted std.memory.copy_overlapping<u8>(source, destination, count = length);
 }
 
 trusted internal func windows_io_error() -> std.io.IoError

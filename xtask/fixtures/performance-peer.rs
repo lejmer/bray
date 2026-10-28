@@ -569,6 +569,49 @@ fn workload() -> bool {
     true
 }
 
+#[cfg(peer_workload = "filesystem_directory_iteration")]
+fn workload() -> bool {
+    let directory = std::path::Path::new("bray-performance-listing");
+
+    let files = [
+        "bray-performance-listing/a", "bray-performance-listing/b",
+        "bray-performance-listing/c", "bray-performance-listing/d",
+        "bray-performance-listing/e", "bray-performance-listing/f",
+        "bray-performance-listing/g", "bray-performance-listing/h",
+    ];
+
+    if std::fs::create_dir(directory).is_err() { return false; }
+
+    for path in files {
+        if std::fs::OpenOptions::new().write(true).create_new(true).open(path).is_err() {
+            return false;
+        }
+    }
+
+    let mut count = 0;
+
+    for _ in 0..128 {
+        let Ok(listing) = std::fs::read_dir(directory) else { return false; };
+
+        for entry in listing {
+            let Ok(entry) = entry else { return false; };
+
+            let Ok(metadata) = entry.metadata() else { return false; };
+
+            if !metadata.is_file() { return false; }
+            count += 1;
+        }
+    }
+
+    if count != 1024 { return false; }
+
+    for path in files {
+        if std::fs::remove_file(path).is_err() { return false; }
+    }
+
+    std::fs::remove_dir(directory).is_ok()
+}
+
 #[cfg(peer_workload = "file_output")]
 fn workload() -> bool {
     const PATH: &str = "bray-performance-file-output";

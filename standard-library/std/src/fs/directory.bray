@@ -3,6 +3,7 @@ trusted module std.fs;
 using std.io;
 using std.memory;
 using std.path;
+using internal std.platform;
 
 struct DirectoryEntry
 {
@@ -13,45 +14,24 @@ struct DirectoryEntry
 struct Directory
 {
     internal handle: u64;
-    internal mut state: std.memory.RawBuffer<u64>;
-    internal mut first: u8;
     internal mut is_open: bool;
 
     trusted construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
-        uses(raw_memory)
     {
-        let capacity: usize = trusted internal platform_directory_state_capacity();
+        let mut handle: u64 = 0;
 
-        let created: Result<std.memory.RawBuffer<u64>, std.memory.MemoryLayoutError> = trusted std.memory.RawBuffer<
-            u64
-        >(capacity = capacity);
-
-        let mut state: std.memory.RawBuffer<u64> = match consume created
-        {
-            case Ok(buffer) { yield buffer; }
-            case Error(_) { return Error(internal std.io.buffer_allocation_error()); }
-        };
-
-        let mut initialized: usize = 0;
-
-        while initialized < capacity
-        {
-            trusted internal std.memory.initialize_spare<u64>(&mut state, 0);
-            initialized += 1;
-        }
-
-        let handle: u64 = try trusted platform_directory_open(
-            path,
-            state = trusted std.memory.initialized_slice_mut<u64>(&mut state),
+        let status: std.platform.PlatformStatus = trusted platform_directory_open(
+            platform_path(path),
+            std.memory.address_of_mut<u64>(&mut handle),
         );
+
+        try checked_platform_status(status);
 
         return Ok(
             {
                 handle = handle,
-                state = state,
-                first = 1,
-                is_open = true,
+                is_open = true
             }
         );
     }
@@ -81,28 +61,27 @@ struct Directory
 
     trusted destruct()
     {
-        let state = self.state;
-
         if self.is_open
         {
-            trusted platform_directory_discard(handle = self.handle);
+            let mut released: u32 = 0;
+
+            _ = trusted platform_directory_close(
+                self.handle,
+                CLOSE_TERMINAL,
+                std.memory.address_of_mut<u32>(&mut released)
+            );
         }
     }
 
     trusted mut func next() -> Result<DirectoryEntry?, std.io.IoError>
         requires(blocking_execution())
-        uses(raw_memory)
     {
         if !self.is_open
         {
             return Error(internal std.io.invalid_transfer_error());
         }
 
-        return trusted platform_directory_next(
-            handle = self.handle,
-            state = trusted std.memory.initialized_slice_mut<u64>(&mut self.state),
-            first = &mut self.first,
-        );
+        return trusted directory_next(self.handle);
     }
 
     mut async func next_async() -> Result<DirectoryEntry?, std.io.IoError>
@@ -150,5 +129,139 @@ trusted internal func close_directory(pos directory: &mut Directory) -> Result<u
         return Ok(unit);
     }
 
-    return trusted platform_directory_close(directory);
+    let mut released: u32 = 0;
+
+    let status: std.platform.PlatformStatus = trusted platform_directory_close(
+        directory.handle,
+        CLOSE_RETRYABLE,
+        std.memory.address_of_mut<u32>(&mut released),
+    );
+
+    if released == 1
+    {
+        directory.is_open = false;
+    }
+
+    if released > 1 || status.category == 0 && released != 1
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    try checked_platform_status(status);
+    directory.is_open = false;
+
+    return Ok(unit);
+}
+
+trusted internal func read_directory_entry(
+    pos handle: u64,
+    pos buffer: &mut [u8]
+) -> Result<(u32, usize, PlatformFileMetadata), std.io.IoError>
+{
+    let mut length: u64 = 0;
+    let mut present: u32 = 0;
+    let mut result_metadata: PlatformFileMetadata = empty_platform_metadata();
+    let capacity: usize = buffer.length();
+    let destination: DataPointer<u8> = internal std.memory.slice_pointer_mut<u8>(buffer, count = capacity);
+
+    let status: std.platform.PlatformStatus = trusted platform_directory_next(
+        handle,
+        destination,
+        capacity as u64,
+        std.memory.address_of_mut<u64>(&mut length),
+        std.memory.address_of_mut<u32>(&mut present),
+        std.memory.address_of_mut<PlatformFileMetadata>(&mut result_metadata),
+    );
+
+    try checked_platform_status(status);
+
+    let count: usize = length as usize;
+
+    if count as u64 != length || present > 2 || present == 0 && count != 0 || present == 1 && (count == 0 || count >
+        buffer.length()) || present == 2 && count <= buffer.length()
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    return Ok((present, count, result_metadata));
+}
+
+trusted internal func directory_entry_from_buffer(
+    pos buffer: &[u8],
+    pos metadata: PlatformFileMetadata
+) -> Result<DirectoryEntry, std.io.IoError>
+{
+    let path: std.path.Path = try trusted internal directory_entry_path(
+        internal std.memory.slice_pointer<u8>(buffer, count = buffer.length()),
+        bytes = buffer.length(),
+    );
+
+    return Ok(
+        {
+            path = path,
+            metadata = try decode_platform_metadata(metadata)
+        }
+    );
+}
+
+trusted internal func directory_next(pos handle: u64) -> Result<DirectoryEntry?, std.io.IoError>
+    uses(raw_memory, unchecked_init)
+{
+    let mut inline_bytes: [u8; 1024] = [0; 1024];
+    let initial: (u32, usize, PlatformFileMetadata) = try trusted read_directory_entry(handle, &mut inline_bytes[..]);
+
+    if initial.0 == 0
+    {
+        return Ok(none);
+    }
+
+    if initial.0 == 1
+    {
+        let entry: DirectoryEntry = try trusted directory_entry_from_buffer(&inline_bytes[0..initial.1], initial.2);
+        let mut result: DirectoryEntry? = none;
+
+        result = entry;
+        return Ok(result);
+    }
+
+    let mut capacity: usize = initial.1;
+
+    loop
+    {
+        let mut storage: std.memory.RawBuffer<u8> = match trusted std.memory.RawBuffer<u8>(capacity = capacity)
+        {
+            case Ok(value) { yield value; }
+            case Error(_) { return Error(internal std.io.buffer_allocation_error()); }
+        };
+
+        let initialized: usize = trusted internal std.memory.fill_spare_bytes(
+            &mut storage,
+            value = 0,
+            count = capacity
+        );
+
+        trusted std.memory.set_initialized_count<u8>(&mut storage, count = initialized);
+
+        let observed: (u32, usize, PlatformFileMetadata) = try trusted read_directory_entry(
+            handle,
+            trusted std.memory.initialized_slice_mut<u8>(&mut storage),
+        );
+
+        if observed.0 == 0
+        {
+            return Ok(none);
+        }
+
+        if observed.0 == 1
+        {
+            let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
+            let entry: DirectoryEntry = try trusted directory_entry_from_buffer(&bytes[0..observed.1], observed.2);
+            let mut result: DirectoryEntry? = none;
+
+            result = entry;
+            return Ok(result);
+        }
+
+        capacity = observed.1;
+    }
 }

@@ -44,7 +44,13 @@ struct File
     {
         if self.is_open
         {
-            _ = trusted platform_file_close(handle = self.handle);
+            let mut released: u32 = 0;
+
+            _ = trusted platform_file_close(
+                handle = self.handle,
+                disposition = CLOSE_TERMINAL,
+                released = std.memory.address_of_mut<u32>(&mut released)
+            );
         }
     }
 
@@ -151,15 +157,21 @@ trusted internal func acquire(pos path: &std.path.Path, options: OpenOptions) ->
     };
 
     let mut handle: u64 = 0;
-    let handle_pointer: DataPointer<u64> = std.memory.address_of_mut(&mut handle);
 
-    let prepared = trusted prepare_file_open(platform_path_value, platform_options, handle_pointer);
+    let status: std.platform.PlatformStatus = trusted platform_file_open(
+        platform_path_value,
+        platform_options,
+        std.memory.address_of_mut<u64>(&mut handle),
+    );
 
-    match consume prepared
-    {
-        case Ok(owner) { return Ok(owner); }
-        case Error(status) { return Error(internal std.io.platform_status_error(status)); }
-    }
+    try checked_platform_status(status);
+
+    return Ok(
+        {
+            handle = handle,
+            is_open = true
+        }
+    );
 }
 
 /// Opens one file as a scalar handle owned until `close_file_handle` or process termination.
@@ -177,7 +189,15 @@ trusted func open_file_handle(pos path: &std.path.Path, options: OpenOptions) ->
 trusted internal func file_metadata(handle: u64) -> Result<FileMetadata, std.io.IoError>
     requires(blocking_execution())
 {
-    return trusted platform_file_metadata_value(handle);
+    let mut result_metadata: PlatformFileMetadata = empty_platform_metadata();
+
+    let status: std.platform.PlatformStatus = trusted platform_file_metadata(
+        handle,
+        std.memory.address_of_mut<PlatformFileMetadata>(&mut result_metadata)
+    );
+
+    try checked_platform_status(status);
+    return decode_platform_metadata(result_metadata);
 }
 
 trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoError>
@@ -194,11 +214,22 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
         return Ok(unit);
     }
 
-    let (status, released) = trusted internal std.platform.resource.close(file.handle);
+    let mut released: u32 = 0;
 
-    if released
+    let status: std.platform.PlatformStatus = trusted platform_file_close(
+        file.handle,
+        CLOSE_RETRYABLE,
+        std.memory.address_of_mut<u32>(&mut released),
+    );
+
+    if released == 1
     {
         file.is_open = false;
+    }
+
+    if released > 1 || status.category == 0 && released != 1
+    {
+        return Error(internal std.io.invalid_transfer_error());
     }
 
     try checked_platform_status(status);
@@ -207,11 +238,34 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
     return Ok(unit);
 }
 
-/// Closes one owned scalar file handle.
-trusted func close_file_handle(pos handle: u64) -> Result<unit, std.io.IoError>
+/// Closes one owned scalar file handle and reports whether the provider released it.
+/// A false release flag leaves the handle owned by the caller, even after an error.
+/// A true release flag can accompany an error and means the handle must not be retried.
+/// Set terminal when abandoning the handle; the provider must consume it and the caller must not retry.
+trusted func close_file_handle(pos handle: u64, terminal: bool = false) -> (Result<unit, std.io.IoError>, bool)
     requires(blocking_execution())
 {
-    return checked_platform_status(trusted platform_file_close(handle = handle));
+    let mut released: u32 = 0;
+
+    let status: std.platform.PlatformStatus = trusted platform_file_close(
+        handle,
+        if terminal
+        {
+            yield CLOSE_TERMINAL;
+        }
+        else
+        {
+            yield CLOSE_RETRYABLE;
+        },
+        std.memory.address_of_mut<u32>(&mut released),
+    );
+
+    if released > 1 || status.category == 0 && released != 1
+    {
+        return (Error(internal std.io.invalid_transfer_error()), released == 1);
+    }
+
+    return (checked_platform_status(status), released == 1);
 }
 
 impl FileReader = File(std.io.Reader)

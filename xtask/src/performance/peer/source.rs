@@ -28,6 +28,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "ordered_collections_monotonic_updates" => ("ordered_collections_monotonic_updates", "20"),
         "filesystem_metadata" => ("filesystem_metadata", "4"),
         "filesystem_reused_paths" => ("filesystem_reused_paths", "26"),
+        "filesystem_directory_iteration" => ("filesystem_directory_iteration", "27"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
         "borrowed_text" => ("borrowed_text", "7"),
@@ -113,6 +114,9 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         }
         "filesystem_reused_paths" => Some(
             "reuse three paths across eight cycles of directory creation and opening, file opening and metadata, rename, and removal",
+        ),
+        "filesystem_directory_iteration" => Some(
+            "create eight files, enumerate their names and metadata 128 times, and remove the files and directory",
         ),
         "process_context" => Some("read the current process identity 1024 times"),
         "monotonic_clock" => Some("read a monotonic clock successfully 1024 times"),

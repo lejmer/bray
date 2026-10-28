@@ -104,6 +104,11 @@ impl NativePlatformFileOptions {
 }
 
 /// File metadata returned across the platform ABI.
+///
+/// `kind` is 0 for a file, 1 for a directory, and 2 for another kind. `present` is
+/// 0 when the modified timestamp is absent and 1 when present. Timestamp seconds
+/// are relative to the Unix epoch and nanoseconds must be less than one billion.
+/// The reserved field must be zero, including when the timestamp is absent.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativePlatformFileMetadata {
@@ -191,7 +196,10 @@ impl NativePlatformEnvironmentList {
 }
 
 impl NativePlatformFileMetadata {
-    /// Creates one validated native metadata record.
+    /// Creates a native metadata record with a zero reserved field.
+    ///
+    /// Callers must supply the kind, timestamp-presence, and nanosecond values
+    /// described by [`NativePlatformFileMetadata`]. This constructor does not validate them.
     pub const fn new(
         kind: u32,
         present: u32,

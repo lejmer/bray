@@ -5,7 +5,7 @@ use super::model::{
     NO_RETENTION_CONTRACT, RetentionContract, StorageExpectation, Workload,
 };
 
-pub(in crate::performance) const WORKLOADS: [Workload; 26] = [
+pub(in crate::performance) const WORKLOADS: [Workload; 27] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -660,6 +660,28 @@ trusted func main() -> Result<unit, std.io.IoError>
             "platform.path.rename",
             "platform.path.remove_file",
             "platform.path.create_directory",
+            "platform.path.remove_directory",
+        ],
+        retention: NO_RETENTION_CONTRACT,
+        storage: None,
+    },
+    Workload {
+        id: "filesystem_directory_iteration",
+        category: WorkloadCategory::Filesystem,
+        scale: 1024,
+        units: "entries",
+        batching: BatchingPolicy::SingleExecution,
+        source: crate::performance::source::FILESYSTEM_DIRECTORY_ITERATION,
+        expected_output: ExpectedOutput::Empty,
+        expected_side_effects: ExpectedSideEffects::AbsentPath("bray-performance-listing"),
+        platform_operations: &[
+            "platform.file.open",
+            "platform.file.close",
+            "platform.directory.open",
+            "platform.directory.next",
+            "platform.directory.close",
+            "platform.path.create_directory",
+            "platform.path.remove_file",
             "platform.path.remove_directory",
         ],
         retention: NO_RETENTION_CONTRACT,

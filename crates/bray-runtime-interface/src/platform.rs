@@ -251,6 +251,23 @@ mod tests {
     }
 
     #[test]
+    fn filesystem_close_roles_report_release_with_expected_symbols() {
+        for (role, symbol) in [
+            (PlatformServiceRole::FileClose, "bray_platform_file_close"),
+            (PlatformServiceRole::DirectoryClose, "bray_platform_directory_close"),
+        ] {
+            assert_eq!(role.native_symbol(), symbol);
+            assert_eq!(role.signature().parameters(), [PlatformAbiType::U64, PlatformAbiType::U32, PlatformAbiType::PointerU32]);
+            assert_eq!(role.signature().result(), PlatformAbiType::Status);
+        }
+
+        assert_eq!(
+            PlatformServiceRole::DirectoryNext.native_symbol(),
+            "bray_platform_directory_next"
+        );
+    }
+
+    #[test]
     fn dynamic_symbol_role_has_closed_handle_name_and_address_shape() {
         let role = PlatformServiceRole::DynamicLibrarySymbol;
 

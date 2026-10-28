@@ -73,6 +73,8 @@ emulation or host discovery.
 
 Reachable checked bindings contribute role requirements. Product formation merges them deterministically, validates
 exact providers, and supplies typed link inputs. Runtime overrides resolve before standard-library implementations.
+Providers that create resource handles and the selected operations that consume them share one ownership contract,
+including when individual roles are overridden independently.
 Temporal support and unrelated service families have independently retainable artifacts, so a narrow product does not
 pull in unused mechanisms or runtime infrastructure.
 
