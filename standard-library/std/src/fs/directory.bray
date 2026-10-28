@@ -149,6 +149,7 @@ trusted internal func close_directory(pos directory: &mut Directory) -> Result<u
 
     try checked_platform_status(status);
     directory.is_open = false;
+
     return Ok(unit);
 }
 
