@@ -684,7 +684,6 @@ trusted func main() -> Result<unit, std.io.IoError>
         ],
         retention: RetentionContract {
             required_symbols: &[
-                "bray_platform_file_open_v2",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_close",
