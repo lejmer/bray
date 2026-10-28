@@ -1,8 +1,9 @@
 # Build artifacts across checkouts
 
-Run repository commands from the Bray checkout you intend to change, or one of its Cargo member directories. Commands
-select the workspace containing the current directory, even when you run a retained executable from a shared Cargo
-target directory.
+Run the shared [developer Cargo commands](xtask.md#use-optimized-incremental-tooling) from the root of the Bray checkout
+you intend to change. This retains the workspace's common tool selection and dependency features. Focused Cargo package
+commands and retained task executables also support member directories. Retained executables select the workspace
+containing the current directory, even when the executable comes from a shared Cargo target directory.
 
 ## Choose artifact storage
 

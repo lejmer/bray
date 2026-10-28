@@ -22,12 +22,13 @@ pub(crate) fn retain_failed_artifacts<E>(
 pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
     let mut command = Command::new("cargo");
 
+    // Retain the workspace feature selection while building only compiler binaries.
     command.current_dir(root).args([
         "build",
         "--release",
-        "--package",
+        "--bin",
         "brayc",
-        "--package",
+        "--bin",
         "bray",
     ]);
 
