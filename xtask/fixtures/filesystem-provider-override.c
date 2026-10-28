@@ -65,7 +65,7 @@ static int terminated_path(Path path)
     return 1;
 }
 
-Status bray_platform_file_open_v2(Path path, Options options, uint64_t* opened)
+Status bray_platform_file_open(Path path, Options options, uint64_t* opened)
 {
     (void)options;
 
@@ -91,7 +91,7 @@ Status bray_platform_file_open_v2(Path path, Options options, uint64_t* opened)
     return success();
 }
 
-Status bray_platform_file_close_v3(uint64_t handle, uint32_t disposition, uint32_t* released)
+Status bray_platform_file_close(uint64_t handle, uint32_t disposition, uint32_t* released)
 {
     if (!released)
         return invalid();
@@ -160,7 +160,7 @@ Status bray_platform_file_metadata(uint64_t handle, Metadata* output)
     return success();
 }
 
-Status bray_platform_path_metadata_v2(Path path, Metadata* output)
+Status bray_platform_path_metadata(Path path, Metadata* output)
 {
     if (!terminated_path(path) || !output)
         return invalid();
@@ -243,7 +243,7 @@ Status bray_platform_file_seek(uint64_t handle, uint64_t offset, uint32_t origin
     return success();
 }
 
-Status bray_platform_directory_open_v2(Path path, uint64_t* opened)
+Status bray_platform_directory_open(Path path, uint64_t* opened)
 {
     if (
         !terminated_path(path) || !opened ||
@@ -261,7 +261,7 @@ Status bray_platform_directory_open_v2(Path path, uint64_t* opened)
     return success();
 }
 
-Status bray_platform_directory_next_v2(
+Status bray_platform_directory_next(
     uint64_t handle,
     uint8_t* destination,
     uint64_t capacity,
@@ -327,7 +327,7 @@ Status bray_platform_directory_next_v2(
     return success();
 }
 
-Status bray_platform_directory_close_v3(uint64_t handle, uint32_t disposition, uint32_t* released)
+Status bray_platform_directory_close(uint64_t handle, uint32_t disposition, uint32_t* released)
 {
     if (!released)
         return invalid();
