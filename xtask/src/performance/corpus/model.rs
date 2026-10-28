@@ -37,8 +37,9 @@ impl Workload {
             return Some(if windows {
                 StorageExpectation {
                     allocation_count: 6 + 8 * 2,
-                    allocated_bytes: 4 * lengths + 9 + 8 * (608 + 2 * (directory_length + 3)),
-                    copied_bytes: 2 * lengths,
+                    // Each directory owns a 624-byte native iterator and a UTF-16 wildcard path.
+                    allocated_bytes: 4 * lengths + 9 + 8 * (624 + 2 * (directory_length + 3)),
+                    copied_bytes: 2 * lengths + 8 * 2 * directory_length,
                 }
             } else {
                 StorageExpectation {

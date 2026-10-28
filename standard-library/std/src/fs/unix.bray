@@ -6,7 +6,6 @@ using std.io;
 using std.memory;
 using std.numeric;
 using internal std.os.unix;
-using std.path;
 using internal std.platform;
 using std.time;
 
@@ -134,9 +133,31 @@ trusted internal func prepare_file_seek(
 }
 
 @abi(c)
-trusted internal func platform_file_close(pos handle: u64) -> std.platform.PlatformStatus
+trusted internal func platform_file_close(
+    pos handle: u64,
+    pos released: DataPointer<u32>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+    uses(raw_memory, unchecked_init)
 {
-    return (trusted internal std.platform.resource.close(handle)).0;
+    let observed: (std.platform.PlatformStatus, bool) = trusted internal prepare_file_close(handle, released);
+
+    trusted std.memory.write<u32>(
+        released,
+        value = if observed.1
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    return observed.0;
 }
 
 trusted internal func prepare_file_open(
@@ -394,19 +415,46 @@ trusted internal func platform_path_metadata_value(pos path: PlatformPath) -> Re
     }
 }
 
-trusted internal func platform_directory_state_capacity() -> usize
+trusted internal func native_directory_required_capacity() -> u64
 {
-    return 0;
+    return std.os.unix.DIRECTORY_NAME_CAPACITY as u64;
 }
 
-trusted internal func platform_directory_open(
-    pos path: &std.path.Path,
+trusted internal func native_directory_open_handle(pos path: PlatformPath) -> Result<u64, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
+{
+    let mut state: [u64; 0] = [0; 0];
+
+    return trusted native_directory_open(path, &mut state[..]);
+}
+
+trusted internal func native_directory_next_handle(
+    pos handle: u64,
+    pos destination: DataPointer<u8>,
+    pos capacity: usize
+) -> Result<NativeDirectoryEntry?, std.io.IoError>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+{
+    let mut state: [u64; 0] = [0; 0];
+    let mut first: u8 = 0;
+
+    return trusted native_directory_next(handle, &mut state[..], &mut first, destination, capacity);
+}
+
+trusted internal func native_directory_open(
+    pos path: PlatformPath,
     pos state: &mut [u64],
 ) -> Result<u64, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+    )
 {
-    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(
-        platform_path(path)
-    );
+    let terminated: Result<PreparedPath, std.platform.PlatformStatus> = trusted internal prepare_native_path(path);
 
     match consume terminated
     {
@@ -425,11 +473,16 @@ trusted internal func platform_directory_open(
     }
 }
 
-trusted internal func platform_directory_next(
+trusted internal func native_directory_next(
     pos handle: u64,
     pos state: &mut [u64],
     pos first: &mut u8,
-) -> Result<DirectoryEntry?, std.io.IoError>
+    pos destination: DataPointer<u8>,
+    pos capacity: usize,
+) -> Result<NativeDirectoryEntry?, std.io.IoError>
+    requires(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    ensures(trusted core.memory.valid_write<u8>(pointer = destination, count = capacity))
+    uses(raw_memory, unchecked_init)
 {
     let directory: DataPointer<u8> = trusted internal std.platform.handle_pointer(handle);
     let descriptor: i32 = trusted std.os.unix.directory_descriptor(directory);
@@ -452,7 +505,7 @@ trusted internal func platform_directory_next(
                 return Error(trusted internal unix_io_error());
             }
 
-            let exhausted: DirectoryEntry? = none;
+            let exhausted: NativeDirectoryEntry? = none;
 
             return Ok(exhausted);
         }
@@ -471,7 +524,30 @@ trusted internal func platform_directory_next(
             continue;
         }
 
-        let path: std.path.Path = try trusted internal directory_entry_path(name, bytes = length);
+        if length > capacity
+        {
+            return Error(internal std.io.invalid_transfer_error());
+        }
+
+        // readdir keeps this initialized name valid until the next directory read;
+        // the caller's output buffer remains writable for the duration of the call.
+        let authorize = trusted lambda(
+            pos name: DataPointer<u8>,
+            pos destination: DataPointer<u8>,
+            pos length: usize,
+            pos capacity: usize
+        )
+            ensures(
+                trusted core.memory.valid_read<u8>(pointer = name, count = length),
+                trusted core.memory.initialized_range_as<u8>(pointer = name, count = length),
+                trusted core.memory.valid_write<u8>(pointer = destination, count = length),
+                trusted core.memory.valid_write<u8>(pointer = destination, count = capacity),
+            )
+            executes(pure, total) {};
+
+        authorize(name, destination, length, capacity);
+        trusted std.memory.copy_overlapping<u8>(name, destination, count = length);
+
         let mut storage: [u64; 18] = [0; 18];
 
         let data: DataPointer<u8> = trusted internal unix_status_storage(&mut storage);
@@ -481,13 +557,13 @@ trusted internal func platform_directory_next(
             return Error(trusted internal unix_io_error());
         }
 
-        let entry: DirectoryEntry =
+        let entry: NativeDirectoryEntry =
         {
-            path = path,
+            length = length,
             metadata = try trusted internal unix_metadata(&storage[..]),
         };
 
-        let mut result: DirectoryEntry? = none;
+        let mut result: NativeDirectoryEntry? = none;
 
         result = entry;
 
@@ -495,26 +571,16 @@ trusted internal func platform_directory_next(
     }
 }
 
-trusted internal func platform_directory_close(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
-    ensures(result matches Error(_) || Directory.complete(value = &directory))
+trusted internal func native_directory_close_handle(pos handle: u64) -> (std.platform.PlatformStatus, bool)
 {
-    let closed: i32 = trusted std.os.unix.close_directory(
-        trusted internal std.platform.handle_pointer(directory.handle)
-    );
-
-    directory.is_open = false;
+    let closed: i32 = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
 
     if closed != 0
     {
-        return Error(trusted internal unix_io_error());
+        return (trusted internal std.platform.unix_error_status(), true);
     }
 
-    return Ok(unit);
-}
-
-trusted internal func platform_directory_discard(pos handle: u64) -> unit
-{
-    _ = trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle));
+    return (internal std.platform.success_status(), true);
 }
 
 trusted internal func unix_status_storage(pos storage: &mut [u64; 18]) -> DataPointer<u8>

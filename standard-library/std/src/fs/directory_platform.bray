@@ -1,0 +1,224 @@
+trusted module std.fs;
+
+using core.memory;
+using std.io;
+using std.memory;
+using internal std.platform;
+
+trusted internal func prepare_directory_open(
+    pos path: PlatformPath,
+    pos opened: DataPointer<u64>
+) -> Result<u64, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+    ensures(
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+{
+    match consume trusted native_directory_open_handle(path)
+    {
+        case Ok(handle) { return Ok(handle); }
+        case Error(error) { return Error(platform_status_from_io_error(error)); }
+    }
+}
+
+@abi(c)
+trusted internal func platform_directory_open(
+    pos path: PlatformPath,
+    pos opened: DataPointer<u64>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<u64>(pointer = opened, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = opened),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    match consume trusted prepare_directory_open(path, opened)
+    {
+        case Ok(handle)
+        {
+            trusted std.memory.write<u64>(opened, handle);
+            return internal std.platform.success_status();
+        }
+        case Error(status) { return status; }
+    }
+}
+
+internal union NativeDirectoryRead
+{
+    End;
+    NeedsBuffer(pos required: u64);
+    Entry(pos value: NativeDirectoryEntry);
+}
+
+internal struct NativeDirectoryEntry
+{
+    length: usize;
+    metadata: FileMetadata;
+}
+
+// State 2 reports a sufficient capacity without advancing the traversal.
+trusted internal func prepare_directory_entry(
+    pos handle: u64,
+    pos capacity: u64,
+    pos destination: DataPointer<u8>,
+    pos length: DataPointer<u64>,
+    pos present: DataPointer<u32>,
+    pos metadata: DataPointer<PlatformFileMetadata>,
+) -> Result<NativeDirectoryRead, std.platform.PlatformStatus>
+    requires(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = capacity as usize),
+        trusted core.memory.valid_write<u64>(pointer = length, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = length),
+        trusted core.memory.valid_write<u32>(pointer = present, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = present),
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = metadata),
+    )
+    ensures(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = capacity as usize),
+        trusted core.memory.valid_write<u64>(pointer = length, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = length),
+        trusted core.memory.valid_write<u32>(pointer = present, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = present),
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = metadata),
+    )
+{
+    let required: u64 = trusted native_directory_required_capacity();
+
+    if capacity < required
+    {
+        return Ok(NativeDirectoryRead.NeedsBuffer(required));
+    }
+
+    match consume trusted native_directory_next_handle(handle, destination, capacity as usize)
+    {
+        case Ok(entry)
+        {
+            match consume entry
+            {
+                case ?value { return Ok(NativeDirectoryRead.Entry(value)); }
+                case none { return Ok(NativeDirectoryRead.End); }
+            }
+        }
+        case Error(error) { return Error(platform_status_from_io_error(error)); }
+    }
+}
+
+@abi(c)
+trusted internal func platform_directory_next(
+    pos handle: u64,
+    pos destination: DataPointer<u8>,
+    pos capacity: u64,
+    pos length: DataPointer<u64>,
+    pos present: DataPointer<u32>,
+    pos metadata: DataPointer<PlatformFileMetadata>,
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u8>(pointer = destination, count = capacity as usize),
+        trusted core.memory.valid_write<u64>(pointer = length, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = length),
+        trusted core.memory.valid_write<u32>(pointer = present, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = present),
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = metadata),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    if capacity as usize as u64 != capacity
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    let result: NativeDirectoryRead = match consume trusted prepare_directory_entry(
+        handle,
+        capacity,
+        destination,
+        length,
+        present,
+        metadata,
+    )
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
+    match consume result
+    {
+        case NativeDirectoryRead.End
+        {
+            trusted std.memory.write<u64>(length, 0);
+            trusted std.memory.write<u32>(present, 0);
+        }
+        case NativeDirectoryRead.NeedsBuffer(required)
+        {
+            trusted std.memory.write<u64>(length, required);
+            trusted std.memory.write<u32>(present, 2);
+        }
+        case NativeDirectoryRead.Entry(value)
+        {
+            if value.length > capacity as usize
+            {
+                return internal std.platform.invalid_input_status();
+            }
+
+            trusted std.memory.write<u64>(length, value.length as u64);
+            trusted std.memory.write<u32>(present, 1);
+            trusted std.memory.write<PlatformFileMetadata>(metadata, encode_platform_metadata(value.metadata));
+        }
+    }
+
+    return internal std.platform.success_status();
+}
+
+trusted internal func prepare_directory_close(
+    pos handle: u64,
+    pos released: DataPointer<u32>
+) -> (std.platform.PlatformStatus, bool)
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+    ensures(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+{
+    return trusted native_directory_close_handle(handle);
+}
+
+@abi(c)
+trusted internal func platform_directory_close(
+    pos handle: u64,
+    pos released: DataPointer<u32>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let observed: (std.platform.PlatformStatus, bool) = trusted prepare_directory_close(handle, released);
+
+    trusted std.memory.write<u32>(
+        released,
+        if observed.1
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    return observed.0;
+}

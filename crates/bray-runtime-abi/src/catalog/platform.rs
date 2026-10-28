@@ -119,9 +119,9 @@ macro_rules! platform_role_catalog {
                 Filesystem, [U64, U64, U32, PointerU64] -> Status, bootstrap: ()
             }
             FileClose {
-                "Closes an owned file owner.", 0x0205, "platform.file.close",
-                PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close",
-                Filesystem, [U64] -> Status, bootstrap: ()
+                "Closes an owned file owner; the output is one if it was released, even on error, or zero otherwise.", 0x0205, "platform.file.close",
+                PLATFORM_FILE_CLOSE_SYMBOL = "bray_platform_file_close_v2",
+                Filesystem, [U64, PointerU32] -> Status, bootstrap: ()
             }
             // Path-bearing entry points use distinct symbols for the extended path record,
             // so an archive built for the old by-value layout cannot satisfy these roles.
@@ -146,14 +146,14 @@ macro_rules! platform_role_catalog {
                 Filesystem, [Path, PointerU64] -> Status, bootstrap: ()
             }
             DirectoryNext {
-                "Reads the next directory traversal entry.", 0x0222, "platform.directory.next",
-                PLATFORM_DIRECTORY_NEXT_SYMBOL = "bray_platform_directory_next",
+                "Returns state zero at end, one with an entry byte length, or two with sufficient capacity without consuming the entry.", 0x0222, "platform.directory.next",
+                PLATFORM_DIRECTORY_NEXT_SYMBOL = "bray_platform_directory_next_v2",
                 Filesystem, [U64, PointerU8, U64, PointerU64, PointerU32, FileMetadataPointer] -> Status, bootstrap: ()
             }
             DirectoryClose {
-                "Closes an owned directory traversal.", 0x0223, "platform.directory.close",
-                PLATFORM_DIRECTORY_CLOSE_SYMBOL = "bray_platform_directory_close",
-                Filesystem, [U64] -> Status, bootstrap: ()
+                "Closes a directory traversal; the output is one if it was released, even on error, or zero otherwise.", 0x0223, "platform.directory.close",
+                PLATFORM_DIRECTORY_CLOSE_SYMBOL = "bray_platform_directory_close_v2",
+                Filesystem, [U64, PointerU32] -> Status, bootstrap: ()
             }
             PathCreateDirectory {
                 "Creates one directory.", 0x0230, "platform.path.create_directory",

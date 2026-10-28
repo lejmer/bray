@@ -2,6 +2,7 @@ trusted module std.fs;
 
 using std.io;
 using std.path;
+using std.memory;
 using internal std.platform;
 using std.time;
 
@@ -60,7 +61,15 @@ func metadata(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
 trusted internal func path_metadata(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>
     requires(blocking_execution())
 {
-    return trusted platform_path_metadata_value(platform_path(path));
+    let mut result_metadata: PlatformFileMetadata = empty_platform_metadata();
+
+    let status: std.platform.PlatformStatus = trusted platform_path_metadata(
+        platform_path(path),
+        std.memory.address_of_mut<PlatformFileMetadata>(&mut result_metadata),
+    );
+
+    try checked_platform_status(status);
+    return decode_platform_metadata(result_metadata);
 }
 
 async func metadata_async(pos path: &std.path.Path) -> Result<FileMetadata, std.io.IoError>

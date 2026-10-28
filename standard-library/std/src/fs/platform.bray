@@ -7,6 +7,7 @@ using std.path;
 using internal std.platform;
 using std.memory;
 using std.numeric;
+using std.time;
 
 @layout(c)
 internal struct PlatformPath
@@ -24,6 +25,221 @@ internal struct PlatformFileOptions
     access: u32;
     creation: u32;
     reserved: u64;
+}
+
+@copy
+@layout(c)
+internal struct PlatformFileMetadata
+{
+    kind: u32;
+    present: u32;
+    bytes: u64;
+    modified_seconds: i64;
+    modified_nanoseconds: u32;
+    reserved: u32;
+}
+
+internal func empty_platform_metadata() -> PlatformFileMetadata
+{
+    return
+    {
+        kind = 0,
+        present = 0,
+        bytes = 0,
+        modified_seconds = 0,
+        modified_nanoseconds = 0,
+        reserved = 0
+    };
+}
+
+internal func encode_platform_metadata(pos value: FileMetadata) -> PlatformFileMetadata
+{
+    let kind: u32 = match value.kind
+    {
+        case FileKind.File { yield 0; }
+        case FileKind.Directory { yield 1; }
+        case FileKind.Other { yield 2; }
+    };
+
+    let mut present: u32 = 0;
+    let mut seconds: i64 = 0;
+    let mut nanoseconds: u32 = 0;
+
+    match value.modified
+    {
+        case ?timestamp
+        {
+            present = 1;
+            seconds = timestamp.seconds();
+            nanoseconds = timestamp.nanoseconds();
+        }
+        case none {}
+    }
+
+    return
+    {
+        kind = kind,
+        present = present,
+        bytes = value.bytes,
+        modified_seconds = seconds,
+        modified_nanoseconds = nanoseconds,
+        reserved = 0
+    };
+}
+
+internal func decode_platform_metadata(pos value: PlatformFileMetadata) -> Result<FileMetadata, std.io.IoError>
+{
+    if value.reserved != 0 || value.present > 1 || value.kind > 2 || value.modified_nanoseconds >=
+        std.time.NANOSECONDS_PER_SECOND
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
+    let kind: FileKind = match value.kind
+    {
+        case 0 { yield FileKind.File; }
+        case 1 { yield FileKind.Directory; }
+        case _ { yield FileKind.Other; }
+    };
+
+    let mut modified: std.time.Timestamp? = none;
+
+    if value.present == 1
+    {
+        modified = internal std.time.timestamp_from_parts(
+            seconds = value.modified_seconds,
+            nanoseconds = value.modified_nanoseconds
+        );
+    }
+
+    return Ok(
+        {
+            kind = kind,
+            bytes = value.bytes,
+            modified = modified
+        }
+    );
+}
+
+internal func platform_status_from_io_error(pos error: std.io.IoError) -> std.platform.PlatformStatus
+{
+    let category: u32 = match error.kind
+    {
+        case std.io.IoErrorKind.Unsupported { yield 1; }
+        case std.io.IoErrorKind.PermissionDenied { yield 2; }
+        case std.io.IoErrorKind.NotFound { yield 3; }
+        case std.io.IoErrorKind.AlreadyExists { yield 4; }
+        case std.io.IoErrorKind.InvalidInput { yield 5; }
+        case std.io.IoErrorKind.Interrupted { yield 6; }
+        case std.io.IoErrorKind.Exhausted { yield 7; }
+        case std.io.IoErrorKind.BrokenStream { yield 8; }
+        case std.io.IoErrorKind.TimedOut { yield 9; }
+        case std.io.IoErrorKind.Other { yield 10; }
+    };
+
+    let code: i64 = match error.platform_code
+    {
+        case ?value { yield value; }
+        case none { yield 0; }
+    };
+
+    return internal std.platform.native_status(category = category, code = code);
+}
+
+@abi(c)
+trusted internal func platform_file_metadata(
+    pos handle: u64,
+    pos metadata: DataPointer<PlatformFileMetadata>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = metadata),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    match consume trusted prepare_file_metadata(handle, metadata)
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<PlatformFileMetadata>(metadata, encode_platform_metadata(value));
+            return internal std.platform.success_status();
+        }
+        case Error(error) { return platform_status_from_io_error(error); }
+    }
+}
+
+@abi(c)
+trusted internal func platform_path_metadata(
+    pos path: PlatformPath,
+    pos metadata: DataPointer<PlatformFileMetadata>
+) -> std.platform.PlatformStatus
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = metadata, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = metadata),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    match consume trusted prepare_path_metadata(path, metadata)
+    {
+        case Ok(value)
+        {
+            trusted std.memory.write<PlatformFileMetadata>(metadata, encode_platform_metadata(value));
+            return internal std.platform.success_status();
+        }
+        case Error(error) { return platform_status_from_io_error(error); }
+    }
+}
+
+trusted internal func prepare_file_metadata(
+    pos handle: u64,
+    pos output: DataPointer<PlatformFileMetadata>
+) -> Result<FileMetadata, std.io.IoError>
+    requires(
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = output, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = output),
+    )
+    ensures(
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = output, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = output),
+    )
+{
+    return trusted platform_file_metadata_value(handle);
+}
+
+trusted internal func prepare_path_metadata(
+    pos path: PlatformPath,
+    pos output: DataPointer<PlatformFileMetadata>
+) -> Result<FileMetadata, std.io.IoError>
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.initialized_range_as<u8>(pointer = path.address, count = path.length as usize),
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = output, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = output),
+    )
+    ensures(
+        trusted core.memory.valid_write<PlatformFileMetadata>(pointer = output, count = 1),
+        trusted core.memory.aligned_for<PlatformFileMetadata>(pointer = output),
+    )
+{
+    return trusted platform_path_metadata_value(path);
+}
+
+trusted internal func prepare_file_close(
+    pos handle: u64,
+    pos released: DataPointer<u32>
+) -> (std.platform.PlatformStatus, bool)
+    requires(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+    ensures(
+        trusted core.memory.valid_write<u32>(pointer = released, count = 1),
+        trusted core.memory.aligned_for<u32>(pointer = released),
+    )
+{
+    return trusted internal std.platform.resource.close(handle);
 }
 
 internal func platform_path(pos path: &std.path.Path) -> PlatformPath

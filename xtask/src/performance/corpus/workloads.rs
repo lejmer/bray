@@ -465,7 +465,7 @@ func main()
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
                 "bray_platform_file_seek",
-                "bray_platform_file_close",
+                "bray_platform_file_close_v2",
                 "bray_platform_process_pipe_read",
                 "bray_platform_process_pipe_write",
                 "bray_platform_process_pipe_flush",
@@ -686,7 +686,7 @@ trusted func main() -> Result<unit, std.io.IoError>
             required_symbols: &[
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
-                "bray_platform_file_close",
+                "bray_platform_file_close_v2",
                 "bray_platform_path_remove_file",
             ],
             // Resource-completion assertions can report failures on standard error.

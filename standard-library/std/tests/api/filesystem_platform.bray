@@ -1,0 +1,176 @@
+trusted module bray.standard_library_tests.filesystem_platform;
+
+using std.fs;
+using std.io;
+using std.memory;
+using std.path;
+using std.testing;
+using std.time;
+using internal std.fs.PlatformFileMetadata;
+using internal std.fs.PlatformPath;
+using internal std.memory.slice_pointer_mut;
+using internal std.platform;
+using internal std.path.native_bytes;
+
+@test
+trusted func metadata_records_validate_provider_values()
+{
+    let mut value: std.fs.PlatformFileMetadata =
+    {
+        kind = 1,
+        present = 1,
+        bytes = 42,
+        modified_seconds = (-3) as i64,
+        modified_nanoseconds = 17,
+        reserved = 0,
+    };
+
+    let decoded: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        internal std.fs.decode_platform_metadata(value)
+    );
+
+    assert(decoded.kind matches std.fs.FileKind.Directory);
+    assert(decoded.bytes == 42);
+
+    let timestamp: std.time.Timestamp = std.testing.assert_present<std.time.Timestamp>(decoded.modified);
+
+    assert(timestamp.seconds() == -3 && timestamp.nanoseconds() == 17);
+
+    value =
+    {
+        kind = 1,
+        present = 1,
+        bytes = 42,
+        modified_seconds = (-3) as i64,
+        modified_nanoseconds = 17,
+        reserved = 1
+    };
+
+    _ = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(internal std.fs.decode_platform_metadata(value));
+
+    value =
+    {
+        kind = 1,
+        present = 2,
+        bytes = 42,
+        modified_seconds = (-3) as i64,
+        modified_nanoseconds = 17,
+        reserved = 0
+    };
+
+    _ = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(internal std.fs.decode_platform_metadata(value));
+
+    value =
+    {
+        kind = 1,
+        present = 1,
+        bytes = 42,
+        modified_seconds = (-3) as i64,
+        modified_nanoseconds = 1000000000,
+        reserved = 0
+    };
+
+    _ = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(internal std.fs.decode_platform_metadata(value));
+}
+
+@test(serial)
+trusted func native_directory_retains_an_entry_until_the_buffer_fits() -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
+    uses(raw_memory, unchecked_init)
+{
+    let parent: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(
+        std.path.Path.from_string(&"bray-provider-directory-retry")
+    );
+
+    let child: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(
+        std.path.Path.from_string(&"bray-provider-directory-retry/entry-name")
+    );
+
+    _ = std.fs.remove_file(&child);
+    _ = std.fs.remove_directory(&parent);
+
+    try std.fs.create_directory(&parent);
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.Write,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let mut file: std.fs.File = try std.fs.File.open(&child, options = options);
+
+    std.testing.assert_ok<unit, std.io.IoError>(file.close());
+    assert(file.is_complete());
+
+    let mut handle: u64 = 0;
+    let path: std.fs.PlatformPath = internal std.fs.platform_path(&parent);
+
+    let opened: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_open(
+        path,
+        std.memory.address_of_mut<u64>(&mut handle),
+    );
+
+    assert(opened.category == 0 && opened.reserved == 0);
+
+    let mut tiny: [u8; 1] = [0];
+    let mut length: u64 = 0;
+    let mut present: u32 = 0;
+    let mut value: std.fs.PlatformFileMetadata = internal std.fs.empty_platform_metadata();
+
+    let short: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_next(
+        handle,
+        std.memory.address_of_mut<u8>(&mut tiny[0]),
+        1,
+        std.memory.address_of_mut<u64>(&mut length),
+        std.memory.address_of_mut<u32>(&mut present),
+        std.memory.address_of_mut<std.fs.PlatformFileMetadata>(&mut value),
+    );
+
+    assert(short.category == 0 && present == 2 && length > 1);
+
+    let mut name: [u8; 1024] = [0; 1024];
+
+    let next: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_next(
+        handle,
+        internal std.memory.slice_pointer_mut<u8>(&mut name[..], count = 1024),
+        1024,
+        std.memory.address_of_mut<u64>(&mut length),
+        std.memory.address_of_mut<u32>(&mut present),
+        std.memory.address_of_mut<std.fs.PlatformFileMetadata>(&mut value),
+    );
+
+    assert(next.category == 0 && present == 1 && length <= 1024);
+
+    let expected: std.path.NativeText = std.testing.assert_ok<std.path.NativeText, std.path.PathError>(
+        std.path.NativeText.from_string(&"entry-name")
+    );
+
+    let expected_bytes: &[u8] = internal std.path.native_bytes(&expected);
+
+    assert(length as usize == expected_bytes.length());
+
+    let mut index: usize = 0;
+
+    while index < expected_bytes.length()
+    {
+        assert(name[index] == expected_bytes[index]);
+        index += 1;
+    }
+
+    let decoded: std.fs.FileMetadata = std.testing.assert_ok<std.fs.FileMetadata, std.io.IoError>(
+        internal std.fs.decode_platform_metadata(value)
+    );
+
+    assert(decoded.kind matches std.fs.FileKind.File);
+
+    let mut released: u32 = 0;
+
+    let closed: std.platform.PlatformStatus = trusted internal std.fs.platform_directory_close(
+        handle,
+        std.memory.address_of_mut<u32>(&mut released),
+    );
+
+    assert(closed.category == 0 && released == 1);
+    try std.fs.remove_file(&child);
+    try std.fs.remove_directory(&parent);
+    return Ok(unit);
+}
