@@ -252,6 +252,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::GenericApplication => {
             MessageTemplate::new(&[MessageTemplatePart::Text("generic application")])
         }
+        DiagnosticLabelKind::PanicArguments => {
+            MessageTemplate::new(&[MessageTemplatePart::Text("panic arguments")])
+        }
         DiagnosticLabelKind::DirectiveArgument => MessageTemplate::new(DIRECTIVE_ARGUMENT),
         DiagnosticLabelKind::ModuleExport => MessageTemplate::new(MODULE_EXPORT),
         DiagnosticLabelKind::IncompatibleExpressionType => {

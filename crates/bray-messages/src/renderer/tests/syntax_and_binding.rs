@@ -10,6 +10,61 @@ use crate::RenderedDiagnosticNoteKind;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
+fn panic_argument_errors_identify_the_message_and_correction() {
+    let span = SourceSpan::new(
+        SourceId::new(0),
+        TextRange::new(TextSize::new(25), TextSize::new(27)),
+    );
+
+    for (kind, argument, note, message, help) in [
+        (
+            DiagnosticKind::BindingPanicArgumentCountMismatch,
+            DiagnosticArg::actual_count(0),
+            DiagnosticNoteKind::PanicRequiresOneMessage,
+            "panic expects one message argument, received 0",
+            "provide exactly one message expression compatible with string",
+        ),
+        (
+            DiagnosticKind::BindingPanicArgumentCountMismatch,
+            DiagnosticArg::actual_count(2),
+            DiagnosticNoteKind::PanicRequiresOneMessage,
+            "panic expects one message argument, received 2",
+            "provide exactly one message expression compatible with string",
+        ),
+        (
+            DiagnosticKind::BindingNamedPanicArgument,
+            DiagnosticArg::referenced_name("message"),
+            DiagnosticNoteKind::PanicMessageRequiresPositionalArgument,
+            "panic does not accept named argument 'message'",
+            "pass the message as a positional argument",
+        ),
+    ] {
+        let diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+            .with_primary_span(span)
+            .with_arg(argument)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PanicArguments,
+                span,
+            ))
+            .with_note(DiagnosticNote::new(note));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(rendered.message(), message);
+        assert_eq!(rendered.primary_span(), Some(span));
+        assert_eq!(rendered.labels()[0].message(), "panic arguments");
+
+        assert_eq!(
+            rendered.notes()[0].rendered_kind(),
+            RenderedDiagnosticNoteKind::Help
+        );
+
+        assert_eq!(rendered.notes()[0].message(), help);
+        assert!(rendered.suggestions().is_empty());
+    }
+}
+
+#[test]
 fn generic_application_errors_identify_the_source_and_required_correction() {
     let span = SourceSpan::new(
         SourceId::new(0),

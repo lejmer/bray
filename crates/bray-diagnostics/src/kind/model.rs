@@ -301,6 +301,10 @@ define_diagnostic_kinds! {
     BindingGenericApplicationRequiresName,
     /// An explicit box storage policy does not contain exactly one type.
     BindingInvalidBoxStoragePolicy,
+    /// A panic expression does not supply exactly one message argument.
+    BindingPanicArgumentCountMismatch,
+    /// A panic expression supplies its message as a named argument.
+    BindingNamedPanicArgument,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// An internal checker contract failed for one exact source construct.
@@ -830,6 +834,8 @@ impl DiagnosticKind {
             Self::BindingGenericArgumentMustBeType => 6018,
             Self::BindingGenericApplicationRequiresName => 6019,
             Self::BindingInvalidBoxStoragePolicy => 6016,
+            Self::BindingPanicArgumentCountMismatch => 6020,
+            Self::BindingNamedPanicArgument => 6021,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCapacityExceeded => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
@@ -1199,6 +1205,8 @@ impl DiagnosticKind {
                 "binding_generic_application_requires_name"
             }
             Self::BindingInvalidBoxStoragePolicy => "binding_invalid_box_storage_policy",
+            Self::BindingPanicArgumentCountMismatch => "binding_panic_argument_count_mismatch",
+            Self::BindingNamedPanicArgument => "binding_named_panic_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCapacityExceeded => "checking_capacity_exceeded",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",

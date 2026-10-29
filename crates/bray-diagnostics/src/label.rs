@@ -113,6 +113,8 @@ pub enum DiagnosticLabelKind {
     DirectiveArgument,
     /// Label for a generic application or argument rejected during binding.
     GenericApplication,
+    /// Label for a panic expression's message arguments.
+    PanicArguments,
     /// Label for a module export rejected during binding.
     ModuleExport,
     /// Label for an expression whose actual type conflicts with its expected type.
@@ -238,6 +240,7 @@ impl DiagnosticLabelKind {
             Self::CallableAbiDirective => "callable_abi_directive",
             Self::DirectiveArgument => "directive_argument",
             Self::GenericApplication => "generic_application",
+            Self::PanicArguments => "panic_arguments",
             Self::ModuleExport => "module_export",
             Self::IncompatibleExpressionType => "incompatible_expression_type",
             Self::SelectionFailure => "selection_failure",

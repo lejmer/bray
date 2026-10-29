@@ -6,6 +6,8 @@ A **panic expression** raises an exceptional failure outside the ordinary callab
 panic(message);
 ```
 
+A panic expression requires exactly one positional message argument. A trailing comma is allowed.
+
 The panic message must be compatible with `string`.
 
 The requested panic is raised only after its message can be preserved through propagation and report ownership.
