@@ -241,8 +241,7 @@ impl Compilation {
                 if bray_checker::CheckerRequestContext::implementation_hook(&context, symbol)?
                     .is_some_and(|hook| {
                         hook.is_available()
-                            && (hook.hook().is_value_observation()
-                                || hook.hook().is_range_iteration())
+                            && (hook.hook().is_value_observation() || hook.hook().is_iteration())
                     })
                 {
                     origins.insert(anchor, CallableExecutionOrigin::CompilerIntrinsic);

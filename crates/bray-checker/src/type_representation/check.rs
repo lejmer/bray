@@ -751,9 +751,6 @@ where
             TypeData::TraitView(_) => Ok(MemberRepresentation::invalid(
                 DiagnosticStoredTypeProblem::TraitView,
             )),
-            TypeData::Generator(_) => Ok(MemberRepresentation::invalid(
-                DiagnosticStoredTypeProblem::Generator,
-            )),
             TypeData::Borrow { kind, .. } => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,
@@ -769,18 +766,20 @@ where
                 recursive_cycles: Vec::new(),
                 recovered: false,
             }),
-            TypeData::OwnedIndirection { .. } => Ok(MemberRepresentation {
-                finite: true,
-                plain: false,
-                c_compatible: false,
-                flexible: false,
-                copyable: Copyability::Never,
-                copy_dependencies: BTreeSet::new(),
-                non_copyable_members: BTreeSet::new(),
-                stored_type_problems: BTreeSet::new(),
-                recursive_cycles: Vec::new(),
-                recovered: false,
-            }),
+            TypeData::OwnedIndirection { .. } | TypeData::Generator(_) => {
+                Ok(MemberRepresentation {
+                    finite: true,
+                    plain: false,
+                    c_compatible: false,
+                    flexible: false,
+                    copyable: Copyability::Never,
+                    copy_dependencies: BTreeSet::new(),
+                    non_copyable_members: BTreeSet::new(),
+                    stored_type_problems: BTreeSet::new(),
+                    recursive_cycles: Vec::new(),
+                    recovered: false,
+                })
+            }
             TypeData::Callable(_) => Ok(MemberRepresentation {
                 finite: true,
                 plain: false,

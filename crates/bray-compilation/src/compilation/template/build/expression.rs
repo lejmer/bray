@@ -304,6 +304,9 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                 Ok(CheckedTemplateOperation::Convert { value, target: ty })
             }
             BoundExpression::For(iteration) => self.for_loop(expression_id, iteration, ty),
+            BoundExpression::Generator(iteration) => {
+                self.iteration_loop(expression_id, iteration.pattern(), iteration.body(), ty)
+            }
             BoundExpression::Match(matched) => self.match_value(expression_id, matched, ty),
             BoundExpression::Assignment(assignment) => {
                 self.assignment(expression_id, assignment, ty)

@@ -89,6 +89,7 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         values: &prepared.values,
         scope_places: &prepared.scope_places,
         yield_targets: &prepared.yield_targets,
+        generator_observations: &prepared.generator_observations,
         graph: &prepared.graph,
         excluded_edges: BTreeSet::new(),
         request,

@@ -1,14 +1,14 @@
 use bray_bound_tree::{
     BoundExecutionSite, BoundExpression, BoundExpressionId, BoundForExpression,
     BoundGeneratorExpression, BoundStructuredExpression, BoundStructuredExpressionKind,
-    IterationSourceMode, SelectedCall, SemanticSelection, StorageAccessPurpose, StorageIdentity,
+    CheckedMemoryOperationKind, IterationSourceMode, MemoryLayoutQueryKind, SelectedCall,
+    SemanticSelection, StorageAccessPurpose, StorageIdentity,
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
-    MirGeneratorKind, MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationKind,
-    MirPatternPredicate, MirPlace, MirProjection, MirProjectionKind, MirStorageKind, MirStoreKind,
-    MirTerminatorKind,
+    MirImmediateValue, MirMemoryOperation, MirOperand, MirOperationKind, MirPatternPredicate,
+    MirPlace, MirProjection, MirProjectionKind, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi, ReceiverMode};
 
@@ -23,8 +23,14 @@ struct Iteration {
     element: MirPlace,
     source: bray_ir::MirSourceAnchor,
 }
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum GeneratorKind {
+    Array,
+    General,
+}
 impl Lowerer<'_> {
-    pub(in crate::lowering::expression) fn lower_range_call(
+    pub(in crate::lowering::expression) fn lower_iteration_call(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,
@@ -57,6 +63,70 @@ impl Lowerer<'_> {
             }
             Some(ImplementationHook::RangeNext) => {
                 self.lower_range_next_call(id, current, selection).map(Some)
+            }
+            Some(
+                hook @ (ImplementationHook::GeneratorSharedIterate
+                | ImplementationHook::GeneratorMoveIterate),
+            ) => {
+                let receiver = selection
+                    .receiver()
+                    .expect("selected generator iterate retains its receiver");
+
+                let (lowered, receiver_type) = self.lower_call_receiver(receiver, current)?;
+
+                let Some(block) = lowered.block else {
+                    return Ok(Some(lowered));
+                };
+
+                let value = lowered.value.expect("generator receiver produces a value");
+
+                let generator = match self
+                    .input
+                    .semantic_values()
+                    .type_data(receiver_type)
+                    .as_ref()
+                {
+                    bray_symbols::TypeData::Borrow { target, .. } => *target,
+                    bray_symbols::TypeData::Generator(_) => receiver_type,
+                    _ => panic!("generator iterate retains its generator receiver"),
+                };
+
+                let (block, value) = self.generator_cursor(
+                    id,
+                    block,
+                    value,
+                    generator,
+                    self.expression_type(id),
+                    hook,
+                )?;
+
+                Ok(Some(LoweredExpression::continuing(
+                    block,
+                    Some(value),
+                    self.expression_source(id),
+                )))
+            }
+            Some(
+                hook @ (ImplementationHook::GeneratorSharedNext
+                | ImplementationHook::GeneratorMoveNext),
+            ) => {
+                let receiver = selection
+                    .receiver()
+                    .expect("selected generator next retains its receiver");
+
+                let decision = self.storage_decision(receiver.expression().into(), |purpose| {
+                    purpose == StorageAccessPurpose::Borrow(BorrowKind::Mutable)
+                });
+
+                self.lower_access_place_with(
+                    receiver.expression(),
+                    decision.access(),
+                    current,
+                    |lowerer, block, cursor| {
+                        lowerer.generator_next(id, block, cursor, lowerer.expression_type(id), hook)
+                    },
+                )
+                .map(Some)
             }
             _ => Ok(None),
         }
@@ -115,6 +185,10 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        if let Some(producer) = self.input.observed_generator_fold(id) {
+            return self.lower_generator_fold(id, producer, expression, current);
+        }
+
         let [source_expression] = expression.operands() else {
             panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
@@ -186,40 +260,107 @@ impl Lowerer<'_> {
         result_id: BoundExpressionId,
         iteration_id: BoundExpressionId,
         expression: &BoundGeneratorExpression,
-        current: MirBlockId,
-        kind: MirGeneratorKind,
+        mut current: MirBlockId,
+        kind: GeneratorKind,
     ) -> Result<LoweredExpression, LoweringError> {
+        if self.input.observed_generator(result_id).is_some() {
+            return self.lower_generator_observation(result_id, iteration_id, current);
+        }
+
         let source = self.source(expression.origin());
         let result_type = self.expression_type(result_id);
+        let result_data = self.input.semantic_values().type_data(result_type);
 
-        let destination_storage = self.builder.push_storage(
-            Self::retained_source(&source),
-            MirStorageKind::Temporary,
-            result_type,
-        )?;
+        let element_type = match (kind, result_data.as_ref()) {
+            (GeneratorKind::Array, bray_symbols::TypeData::Array { element, .. })
+            | (GeneratorKind::General, bray_symbols::TypeData::Generator(element)) => *element,
+            _ => panic!("generator result type must match its checked region: {result_type:?}"),
+        };
 
-        let destination = MirPlace::new(destination_storage, [], result_type);
+        let retained = self.input_temporaries.len();
 
-        // Lowering mutates the MIR builder after consulting this immutable checked selection.
-        let selection = self.iteration_selection(iteration_id).clone();
+        let (destination, array_count) = if kind == GeneratorKind::Array {
+            let destination_storage = self.builder.push_storage(
+                Self::retained_source(&source),
+                MirStorageKind::Temporary,
+                result_type,
+            )?;
 
-        self.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Generator(MirGeneratorOperation::Begin {
-                kind,
-                destination: Self::retained_place(&destination),
-                element: selection.element_type(),
-                // Array cardinality proves one output per input. A general generator
-                // can yield zero or several elements during one source iteration.
-                exact_count: if kind == MirGeneratorKind::Array {
-                    selection.exact_count()
-                } else {
-                    None
-                },
-            }),
-            None,
-        )?;
+            let destination = MirPlace::new(destination_storage, [], result_type);
+            let integer = self.representation_type(RepresentationRole::ScalarUsize)?;
+            let zero = crate::operand::integer_constant(self.input.semantic_values(), integer, 0)?;
+
+            let count = self.materialize_synthetic_place(
+                current,
+                Self::retained_source(&source),
+                Self::retained_operand(&zero),
+                integer,
+            )?;
+
+            self.track_array_input(
+                current,
+                &source,
+                Self::retained_place(&destination),
+                element_type,
+                [zero, MirOperand::Copy(Self::retained_place(&count))],
+            )?;
+
+            (destination, Some(count))
+        } else {
+            current = self.admit_outgoing_owner(result_id, current, &source, result_type)?;
+
+            let integer = self.representation_type(RepresentationRole::ScalarUsize)?;
+            let zero = crate::operand::integer_constant(self.input.semantic_values(), integer, 0)?;
+
+            let alignment = self.push_typed_value_operation(
+                result_id,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                    CheckedMemoryOperationKind::LayoutQuery {
+                        ty: element_type,
+                        kind: MemoryLayoutQueryKind::Alignment,
+                    },
+                    [],
+                    [],
+                    Some(integer),
+                ))),
+                integer,
+            )?;
+
+            let empty = self.push_typed_value_operation(
+                result_id,
+                current,
+                Self::retained_source(&source),
+                MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
+                    CheckedMemoryOperationKind::RawBufferAllocate,
+                    [Self::retained_operand(&zero), zero, alignment],
+                    [integer, integer, integer],
+                    Some(result_type),
+                ))),
+                result_type,
+            )?;
+
+            let (completed, empty) = self.finish_typed_call_panic_check(
+                result_id,
+                current,
+                &source,
+                &empty,
+                result_type,
+                Some(result_type),
+                crate::lowering::expression::CallOutcome::Runtime,
+            )?;
+
+            current = completed;
+
+            let MirOperand::Move(destination) =
+                self.materialize_owned_input(current, &source, empty, result_type)?
+            else {
+                panic!("generator accumulation owns its initialized buffer");
+            };
+
+            (destination, None)
+        };
 
         let result_syntax = self
             .input
@@ -239,22 +380,24 @@ impl Lowerer<'_> {
         self.yield_targets.push(YieldTarget::Generator {
             syntax: result_syntax,
             destination: Self::retained_place(&destination),
-            element_type: selection.element_type(),
+            element_type,
+            array_count,
         });
 
-        let iteration = self.lower_generator_iteration_loop(iteration_id, expression, current)?;
+        let iteration = self.lower_expression(iteration_id, current)?;
 
         self.yield_targets.pop();
 
-        let value = self.push_value_operation(
-            result_id,
-            iteration.exhausted,
-            Self::retained_source(&source),
-            MirOperationKind::Generator(MirGeneratorOperation::Finish { destination }),
-        )?;
+        let value = MirOperand::Move(destination);
+
+        self.input_temporaries.truncate(retained);
+
+        let Some(completed) = iteration.block else {
+            return Ok(LoweredExpression::terminated(source));
+        };
 
         Ok(LoweredExpression::continuing(
-            iteration.exhausted,
+            completed,
             Some(value),
             source,
         ))
@@ -282,7 +425,7 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
         current: MirBlockId,
-        kind: MirGeneratorKind,
+        kind: GeneratorKind,
     ) -> Result<LoweredExpression, LoweringError> {
         let [iteration_id] = expression.operands() else {
             panic!(
@@ -366,7 +509,6 @@ impl Lowerer<'_> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(id).clone();
         let source = self.expression_source(id);
-        let range_cursor = self.is_range_type(selection.cursor_type());
 
         let direct_range_source = is_range_iterate_hook(
             self.input
@@ -405,8 +547,30 @@ impl Lowerer<'_> {
             );
         };
 
+        let iterate_hook = self
+            .input
+            .available_compiler_known_symbols()
+            .symbol_implementation(selection.iterate().definition().symbol());
+
         let cursor_value = if direct_range_source {
             source_operand
+        } else if let Some(
+            hook @ (ImplementationHook::GeneratorSharedIterate
+            | ImplementationHook::GeneratorMoveIterate),
+        ) = iterate_hook
+        {
+            let (continuation, value) = self.generator_cursor(
+                id,
+                current,
+                source_operand,
+                selection.source_type(),
+                selection.cursor_type(),
+                hook,
+            )?;
+
+            current = continuation;
+
+            value
         } else {
             let (continuation, cursor_value) = self.push_checked_call(
                 BoundExecutionSite::Iterate(id),
@@ -491,58 +655,8 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
         )?;
 
-        let (completed, next_value) = if range_cursor {
-            let next = self.lower_range_next_from_cursor(
-                id,
-                header,
-                Self::retained_place(&cursor),
-                selection.cursor_type(),
-                step_type,
-            )?;
-
-            (
-                next.block.expect("range next completes"),
-                next.value.expect("range next returns a nullable value"),
-            )
-        } else {
-            let receiver_type =
-                self.input
-                    .semantic_values()
-                    .intern_type(bray_symbols::TypeData::Borrow {
-                        kind: BorrowKind::Mutable,
-                        target: selection.cursor_type(),
-                    })?;
-
-            let receiver = self.push_typed_value_operation(
-                id,
-                header,
-                Self::retained_source(&source),
-                MirOperationKind::Borrow {
-                    kind: BorrowKind::Mutable,
-                    place: Self::retained_place(&cursor),
-                },
-                receiver_type,
-            )?;
-
-            self.push_checked_call(
-                BoundExecutionSite::Next(id),
-                header,
-                Self::retained_source(&source),
-                MirCall::protocol(
-                    MirCallTarget::Direct(MirCallableReference::new(
-                        selection.next(),
-                        CallableAbi::Bray,
-                    )),
-                    bray_bound_tree::BoundCallResult::Immediate(step_type),
-                    [receiver],
-                    [bray_bound_tree::SelectedImplementationWitness::new(
-                        selection.iterator_requirement(),
-                        selection.iterator_witness(),
-                    )],
-                ),
-                step_type,
-            )?
-        };
+        let (completed, next_value) =
+            self.next_iteration_value(id, header, &cursor, &selection, step_type)?;
 
         self.push_operation(
             completed,
@@ -575,6 +689,88 @@ impl Lowerer<'_> {
         })
     }
 
+    fn next_iteration_value(
+        &mut self,
+        id: BoundExpressionId,
+        header: MirBlockId,
+        cursor: &MirPlace,
+        selection: &bray_bound_tree::SelectedIterationSource,
+        step_type: bray_symbols::TypeId,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let source = self.expression_source(id);
+
+        let (completed, next_value) = if self.is_range_type(selection.cursor_type()) {
+            let next = self.lower_range_next_from_cursor(
+                id,
+                header,
+                Self::retained_place(cursor),
+                selection.cursor_type(),
+                step_type,
+            )?;
+
+            (
+                next.block.expect("range next completes"),
+                next.value.expect("range next returns a nullable value"),
+            )
+        } else if let Some(
+            hook
+            @ (ImplementationHook::GeneratorSharedNext | ImplementationHook::GeneratorMoveNext),
+        ) = self
+            .input
+            .available_compiler_known_symbols()
+            .symbol_implementation(selection.next().definition().symbol())
+        {
+            let next =
+                self.generator_next(id, header, Self::retained_place(cursor), step_type, hook)?;
+
+            (
+                next.block.expect("generator next completes"),
+                next.value
+                    .expect("generator next returns a nullable element"),
+            )
+        } else {
+            let receiver_type =
+                self.input
+                    .semantic_values()
+                    .intern_type(bray_symbols::TypeData::Borrow {
+                        kind: BorrowKind::Mutable,
+                        target: selection.cursor_type(),
+                    })?;
+
+            let receiver = self.push_typed_value_operation(
+                id,
+                header,
+                Self::retained_source(&source),
+                MirOperationKind::Borrow {
+                    kind: BorrowKind::Mutable,
+                    place: Self::retained_place(cursor),
+                },
+                receiver_type,
+            )?;
+
+            self.push_checked_call(
+                BoundExecutionSite::Next(id),
+                header,
+                Self::retained_source(&source),
+                MirCall::protocol(
+                    MirCallTarget::Direct(MirCallableReference::new(
+                        selection.next(),
+                        CallableAbi::Bray,
+                    )),
+                    bray_bound_tree::BoundCallResult::Immediate(step_type),
+                    [receiver],
+                    [bray_bound_tree::SelectedImplementationWitness::new(
+                        selection.iterator_requirement(),
+                        selection.iterator_witness(),
+                    )],
+                ),
+                step_type,
+            )?
+        };
+
+        Ok((completed, next_value))
+    }
+
     fn lower_iteration_source(
         &mut self,
         invocation: BoundExecutionSite,
@@ -597,12 +793,17 @@ impl Lowerer<'_> {
             purpose == StorageAccessPurpose::Borrow(kind)
         });
 
-        self.lower_access_place_with(
+        self.lower_materialized_access_place_with(
             expression,
             decision.access(),
             current,
             |lowerer, current, place| {
                 let source = lowerer.expression_source(expression);
+
+                let ty = lowerer
+                    .input
+                    .semantic_values()
+                    .intern_type(bray_symbols::TypeData::Borrow { kind, target: ty })?;
 
                 let commit = lowerer.push_operation(
                     current,

@@ -7,10 +7,9 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::AnySymbolId;
 
 use crate::{
-    MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
-    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace,
-    MirProjectionKind, MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit,
-    MirValueId,
+    MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget, MirOperand,
+    MirOperation, MirOperationId, MirOperationKind, MirPlace, MirProjectionKind, MirStorage,
+    MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit, MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -117,10 +116,9 @@ pub(super) fn validate_operation(
                     validate_operand(unit, message, block, Some(id))?;
                 }
             }
+            crate::MirPanicCause::MemoryLayoutSizeOverflow
+            | crate::MirPanicCause::MemoryLayoutUnsupportedAlignment => {}
         },
-        MirOperationKind::Generator(operation) => {
-            validate_generator_operation(unit, block, id, operation)?;
-        }
         MirOperationKind::Aggregate(aggregate) => {
             let valid_arity = match aggregate.kind() {
                 MirAggregateKind::Tuple | MirAggregateKind::Array => true,
@@ -203,12 +201,6 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
                 block_kind != MirBlockKind::CleanupBroadcast
             }
         },
-        MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. }) => {
-            block_kind == MirBlockKind::CleanupBroadcast
-        }
-        MirOperationKind::Generator(MirGeneratorOperation::Destroy { .. }) => {
-            block_kind != MirBlockKind::CleanupBroadcast
-        }
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
@@ -218,11 +210,6 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::Begin { .. }
-            | MirGeneratorOperation::Push { .. }
-            | MirGeneratorOperation::Finish { .. },
-        )
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
@@ -253,7 +240,6 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
             | MirOperationKind::Unary { .. }
             | MirOperationKind::Binary { .. }
             | MirOperationKind::PatternProjection { .. }
-            | MirOperationKind::Generator(MirGeneratorOperation::Finish { .. })
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
@@ -282,12 +268,6 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         MirOperationKind::AdmitOutgoing { .. }
             | MirOperationKind::DischargeOutgoing { .. }
             | MirOperationKind::Store { .. }
-            | MirOperationKind::Generator(
-                MirGeneratorOperation::Begin { .. }
-                    | MirGeneratorOperation::Push { .. }
-                    | MirGeneratorOperation::CleanupBroadcast { .. }
-                    | MirGeneratorOperation::Destroy { .. }
-            )
             | MirOperationKind::ReleaseBuffer { .. }
             | MirOperationKind::Quiesce { .. }
             | MirOperationKind::Destroy { .. }
@@ -787,45 +767,6 @@ fn validate_call(
     }
 
     Some(())
-}
-
-fn validate_generator_operation(
-    unit: &MirUnit,
-    block: crate::MirBlockId,
-    operation: MirOperationId,
-    generator: &MirGeneratorOperation,
-) -> Option<()> {
-    let destination = match generator {
-        MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination } => destination,
-        MirGeneratorOperation::Push { destination, value } => {
-            validate_operand(unit, value, block, Some(operation))?;
-
-            destination
-        }
-        MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            runtime,
-            ..
-        } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorCleanupBroadcast)?;
-
-            destination
-        }
-        MirGeneratorOperation::Destroy {
-            destination,
-            abandoned,
-            runtime,
-            ..
-        } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorDestruction)?;
-            validate_operand(unit, abandoned, block, Some(operation))?;
-
-            destination
-        }
-    };
-
-    validate_place(unit, destination, block, Some(operation))
 }
 
 fn validate_construction(

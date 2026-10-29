@@ -1,9 +1,8 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockKind, MirCleanupPhase, MirGeneratorOperation, MirHelperReference, MirOperationKind,
-    MirProjectionKind, MirTerminatorKind,
+    MirBlockKind, MirCleanupPhase, MirHelperReference, MirOperationKind, MirProjectionKind,
+    MirTerminatorKind,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeData;
 
 use super::lifecycle_fixtures::{generated_lifecycle, reachable_cleanup_operations};
@@ -171,9 +170,15 @@ fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
         .semantic_value_store()
         .expect("semantic values must resolve");
 
-    let leaf = values
-        .intern_type(TypeData::tuple([]))
-        .expect("generator leaf type must intern");
+    let unit = compilation
+        .compiler_known_type(RepresentationRole::Unit)
+        .expect("generator leaf retains its completion type");
+
+    let leaf = compilation
+        .available_compiler_known_symbols()
+        .unary_representation_type(values, RepresentationRole::Future, unit)
+        .expect("cancellable generator leaf type must intern")
+        .expect("compiler-known Future retains its representation");
 
     let element = values
         .intern_type(TypeData::Generator(leaf))
@@ -193,35 +198,22 @@ fn generator_cleanup_broadcast_reaches_exact_element_cleanup() {
         83,
     );
 
-    let operation = generated
-        .operations()
-        .iter()
-        .find(|operation| {
-            matches!(
-                operation.kind(),
-                MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. })
-            )
-        })
-        .expect("generator cleanup must contain one broadcast operation");
+    assert!(
+        generated
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Memory(memory) if matches!(memory.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::RawBufferInitializedSliceMut)))
+    );
 
-    let MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast {
-        element: operation_element,
-        runtime,
-        ..
-    }) = operation.kind()
-    else {
-        unreachable!("the operation was selected by its exact variant");
-    };
-
-    assert_eq!(*operation_element, element);
-    assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorCleanupBroadcast);
-
-    assert_eq!(
-        operation.kind().helper_references(),
-        [MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::TaskCancellation,
-            ty: element,
-        }]
+    assert!(
+        generated
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place, .. }
+            if place.ty() == element))
     );
 }
 

@@ -48,6 +48,12 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
                     .intern_type(TypeData::Slice(element))
                     .expect("recognized buffer element has a slice storage type")
             }),
+        (TypeData::Generator(element), DependencyProjection::OwnedTarget) => Some(
+            request
+                .semantic_values()
+                .intern_type(TypeData::Slice(*element))
+                .expect("generator owns contiguous element storage"),
+        ),
         (TypeData::Nullable(target), DependencyProjection::NullableValue) => Some(*target),
         (TypeData::Array { .. } | TypeData::Slice(_), DependencyProjection::Element(_)) => {
             sequence_element_type(request, owner)

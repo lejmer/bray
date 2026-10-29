@@ -189,7 +189,7 @@ pub(crate) const fn diagnostic_checked_memory_operation(
             ..
         } => Operation::StrideDetermination,
         CheckedMemoryOperationKind::LayoutQuery {
-            kind: MemoryLayoutQueryKind::Layout,
+            kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::LayoutStatus,
             ..
         } => Operation::LayoutDetermination,
         CheckedMemoryOperationKind::LayoutQuery {

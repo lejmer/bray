@@ -512,7 +512,9 @@ impl Lowerer<'_> {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
-                if self.input_cleanup_owns(*access, phase, pending_inputs) {
+                if self.input.elides_generator_storage(*access)
+                    || self.input_cleanup_owns(*access, phase, pending_inputs)
+                {
                     continue;
                 }
 
@@ -768,7 +770,7 @@ impl Lowerer<'_> {
         abandoned: Option<&bray_ir::MirPlace>,
         pending: Option<&bray_ir::MirPlace>,
         failures: &std::collections::BTreeMap<
-            bray_bound_tree::BoundBlockId,
+            bray_bound_tree::StorageScope,
             (MirBlockId, MirBlockId, bray_ir::MirPlace),
         >,
         input_exit: InputExit,

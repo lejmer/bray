@@ -131,6 +131,10 @@ pub enum TestPanicCause {
     AllocationFailure,
     /// Native entry or its terminal cleanup failed.
     EntryFailure,
+    /// A requested memory layout exceeds the target address size.
+    MemoryLayoutSizeOverflow,
+    /// A requested memory layout requires unsupported alignment.
+    MemoryLayoutUnsupportedAlignment,
 }
 
 /// Structured panic data crossing the native test-host boundary.

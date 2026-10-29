@@ -180,6 +180,12 @@ pub(in crate::compilation) struct SourceTemplateBuilder<'context, 'compilation, 
         super::super::control::TemplateBoundary,
     >,
     pub(in crate::compilation::template) return_type: Option<TypeId>,
+    pub(in crate::compilation::template) generator_observations:
+        bray_bound_tree::GeneratorObservations,
+    pub(in crate::compilation::template) generator_values:
+        BTreeMap<BoundExpressionId, bray_bound_tree::StorageIdentityId>,
+    pub(in crate::compilation::template) generator_targets:
+        BTreeMap<SyntaxAnchor, bray_bound_tree::StorageIdentityId>,
     pub(in crate::compilation::template) pattern_values:
         BTreeMap<bray_bound_tree::BoundPatternId, CheckedTemplateNodeId>,
 }
@@ -250,7 +256,18 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             inputs.push(checked);
         }
 
+        let prepared = context
+            .compilation()
+            .prepared_body_analysis_with_cancellation(
+                request.unit.key().clone(),
+                context.cancellation(),
+            )?;
+
         Ok(Self {
+            // Retain the cached index independently of this local prepared-fact handle.
+            generator_observations: prepared.result().value().generator_observations().clone(),
+            generator_values: BTreeMap::new(),
+            generator_targets: BTreeMap::new(),
             context,
             unit: request.unit,
             kind: request.kind,

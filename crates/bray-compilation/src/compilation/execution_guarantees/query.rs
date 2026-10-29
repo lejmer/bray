@@ -733,6 +733,12 @@ mod tests {
                 {
                     return Value {};
                 }
+
+                func make_array() -> [Value; 2]
+                    executes(pure, total)
+                {
+                    return [each item in 0..2 { yield Value {}; }];
+                }
             "#
             .replace("ACTION", action);
 

@@ -74,14 +74,15 @@ impl Lowerer<'_> {
         let mut completion = self.lower_block(*body, body_entry)?;
 
         if let (Some(scope), Some(block)) = (scope, completion.block) {
-            completion.block = Some(self.finish_scope(scope, block, &source, (*body).into())?);
+            completion.block =
+                Some(self.finish_scope(scope.into(), block, &source, (*body).into())?);
         }
 
         self.finish_edge(completion, header)?;
 
         let exhausted = if let Some(scope) = scope {
             let completion =
-                self.finish_scope(scope, exhausted, &source, (*condition_id).into())?;
+                self.finish_scope(scope.into(), exhausted, &source, (*condition_id).into())?;
 
             self.active_scopes.pop();
 

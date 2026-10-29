@@ -112,12 +112,14 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let has_body = record
-                    .syntax_anchor()
-                    .and_then(|anchor| {
-                        anchor.find_descendant::<StructDeclarationSyntax>(self.syntax_tree())
-                    })
-                    .is_some_and(|syntax| syntax.struct_body().is_some());
+                let has_body = binder::with_declaration_root(&binding_context, id.into(), |root| {
+                    let syntax = root
+                        .cast::<StructDeclarationSyntax>()
+                        .expect("struct symbol retains its source or catalog declaration");
+
+                    Ok(syntax.struct_body().is_some())
+                })
+                .map_err(binder::binding_query_error)?;
 
                 DeclaredTypeDefinition::structure(
                     subject,

@@ -1,0 +1,100 @@
+catalog compiler_known revision 1;
+
+scope Ambient at ambient {
+    declaration GeneratorSurface {
+        surface { internal struct GeneratorSurface<T> {} }
+    }
+
+    declaration GeneratorSharedCursor {
+        surface { internal struct GeneratorSharedCursor<T> {} }
+    }
+
+    declaration GeneratorMoveCursor {
+        surface { internal struct GeneratorMoveCursor<T> {} }
+    }
+
+    declaration GeneratorMoveCursorValues {
+        owner GeneratorMoveCursor;
+        surface { internal mut values: GeneratorSurface<T>; }
+    }
+
+    declaration GeneratorSharedCursorValues {
+        owner GeneratorSharedCursor;
+        surface { internal values: &GeneratorSurface<T>; }
+    }
+
+    declaration GeneratorSharedCursorIndex {
+        owner GeneratorSharedCursor;
+        surface { internal mut index: usize; }
+    }
+
+    declaration GeneratorIteratorImplementation {
+        surface { impl GeneratorIterator = GeneratorMoveCursor<T>(Iterator) {} }
+    }
+
+    declaration GeneratorIteratorElement {
+        owner GeneratorIteratorImplementation;
+        surface { type Element = T; }
+    }
+
+    declaration GeneratorIteratorNext {
+        owner GeneratorIteratorImplementation;
+        implementation GeneratorMoveNext;
+        surface { mut func next() -> T? {} }
+    }
+
+    declaration GeneratorMoveIterableImplementation {
+        surface { impl GeneratorMoveIterable = GeneratorSurface<T>(Iterable) {} }
+    }
+
+    declaration GeneratorMoveIterableElement {
+        owner GeneratorMoveIterableImplementation;
+        surface { type Element = T; }
+    }
+
+    declaration GeneratorMoveIterableCursor {
+        owner GeneratorMoveIterableImplementation;
+        surface { type Cursor = GeneratorMoveCursor<T>; }
+    }
+
+    declaration GeneratorMoveIterableIterate {
+        owner GeneratorMoveIterableImplementation;
+        implementation GeneratorMoveIterate;
+        surface { consume func iterate() -> GeneratorMoveCursor<T> {} }
+    }
+
+    declaration GeneratorSharedIterableImplementation {
+        surface { impl GeneratorSharedIterable = &GeneratorSurface<T>(Iterable) with(T: Copyable) {} }
+    }
+
+    declaration GeneratorSharedIterableElement {
+        owner GeneratorSharedIterableImplementation;
+        surface { type Element = T; }
+    }
+
+    declaration GeneratorSharedIterableCursor {
+        owner GeneratorSharedIterableImplementation;
+        surface { type Cursor = GeneratorSharedCursor<T>; }
+    }
+
+    declaration GeneratorSharedIterableIterate {
+        owner GeneratorSharedIterableImplementation;
+        implementation GeneratorSharedIterate;
+        surface { consume func iterate() -> GeneratorSharedCursor<T> {} }
+    }
+
+    declaration GeneratorSharedCursorIteratorImplementation {
+        surface { impl GeneratorSharedCursorIterator = GeneratorSharedCursor<T>(Iterator) with(T: Copyable) {} }
+    }
+
+    declaration GeneratorSharedCursorIteratorElement {
+        owner GeneratorSharedCursorIteratorImplementation;
+        surface { type Element = T; }
+    }
+
+    declaration GeneratorSharedCursorIteratorNext {
+        owner GeneratorSharedCursorIteratorImplementation;
+        implementation GeneratorSharedNext;
+        surface { mut func next() -> T? {} }
+    }
+}

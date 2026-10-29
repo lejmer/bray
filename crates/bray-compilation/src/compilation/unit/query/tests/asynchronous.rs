@@ -571,6 +571,107 @@ fn implicit_cleanup_retains_the_pending_return_dependency() {
 }
 
 #[test]
+fn iteration_cleanup_retains_the_pending_expression_result() {
+    let application = compilation(
+        r#"
+        module app;
+        struct Items {}
+        struct IterationCursor { async finalize() {} }
+        impl &Items(Iterable) {
+            type Element = bool;
+            type Cursor = IterationCursor;
+            consume func iterate() -> IterationCursor { return IterationCursor {}; }
+        }
+        impl IterationCursor(Iterator) {
+            type Element = bool;
+            mut func next() -> bool? { return none; }
+        }
+        async func main(pos output: &u32) -> &u32 {
+            let items = Items {};
+            return for value in items { break output; } else { break output; };
+        }
+        "#,
+    );
+
+    assert!(
+        !application.check_diagnostics().has_errors(),
+        "{:?}",
+        application.check_diagnostics()
+    );
+
+    let key = crate::test_support::source_function_body_key(&application, "main");
+
+    let unit = application
+        .bound_unit(key.clone())
+        .expect("iteration result binds");
+
+    let iteration = unit
+        .value()
+        .tree()
+        .expressions()
+        .find_map(|(id, expression)| {
+            matches!(expression, bray_bound_tree::BoundExpression::For(_)).then_some(id)
+        })
+        .expect("fixture has a result-producing iteration");
+
+    let liveness = application
+        .liveness(key.clone())
+        .expect("iteration result liveness publishes");
+
+    let analysis = application
+        .async_analysis(key.clone())
+        .expect("iteration cleanup publishes");
+
+    let point = analysis
+        .value()
+        .suspensions()
+        .iter()
+        .find(|point| {
+            point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup
+                && point.occurrence().node() == iteration.into()
+        })
+        .expect("cursor cleanup can suspend before publishing the iteration result");
+
+    let retained = liveness
+        .value()
+        .live_across_scopes()
+        .iter()
+        .filter(|entry| {
+            entry.scope() == bray_bound_tree::StorageScope::Iteration(iteration)
+                && entry.exit() == iteration.into()
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        retained.iter().any(|entry| matches!(
+            entry.subject(),
+            bray_bound_tree::BoundDependencySubject::BorrowCapability(_)
+        )),
+        "{retained:?}"
+    );
+
+    for entry in retained {
+        assert!(
+            point.retained_subjects().contains(&entry.subject()),
+            "{point:?} misses {entry:?}"
+        );
+    }
+
+    let lowered = application
+        .lowered_unit(key)
+        .expect("pending iteration result lowers");
+
+    assert!(
+        lowered
+            .value()
+            .as_ref()
+            .and_then(|unit| unit.mir())
+            .is_some_and(|mir| mir.is_valid()),
+        "{lowered:?}"
+    );
+}
+
+#[test]
 fn moving_the_finalizer_owner_out_does_not_schedule_cleanup() {
     let application = compilation(
         r#"

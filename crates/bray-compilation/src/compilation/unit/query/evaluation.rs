@@ -300,8 +300,13 @@ impl Compilation {
 
                 let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-                let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
-                    self.iteration_inputs(&key, bound.result().value(), cancellation)?;
+                let (mut pattern_input, mut iteration_sources, _, has_iterations) = self
+                    .iteration_inputs(
+                        &key,
+                        bound.result().value(),
+                        provisional.result().value(),
+                        cancellation,
+                    )?;
 
                 let binding_context = self.binding_context_for(&key, cancellation)?;
 
@@ -365,7 +370,16 @@ impl Compilation {
                         cancellation,
                     )?;
 
-                    if next == operation_resolutions {
+                    let (next_pattern_input, next_iteration_sources, iteration_diagnostics, _) =
+                        self.iteration_inputs(
+                            &key,
+                            bound.result().value(),
+                            result.0.value(),
+                            cancellation,
+                        )?;
+
+                    if next == operation_resolutions && next_iteration_sources == iteration_sources
+                    {
                         let (semantics, diagnostics) = result.0.into_parts();
 
                         result.0 = DiagnosticResult::new(
@@ -388,6 +402,8 @@ impl Compilation {
                     }
 
                     operation_resolutions = next;
+                    pattern_input = next_pattern_input;
+                    iteration_sources = next_iteration_sources;
                 }
             },
         )
@@ -503,8 +519,12 @@ impl Compilation {
                 let declared = self
                     .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
 
-                let (input, _, iteration_diagnostics, _) =
-                    self.iteration_inputs(&key, bound.result().value(), cancellation)?;
+                let (input, _, iteration_diagnostics, _) = self.iteration_inputs(
+                    &key,
+                    bound.result().value(),
+                    expressions.result().value(),
+                    cancellation,
+                )?;
 
                 let selected_patterns = scoped_pattern_subjects(
                     bound.result().value(),
@@ -572,6 +592,7 @@ impl Compilation {
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
+        semantics: &CheckedExpressionSemantics,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -644,9 +665,12 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         for (expression, pattern) in iterations {
-            // Each demand-driven selection query owns its cheaply shared unit key.
-            let selection =
-                self.iteration_source_with_cancellation(key.clone(), expression, cancellation)?;
+            let selection = self.select_iteration_source(
+                &crate::fact::IterationSourceQueryKey::new(key.clone(), expression),
+                bound,
+                semantics,
+                cancellation,
+            )?;
 
             diagnostics = diagnostics.merged(selection.diagnostics());
 

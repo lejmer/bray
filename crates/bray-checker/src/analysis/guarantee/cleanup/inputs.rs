@@ -43,7 +43,7 @@ impl Plan {
             };
 
             self.scoped_error_quiescence
-                .insert(*body, scoped.expression());
+                .insert((*body).into(), scoped.expression());
         }
 
         Ok(())
@@ -138,7 +138,52 @@ impl Plan {
 
         let mut selected = BTreeMap::<_, BTreeSet<_>>::new();
 
+        let mut generator_occurrences = None;
+
         for (expression, node) in unit.tree().expressions() {
+            if let Some(calls) =
+                generator_result(expression, node, types).and_then(|ty| cleanup.get(&ty))
+            {
+                let occurrences = generator_occurrences.get_or_insert_with(|| {
+                    graph
+                        .operations()
+                        .iter()
+                        .filter_map(|operation| match operation.kind() {
+                            crate::analysis::AnalysisOperationKind::Bound(
+                                bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                            ) => Some(expression),
+                            crate::analysis::AnalysisOperationKind::Call { invocation, .. } => {
+                                invocation.expression()
+                            }
+                            _ => None,
+                        })
+                        .collect::<BTreeSet<_>>()
+                });
+
+                // The initialized prefix remains an owned construction input throughout
+                // production, including a staged yield's allocation-failure boundary.
+                let walked = bray_bound_tree::walk_bound_tree(unit.tree(), expression, |event| {
+                    if let bray_bound_tree::BoundWalkEvent::Enter(
+                        bray_bound_tree::AnyBoundNodeId::Expression(input),
+                    ) = event
+                        && occurrences.contains(&input)
+                    {
+                        selected
+                            .entry(input)
+                            .or_default()
+                            .extend(calls.iter().cloned());
+                    }
+
+                    bray_bound_tree::BoundWalkControl::Continue
+                });
+
+                assert_eq!(
+                    walked,
+                    bray_bound_tree::BoundWalkOutcome::Completed,
+                    "pending generator cleanup retains its complete production subtree"
+                );
+            }
+
             if !matches!(
                 node,
                 bray_bound_tree::BoundExpression::Call(_)
@@ -206,12 +251,15 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     let mut inputs = BTreeMap::new();
 
     for (id, expression) in request.unit().tree().expressions() {
+        let generator = generator_result(id, expression, expressions.types());
+
         if !matches!(
             expression,
             bray_bound_tree::BoundExpression::Call(_)
                 | bray_bound_tree::BoundExpression::StructConstruction(_)
                 | bray_bound_tree::BoundExpression::BoxConstruction(_)
-        ) {
+        ) && generator.is_none()
+        {
             continue;
         }
 
@@ -232,7 +280,9 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
             released_buffer_type(expressions.selections(), id, request.semantic_values())
                 .map(|ty| (ty, expression.origin().source_anchor()));
 
-        for (ty, source) in arguments.chain(released) {
+        let generator = generator.map(|ty| (ty, expression.origin().source_anchor()));
+
+        for (ty, source) in arguments.chain(released).chain(generator) {
             if inputs.contains_key(&ty) {
                 continue;
             }
@@ -254,6 +304,28 @@ pub(super) fn parts<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(inputs)
+}
+
+fn generator_result(
+    id: bray_bound_tree::BoundExpressionId,
+    expression: &bray_bound_tree::BoundExpression,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+) -> Option<TypeId> {
+    let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
+        return None;
+    };
+
+    matches!(
+        expression.kind(),
+        bray_bound_tree::BoundStructuredExpressionKind::ArrayGenerator
+            | bray_bound_tree::BoundStructuredExpressionKind::GeneralGenerator
+    )
+    .then(|| {
+        types
+            .expression(id)
+            .expect("checked generator retains its result type")
+            .ty()
+    })
 }
 
 fn released_buffer_type(

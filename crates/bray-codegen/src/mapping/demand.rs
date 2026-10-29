@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause,
-    MirPatternPredicate, MirPlace, MirProjectionKind, MirTerminatorKind, MirUnit,
+    MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace,
+    MirProjectionKind, MirTerminatorKind, MirUnit,
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 
@@ -55,14 +55,6 @@ pub fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
                 terms.insert(*term);
             }
         });
-
-        if let MirOperationKind::Generator(MirGeneratorOperation::Begin {
-            exact_count: Some(term),
-            ..
-        }) = operation.kind()
-        {
-            terms.insert(*term);
-        }
     }
 
     for block in unit.blocks() {
@@ -190,7 +182,6 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         MirOperationKind::PatternProjection { subject, .. } => {
             collect_operand_value(subject, demands);
         }
-        MirOperationKind::Generator(operation) => collect_generator_values(operation, demands),
         MirOperationKind::Call(call) => collect_call_values(call, demands),
         MirOperationKind::Memory(memory) => {
             demands.values.extend(memory.kind().contract_constants());
@@ -323,25 +314,6 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
     }
 }
 
-fn collect_generator_values(operation: &MirGeneratorOperation, demands: &mut ConstantDemands) {
-    if let MirGeneratorOperation::Destroy { abandoned, .. } = operation {
-        collect_operand_value(abandoned, demands);
-    }
-
-    match operation {
-        MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination }
-        | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-        | MirGeneratorOperation::Destroy { destination, .. } => {
-            collect_place_values(destination, demands);
-        }
-        MirGeneratorOperation::Push { destination, value } => {
-            collect_place_values(destination, demands);
-            collect_operand_value(value, demands);
-        }
-    }
-}
-
 fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDemands) {
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
@@ -425,6 +397,8 @@ fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
                 collect_operand_value(message, demands);
             }
         }
+        MirPanicCause::MemoryLayoutSizeOverflow
+        | MirPanicCause::MemoryLayoutUnsupportedAlignment => {}
     }
 }
 

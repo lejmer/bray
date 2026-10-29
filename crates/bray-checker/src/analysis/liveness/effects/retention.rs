@@ -81,7 +81,7 @@ impl OperationEffects {
                     .operation(*id)
                     .expect("report retention operation belongs to its graph")
             }) {
-                if let AnalysisOperationKind::ScopeExit { block: exited, .. } = operation.kind() {
+                if let AnalysisOperationKind::ScopeExit { scope: exited, .. } = operation.kind() {
                     for owner in
                         std::iter::successors(Some(boundary), |owner| graph.report_parent(*owner))
                     {

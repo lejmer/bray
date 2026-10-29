@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_base::sorted_unique_shared_slice;
 
 use crate::{
-    AnyBoundNodeId, BoundBlockId, BoundDependencySubject, BoundUnitId, BoundUnitKind,
-    StorageIdentityId,
+    AnyBoundNodeId, BoundDependencySubject, BoundUnitId, BoundUnitKind, StorageIdentityId,
+    StorageScope,
 };
 
 /// A subject's final ordinary use on every continuation from that operation.
@@ -48,7 +48,7 @@ impl LastUse {
 /// A subject required by control flow after one lexical scope has exited.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveAcrossScope {
-    scope: BoundBlockId,
+    scope: StorageScope,
     exit: AnyBoundNodeId,
     subject: BoundDependencySubject,
 }
@@ -56,7 +56,7 @@ pub struct LiveAcrossScope {
 impl LiveAcrossScope {
     /// Creates one scope-boundary liveness decision.
     pub const fn new(
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
         subject: BoundDependencySubject,
     ) -> Self {
@@ -73,7 +73,7 @@ impl LiveAcrossScope {
     }
 
     /// Returns the lexical scope being exited.
-    pub const fn scope(self) -> BoundBlockId {
+    pub const fn scope(self) -> StorageScope {
         self.scope
     }
 
@@ -326,7 +326,7 @@ impl Liveness {
     /// Returns whether the subject is required after the lexical scope exits.
     pub fn is_live_across_scope(
         &self,
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
         subject: BoundDependencySubject,
     ) -> bool {
@@ -374,7 +374,7 @@ mod tests {
         let subject = BoundDependencySubject::Storage(StorageIdentityId::from_slot(unit, 0));
 
         let last_use = LastUse::new(subject, expression);
-        let live_across_scope = LiveAcrossScope::new(scope, expression.into(), subject);
+        let live_across_scope = LiveAcrossScope::new(scope.into(), expression.into(), subject);
         let live_across_suspension = LiveAcrossSuspension::new(expression, subject);
 
         let cleanup =
@@ -410,10 +410,10 @@ mod tests {
         );
 
         assert!(liveness.is_last_use(expression, subject));
-        assert!(liveness.is_live_across_scope(scope, expression.into(), subject));
+        assert!(liveness.is_live_across_scope(scope.into(), expression.into(), subject));
 
         assert!(!liveness.is_live_across_scope(
-            scope,
+            scope.into(),
             BoundExpressionId::from_slot(unit, 2).into(),
             subject
         ));
@@ -457,7 +457,7 @@ mod tests {
                 [],
                 [],
                 [LiveAcrossScope::new(
-                    BoundBlockId::from_slot(unit, 0),
+                    BoundBlockId::from_slot(unit, 0).into(),
                     BoundExpressionId::from_slot(BoundUnitId::new(5), 0).into(),
                     local
                 )],

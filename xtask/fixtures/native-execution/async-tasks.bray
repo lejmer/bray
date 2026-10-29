@@ -158,4 +158,72 @@ trusted async func main()
 
     assert(core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) == 2);
     assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 2);
+
+    core.atomic.store<usize, 4>(&BUFFER_STARTED, 0);
+    core.atomic.store<usize, 4>(&BUFFER_CLEANUPS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await generated_tasks();
+    assert(core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) == 2);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 2);
+
+    core.atomic.store<usize, 4>(&BUFFER_CLEANUPS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+
+    let generating = cancelled_generator().start();
+
+    while !core.atomic.load<bool, 1>(&GENERATOR_READY)
+    {
+        await std.task.yield_now();
+    }
+
+    std.testing.assert_cancelled<unit>(await generating.cancel());
+    assert(core.atomic.load<usize, 1>(&BUFFER_CLEANUPS) == 5);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 5);
+}
+
+async func generated_tasks()
+{
+    let owners =
+    {
+        each item in 0..2
+        {
+            yield TaskOwner
+            {
+                task = buffer_task().start()
+            };
+        }
+    };
+
+    while core.atomic.load<usize, 1>(&BUFFER_STARTED) != 2
+    {
+        await std.task.yield_now();
+    }
+}
+
+internal static GENERATOR_READY: core.atomic.Atomic<bool> = core.atomic.initialize<bool>(false);
+
+async func cancelled_generator()
+{
+    let owners =
+    {
+        each item in 0..8
+        {
+            let participant = BufferTaskParticipant
+            {
+            };
+
+            if item == 4
+            {
+                core.atomic.store<bool, 4>(&GENERATOR_READY, true);
+
+                loop
+                {
+                    await std.task.yield_now();
+                }
+            }
+
+            yield participant;
+            await std.task.yield_now();
+        }
+    };
 }

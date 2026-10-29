@@ -8,11 +8,64 @@ use crate::{
     StorageIdentityId, StoragePlan, walk_bound_unit_view,
 };
 
+/// The owner of storage whose cleanup runs at one block or iteration boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageScope {
+    /// A lexical source block.
+    Block(BoundBlockId),
+    /// An iteration expression, including its source temporary and hidden cursor.
+    Iteration(BoundExpressionId),
+}
+
+impl StorageScope {
+    /// Returns the cursor scope introduced by a for, each, or Boolean fold.
+    pub fn for_iteration(id: BoundExpressionId, expression: &BoundExpression) -> Option<Self> {
+        match expression {
+            BoundExpression::For(_) | BoundExpression::Generator(_) => Some(Self::Iteration(id)),
+            BoundExpression::Structured(expression)
+                if matches!(
+                    expression.kind(),
+                    crate::BoundStructuredExpressionKind::BooleanAllFold
+                        | crate::BoundStructuredExpressionKind::BooleanAnyFold
+                ) =>
+            {
+                Some(Self::Iteration(id))
+            }
+            _ => None,
+        }
+    }
+
+    /// Returns the bound occurrence defining this cleanup boundary.
+    pub const fn node(self) -> AnyBoundNodeId {
+        match self {
+            Self::Block(block) => AnyBoundNodeId::Block(block),
+            Self::Iteration(expression) => AnyBoundNodeId::Expression(expression),
+        }
+    }
+
+    /// Returns the unit owning this scope.
+    pub const fn unit(self) -> crate::BoundUnitId {
+        self.node().unit()
+    }
+}
+
+impl From<BoundBlockId> for StorageScope {
+    fn from(block: BoundBlockId) -> Self {
+        Self::Block(block)
+    }
+}
+
+impl From<StorageScope> for AnyBoundNodeId {
+    fn from(scope: StorageScope) -> Self {
+        scope.node()
+    }
+}
+
 /// A malformed lexical storage-scope map.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StorageScopeBuildError {
     /// Bound traversal ended with a mismatched scope stack.
-    UnbalancedScopes { open_scope: Option<BoundBlockId> },
+    UnbalancedScopes { open_scope: Option<StorageScope> },
     /// A referenced pattern is absent from the bound unit.
     MissingPattern { pattern: BoundPatternId },
 }
@@ -122,8 +175,8 @@ pub fn storage_expression_republishes_destructor_receiver(
 
 /// Lexical owner scopes derived from one complete bound unit.
 pub struct StorageScopeOwners {
-    nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,
-    invocation_owners: BTreeMap<crate::BoundExecutionSite, BoundBlockId>,
+    nodes: BTreeMap<AnyBoundNodeId, StorageScope>,
+    invocation_owners: BTreeMap<crate::BoundExecutionSite, StorageScope>,
     root: Option<BoundBlockId>,
     unit: crate::BoundUnitKind,
 }
@@ -138,17 +191,39 @@ impl StorageScopeOwners {
         let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
             match event {
                 BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
-                    root.get_or_insert(block);
-                    scopes.push(block);
-                    nodes.insert(block.into(), block);
+                    if !matches!(unit.root(), crate::BoundUnitRoot::Expression(_)) {
+                        root.get_or_insert(block);
+                    }
+
+                    scopes.push(StorageScope::Block(block));
+                    nodes.insert(block.into(), StorageScope::Block(block));
                 }
                 BoundWalkEvent::Enter(node) => {
                     if let Some(scope) = scopes.last().copied() {
                         nodes.insert(node, scope);
                     }
+
+                    if let AnyBoundNodeId::Expression(id) = node
+                        && let Some(scope) = unit
+                            .tree()
+                            .expression(id)
+                            .and_then(|expression| StorageScope::for_iteration(id, expression))
+                    {
+                        scopes.push(scope);
+                    }
                 }
                 BoundWalkEvent::Exit(AnyBoundNodeId::Block(block)) => {
-                    if scopes.pop() != Some(block) {
+                    if scopes.pop() != Some(StorageScope::Block(block)) {
+                        return BoundWalkControl::Stop;
+                    }
+                }
+                BoundWalkEvent::Exit(AnyBoundNodeId::Expression(id)) => {
+                    if let Some(scope) = unit
+                        .tree()
+                        .expression(id)
+                        .and_then(|expression| StorageScope::for_iteration(id, expression))
+                        && scopes.pop() != Some(scope)
+                    {
                         return BoundWalkControl::Stop;
                     }
                 }
@@ -167,6 +242,11 @@ impl StorageScopeOwners {
         let mut invocation_owners = BTreeMap::new();
 
         for (id, expression) in unit.tree().expressions() {
+            if let Some(scope) = StorageScope::for_iteration(id, expression) {
+                invocation_owners.insert(crate::BoundExecutionSite::Iterate(id), scope);
+                invocation_owners.insert(crate::BoundExecutionSite::Next(id), scope);
+            }
+
             match expression {
                 BoundExpression::Match(expression) => {
                     for arm in expression.arms() {
@@ -174,8 +254,10 @@ impl StorageScopeOwners {
                     }
                 }
                 BoundExpression::For(expression) => {
-                    invocation_owners
-                        .insert(crate::BoundExecutionSite::Next(id), expression.body());
+                    invocation_owners.insert(
+                        crate::BoundExecutionSite::Next(id),
+                        expression.body().into(),
+                    );
 
                     assign_pattern_scope(
                         unit.view(),
@@ -185,8 +267,10 @@ impl StorageScopeOwners {
                     )?;
                 }
                 BoundExpression::Generator(expression) => {
-                    invocation_owners
-                        .insert(crate::BoundExecutionSite::Next(id), expression.body());
+                    invocation_owners.insert(
+                        crate::BoundExecutionSite::Next(id),
+                        expression.body().into(),
+                    );
 
                     assign_pattern_scope(
                         unit.view(),
@@ -202,7 +286,7 @@ impl StorageScopeOwners {
                         };
 
                         invocation_owners
-                            .insert(crate::BoundExecutionSite::ScopedEnter(id), *scope);
+                            .insert(crate::BoundExecutionSite::ScopedEnter(id), (*scope).into());
 
                         for pattern in expression.patterns() {
                             assign_pattern_scope(unit.view(), *pattern, *scope, &mut nodes)?;
@@ -258,7 +342,7 @@ impl StorageScopeOwners {
     }
 
     /// Returns the lexical owner for one storage identity.
-    pub fn scope(&self, identity: Option<StorageIdentity>) -> Option<BoundBlockId> {
+    pub fn scope(&self, identity: Option<StorageIdentity>) -> Option<StorageScope> {
         match identity {
             Some(StorageIdentity::Static(_)) | None => None,
             Some(StorageIdentity::ScopedCapability { expression, .. }) => self
@@ -270,12 +354,12 @@ impl StorageScopeOwners {
                 .get(&occurrence)
                 .copied()
                 .or_else(|| self.nodes.get(&occurrence.node()).copied())
-                .or(self.root),
+                .or(self.root.map(StorageScope::Block)),
             Some(identity) if identity.borrows_input_storage(self.unit) => None,
             Some(identity) => identity
                 .definition_node()
                 .and_then(|node| self.nodes.get(&node).copied())
-                .or(self.root),
+                .or(self.root.map(StorageScope::Block)),
         }
     }
 
@@ -284,7 +368,7 @@ impl StorageScopeOwners {
         &self,
         storage: &StoragePlan,
         identity: StorageIdentityId,
-    ) -> Option<BoundBlockId> {
+    ) -> Option<StorageScope> {
         self.scope(storage.identity(identity))
     }
 }
@@ -293,7 +377,7 @@ fn assign_expression_scope(
     view: BoundUnitView<'_>,
     expression: BoundExpressionId,
     scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+    nodes: &mut BTreeMap<AnyBoundNodeId, StorageScope>,
 ) {
     let original = nodes.get(&expression.into()).copied();
     let mut pending = vec![expression];
@@ -303,7 +387,7 @@ fn assign_expression_scope(
             continue;
         }
 
-        nodes.insert(expression.into(), scope);
+        nodes.insert(expression.into(), scope.into());
 
         if let Some(expression) = view.expression(expression) {
             pending.extend(expression.child_expressions());
@@ -315,7 +399,7 @@ fn assign_condition_bindings(
     view: BoundUnitView<'_>,
     condition: BoundExpressionId,
     scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+    nodes: &mut BTreeMap<AnyBoundNodeId, StorageScope>,
 ) -> Result<(), StorageScopeBuildError> {
     let mut pending = vec![condition];
 
@@ -344,7 +428,7 @@ fn assign_pattern_scope(
     view: BoundUnitView<'_>,
     pattern: BoundPatternId,
     scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+    nodes: &mut BTreeMap<AnyBoundNodeId, StorageScope>,
 ) -> Result<(), StorageScopeBuildError> {
     let mut pending = vec![pattern];
 
@@ -353,7 +437,7 @@ fn assign_pattern_scope(
             .pattern(pattern)
             .ok_or(StorageScopeBuildError::MissingPattern { pattern })?;
 
-        nodes.insert(pattern.into(), scope);
+        nodes.insert(pattern.into(), scope.into());
         pending.extend(pattern_node.children().iter().copied());
     }
 

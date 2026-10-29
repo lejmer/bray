@@ -68,3 +68,61 @@ pub(super) fn implementation_borrow(
         .with_target_projections(projections.iter().copied()),
     )
 }
+
+/// Publishes the carried-value and reference contracts of selected generator cursor operations.
+/// Copied elements retain their original dependencies independently of the cursor's owner borrow.
+pub fn generator_result_dependencies(
+    symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+    implementation: ImplementationHook,
+) -> Option<bray_symbols::DependencyContractTemplateData> {
+    use bray_symbols::{
+        DependencyBorrowRelation, DependencyContractTemplateData, DependencyProjection,
+        DependencyRequirement, DependencyRequirementKind, DependencyStorageEffect,
+        DependencySubject,
+    };
+
+    if !implementation.is_generator_iteration() {
+        return None;
+    }
+
+    let field = |name| {
+        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+            .expect("generator contract uses a catalog key");
+
+        DependencyProjection::ProductField(
+            symbols
+                .declaration_symbol(&key)
+                .expect("generator cursor retains its values field"),
+        )
+    };
+
+    let projections = match implementation {
+        ImplementationHook::GeneratorSharedNext => vec![
+            field("GeneratorSharedCursorValues"),
+            DependencyProjection::OwnedTarget,
+        ],
+        ImplementationHook::GeneratorMoveNext => vec![field("GeneratorMoveCursorValues")],
+        _ => Vec::new(),
+    };
+
+    let source = DependencySubject::new(DependencySubjectRoot::Receiver, projections);
+
+    let mut template = DependencyContractTemplateData::new([DependencyRequirement::direct(
+        source,
+        DependencyRequirementKind::ValueDependencies,
+    )])
+    .with_effects(DependencyStorageEffect::capture_free_call());
+
+    if implementation == ImplementationHook::GeneratorSharedIterate {
+        template = template.with_borrows([DependencyBorrowRelation::new(
+            Some(DependencySubject::root(DependencySubjectRoot::Receiver)),
+            DependencySubject::new(
+                DependencySubjectRoot::Result,
+                [field("GeneratorSharedCursorValues")],
+            ),
+            DependencyReferenceKind::Borrow,
+        )]);
+    }
+
+    Some(template)
+}

@@ -561,7 +561,7 @@ impl Lowerer<'_> {
                         };
 
                         // The checked body plan owns exit once the body scope is active.
-                        !self.active_scopes.contains(&bound.blocks()[0])
+                        !self.active_scopes.contains(&bound.blocks()[0].into())
                     }
                 }
             })

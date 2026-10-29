@@ -18,3 +18,4 @@ recognized/ffi.braydef
 ambient/capabilities.braydef
 ambient/sequence.braydef
 ambient/nullable.braydef
+ambient/generator.braydef

@@ -138,6 +138,26 @@ impl Compilation {
                 cancellation,
             )?;
 
+        let prepared = self.prepared_body_analysis_with_cancellation(key.clone(), cancellation)?;
+
+        let observations = prepared.result().value().generator_observations();
+
+        let observations = if observations.is_empty() {
+            None
+        } else {
+            let eligible = if key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
+                self.constant_body_template(key.clone(), cancellation)?
+                    .result()
+                    .value()
+                    .as_ref()
+                    .is_some_and(|template| template.behavior().execution().constant_eligible())
+            } else {
+                self.unit_requires_constant_evaluation(&key, cancellation)?
+            };
+
+            eligible.then_some(observations)
+        };
+
         let completed = self.completed_unit_cleanup(key, cancellation)?;
 
         let declaration_preconditions = self.lowering_declaration_preconditions(
@@ -182,6 +202,7 @@ impl Compilation {
 
         let input = LoweringInput::new(
             unit.result().value(),
+            observations,
             control_flow.result().value(),
             expressions.result().value().types(),
             patterns.result().value(),

@@ -184,7 +184,7 @@ where
             }
 
             if let AnalysisOperationKind::ScopeExit {
-                block,
+                scope: block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
                 ..
@@ -373,8 +373,8 @@ where
     preconditions: BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: BTreeMap<bray_bound_tree::BoundExecutionSite, StorageSuspensionState>,
-    exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
-    exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
+    exits: Vec<(bray_bound_tree::StorageScope, AnyBoundNodeId, ExitState)>,
+    exit_indices: BTreeMap<(bray_bound_tree::StorageScope, AnyBoundNodeId), usize>,
     replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     pub(in crate::analysis::storage_flow::check::analysis) observation_invalidations:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bray_bound_tree::StorageInvalidation>,
@@ -1118,6 +1118,21 @@ where
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
         invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) -> Option<MemoryOperationStatus> {
+        if let AnalysisOperationKind::ScopeExit {
+            scope, exit, phase, ..
+        } = operation.kind()
+        {
+            state.memory.finish_value_transfers();
+
+            if phase == AnalysisScopeExitPhase::LifecycleResolution {
+                self.report_escaping_storage_dependencies(state, scope, exit);
+                self.record_exit(state, scope, exit);
+                self.end_scope(state, scope, exit);
+            }
+
+            return None;
+        }
+
         if matches!(
             operation.kind(),
             AnalysisOperationKind::Call {
@@ -1304,16 +1319,6 @@ where
 
         state.memory.finish_value_transfers();
 
-        if let AnalysisOperationKind::ScopeExit {
-            block,
-            exit,
-            phase: AnalysisScopeExitPhase::LifecycleResolution,
-            ..
-        } = operation.kind()
-        {
-            self.report_escaping_storage_dependencies(state, block, exit);
-        }
-
         if let crate::CheckerUnitRoot::Expression(root) = self.request.root()
             && operation.kind().node() == root.into()
             && matches!(
@@ -1322,17 +1327,6 @@ where
             )
         {
             self.report_escaping_default_storage(state, root);
-        }
-
-        if let AnalysisOperationKind::ScopeExit {
-            block,
-            exit,
-            phase: AnalysisScopeExitPhase::LifecycleResolution,
-            ..
-        } = operation.kind()
-        {
-            self.record_exit(state, block, exit);
-            self.end_scope(state, block, exit);
         }
 
         memory_status
@@ -1820,7 +1814,7 @@ where
     fn end_scope(
         &self,
         state: &mut StorageFlowState,
-        block: bray_bound_tree::BoundBlockId,
+        block: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     ) {
         let leaves_scope = |identity| {
@@ -1870,7 +1864,7 @@ where
     fn record_exit(
         &mut self,
         state: &StorageFlowState,
-        block: bray_bound_tree::BoundBlockId,
+        block: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     ) {
         if !self.publish {

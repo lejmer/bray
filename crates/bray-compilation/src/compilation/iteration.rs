@@ -84,17 +84,44 @@ impl Compilation {
         key: &IterationSourceQueryKey,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<SelectedIterationSource>>, FactQueryError> {
-        let bound = self.bound_unit_with_cancellation(key.unit().clone(), cancellation)?;
+        let semantics =
+            self.expression_semantics_with_cancellation(key.unit().clone(), cancellation)?;
 
-        let semantics = self
-            .provisional_expression_semantics_with_cancellation(key.unit().clone(), cancellation)?;
+        let selected = semantics
+            .result()
+            .value()
+            .selections()
+            .entries()
+            .iter()
+            .find_map(|entry| {
+                if entry.expression() == key.expression() {
+                    if let bray_bound_tree::SemanticSelection::Iteration(selection) =
+                        entry.selection()
+                    {
+                        return Some(selection.clone());
+                    }
+                }
 
-        let types = semantics.result().value().types();
+                None
+            });
 
-        // The selection owns bound diagnostics. Provisional type diagnostics belong to final checking.
-        let mut diagnostics = bound.result().diagnostics().clone();
+        Ok(DiagnosticResult::new(
+            selected,
+            semantics.result().diagnostics().clone(),
+        ))
+    }
 
-        let (source, mode) = iteration_source(bound.result().value(), key.expression())?;
+    pub(in crate::compilation) fn select_iteration_source(
+        &self,
+        key: &IterationSourceQueryKey,
+        bound: &BoundUnit,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Option<SelectedIterationSource>>, FactQueryError> {
+        let types = semantics.types();
+        let mut diagnostics = DiagnosticBag::new();
+
+        let (source, mode) = iteration_source(bound, key.expression())?;
 
         let source_type = types.expression(source).ok_or_else(|| {
             SemanticQueryFailure::contract(
@@ -136,8 +163,21 @@ impl Compilation {
             protocol,
         };
 
-        let (candidates, is_deferred) =
-            self.iteration_candidates(&binding_context, input, cancellation, &mut diagnostics)?;
+        let context = self.checker_context_for(key.unit(), cancellation)?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound);
+
+        let evidence = bray_checker::active_trait_constraint_evidence(
+            bray_checker::CheckerUnitView::new(bound, &semantic_context, &context),
+            &mut diagnostics,
+        )?;
+
+        let (candidates, is_deferred) = self.iteration_candidates(
+            &binding_context,
+            input,
+            &evidence,
+            cancellation,
+            &mut diagnostics,
+        )?;
 
         if is_deferred {
             return Ok(DiagnosticResult::new(None, diagnostics));
@@ -145,14 +185,8 @@ impl Compilation {
 
         let context = self.checker_context_for(key.unit(), cancellation)?;
 
-        let selection = select_iteration(
-            bound.result().value(),
-            key.expression(),
-            source,
-            mode,
-            candidates,
-            &context,
-        )?;
+        let selection =
+            select_iteration(bound, key.expression(), source, mode, candidates, &context)?;
 
         let (selection, selection_diagnostics) = selection.into_parts();
 
@@ -161,8 +195,8 @@ impl Compilation {
         let selected = match selection {
             CandidateSelection::Selected(selection) => {
                 let exact_count = iteration_exact_count(
-                    bound.result().value(),
-                    semantics.result().value().literals(),
+                    bound,
+                    semantics.literals(),
                     binding_context.semantic_values(),
                     selection.source(),
                     selection.source_type(),
@@ -184,6 +218,7 @@ impl Compilation {
         &self,
         binding_context: &CompilationBindingContext<'_>,
         input: IterationInput,
+        evidence: &[(TypeId, bray_symbols::TraitApplicationId)],
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(Vec<IterationSourceCandidate>, bool), FactQueryError> {
@@ -206,8 +241,9 @@ impl Compilation {
         let mut is_deferred = false;
 
         for iterable in iterable_candidates.value().candidates() {
-            match self.implementation_candidate_constraint_outcome(
+            match self.implementation_candidate_constraint_outcome_with_evidence(
                 iterable,
+                evidence,
                 cancellation,
                 diagnostics,
             )? {
@@ -273,8 +309,9 @@ impl Compilation {
             diagnostics.add_range(iterator_candidates.diagnostics().clone());
 
             for iterator in iterator_candidates.value().candidates() {
-                match self.implementation_candidate_constraint_outcome(
+                match self.implementation_candidate_constraint_outcome_with_evidence(
                     iterator,
+                    evidence,
                     cancellation,
                     diagnostics,
                 )? {
@@ -653,6 +690,205 @@ mod tests {
 
     use super::{IterationInput, iteration_source, iteration_subject_type, select_iteration};
     use crate::compilation::substitution::empty_substitution;
+
+    #[test]
+    fn shared_generator_iteration_selects_copyable_values() {
+        assert_generator_protocol(
+            r#"module app;
+            func main() {
+                let values = { each item in 0..3 { yield item > 0; } };
+                for item in values { }
+            }"#,
+            bray_compiler_known::ImplementationHook::GeneratorSharedIterate,
+            bray_compiler_known::ImplementationHook::GeneratorSharedNext,
+        );
+    }
+
+    #[test]
+    fn consuming_generator_iteration_selects_non_copyable_values() {
+        assert_generator_protocol(
+            r#"module app;
+            struct Item { value: i32; }
+            func main() {
+                let values = { each item in 0..3 { yield Item { value = item }; } };
+                for item in move values { }
+            }"#,
+            bray_compiler_known::ImplementationHook::GeneratorMoveIterate,
+            bray_compiler_known::ImplementationHook::GeneratorMoveNext,
+        );
+    }
+
+    #[test]
+    fn shared_generator_iteration_reuses_generic_copyability_evidence() {
+        assert_generator_protocol(
+            r#"module app;
+            func main<T>(pos value: T) with(T: Copyable) {
+                let values = { each item in 0..1 { yield value; } };
+                for item in values { }
+            }"#,
+            bray_compiler_known::ImplementationHook::GeneratorSharedIterate,
+            bray_compiler_known::ImplementationHook::GeneratorSharedNext,
+        );
+    }
+
+    #[test]
+    fn shared_generator_iteration_rejects_non_copyable_values() {
+        let compilation = compilation(
+            r#"module app;
+            struct Item { value: i32; }
+            func main() {
+                let values = { each item in 0..3 { yield Item { value = item }; } };
+                for item in values { }
+            }"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .expect("generator consumer must bind");
+
+        let selected = compilation
+            .iteration_source(key, iteration_expression(bound.value()))
+            .expect("generator protocol selection must publish");
+
+        assert!(selected.value().is_none());
+
+        assert!(
+            selected.diagnostics().iter().any(
+                |diagnostic| diagnostic.kind() == DiagnosticKind::CheckingNoApplicableCandidate
+            ),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    fn assert_generator_protocol(
+        source: &str,
+        iterate: bray_compiler_known::ImplementationHook,
+        next: bray_compiler_known::ImplementationHook,
+    ) {
+        let compilation = compilation(source);
+        let key = source_callable_body_key(&compilation);
+
+        let bound = compilation
+            .bound_unit(key.clone())
+            .expect("generator consumer must bind");
+
+        let selected = compilation
+            .iteration_source(key, iteration_expression(bound.value()))
+            .expect("generator protocol selection must publish");
+
+        assert!(
+            selected.diagnostics().is_empty(),
+            "{:?}",
+            selected.diagnostics()
+        );
+
+        let selected = selected.value().as_ref().unwrap_or_else(|| {
+            panic!(
+                "generator protocol must be selected: {:?}",
+                compilation.check_diagnostics()
+            )
+        });
+
+        let symbols = compilation.available_compiler_known_symbols();
+
+        assert_eq!(
+            symbols.symbol_implementation(selected.iterate().definition().symbol()),
+            Some(iterate)
+        );
+
+        assert_eq!(
+            symbols.symbol_implementation(selected.next().definition().symbol()),
+            Some(next)
+        );
+
+        let values = compilation
+            .semantic_value_store()
+            .expect("selected element retains its semantic values");
+
+        let source_type = values.type_data(selected.source_type());
+
+        let TypeData::Generator(element) = source_type.as_ref() else {
+            panic!("selected source retains the structural generator type");
+        };
+
+        assert_eq!(selected.element_type(), *element);
+        assert_ne!(selected.cursor_type(), selected.source_type());
+
+        let TypeData::Named { definition, .. } = *values.type_data(selected.cursor_type()) else {
+            panic!("selected generator cursor retains its declared representation");
+        };
+
+        let representation = compilation
+            .declared_type_representation(definition)
+            .expect("catalog cursor representation must be checked");
+
+        assert!(
+            !representation.value().is_incomplete(),
+            "catalog cursor has a complete body and ordinary stored fields"
+        );
+
+        if !values.type_is_concrete(selected.source_type()) {
+            return;
+        }
+
+        let target = compilation.selected_target().target();
+
+        let target =
+            bray_ir::MirTargetContract::new(target.profile().clone(), target.runtime_abi());
+
+        let receiver = if iterate == bray_compiler_known::ImplementationHook::GeneratorSharedIterate
+        {
+            values
+                .intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Shared,
+                    target: selected.source_type(),
+                })
+                .expect("shared generator receiver type must intern")
+        } else {
+            selected.source_type()
+        };
+
+        let cursor_receiver = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: selected.cursor_type(),
+            })
+            .expect("mutable cursor receiver type must intern");
+
+        let step = values
+            .intern_type(TypeData::Nullable(selected.element_type()))
+            .expect("iterator step type must intern");
+
+        for (callable, hook, parameter, result) in [
+            (
+                selected.iterate(),
+                iterate,
+                receiver,
+                selected.cursor_type(),
+            ),
+            (selected.next(), next, cursor_receiver, step),
+        ] {
+            let mir = bray_lowering::lower_generator_callable(
+                values,
+                symbols,
+                bray_testing::test_mir_unit(1).unit(),
+                callable,
+                hook,
+                &[parameter],
+                result,
+                &target,
+            )
+            .expect("selected generator callable must realize");
+
+            assert!(
+                mir.is_valid(),
+                "standalone {hook:?} must establish valid MIR"
+            );
+        }
+    }
 
     #[test]
     fn iteration_subject_types_follow_the_selected_access_mode() {
@@ -1101,6 +1337,7 @@ mod tests {
                     subject_type,
                     protocol,
                 },
+                &[],
                 &cancellation,
                 &mut diagnostics,
             )

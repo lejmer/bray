@@ -575,7 +575,7 @@ mod tests {
             )
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 20);
+        assert_eq!(generator_input_inventory().sources().len(), 21);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()

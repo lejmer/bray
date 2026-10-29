@@ -103,7 +103,7 @@ impl ControlFlowGraphAssembler {
     pub(super) fn push_scope_exit(
         &mut self,
         current: AnalysisBlockId,
-        block: bray_bound_tree::BoundBlockId,
+        scope: bray_bound_tree::StorageScope,
         exit: bray_bound_tree::AnyBoundNodeId,
         preserves_exit_value: bool,
         scoped: Option<(
@@ -180,7 +180,7 @@ impl ControlFlowGraphAssembler {
                 .expect("scoped completion was just emitted");
 
             *operation = operation.with_scoped_exit(
-                bray_bound_tree::StorageExitPoint::new(block, exit),
+                bray_bound_tree::StorageExitPoint::new(scope, exit),
                 preserves_exit_value,
             );
 
@@ -223,7 +223,7 @@ impl ControlFlowGraphAssembler {
         self.push_operation(
             cancellation,
             AnalysisOperationKind::ScopeExit {
-                block,
+                scope,
                 exit,
                 phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
                 preserves_exit_value,
@@ -237,7 +237,7 @@ impl ControlFlowGraphAssembler {
         self.push_operation(
             lifecycle,
             AnalysisOperationKind::ScopeExit {
-                block,
+                scope,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
                 preserves_exit_value,
@@ -403,7 +403,7 @@ mod tests {
 
                 let end = assembler.push_scope_exit(
                     entry,
-                    scope,
+                    (scope).into(),
                     expression.into(),
                     preserves_exit_value,
                     Some((expression, result)),

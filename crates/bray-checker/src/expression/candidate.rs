@@ -532,6 +532,23 @@ where
     Ok(true)
 }
 
+/// Returns the normalized trait evidence available in the caller's generic scopes.
+pub fn active_trait_constraint_evidence<C>(
+    request: CheckerUnitView<'_, C>,
+    diagnostics: &mut DiagnosticBag,
+) -> CheckerQueryResult<Vec<(TypeId, bray_symbols::TraitApplicationId)>, C::UpstreamError>
+where
+    C: CheckerRequestContext
+        + CheckerSemanticQueryProvider<GenericConstraintsQuery>
+        + CheckerSemanticQueryProvider<GenericTypeConstraintsQuery>
+        + ?Sized,
+{
+    let mut normalizer = crate::TypeNormalizer::new(request.context(), None);
+    let active = active_generic_constraints(request, diagnostics, &mut normalizer)?;
+
+    Ok(trait_constraint_evidence(&active))
+}
+
 fn trait_constraint_evidence(
     constraints: &BTreeSet<CheckedConstraintKind>,
 ) -> Vec<(TypeId, bray_symbols::TraitApplicationId)> {

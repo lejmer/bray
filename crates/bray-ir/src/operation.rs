@@ -6,7 +6,7 @@ use bray_bound_tree::{
     ConstructionTarget, PatternProjection, SelectedConversion,
 };
 use bray_runtime_interface::{ExecutableHostEntryId, ProtectedAsyncFrameId, RootExecution};
-use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
+use bray_symbols::{BorrowKind, TypeId};
 
 use crate::{
     MirAnonymousCallableReference, MirCall, MirCallableReference, MirCleanupPhase,
@@ -32,6 +32,10 @@ pub enum MirPanicCause {
     Assertion(Option<MirOperand>),
     /// An explicit test failure with its evaluated message.
     ExplicitTestFailure(MirOperand),
+    /// A requested allocation layout cannot fit the target's address size.
+    MemoryLayoutSizeOverflow,
+    /// A requested allocation layout requires unsupported alignment.
+    MemoryLayoutUnsupportedAlignment,
 }
 
 /// Typed unary operation selected during lowering.
@@ -145,15 +149,6 @@ pub enum MirAggregateKind {
     Range,
     /// The present state of a nullable value.
     NullablePresent,
-}
-
-/// The normalized result accumulated by one generator expression.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum MirGeneratorKind {
-    /// A fixed array whose checked count determines its final extent.
-    Array,
-    /// A lazy generator value.
-    General,
 }
 
 /// Compiler-provided UTF-8 text behavior selected for one call.
@@ -323,58 +318,6 @@ impl MirMemoryOperation {
     pub fn inline_assembly_symbols(&self) -> &[MirCallableReference] {
         &self.inline_assembly_symbols
     }
-}
-
-/// One explicit generator accumulation step.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirGeneratorOperation {
-    /// Initialize generator result storage.
-    Begin {
-        /// Result representation being accumulated.
-        kind: MirGeneratorKind,
-        /// Destination retaining the in-progress result.
-        destination: MirPlace,
-        /// Checked yielded-element type whose layout governs accumulation.
-        element: TypeId,
-        /// Exact element count when checking proved one.
-        exact_count: Option<ConstantTermId>,
-    },
-    /// Append one yielded element.
-    Push {
-        /// In-progress result storage.
-        destination: MirPlace,
-        /// Element yielded by the generator body.
-        value: MirOperand,
-    },
-    /// Finish accumulation and produce the generator expression value.
-    Finish {
-        /// Completed result storage.
-        destination: MirPlace,
-    },
-    /// Broadcast task cleanup through initialized accumulated elements.
-    CleanupBroadcast {
-        /// Generator value storage retaining the accumulation.
-        destination: MirPlace,
-        /// Checked yielded-element type whose cleanup helper is invoked.
-        element: TypeId,
-        /// Runtime operation that visits initialized elements without releasing storage.
-        runtime: MirRuntimeReference,
-        /// Enclosing collection borrowed by every initialized element.
-        collection: Box<crate::MirCleanupCollection>,
-    },
-    /// Destroy initialized accumulated elements and release their storage.
-    Destroy {
-        /// Generator value storage retaining the accumulation.
-        destination: MirPlace,
-        /// Checked yielded-element type whose lifecycle helpers are invoked.
-        element: TypeId,
-        /// Whether inherited graceful cleanup has been abandoned.
-        abandoned: MirOperand,
-        /// Runtime operation that visits elements in reverse and releases storage.
-        runtime: MirRuntimeReference,
-        /// Enclosing collection borrowed by every initialized element.
-        collection: Box<crate::MirCleanupCollection>,
-    },
 }
 
 /// One aggregate construction with operands in evaluation order.
@@ -817,8 +760,6 @@ pub enum MirOperationKind {
         /// Checked ownership operation used to obtain the projected value.
         operation: bray_bound_tree::PatternOperation,
     },
-    /// Perform one generator accumulation step.
-    Generator(MirGeneratorOperation),
     /// Invoke an exact callable target.
     Call(MirCall),
     /// Perform one checked compiler-provided memory operation.
@@ -962,10 +903,6 @@ impl MirOperationKind {
             | Self::ReleaseBuffer { collection, .. }
             | Self::Destroy { collection, .. }
             | Self::Cleanup { collection, .. } => collection.as_deref(),
-            Self::Generator(
-                MirGeneratorOperation::CleanupBroadcast { collection, .. }
-                | MirGeneratorOperation::Destroy { collection, .. },
-            ) => Some(collection),
             _ => None,
         }
     }

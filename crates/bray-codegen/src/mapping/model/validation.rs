@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use crate::{CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit, FOREIGN_CALLBACK_RUNTIME_ROLES};
 use bray_ir::{
-    MirAsyncOperation, MirFrameInitializer, MirGeneratorOperation, MirHostOperation,
-    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
+    MirAsyncOperation, MirFrameInitializer, MirHostOperation, MirOperationKind,
+    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 
@@ -316,10 +316,6 @@ fn operation_runtime_references(
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
-        )
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::CleanupBroadcast { runtime, .. }
-            | MirGeneratorOperation::Destroy { runtime, .. },
         ) => [Some(*runtime), None, None],
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
@@ -334,11 +330,6 @@ fn operation_runtime_references(
         | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::Begin { .. }
-            | MirGeneratorOperation::Push { .. }
-            | MirGeneratorOperation::Finish { .. },
-        )
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::ReleaseBuffer { .. }

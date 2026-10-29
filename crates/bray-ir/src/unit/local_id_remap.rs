@@ -3,9 +3,8 @@ use std::sync::Arc;
 use bray_symbols::TypeId;
 
 use crate::{
-    MirAsyncOperation, MirBlockId, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause,
-    MirStorageId, MirTerminatorKind, MirValueId,
+    MirAsyncOperation, MirBlockId, MirCleanupEdge, MirEdge, MirFrameInitializer, MirHostOperation,
+    MirOperand, MirOperationKind, MirPanicCause, MirStorageId, MirTerminatorKind, MirValueId,
 };
 
 pub(crate) trait MirLocalIdMapping {
@@ -98,7 +97,6 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::PatternProjection { subject, .. } => {
             subject.remap_local_ids(mappings);
         }
-        MirOperationKind::Generator(operation) => remap_generator_operation(operation, mappings),
         MirOperationKind::Call(call) => call.remap_local_ids(mappings),
         MirOperationKind::Memory(operation) => {
             for operand in Arc::make_mut(&mut operation.operands) {
@@ -255,38 +253,6 @@ pub(super) fn remap_terminator(
     }
 }
 
-fn remap_generator_operation(
-    operation: &mut MirGeneratorOperation,
-    mappings: &impl MirLocalIdMapping,
-) {
-    if let MirGeneratorOperation::CleanupBroadcast { collection, .. }
-    | MirGeneratorOperation::Destroy { collection, .. } = operation
-    {
-        collection.state.remap_local_ids(mappings);
-        collection.report.remap_local_ids(mappings);
-    }
-
-    match operation {
-        MirGeneratorOperation::Destroy {
-            destination,
-            abandoned,
-            ..
-        } => {
-            destination.remap_local_ids(mappings);
-            abandoned.remap_local_ids(mappings);
-        }
-        MirGeneratorOperation::Push { destination, value } => {
-            destination.remap_local_ids(mappings);
-            value.remap_local_ids(mappings);
-        }
-        MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination }
-        | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
-            destination.remap_local_ids(mappings);
-        }
-    }
-}
-
 fn remap_panic_cause(cause: &mut MirPanicCause, mappings: &impl MirLocalIdMapping) {
     match cause {
         MirPanicCause::Message(operand) | MirPanicCause::ExplicitTestFailure(operand) => {
@@ -297,6 +263,8 @@ fn remap_panic_cause(cause: &mut MirPanicCause, mappings: &impl MirLocalIdMappin
                 message.remap_local_ids(mappings);
             }
         }
+        MirPanicCause::MemoryLayoutSizeOverflow
+        | MirPanicCause::MemoryLayoutUnsupportedAlignment => {}
     }
 }
 

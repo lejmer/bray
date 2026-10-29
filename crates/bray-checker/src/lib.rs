@@ -66,6 +66,7 @@ pub use context::{
     CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider,
     CheckerSource, GenericConstraintScope, ImplementationHookResolution,
 };
+pub use dependency::generator_result_dependencies;
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
@@ -79,7 +80,8 @@ pub use execution_guarantees::{
     substitute_execution_condition,
 };
 pub use expression::{
-    NestedCallableEvidence, call_result, check_generic_arguments, generic_constraint_outcome,
+    NestedCallableEvidence, active_trait_constraint_evidence, call_result, check_generic_arguments,
+    generic_constraint_outcome,
 };
 pub use lifecycle::{
     FinalizerCompletion, LifecycleSelectionContext, check_implicit_finalization,

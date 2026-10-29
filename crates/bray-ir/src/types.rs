@@ -5,8 +5,8 @@ use bray_symbols::TypeId;
 
 use crate::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace,
-    MirProjectionKind, MirTerminatorKind, MirUnit,
+    MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind,
+    MirTerminatorKind, MirUnit,
 };
 
 impl MirUnit {
@@ -119,7 +119,6 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::PatternProjection { subject, .. } => {
             collect_operand_types(subject, types);
         }
-        MirOperationKind::Generator(operation) => collect_generator_types(operation, types),
         MirOperationKind::Call(call) => collect_call_types(call, types),
         MirOperationKind::Memory(memory) => {
             collect_operands_types(memory.operands(), types);
@@ -353,38 +352,6 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
     }
 }
 
-fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeSet<TypeId>) {
-    if let MirGeneratorOperation::Destroy { abandoned, .. } = operation {
-        collect_operand_types(abandoned, types);
-    }
-
-    match operation {
-        MirGeneratorOperation::Begin {
-            destination,
-            element,
-            ..
-        }
-        | MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            element,
-            ..
-        }
-        | MirGeneratorOperation::Destroy {
-            destination,
-            element,
-            ..
-        } => {
-            collect_place_types(destination, types);
-            types.insert(*element);
-        }
-        MirGeneratorOperation::Finish { destination } => collect_place_types(destination, types),
-        MirGeneratorOperation::Push { destination, value } => {
-            collect_place_types(destination, types);
-            collect_operand_types(value, types);
-        }
-    }
-}
-
 fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeId>) {
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
@@ -521,6 +488,8 @@ fn collect_panic_types(cause: &MirPanicCause, types: &mut BTreeSet<TypeId>) {
                 collect_operand_types(message, types);
             }
         }
+        MirPanicCause::MemoryLayoutSizeOverflow
+        | MirPanicCause::MemoryLayoutUnsupportedAlignment => {}
     }
 }
 

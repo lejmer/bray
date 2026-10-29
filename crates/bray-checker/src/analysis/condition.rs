@@ -37,7 +37,7 @@ where
 
             if let Some(completion) = completion {
                 let completion = scope.map_or(completion, |scope| {
-                    self.push_scope_exit(completion, scope, branch.into())
+                    self.push_scope_exit(completion, scope.into(), branch.into())
                 });
 
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
@@ -46,7 +46,7 @@ where
             current = if let Some(scope) = scope {
                 self.scopes.pop();
 
-                self.push_scope_exit(next, scope, condition.into())
+                self.push_scope_exit(next, scope.into(), condition.into())
             } else {
                 next
             };
@@ -87,7 +87,7 @@ where
         let scope = *scope;
 
         self.push_bound(current, scope.into());
-        self.scopes.push(scope);
+        self.scopes.push(scope.into());
 
         Some(scope)
     }

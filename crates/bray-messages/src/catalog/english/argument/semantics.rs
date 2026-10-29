@@ -235,9 +235,6 @@ pub(super) fn format_english_stored_type_problem(problem: DiagnosticStoredTypePr
         DiagnosticStoredTypeProblem::TraitView => {
             String::from("a trait view has no finite inline representation")
         }
-        DiagnosticStoredTypeProblem::Generator => {
-            String::from("a generator has no finite inline representation")
-        }
         DiagnosticStoredTypeProblem::ContextualSelf => {
             String::from("contextual Self has no resolved inline representation")
         }

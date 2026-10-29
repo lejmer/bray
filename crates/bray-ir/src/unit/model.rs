@@ -60,9 +60,6 @@ impl MirGeneratedLifecycleRole {
             | MirHelperReference::Predicate(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
-            | MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)

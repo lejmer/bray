@@ -24,7 +24,7 @@ pub(crate) enum AnalysisOperationKind {
         kind: AnalysisTaskOperationKind,
     },
     ScopeExit {
-        block: bray_bound_tree::BoundBlockId,
+        scope: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
         phase: AnalysisScopeExitPhase,
         preserves_exit_value: bool,
@@ -71,7 +71,7 @@ impl AnalysisOperationKind {
             Self::TaskOperation { expression, .. } | Self::Result { expression, .. } => {
                 AnyBoundNodeId::Expression(expression)
             }
-            Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
+            Self::ScopeExit { scope, .. } => scope.node(),
         }
     }
 }
@@ -250,12 +250,13 @@ pub(crate) enum AnalysisRefinement {
     TrustBoundary(BoundExpressionId),
     PreconditionFailure(bray_bound_tree::BoundExecutionSite),
     InvocationFailure(bray_bound_tree::BoundExecutionSite),
+    GeneratorStorageFailure(BoundExpressionId),
     InvocationCancellation(bray_bound_tree::BoundExecutionSite),
     InvocationCompletion(bray_bound_tree::BoundExecutionSite),
     InvocationPresence(bray_bound_tree::BoundExecutionSite, bool),
     InvocationBoolean(bray_bound_tree::BoundExecutionSite, bool),
     CleanupRequired {
-        scope: bray_bound_tree::BoundBlockId,
+        scope: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     },
 }
@@ -417,7 +418,7 @@ pub(crate) struct ControlFlowGraph {
 impl ControlFlowGraph {
     pub(crate) fn select_cleanup_suspensions(
         &mut self,
-        scopes: &std::collections::BTreeSet<bray_bound_tree::BoundBlockId>,
+        scopes: &std::collections::BTreeSet<bray_bound_tree::StorageScope>,
         replacements: &std::collections::BTreeSet<BoundExpressionId>,
         inputs: &std::collections::BTreeMap<
             BoundExpressionId,
@@ -427,10 +428,10 @@ impl ControlFlowGraph {
         for operation in &mut self.operations {
             operation.cleanup_suspension = match operation.kind {
                 AnalysisOperationKind::ScopeExit {
-                    block,
+                    scope,
                     phase: AnalysisScopeExitPhase::LifecycleResolution,
                     ..
-                } => scopes.contains(&block),
+                } => scopes.contains(&scope),
                 AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
                     replacements.contains(&expression) || inputs.contains_key(&expression)
                 }
@@ -682,6 +683,7 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::PropagationOutcome { expression, .. }
+                | AnalysisRefinement::GeneratorStorageFailure(expression)
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,
             Some(AnalysisRefinement::PatternOutcome {

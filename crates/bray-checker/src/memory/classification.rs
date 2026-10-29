@@ -211,6 +211,10 @@ where
         | ImplementationHook::RangeSharedIterate
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
+        | ImplementationHook::GeneratorSharedIterate
+        | ImplementationHook::GeneratorSharedNext
+        | ImplementationHook::GeneratorMoveIterate
+        | ImplementationHook::GeneratorMoveNext
         | ImplementationHook::TestingFail => Ok(None),
         hook => panic!(
             "Memory-operation classification received a hook outside its operation catalog. in classify_core_operation, hook: {:?}",
@@ -485,7 +489,8 @@ where
         MemoryLayoutQueryKind::Trailing => flexible,
         MemoryLayoutQueryKind::Size
         | MemoryLayoutQueryKind::Stride
-        | MemoryLayoutQueryKind::Layout => fixed,
+        | MemoryLayoutQueryKind::Layout
+        | MemoryLayoutQueryKind::LayoutStatus => fixed,
     };
 
     if valid {

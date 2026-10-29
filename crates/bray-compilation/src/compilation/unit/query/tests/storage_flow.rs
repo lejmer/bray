@@ -1432,9 +1432,18 @@ fn optional_conversion_children_preserve_possible_normal_completion() {
 
 #[test]
 fn operation_cleanup_native_fixture_lowers_its_checked_inputs() {
-    let application = compilation(include_str!(
-        "../../../../../../../xtask/fixtures/native-execution/operation-cleanup.bray"
-    ));
+    let options = crate::CompilationOptions::default().with_native_link_inputs([
+        bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("bray_allocation_probe")
+                .expect("allocation probe has a nonempty library name"),
+            bray_symbols::NativeLinkKind::Static,
+        ),
+    ]);
+
+    let application = crate::test_support::compilation_with_options(
+        include_str!("../../../../../../../xtask/fixtures/native-execution/operation-cleanup.bray"),
+        options,
+    );
 
     let diagnostics = application.check_diagnostics();
 

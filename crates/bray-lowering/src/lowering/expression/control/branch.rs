@@ -64,13 +64,13 @@ impl Lowerer<'_> {
                 id,
                 expression,
                 current,
-                bray_ir::MirGeneratorKind::Array,
+                super::iteration::GeneratorKind::Array,
             ),
             BoundStructuredExpressionKind::GeneralGenerator => self.lower_generator_region(
                 id,
                 expression,
                 current,
-                bray_ir::MirGeneratorKind::General,
+                super::iteration::GeneratorKind::General,
             ),
             BoundStructuredExpressionKind::ElementIndex
             | BoundStructuredExpressionKind::SliceIndex => self.lower_index(id, current),
@@ -159,14 +159,14 @@ impl Lowerer<'_> {
 
             if let (Some(scope), Some(block)) = (scope, then_completion.block) {
                 then_completion.block =
-                    Some(self.finish_scope(scope, block, &source, (*then_block).into())?);
+                    Some(self.finish_scope(scope.into(), block, &source, (*then_block).into())?);
             }
 
             self.finish_result_edge(then_completion, join, ty)?;
 
             current = if let Some(scope) = scope {
                 let completion =
-                    self.finish_scope(scope, else_entry, &source, conditions[index].into())?;
+                    self.finish_scope(scope.into(), else_entry, &source, conditions[index].into())?;
 
                 self.active_scopes.pop();
 

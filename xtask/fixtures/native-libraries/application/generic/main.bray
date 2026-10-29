@@ -8,5 +8,18 @@ func main() -> i32
     let first = fixture.base.numbers.value<66>();
     let second = fixture.base.numbers.value<65>();
 
+    assert(fixture.base.numbers.count_generated<i32>(7) == 12);
+
+    assert(
+        fixture.middle.numbers.generated_count<fixture.base.numbers.Generated>(fixture.base.numbers.create_generated) ==
+            3
+    );
+
+    assert(fixture.base.numbers.generated_destructions() == 6, "imported generic generator cleanup is incomplete");
+
+    fixture.middle.numbers.verify_generated(0);
+    fixture.middle.numbers.verify_generated(1);
+    fixture.middle.numbers.verify_generated(first - second + 2);
+
     return fixture.middle.numbers.result() + first + second - 196;
 }

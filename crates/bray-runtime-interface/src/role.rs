@@ -268,16 +268,6 @@ pub enum RuntimeRoleContractEffect {
     MoveCompletion,
     /// Infallibly destroy terminal frame storage.
     DestroyFrame,
-    /// Initialize generator-owned accumulation storage.
-    InitializeGenerator,
-    /// Transfer one yielded value into generator-owned accumulation storage.
-    AppendGeneratorValue,
-    /// Finish generator accumulation and transfer its completed value.
-    FinishGenerator,
-    /// Invoke task-cleanup callbacks for initialized generator elements.
-    BroadcastGeneratorCleanup,
-    /// Finalize and destroy initialized generator elements, then release their storage.
-    DestroyGenerator,
     /// Construct one owned panic report.
     ConstructPanicReport,
     /// Propagate one owned panic report without resuming the failed continuation.
@@ -476,7 +466,7 @@ mod tests {
         assert!(!RuntimeAbiRole::TestEntrySelection.available_to_product());
 
         assert_eq!(
-            RuntimeAbiRole::GeneratorBegin.implementation(),
+            RuntimeAbiRole::FrameResume.implementation(),
             super::RuntimeRoleImplementation::CompilerLowering
         );
     }

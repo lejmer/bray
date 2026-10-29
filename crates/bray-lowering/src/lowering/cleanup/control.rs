@@ -1,4 +1,4 @@
-use bray_bound_tree::{AnyBoundNodeId, BoundBlockId};
+use bray_bound_tree::{AnyBoundNodeId, StorageScope};
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
     MirOperand, MirOperationKind, MirSourceAnchor, MirTaskTerminalState, MirTerminatorKind,
@@ -32,9 +32,62 @@ pub(in crate::lowering) enum TerminalState {
 }
 
 impl Lowerer<'_> {
+    pub(in crate::lowering) fn finish_iteration_scope(
+        &mut self,
+        expression: bray_bound_tree::BoundExpressionId,
+        mut lowered: crate::lowering::block::LoweredExpression,
+    ) -> Result<crate::lowering::block::LoweredExpression, LoweringError> {
+        let Some(current) = lowered.block else {
+            return Ok(lowered);
+        };
+
+        if !matches!(
+            self.scope_cleanup_status(StorageScope::Iteration(expression), expression.into()),
+            ScopeExitCleanupStatus::Cleanup
+        ) {
+            return Ok(lowered);
+        }
+
+        let source = Self::retained_source(&lowered.source);
+
+        let join = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let value = lowered
+            .value
+            .take()
+            .map(|value| {
+                let ty = self.expression_type(expression);
+
+                let parameter =
+                    self.builder
+                        .push_block_parameter(join, Self::retained_source(&source), ty)?;
+
+                Ok::<_, LoweringError>((value, ty, parameter))
+            })
+            .transpose()?;
+
+        self.finish_exit_to_block(
+            current,
+            &source,
+            self.active_scopes.len() - 1,
+            join,
+            value
+                .as_ref()
+                .map(|(operand, ty, _)| (Self::retained_operand(operand), *ty)),
+            expression.into(),
+        )?;
+
+        lowered.block = Some(join);
+        lowered.value = value.map(|(_, _, parameter)| MirOperand::Value(parameter));
+
+        Ok(lowered)
+    }
+
     pub(in crate::lowering) fn finish_scope(
         &mut self,
-        scope: BoundBlockId,
+        scope: StorageScope,
         current: MirBlockId,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
@@ -361,7 +414,7 @@ impl Lowerer<'_> {
 
     fn scope_cleanup_status(
         &self,
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
     ) -> ScopeExitCleanupStatus {
         self.input.scope_cleanup_status(scope, exit)
@@ -380,7 +433,7 @@ impl Lowerer<'_> {
         temporaries: &[InputTemporary],
         pending: Option<&bray_ir::MirPlace>,
         failures: &std::collections::BTreeMap<
-            BoundBlockId,
+            StorageScope,
             (MirBlockId, MirBlockId, bray_ir::MirPlace),
         >,
     ) -> Result<MirBlockId, LoweringError> {
@@ -419,7 +472,9 @@ impl Lowerer<'_> {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
-                if self.input_cleanup_owns(*access, phase, pending_inputs) {
+                if self.input.elides_generator_storage(*access)
+                    || self.input_cleanup_owns(*access, phase, pending_inputs)
+                {
                     continue;
                 }
 

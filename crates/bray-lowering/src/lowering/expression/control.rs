@@ -1,6 +1,9 @@
 mod branch;
 mod condition;
 mod failure;
+mod generator;
+mod generator_iteration;
+mod generator_observation;
 mod guard;
 mod iteration;
 mod join;

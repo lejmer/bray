@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use crate::TestErrorTypeIdentity;
 
-pub(super) const PROTOCOL_VERSION: u32 = 1;
+pub(super) const PROTOCOL_VERSION: u32 = 2;
 pub(super) const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_COLLECTION_ITEMS: usize = 1_000_000;
 pub(super) const MAX_STRING_BYTES: usize = 1024 * 1024;

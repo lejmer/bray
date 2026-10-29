@@ -588,7 +588,7 @@ impl Compilation {
         let values = self.semantic_value_store()?;
 
         let result = match unit {
-            Some(unit) => {
+            Some(unit) if !values.type_is_concrete(subject) => {
                 let owner = values
                     .generic_substitution_data(substitution)
                     .owner()
@@ -609,7 +609,7 @@ impl Compilation {
                     subject,
                 ))?
             }
-            None => {
+            Some(_) | None => {
                 let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
                 checker_result(closed_type_is_copyable(&context, subject))?
@@ -657,15 +657,37 @@ impl Compilation {
             )
         })?;
 
-        let source = self.source(syntax.source_id()).ok_or_else(|| {
-            SemanticQueryFailure::located_contract(
-                SemanticQueryContext::Symbol(owner),
-                SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
-                SourceSpan::new(syntax.source_id(), syntax.full_range()),
-            )
-        })?;
+        let version = if syntax.source_id().is_generated() {
+            let declaration = symbols
+                .compiler_known_provider()
+                .declaration_semantics_for_symbol(owner)
+                .expect("generated constraint syntax belongs to its compiler-owned declaration");
 
-        let source = BoundSourceAnchor::new(syntax, source.version());
+            let fragment = declaration
+                .surface()
+                .syntax_fragment()
+                .expect("compiler-owned constraint surface has valid preparsed syntax");
+
+            assert_eq!(
+                syntax.source_id(),
+                fragment.source().source_id(),
+                "constraint source matches its owning catalog fragment"
+            );
+
+            fragment.source().version()
+        } else {
+            self.source(syntax.source_id())
+                .ok_or_else(|| {
+                    SemanticQueryFailure::located_contract(
+                        SemanticQueryContext::Symbol(owner),
+                        SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                        SourceSpan::new(syntax.source_id(), syntax.full_range()),
+                    )
+                })?
+                .version()
+        };
+
+        let source = BoundSourceAnchor::new(syntax, version);
 
         BoundUnitKey::constraint(owner_key.clone(), source).ok_or_else(|| {
             SemanticQueryFailure::located_contract(

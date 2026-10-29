@@ -26,16 +26,23 @@ pub(super) enum YieldTarget {
         success_type: Option<bray_symbols::TypeId>,
         scope_depth: usize,
     },
+    GeneratorObservation {
+        syntax: SyntaxAnchor,
+        folds: [MirPlace; 2],
+    },
     Generator {
         syntax: SyntaxAnchor,
         destination: MirPlace,
         element_type: bray_symbols::TypeId,
+        array_count: Option<MirPlace>,
     },
 }
 impl YieldTarget {
     pub(super) const fn syntax(&self) -> SyntaxAnchor {
         match self {
-            Self::Result { syntax, .. } | Self::Generator { syntax, .. } => *syntax,
+            Self::Result { syntax, .. }
+            | Self::Generator { syntax, .. }
+            | Self::GeneratorObservation { syntax, .. } => *syntax,
         }
     }
 }
@@ -68,10 +75,11 @@ pub(super) struct Lowerer<'unit> {
     pub(super) static_storages: BTreeMap<StaticReferenceSelection, MirStorageId>,
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
-    pub(super) active_scopes: Vec<bray_bound_tree::BoundBlockId>,
+    pub(super) active_scopes: Vec<bray_bound_tree::StorageScope>,
     pub(super) scoped_guards:
         BTreeMap<bray_bound_tree::BoundExpressionId, super::scoped::ScopedCleanup>,
     pub(super) yield_targets: Vec<YieldTarget>,
+    pub(super) generator_observations: BTreeMap<bray_bound_tree::BoundExpressionId, [MirPlace; 2]>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
@@ -118,6 +126,7 @@ impl<'unit> Lowerer<'unit> {
             active_scopes: Vec::new(),
             scoped_guards: BTreeMap::new(),
             yield_targets: Vec::new(),
+            generator_observations: BTreeMap::new(),
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
             input_temporaries: Vec::new(),
@@ -1461,6 +1470,7 @@ mod tests {
 
             LoweringInput::new(
                 &self.unit,
+                None,
                 &self.control_flow,
                 &self.types,
                 &self.patterns,
@@ -1983,9 +1993,9 @@ mod tests {
             unit.tree().blocks().map(|(block, _)| block),
             scope_exits
                 .iter()
-                .map(|(scope, exit)| StorageExitPoint::new(*scope, *exit)),
+                .map(|(scope, exit)| StorageExitPoint::new((*scope).into(), *exit)),
             scope_exits.iter().map(|(scope, exit)| {
-                StorageExitDecision::new(*scope, *exit, [], [], [], [], [], [], false)
+                StorageExitDecision::new((*scope).into(), *exit, [], [], [], [], [], [], false)
             }),
             false,
         )
@@ -2036,9 +2046,9 @@ mod tests {
                         bray_bound_tree::AsyncStorageCleanupRequirement::None,
                     )
                 }),
-            scope_exits
-                .iter()
-                .map(|(scope, exit)| AsyncScopeExitPlan::new(*scope, *exit, [], [], [], [], false)),
+            scope_exits.iter().map(|(scope, exit)| {
+                AsyncScopeExitPlan::new((*scope).into(), *exit, [], [], [], [], false)
+            }),
             false,
         )
         .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));

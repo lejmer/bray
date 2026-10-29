@@ -52,11 +52,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         match operation {
             AnalysisOperationKind::ScopeExit {
-                block, exit, phase, ..
+                scope, exit, phase, ..
             } => {
                 if let Some((plan, flow)) = self.disposal.selected.and_then(|(cleanup, flow)| {
                     cleanup
-                        .scope_exit_plan(block, exit)
+                        .scope_exit_plan(scope, exit)
                         .map(|plan| (plan, flow))
                 }) {
                     match phase {
@@ -76,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 bray_bound_tree::AsyncStorageExitDisposition::Recovered(
                                     bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableCleanupOrder))) {
                                 self.apply_published_cleanup(state, StorageMutation::Operation(operation.occurrence()));
-                                self.expire_trusted_scope(state, block);
+                                self.expire_trusted_scope(state, scope);
                                 return;
                             }
 
@@ -84,7 +84,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 .exits()
                                 .iter()
                                 .find(|decision| {
-                                    decision.scope() == block && decision.exit() == exit
+                                    decision.scope() == scope && decision.exit() == exit
                                 })
                                 .expect("selected scope cleanup retains its storage decision");
 
@@ -110,7 +110,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
 
                 if phase == AnalysisScopeExitPhase::LifecycleResolution {
-                    self.expire_trusted_scope(state, block);
+                    self.expire_trusted_scope(state, scope);
                 }
             }
             AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
@@ -165,7 +165,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutate: &mut Mutation<'_>,
     ) {
         match operation {
-            AnalysisOperationKind::ScopeExit { block, phase, .. } => {
+            AnalysisOperationKind::ScopeExit { scope, phase, .. } => {
                 let mut lifecycle = Vec::new();
 
                 for requirement in self.disposal.plan.requirements.iter().rev() {
@@ -177,7 +177,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let disposition = requirement.exit_disposition(
                         self.storage,
-                        block,
+                        scope,
                         storage_state.initialized.contains(&identity),
                         storage_state.fully_moved.contains(&identity),
                         storage_state.moved.keys().cloned(),
@@ -257,7 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         }
                     }
 
-                    self.expire_trusted_scope(state, block);
+                    self.expire_trusted_scope(state, scope);
                 }
             }
             AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))

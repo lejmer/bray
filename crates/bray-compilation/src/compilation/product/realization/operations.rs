@@ -344,10 +344,7 @@ impl Compilation {
 
                 self.concrete_codegen_lifecycle(concrete_reference, target)?
             }
-            MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
-            | MirHelperReference::PanicReport
+            MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
@@ -395,9 +392,6 @@ impl Compilation {
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
             | MirHelperReference::StandardLibrary(_)
-            | MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)

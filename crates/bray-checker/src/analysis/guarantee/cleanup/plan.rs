@@ -26,7 +26,7 @@ pub(crate) struct Plan {
         (Vec<TypeId>, bray_bound_tree::AsyncStorageCleanupRequirement),
     >,
     pub(crate) scoped_error_quiescence:
-        BTreeMap<bray_bound_tree::BoundBlockId, bray_bound_tree::BoundExpressionId>,
+        BTreeMap<bray_bound_tree::StorageScope, bray_bound_tree::BoundExpressionId>,
     pub(in crate::analysis) requirements:
         std::sync::Arc<[bray_bound_tree::AsyncStorageRequirement]>,
     pub(super) replacements:
@@ -105,7 +105,7 @@ impl Plan {
     pub(crate) fn asynchronous_scopes(
         &self,
         storage: &StoragePlan,
-    ) -> BTreeSet<bray_bound_tree::BoundBlockId> {
+    ) -> BTreeSet<bray_bound_tree::StorageScope> {
         self.requirements
             .iter()
             .filter_map(|requirement| {

@@ -190,7 +190,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperationKind::DeclaredCallable(callable) => {
                 Some(self.translate_declared_callable(id, *callable)?)
             }
-            MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
             MirOperationKind::AdmitOutgoing { owner, runtime }
             | MirOperationKind::DischargeOutgoing { owner, runtime } => {
                 self.translate_outgoing(id, owner, *runtime)?;
@@ -308,6 +307,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             bray_ir::MirPanicCause::ExplicitTestFailure(message) => (
                 bray_runtime_abi::NativePanicCause::EXPLICIT_TEST_FAILURE,
                 self.native_string_view(message)?,
+            ),
+            bray_ir::MirPanicCause::MemoryLayoutSizeOverflow => (
+                bray_runtime_abi::NativePanicCause::MEMORY_LAYOUT_SIZE_OVERFLOW,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into(),
+            ),
+            bray_ir::MirPanicCause::MemoryLayoutUnsupportedAlignment => (
+                bray_runtime_abi::NativePanicCause::MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into(),
             ),
         };
 

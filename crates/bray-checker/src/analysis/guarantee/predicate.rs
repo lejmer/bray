@@ -18,114 +18,121 @@ pub(in crate::analysis) enum ExpressionEligibility {
     Constant,
 }
 
-pub(in crate::analysis) fn expression_eligibility<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-    semantics: &bray_bound_tree::CheckedExpressionSemantics,
-    storage: &StoragePlan,
-    flow: &bray_bound_tree::StorageFlow,
-    yield_targets: &std::collections::BTreeMap<BoundExpressionId, BoundExpressionId>,
-) -> ExpressionEligibility {
-    if !expression_is_observational(request, expression, semantics, storage, flow, yield_targets) {
-        return ExpressionEligibility::Forbidden;
-    }
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn expression_eligibility(
+        &self,
+        expression: BoundExpressionId,
+        flow: &bray_bound_tree::StorageFlow,
+    ) -> ExpressionEligibility {
+        let semantics = self.semantics;
 
-    if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression)
-        && !matches!(
-            call.target(),
-            bray_bound_tree::BoundCallableTarget::Predicate(_)
-        )
-        && call.constness() != bray_symbols::CallableConstness::Constant
-    {
-        return ExpressionEligibility::Observation;
-    }
+        if !self.expression_is_observational(expression, flow) {
+            return ExpressionEligibility::Forbidden;
+        }
 
-    ExpressionEligibility::Constant
-}
-
-fn expression_is_observational<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-    semantics: &bray_bound_tree::CheckedExpressionSemantics,
-    storage: &StoragePlan,
-    flow: &bray_bound_tree::StorageFlow,
-    yield_targets: &std::collections::BTreeMap<BoundExpressionId, BoundExpressionId>,
-) -> bool {
-    let selections = semantics.selections();
-
-    if request.unit().key().is_static_initializer()
-        && storage
-            .node_plans(expression.into())
-            .any(|plan| !static_storage_is_address_only(request, storage, flow, plan))
-    {
-        return false;
-    }
-
-    if let Some(SemanticSelection::Call(call)) = selections.expression(expression)
-        && matches!(
-            call.implementation_hook(),
-            Some(
-                bray_compiler_known::ImplementationHook::AddressOf
-                    | bray_compiler_known::ImplementationHook::AddressOfMut
+        if let Some(SemanticSelection::Call(call)) = semantics.selections().expression(expression)
+            && !matches!(
+                call.target(),
+                bray_bound_tree::BoundCallableTarget::Predicate(_)
             )
-        )
-    {
-        return false;
+            && call.constness() != bray_symbols::CallableConstness::Constant
+        {
+            return ExpressionEligibility::Observation;
+        }
+
+        ExpressionEligibility::Constant
     }
 
-    if matches!(
-        selections.expression(expression),
-        Some(SemanticSelection::Propagation(
-            bray_bound_tree::SelectedPropagation::CurrentRun { .. }
-        ))
-    ) {
-        return false;
-    }
+    fn expression_is_observational(
+        &self,
+        expression: BoundExpressionId,
+        flow: &bray_bound_tree::StorageFlow,
+    ) -> bool {
+        let request = self.request;
+        let semantics = self.semantics;
+        let storage = self.storage;
+        let yield_targets = self.yield_targets;
+        let generators = self.generator_observations;
 
-    let callable_body = matches!(
-        request.unit().key().kind(),
-        BoundUnitKind::CallableBody
-            | BoundUnitKind::AnonymousCallable
-            | BoundUnitKind::RuntimeDefault
-            | BoundUnitKind::ConstantTemplate
-            | BoundUnitKind::EmbeddedConstant
-    );
+        let selections = semantics.selections();
 
-    let owns_locals = callable_body || request.unit().key().is_static_initializer();
+        if request.unit().key().is_static_initializer()
+            && storage
+                .node_plans(expression.into())
+                .any(|plan| !static_storage_is_address_only(request, storage, flow, plan))
+        {
+            return false;
+        }
 
-    let confined_assignment = flow.assignment_target(expression).is_some_and(|target| {
-        target.mutation_scope(storage, request.semantic_values())
-            != bray_bound_tree::StorageMutationScope::Unbounded
-    });
+        if let Some(SemanticSelection::Call(call)) = selections.expression(expression)
+            && matches!(
+                call.implementation_hook(),
+                Some(
+                    bray_compiler_known::ImplementationHook::AddressOf
+                        | bray_compiler_known::ImplementationHook::AddressOfMut
+                )
+            )
+        {
+            return false;
+        }
 
-    if storage
-        .node_plans(expression.into())
-        .any(|plan| match plan.purpose() {
-            StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => !confined_assignment,
-            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => false,
-            StorageAccessPurpose::Move => !owns_locals,
-            _ => false,
-        })
-    {
-        return false;
-    }
+        if matches!(
+            selections.expression(expression),
+            Some(SemanticSelection::Propagation(
+                bray_bound_tree::SelectedPropagation::CurrentRun { .. }
+            ))
+        ) {
+            return false;
+        }
 
-    if matches!(
-        selections.expression(expression),
-        Some(SemanticSelection::ScopedUse(_))
-    ) {
-        return false;
-    }
+        let callable_body = matches!(
+            request.unit().key().kind(),
+            BoundUnitKind::CallableBody
+                | BoundUnitKind::AnonymousCallable
+                | BoundUnitKind::RuntimeDefault
+                | BoundUnitKind::ConstantTemplate
+                | BoundUnitKind::EmbeddedConstant
+        );
 
-    if matches!(
-        selections.expression(expression),
-        Some(SemanticSelection::StaticReference(_))
-    ) && !request.unit().key().is_static_initializer()
-    {
-        return false;
-    }
+        let owns_locals = callable_body
+            || request.unit().key().is_static_initializer()
+            || generators.contains(expression);
 
-    match request.view().expression(expression).expect("checked operation retains its expression") {
+        let confined_assignment = flow.assignment_target(expression).is_some_and(|target| {
+            target.mutation_scope(storage, request.semantic_values())
+                != bray_bound_tree::StorageMutationScope::Unbounded
+        });
+
+        if storage
+            .node_plans(expression.into())
+            .any(|plan| match plan.purpose() {
+                StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => {
+                    !confined_assignment
+                }
+                StorageAccessPurpose::Borrow(BorrowKind::Mutable) => false,
+                StorageAccessPurpose::Move => !owns_locals,
+                _ => false,
+            })
+        {
+            return false;
+        }
+
+        if matches!(
+            selections.expression(expression),
+            Some(SemanticSelection::ScopedUse(_))
+        ) {
+            return false;
+        }
+
+        if matches!(
+            selections.expression(expression),
+            Some(SemanticSelection::StaticReference(_))
+        ) && !request.unit().key().is_static_initializer()
+        {
+            return false;
+        }
+
+        match request.view().expression(expression).expect("checked operation retains its expression") {
         BoundExpression::Literal(_)
         | BoundExpression::Name(_)
         | BoundExpression::PatternReference(_)
@@ -184,6 +191,7 @@ fn expression_is_observational<C: CheckerRequestContext + ?Sized>(
         | BoundExpression::Await(_)
         | BoundExpression::Error(_) => false,
         BoundExpression::For(_) | BoundExpression::Generator(_) => owns_locals,
+    }
     }
 }
 

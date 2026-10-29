@@ -1,8 +1,8 @@
 use crate::{
     MirAsyncOperation, MirBlock, MirBlockId, MirCall, MirCallTarget, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperation, MirOperationId,
-    MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind, MirStorage, MirStorageId,
-    MirTaskTerminalState, MirTerminator, MirTerminatorKind, MirUnit, MirValue, MirValueId,
+    MirHostOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPanicCause,
+    MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirTaskTerminalState, MirTerminator,
+    MirTerminatorKind, MirUnit, MirValue, MirValueId,
 };
 
 /// Controls deterministic traversal of immutable MIR.
@@ -180,25 +180,6 @@ impl MirOperationKind {
             }
             Self::NullableQuery(query) => visit_operand(query.operand(), &mut visit),
             Self::PatternProjection { subject, .. } => visit_operand(subject, &mut visit),
-            Self::Generator(operation) => match operation {
-                MirGeneratorOperation::Destroy {
-                    destination,
-                    abandoned,
-                    ..
-                } => {
-                    visit_place_operands(destination, &mut visit);
-                    visit_operand(abandoned, &mut visit);
-                }
-                MirGeneratorOperation::Push { destination, value } => {
-                    visit_place_operands(destination, &mut visit);
-                    visit_operand(value, &mut visit);
-                }
-                MirGeneratorOperation::Begin { destination, .. }
-                | MirGeneratorOperation::Finish { destination }
-                | MirGeneratorOperation::CleanupBroadcast { destination, .. } => {
-                    visit_place_operands(destination, &mut visit);
-                }
-            },
             Self::Call(call) => visit_call_operands(call, &mut visit),
             Self::Memory(operation) => {
                 for operand in operation.operands() {
@@ -219,6 +200,8 @@ impl MirOperationKind {
                         visit_operand(message, &mut visit);
                     }
                 }
+                MirPanicCause::MemoryLayoutSizeOverflow
+                | MirPanicCause::MemoryLayoutUnsupportedAlignment => {}
             },
             Self::Async(operation) => visit_async_operands(operation, &mut visit),
             Self::Host(operation) => match operation {
@@ -449,13 +432,6 @@ pub fn for_each_operation_storage(
         | MirOperationKind::Cleanup {
             place: destination, ..
         }
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::Push { destination, .. }
-            | MirGeneratorOperation::Begin { destination, .. }
-            | MirGeneratorOperation::Finish { destination }
-            | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-            | MirGeneratorOperation::Destroy { destination, .. },
-        )
         | MirOperationKind::Host(MirHostOperation::MaterializeStatic { place: destination }) => {
             visit(destination.storage())
         }

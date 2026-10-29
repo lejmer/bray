@@ -16,6 +16,7 @@ use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreparedBodyAnalysis {
     pub(crate) graph: ControlFlowGraph,
+    pub(crate) generator_observations: bray_bound_tree::GeneratorObservations,
     pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
     pub(crate) sequence_lengths: Vec<BoundExpressionId>,
@@ -24,7 +25,7 @@ pub struct PreparedBodyAnalysis {
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
     pub(crate) input_invariants: Vec<crate::ExecutionCondition>,
     pub(crate) scope_places: BTreeMap<
-        bray_bound_tree::BoundBlockId,
+        bray_bound_tree::StorageScope,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
     >,
     pub(crate) yield_targets: BTreeMap<BoundExpressionId, BoundExpressionId>,
@@ -38,6 +39,11 @@ pub struct PreparedBodyAnalysis {
 }
 
 impl PreparedBodyAnalysis {
+    /// Returns the established generator observations available to predicate normalization.
+    pub const fn generator_observations(&self) -> &bray_bound_tree::GeneratorObservations {
+        &self.generator_observations
+    }
+
     /// Returns whole-value and represented-part finalizers selected for this body.
     pub fn finalizers(
         &self,
@@ -190,6 +196,10 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
     };
 
     let mut prepared = PreparedBodyAnalysis {
+        generator_observations: super::generator::collect_generator_observations(
+            request,
+            expressions,
+        ),
         values,
         graph,
         cleanup,

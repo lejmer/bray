@@ -62,7 +62,17 @@ let values =
 
 The general generator expression completes with the generated value.
 
+Production completes before a consumer begins iterating the generated value.
+
+Boolean `all` and `any` consumers evaluate the complete generator operand before short-circuiting their iteration.
+
 The top-level generator iteration expression itself completes as `unit`.
+
+Shared iteration over a generator yields values when its element type is copyable.
+
+A generator with non-copyable elements uses consuming iteration to transfer its elements.
+
+Shared and consuming iteration observe elements in the order in which they were yielded.
 
 ## Navigation
 

@@ -26,9 +26,15 @@ impl NativePanicCause {
     /// Native entry or terminal cleanup failed without a transferable detailed report.
     pub const ENTRY_FAILURE: Self = Self(5);
 
+    /// A requested memory layout cannot fit the target address size.
+    pub const MEMORY_LAYOUT_SIZE_OVERFLOW: Self = Self(6);
+
+    /// A requested memory layout requires unsupported alignment.
+    pub const MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT: Self = Self(7);
+
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=5)
+        matches!(self.0, 0..=7)
     }
 
     /// Returns the stable native ABI code.

@@ -39,8 +39,6 @@ const REQUIRED_CLOSED_CATEGORIES: &[&str] = &[
     "MirDefaultOwner",
     "MirCleanupPhase",
     "MirFrameInitializer",
-    "MirGeneratorKind",
-    "MirGeneratorOperation",
     "MirImmediateValue",
     "MirOperand",
     "MirPanicCause",

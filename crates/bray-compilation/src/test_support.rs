@@ -1014,3 +1014,57 @@ pub(crate) fn diagnostic_source_fragments(
         })
         .collect()
 }
+
+pub(crate) fn assert_boolean_constants(compilation: &Compilation, expected: &[(&str, bool)]) {
+    let graph = compilation
+        .symbol_graph()
+        .expect("constant symbols must publish");
+
+    let values = compilation
+        .semantic_value_store()
+        .expect("constant values must publish");
+
+    for (name, expected) in expected {
+        let constant = graph
+            .constants()
+            .iter()
+            .find(|constant| {
+                graph
+                    .member_name(constant.id().into())
+                    .is_some_and(|member| member.as_str() == *name)
+            })
+            .expect("expected source constant must exist");
+
+        let definition = bray_symbols::AnyConstantDefinitionId::Constant(constant.id());
+
+        let owner = bray_symbols::GenericOwnerId::try_new(definition.into_any())
+            .expect("constant retains its generic owner");
+
+        let substitution = bray_symbols::GenericSubstitutionData::try_new(owner, [], [])
+            .expect("constant has no generic arguments");
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .expect("non-generic constant has an empty substitution");
+
+        let result = compilation
+            .constant_instance(bray_symbols::ConstantInstanceKey::new(
+                definition,
+                substitution,
+                None,
+            ))
+            .expect("constant instance must evaluate");
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{name}: {:#?}",
+            result.diagnostics()
+        );
+
+        assert_eq!(
+            values.constant_value_data(result.value().value()).kind(),
+            &bray_symbols::ConstantValueKind::Boolean(*expected),
+            "{name}"
+        );
+    }
+}

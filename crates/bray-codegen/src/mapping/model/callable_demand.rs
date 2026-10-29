@@ -128,7 +128,6 @@ fn operation_callable_instances(
         | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)

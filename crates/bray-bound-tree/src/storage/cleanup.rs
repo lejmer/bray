@@ -150,7 +150,7 @@ impl crate::AsyncStorageRequirement {
     pub fn exit_disposition(
         &self,
         storage: &StoragePlan,
-        scope: crate::BoundBlockId,
+        scope: crate::StorageScope,
         initialized: bool,
         fully_moved: bool,
         moved: impl Iterator<Item = crate::StoragePath>,

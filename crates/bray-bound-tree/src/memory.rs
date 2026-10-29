@@ -757,6 +757,8 @@ pub enum MemoryLayoutQueryKind {
     Stride,
     /// Allocation layout for a requested element count.
     Layout,
+    /// Internal allocation layout check: zero is valid, one is size overflow, and two is unsupported alignment.
+    LayoutStatus,
     /// Allocation layout for one flexible product prefix and a requested trailing count.
     Trailing,
 }
@@ -1177,7 +1179,10 @@ impl CheckedMemoryOperationKind {
             | Self::ByteBufferFill
             | Self::AtomicCompareExchange { .. } => 3,
             Self::LayoutQuery {
-                kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
+                kind:
+                    MemoryLayoutQueryKind::Layout
+                    | MemoryLayoutQueryKind::LayoutStatus
+                    | MemoryLayoutQueryKind::Trailing,
                 ..
             } => 1,
             Self::InlineAssembly { .. } => 1,
@@ -1226,7 +1231,10 @@ impl CheckedMemoryOperationKind {
             | Self::ExposeAddress { .. }
             | Self::FromExposedAddress { .. }
             | Self::LayoutQuery {
-                kind: MemoryLayoutQueryKind::Layout | MemoryLayoutQueryKind::Trailing,
+                kind:
+                    MemoryLayoutQueryKind::Layout
+                    | MemoryLayoutQueryKind::LayoutStatus
+                    | MemoryLayoutQueryKind::Trailing,
                 ..
             } => {
                 if ordinal == 0 {

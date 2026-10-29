@@ -144,7 +144,7 @@ impl Lowerer<'_> {
 
         let scope = *scope;
 
-        self.active_scopes.push(scope);
+        self.active_scopes.push(scope.into());
 
         Some(scope)
     }
@@ -214,7 +214,7 @@ impl Lowerer<'_> {
             );
         };
 
-        self.active_scopes.push(*scope);
+        self.active_scopes.push((*scope).into());
 
         let matched = self
             .builder

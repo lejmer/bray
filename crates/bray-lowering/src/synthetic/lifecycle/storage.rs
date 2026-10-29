@@ -213,6 +213,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         match action {
             bray_bound_tree::LifecycleAction::RawBuffer(element)
+            | bray_bound_tree::LifecycleAction::Generator(element)
                 if matches!(
                     role,
                     bray_ir::MirGeneratedLifecycleRole::Quiesce
@@ -224,7 +225,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 return self
                     .push_buffer_prefix_lifecycle(builder, block, source, role, place, element);
             }
-            bray_bound_tree::LifecycleAction::RawBuffer(element) => {
+            bray_bound_tree::LifecycleAction::RawBuffer(element)
+            | bray_bound_tree::LifecycleAction::Generator(element) => {
                 let block = self
                     .push_buffer_prefix_lifecycle(builder, block, source, role, place, element)?;
 

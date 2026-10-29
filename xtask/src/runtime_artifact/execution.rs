@@ -73,7 +73,11 @@ pub(super) fn smoke_test(
                 SelectedTarget::for_native(target),
             )
             .with_native_link_inputs(
-                matches!(name, "ordinary-finalization" | "scoped-cleanup").then(|| probe.clone()),
+                matches!(
+                    name,
+                    "ordinary-finalization" | "scoped-cleanup" | "operation-cleanup"
+                )
+                .then(|| probe.clone()),
             ),
         )
         .with_standard_library_root(standard_library(target)?);

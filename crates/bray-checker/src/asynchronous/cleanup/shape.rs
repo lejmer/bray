@@ -262,6 +262,18 @@ where
 
             if matches!(
                 expression.kind(),
+                Kind::ArrayGenerator | Kind::GeneralGenerator
+            ) {
+                let ty = types
+                    .expression(id)
+                    .expect("checked generator retains its result type")
+                    .ty();
+
+                self.requirement(ty)?;
+            }
+
+            if matches!(
+                expression.kind(),
                 Kind::Tuple | Kind::Array | Kind::RepeatedArray | Kind::Range
             ) {
                 for operand in expression.operands() {
@@ -392,8 +404,7 @@ where
             TypeData::Error => CleanupShape::RECOVERED,
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Generator(_) => CleanupShape::BOTH,
+            | TypeData::TypeValuedMemberProjection { .. } => CleanupShape::BOTH,
             TypeData::Named {
                 definition,
                 substitution,
@@ -408,7 +419,7 @@ where
 
                 CleanupShape::default()
             }
-            TypeData::OwnedIndirection { target, .. } => {
+            TypeData::OwnedIndirection { target, .. } | TypeData::Generator(target) => {
                 inputs.push(CleanupShapeInput::Contents(*target));
 
                 CleanupShape {

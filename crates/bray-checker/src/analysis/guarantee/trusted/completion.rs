@@ -76,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn expire_trusted_scope(
         &self,
         state: &mut ExecutionState,
-        scope: bray_bound_tree::BoundBlockId,
+        scope: bray_bound_tree::StorageScope,
     ) {
         let Some(expired) = self.scope_places.get(&scope) else {
             return;

@@ -6,3 +6,24 @@ public func result() -> i32
 {
     return fixture.base.numbers.answer();
 }
+
+public func generated_count<T>(pos create: func() -> T) -> usize
+{
+    return fixture.base.numbers.produce_and_consume<T>(create);
+}
+
+public func verify_generated(pos count: i32)
+    requires(
+        count >= 0,
+        fixture.base.numbers.all_generated(count = count),
+        fixture.base.numbers.observe_generated(count > 0),
+    )
+{
+    if count > 1
+    {
+        verify_positive_generated(count);
+    }
+}
+
+func verify_positive_generated(pos count: i32)
+    requires(fixture.base.numbers.any_generated(count = count)) {}

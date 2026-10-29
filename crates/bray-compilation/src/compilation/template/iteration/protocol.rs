@@ -199,6 +199,28 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         source: &BoundForExpression,
         ty: TypeId,
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
+        let operation = self.iteration_loop(id, source.pattern(), source.body(), ty)?;
+
+        let Some(block) = source.else_body() else {
+            return Ok(operation);
+        };
+
+        let before = self.push_node(operation, ty);
+
+        self.record_evaluation(before);
+
+        let value = self.block_value(block, ty)?;
+
+        Ok(CheckedTemplateOperation::Sequence { before, value })
+    }
+
+    pub(in crate::compilation::template) fn iteration_loop(
+        &mut self,
+        id: BoundExpressionId,
+        pattern: bray_bound_tree::BoundPatternId,
+        body_block: bray_bound_tree::BoundBlockId,
+        ty: TypeId,
+    ) -> Result<CheckedTemplateOperation, FactQueryError> {
         let root = self.iteration_cursor(id)?;
         let path = self.path;
         let evaluation = self.evaluation.take();
@@ -215,10 +237,10 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
         let condition_updates = self.retained_updates(checkpoint);
 
-        self.bind_pattern_value(source.pattern(), element)?;
+        self.bind_pattern_value(pattern, element)?;
 
         let (body, completed, result_type, has_returns) =
-            self.loop_body(source.body(), condition, ty, checkpoint)?;
+            self.loop_body(body_block, condition, ty, checkpoint)?;
 
         let operation = self.retire_loop(
             checkpoint,
@@ -229,19 +251,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             &condition_updates,
         );
 
-        let operation = self.loop_result(operation, has_returns, path, evaluation, ty)?;
-
-        let Some(block) = source.else_body() else {
-            return Ok(operation);
-        };
-
-        let before = self.push_node(operation, ty);
-
-        self.record_evaluation(before);
-
-        let value = self.block_value(block, ty)?;
-
-        Ok(CheckedTemplateOperation::Sequence { before, value })
+        self.loop_result(operation, has_returns, path, evaluation, ty)
     }
 
     pub(in crate::compilation::template) fn boolean_fold(
@@ -250,6 +260,10 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         fold: &BoundStructuredExpression,
         ty: TypeId,
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
+        if let Some(producer) = self.generator_observations.fold(id) {
+            return self.generator_fold(id, producer, ty);
+        }
+
         let root = self.iteration_cursor(id)?;
         let path = self.path;
         let evaluation = self.evaluation.take();

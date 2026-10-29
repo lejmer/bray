@@ -91,7 +91,7 @@ impl Lowerer<'_> {
             return Ok(LoweredExpression::terminated(source));
         }
 
-        self.active_scopes.push(id);
+        self.active_scopes.push(id.into());
 
         if self.active_scopes.len() == 1 && self.input.unit_kind().protected_frame().is_some() {
             let body = match self.input.unit().root() {
@@ -179,7 +179,7 @@ impl Lowerer<'_> {
                 return Ok(LoweredExpression::terminated(source));
             }
 
-            current = self.finish_scope(id, current, &source, id.into())?;
+            current = self.finish_scope(id.into(), current, &source, id.into())?;
 
             Ok(LoweredExpression::continuing(current, None, source))
         })();
@@ -243,6 +243,14 @@ impl Lowerer<'_> {
         let Some(current) = initializer.block else {
             return Ok(initializer);
         };
+
+        if self
+            .input
+            .observed_generator(binding.initializer())
+            .is_some()
+        {
+            return Ok(initializer);
+        }
 
         let Some(mut value) = initializer.value else {
             panic!(

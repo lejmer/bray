@@ -244,7 +244,7 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 
-    fn push_memory_call(
+    pub(in crate::lowering::expression) fn push_memory_call(
         &mut self,
         expression: BoundExpressionId,
         block: MirBlockId,

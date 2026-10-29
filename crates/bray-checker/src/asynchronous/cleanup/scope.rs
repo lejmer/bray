@@ -18,7 +18,7 @@ pub(crate) fn cleanup_scopes<C>(
     storage: &StoragePlan,
 ) -> crate::CheckerQueryResult<
     (
-        BTreeSet<bray_bound_tree::BoundBlockId>,
+        BTreeSet<bray_bound_tree::StorageScope>,
         BTreeSet<bray_bound_tree::BoundExpressionId>,
     ),
     C::UpstreamError,
@@ -179,7 +179,10 @@ where
                 panic!("selected scoped use retains its sole body");
             };
 
-            Some((*body, scoped.expression()))
+            Some((
+                bray_bound_tree::StorageScope::Block(*body),
+                scoped.expression(),
+            ))
         })
         .collect::<BTreeMap<_, _>>();
 

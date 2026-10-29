@@ -27,8 +27,8 @@ use crate::relationship::{ModuleRelationships, RelationshipIndex};
 use crate::{
     AnySymbolId, CompilerKnownEnvironmentSymbolId, ConstantSymbolId, ExactSymbolId, MemberEntry,
     MemberLookupIndex, MemberValidity, MemberVisibility, ModuleOwnerId, ModulePathKey,
-    ModuleSymbolId, ReceiverParameterSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolName,
-    SymbolOrigin, SymbolProvider, SymbolRootKey,
+    ModuleSymbolId, NamedTypeSymbolId, ReceiverParameterSymbolId, SymbolId, SymbolKey, SymbolKind,
+    SymbolName, SymbolOrigin, SymbolProvider, SymbolRootKey,
 };
 
 const HEAP_STORAGE_POLICY_KEY: &str = "Heap";
@@ -131,6 +131,7 @@ pub struct CompilerKnownSymbolProvider {
     symbol_target_properties: BTreeMap<ConstantSymbolId, bray_target::TargetPropertyKind>,
     role_registry: CompilerKnownSymbolRoleRegistry,
     pub(super) member_indexes: BTreeMap<AnySymbolId, MemberLookupIndex<AnySymbolId>>,
+    pub(super) internal_types: BTreeMap<SymbolName, NamedTypeSymbolId>,
     completion_children: BTreeMap<AnySymbolId, Box<[AnySymbolId]>>,
     receivers: TypedSymbolRecords<ReceiverParameterSymbolId, ReceiverParameterSymbol>,
     records: BTreeMap<SymbolId, CompilerKnownRecord>,
@@ -266,7 +267,7 @@ impl CompilerKnownSymbolProvider {
             ModuleRelationships::new(environment_id.into(), &relationships),
         );
 
-        Ok(Self {
+        let mut provider = Self {
             catalog,
             environment,
             modules,
@@ -281,11 +282,16 @@ impl CompilerKnownSymbolProvider {
             symbol_target_properties,
             role_registry,
             member_indexes,
+            internal_types: BTreeMap::new(),
             completion_children,
             receivers,
             records,
             next_symbol_index: allocator.next_index(),
-        })
+        };
+
+        provider.internal_types = super::lookup::internal_types(&provider);
+
+        Ok(provider)
     }
 
     /// Returns the dedicated compiler-known environment root.
