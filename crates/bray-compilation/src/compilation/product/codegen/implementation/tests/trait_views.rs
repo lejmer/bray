@@ -115,19 +115,19 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
         }
 
         func read(pos value: &view Value) -> i32
-            executes(pure, total)
+            executes(pure)
         {
             return value.read();
         }
 
         func read_explicit(pos value: &view Value) -> i32
-            executes(pure, total)
+            executes(pure)
         {
             return value.read(44);
         }
 
         func exercise() -> i32
-            executes(pure, total)
+            executes(pure)
         {
             let first = First
             {
@@ -153,6 +153,8 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
         bray_symbols::ProductKind::Library,
     );
 
+    assert_trait_view_call_guarantees(&compilation, "read", 1);
+    assert_trait_view_call_guarantees(&compilation, "read_explicit", 1);
     assert_native_exercise(&backend, &compilation);
 }
 
@@ -211,6 +213,7 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
 
             func erase<T>(pos value: &T) -> &view Value<i32>
                 with(T: Value<i32>)
+                executes(pure, total)
             {
                 return &value;
             }
@@ -221,71 +224,126 @@ fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
         },
     );
 
-    let (backend, codegen) = codegen_configuration();
+    for (promise, valid) in [("pure", true), ("pure, total", false)] {
+        let (backend, codegen) = codegen_configuration();
 
-    let request = crate::CompilationRequest::with_options(
-        crate::test_support::package_identity(),
-        vec![crate::test_support::source_input(
-            r#"
-        module consumer;
+        let request = crate::CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                &r#"
+            module consumer;
 
-        using example.dependency.app.Cell;
-        using example.dependency.app.cell_value;
-        using example.dependency.app.erase;
+            using example.dependency.app.Cell;
+            using example.dependency.app.cell_value;
+            using example.dependency.app.erase;
 
-        func exercise() -> i32
-        {
-            let cell = example.dependency.app.Cell
+            func exercise() -> i32
+                executes(PROMISE)
             {
-                value = 42,
-            };
+                let cell = example.dependency.app.Cell
+                {
+                    value = 42,
+                };
 
-            let selected = example.dependency.app.erase<example.dependency.app.Cell>(&cell);
+                let selected = example.dependency.app.erase<example.dependency.app.Cell>(&cell);
 
-            if selected.zeta() == 42 && selected.alpha() == 7 && selected.alpha(1) == 8
-            {
-                return 0;
+                if selected.zeta() == 42 && selected.alpha() == 7 && selected.alpha(1) == 8
+                {
+                    return 0;
+                }
+
+                return 1;
             }
+            "#
+                .replace("PROMISE", promise),
+                0,
+            )],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                crate::SelectedTarget::baseline(),
+            ),
+        )
+        .with_dependency_interfaces([dependency.clone()]);
 
-            return 1;
+        let compilation = crate::Compilation::load_with_codegen(request, codegen)
+            .expect("imported view consumer must load");
+
+        assert_eq!(
+            compilation.check_diagnostics().is_empty(),
+            valid,
+            "{promise}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+
+            continue;
         }
-        "#,
-            0,
-        )],
-        crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
-            bray_symbols::ProductKind::Library,
-            crate::SelectedTarget::baseline(),
-        ),
-    )
-    .with_dependency_interfaces([dependency]);
 
-    let compilation = crate::Compilation::load_with_codegen(request, codegen)
-        .expect("imported view consumer must load");
+        assert_trait_view_call_guarantees(&compilation, "exercise", 3);
 
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "{:?}",
-        compilation.check_diagnostics()
-    );
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_native_exercise(&backend, &compilation);
 
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    assert_native_exercise(&backend, &compilation);
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            let plan = compilation
+                .native_product_plan(
+                    super::support::compilation::test_product_identity(),
+                    crate::BuildConfiguration::Development,
+                    None,
+                    [],
+                    None,
+                )
+                .expect("trait-view product must specialize");
 
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-    {
-        let plan = compilation
-            .native_product_plan(
-                super::support::compilation::test_product_identity(),
-                crate::BuildConfiguration::Development,
-                None,
-                [],
-                None,
-            )
-            .expect("trait-view product must specialize");
-
-        assert!(!super::support::artifacts::generated_artifacts(&backend, &plan).is_empty());
+            assert!(!super::support::artifacts::generated_artifacts(&backend, &plan).is_empty());
+        }
     }
+}
+
+fn assert_trait_view_call_guarantees(
+    compilation: &crate::Compilation,
+    function: &str,
+    expected: usize,
+) {
+    let selections = compilation
+        .semantic_selections(crate::test_support::source_function_body_key(
+            compilation,
+            function,
+        ))
+        .expect("trait-view calls retain checked selections");
+
+    let mut count = 0;
+
+    for entry in selections.value().entries() {
+        let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+            continue;
+        };
+
+        if !matches!(
+            call.target(),
+            bray_bound_tree::BoundCallableTarget::TraitView { .. }
+        ) {
+            continue;
+        }
+
+        let properties = call.phase_behaviors().invocation().execution_properties();
+
+        assert!(properties.contains(&bray_symbols::ExecutionProperty::Pure));
+        assert!(properties.contains(&bray_symbols::ExecutionProperty::Total));
+        count += 1;
+    }
+
+    assert_eq!(
+        count, expected,
+        "{function} retains each carried invocation contract"
+    );
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
