@@ -49,10 +49,19 @@ The `all` tier has a 600 second reference target. To run everything directly wit
 ignored test also needs `--ignored` or `--include-ignored`.
 
 Shards divide the sorted `(binary, test name)` inventory by ordinal modulo the shard count. The shard union covers the
-selected tier exactly once. CI runs the fast tier and every slow tier on each pull request and on `develop`, with
-parallel shards for the slow tiers. Do not remove a test or shrink its stress inputs to meet the reference target. Put
-substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused behavior test in `fast`
-where appropriate. New ignored tests must carry one of these tier tags or discovery fails.
+selected tier exactly once. Pull requests run fast and native coverage. Proof and exhaustive
+coverage runs nightly on `develop` and on manual workflow dispatch, with four deterministic shards per tier. To check
+those tiers before merging a relevant change, run the documented commands locally or dispatch the full workflow for
+that branch once the workflow exists on the default branch. Do not remove a test or shrink its stress inputs to meet
+the reference target. Put substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused
+behavior test in `fast` where appropriate. New ignored tests must carry one of these tier tags or discovery fails.
+
+The routine PR path avoids repeating full production proofs and cross-target matrices for every update. CI builds the
+runner with `cargo build --profile test --bin xtask` and uses that profile for all tier commands, rather than preparing
+a second release-profile compiler. Cargo and LLVM downloads are cached, including Cargo outputs after test failures.
+Superseded PR runs are cancelled. The nightly run also refreshes the default branch's cache for subsequent PRs.
+Nightly and manual full runs use a separate concurrency group. Cold-cache setup and
+compilation remain visible in the workflow's preparation steps and are separate from test execution times.
 
 Reports remain under `target/compiler-tests/<tier>/<index>-of-<count>/`, respecting `CARGO_TARGET_DIR`. They include the
 complete selection, raw log, JUnit report, and a JSON timing report with the slowest cases first. CI retains these

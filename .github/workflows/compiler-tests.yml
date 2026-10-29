@@ -2,14 +2,15 @@ name: Compiler tests
 
 on:
   pull_request:
-  push:
-    branches: [develop]
+  schedule:
+    - cron: '23 1 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: compiler-tests-${{ github.ref }}
+  group: compiler-tests-${{ github.ref }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'fast' }}
   cancel-in-progress: true
 
 jobs:
@@ -27,27 +28,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-workspace-crates: true
+          cache-on-failure: true
       - uses: actions/cache@v4
         with:
           path: target/toolchains/llvm/downloads
           key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json') }}
       - run: cargo llvm fetch
-      - name: Prepare shared test binaries and runner once
+      - name: Prepare compiler tests and runner in the same profile
         id: prepare
         run: |
           cargo test -p bray-compilation --no-run
-          cargo build --release --bin xtask
+          cargo build --profile test --bin xtask
       - name: Report fast compiler reference timing
-        run: cargo xtask test compiler
-      - name: Run all slow tiers in deterministic parallel shards
+        run: cargo run --profile test --bin xtask -- test compiler
+      - name: Run native compiler integration coverage
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: cargo run --profile test --bin xtask -- test compiler --tier native
+      - name: Run nightly or manual proof and exhaustive coverage
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
         run: |
           status=0
-          for tier in native proof exhaustive; do
+          for tier in proof exhaustive; do
             processes=()
             for shard in 1 2 3 4; do
-              cargo xtask test compiler --tier "$tier" --shard "$shard/4" &
+              cargo run --profile test --bin xtask -- test compiler --tier "$tier" --shard "$shard/4" &
               processes+=("$!")
             done
             for process in "${processes[@]}"; do
