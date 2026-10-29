@@ -171,6 +171,66 @@ trusted internal func declared_thread_registration(pos key: usize, pos identity:
     return false;
 }
 
+// Exact-thread dependency storage can be reached directly by constant initializers
+// and lifecycle code. Acquire each generated accessor before publishing the
+// consumer's cleanup owner so every reachable provider has matching backing.
+trusted internal func access_thread_dependencies(pos key: usize, pos identity: Identity) -> bool
+    requires(trusted native_host())
+    uses(foreign_call)
+{
+    let selected = trusted descriptor(key);
+    let mut ordinal: usize = 0;
+
+    while ordinal < selected.static_count
+    {
+        let owner = trusted selected.static_entry(ordinal);
+
+        if trusted same_identity(owner.identity, identity)
+        {
+            let mut dependency: usize = 0;
+
+            while dependency < owner.dependency_count
+            {
+                let required = trusted owner.dependency(dependency);
+                let mut provider: usize = 0;
+                let mut found: bool = false;
+
+                while provider < selected.static_count
+                {
+                    let entry = trusted selected.static_entry(provider);
+
+                    if trusted same_identity(entry.identity, required)
+                    {
+                        found = true;
+
+                        if entry.order <= owner.order || (entry.duration == 1 && trusted entry.access() == 0)
+                        {
+                            return false;
+                        }
+
+                        break;
+                    }
+
+                    provider += 1;
+                }
+
+                if !found
+                {
+                    return false;
+                }
+
+                dependency += 1;
+            }
+
+            return true;
+        }
+
+        ordinal += 1;
+    }
+
+    return false;
+}
+
 trusted internal predicate registration_guard_owned(owner: &RegistrationGuard);
 
 internal struct RegistrationGuard
@@ -272,6 +332,11 @@ trusted internal func thread_static_cleanup_registration(pos pointer: DataPointe
     }
 
     if trusted enter_domain(key, 0) == 0
+    {
+        return 4;
+    }
+
+    if !trusted access_thread_dependencies(key, registration.identity)
     {
         return 4;
     }

@@ -74,7 +74,7 @@ static StaticEntry no_statics(size_t ordinal)
 /* The Bray archive contributes code. This C final-image host owns its descriptor.
    There are no static contributions. The ABI still requires a non-null lookup. */
 const HostDescriptor bray_linked_product_host = {
-    1, 0, {0x42, 0x52, 0x41, 0x35, 0x35, 0x34}, no_statics, 0, NULL
+    2, 0, {0x42, 0x52, 0x41, 0x35, 0x35, 0x34}, no_statics, 0, NULL
 };
 extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObservation*);
 extern uint64_t bray_runtime_current_native_thread_identity(void);

@@ -615,6 +615,10 @@ fn declare_static_detach<'context>(
         builder
             .build_store(attachment, context.i64_type().const_zero())
             .map_err(CodegenFailure::backend_library)?;
+    } else if mapping.finalization().is_some() || mapping.destroy().is_some() {
+        builder
+            .build_store(storage, initializer.get_type().const_zero())
+            .map_err(CodegenFailure::backend_library)?;
     }
 
     builder

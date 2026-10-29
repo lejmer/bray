@@ -32,8 +32,8 @@ internal struct Consumer
 
 func main() -> i32
 {
-    // Access the provider first so dependency order must override registration order.
-    if PROVIDER.value == 17 && CONSUMER.provider.value == 17
+    // Materializing the consumer must admit the provider reached by its stored borrow.
+    if CONSUMER.provider.value == 17
     {
         return 42;
     }

@@ -1,7 +1,7 @@
 use crate::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 2;
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]
@@ -351,8 +351,9 @@ impl NativeStaticFinalizerStatus {
     }
 }
 
-/// Acquires a static owner's concrete allowance or discharges it before activation.
-/// The operation is zero for admission and one for discharge. The caller initializes the outcome.
+/// Acquires a static owner's concrete allowance or discharges retained ownership.
+/// Zero admits every allowance, one rolls back before activation, and two releases
+/// fallible-resolution backing after cleanup. The caller initializes the outcome.
 pub type NativeStaticAdmissionCallback = extern "C" fn(u32, &mut crate::NativeRunOutcome);
 
 /// Closed execution and completion contract for one static finalizer.

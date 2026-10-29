@@ -65,6 +65,8 @@ mod tests {
         static THREAD_CLEANUP_ORDER: Cell<usize> = const { Cell::new(0) };
         static PENDING_INCIDENT: RefCell<Option<ProviderIncident>> = const { RefCell::new(None) };
         static INCIDENT_PROVIDER: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
+        static DEPENDENCY_PRODUCT: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
+        static DEPENDENCY_ACCESSES: Cell<usize> = const { Cell::new(0) };
         static RELEASED_PROVIDER: Cell<Option<(NativeProductHostState, usize)>> = const { Cell::new(None) };
         static RELEASED_PRODUCT_PHASE: Cell<Option<usize>> = const { Cell::new(None) };
     }
@@ -344,6 +346,45 @@ mod tests {
             0 => THREAD_FIRST_ENTRY,
             _ => THREAD_SECOND_ENTRY,
         }
+    }
+
+    extern "C" fn dependent_thread_access() -> usize {
+        DEPENDENCY_ACCESSES.set(DEPENDENCY_ACCESSES.get() + 1);
+
+        let product = DEPENDENCY_PRODUCT
+            .get()
+            .expect("dependency accessor must retain its product descriptor");
+
+        let registration = NativeThreadStaticCleanupRegistration::new(
+            product,
+            NativeStaticIdentity::new([12; 32]),
+            detach_thread_static,
+            finalizer(second_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        usize::from(register_thread_static(&registration).is_success())
+    }
+
+    extern "C" fn dependent_thread_entry(index: usize) -> NativeStaticHostEntry {
+        if index == 0 {
+            return THREAD_FIRST_ENTRY;
+        }
+
+        NativeStaticHostEntry::new(
+            NativeStaticDuration::EXACT_THREAD,
+            NativeStaticIdentity::new([12; 32]),
+            1,
+            0,
+            dependent_thread_access,
+            detach_thread_static,
+            finalizer(second_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+            no_dependency,
+            0,
+        )
     }
 
     extern "C" fn thread_incident_entry(index: usize) -> NativeStaticHostEntry {
@@ -667,6 +708,46 @@ mod tests {
 
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
         assert_eq!(scope.finish(), 0);
+    }
+
+    #[test]
+    fn thread_static_registration_admits_dependency_accessors_before_the_consumer() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        THREAD_CLEANUP_ORDER.set(0);
+        DEPENDENCY_ACCESSES.set(0);
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([97; 32]),
+            dependent_thread_entry,
+            2,
+        )));
+
+        DEPENDENCY_PRODUCT.set(Some(descriptor));
+
+        let scope = crate::bootstrap::RuntimeThreadScope::enter().expect("attachment enters");
+
+        let consumer = NativeThreadStaticCleanupRegistration::new(
+            descriptor,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            finalizer(first_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert!(register_thread_static(&consumer).is_success());
+        assert_eq!(DEPENDENCY_ACCESSES.get(), 1);
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FINISH_ROOT).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
+        assert_eq!(scope.finish(), 0);
+
+        DEPENDENCY_PRODUCT.set(None);
     }
 
     #[test]

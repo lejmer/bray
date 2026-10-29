@@ -641,6 +641,53 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
 }
 
 #[test]
+fn fallible_static_admission_retains_resolution_backing_after_lifecycle_discharge() {
+    let source = concat!(
+        "module app;\n",
+        "struct Resource { mut state: i32; }\n",
+        "impl Resource\n",
+        "{\n",
+        "    async finalize() -> Result<unit, i32>\n",
+        "    {\n",
+        "        self.state = 2;\n",
+        "        return await fail();\n",
+        "    }\n",
+        "    destruct() {}\n",
+        "}\n",
+        "async func fail() -> Result<unit, i32> { return Error(42); }\n",
+        "static RESOURCE: Resource = Resource { state = 1 };\n",
+        "func main() {}\n",
+    );
+
+    let (backend, plan) = runtime_native_plan(source);
+
+    let ir = generated_artifacts_of_kind(
+        &backend,
+        &plan,
+        bray_codegen::BackendArtifactKind::BackendIr,
+    )
+    .iter()
+    .map(|artifact| String::from_utf8_lossy(artifact))
+    .collect::<String>();
+
+    let callback = ir
+        .split("\ndefine ")
+        .find(|body| {
+            body.lines()
+                .next()
+                .is_some_and(|header| header.contains(".admission"))
+        })
+        .expect("fallible static cleanup emits its admission callback")
+        .split_once("\n}")
+        .expect("LLVM function has a closing brace")
+        .0;
+
+    assert!(callback.contains("switch i32"), "{callback}");
+    assert_eq!(callback.matches("@bray_runtime_outgoing_admission").count(), 1);
+    assert_eq!(callback.matches("@bray_runtime_outgoing_discharge").count(), 2);
+}
+
+#[test]
 fn generic_static_failure_uses_its_selected_overaligned_requirement() {
     for (alignment, artifact) in [
         (64, bray_codegen::BackendArtifactKind::RelocatableObject),

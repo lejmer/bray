@@ -318,7 +318,7 @@ static int exercise_host(
 {
     product_host_observation formed = control(PRODUCT_HOST_FORM);
 
-    if (!observation_is(formed, 0, 1) || descriptor->abi_version != 1)
+    if (!observation_is(formed, 0, 1) || descriptor->abi_version != 2)
         return 40;
 
     if (descriptor->static_count < 6 || descriptor->static_entry == NULL)
@@ -339,7 +339,7 @@ static int exercise_host(
         static_host_entry entry_value = descriptor->static_entry(index);
         const static_host_entry* entry = &entry_value;
 
-        if (entry->abi_version != 1 || entry->order != index)
+        if (entry->abi_version != 2 || entry->order != index)
             return 43;
 
         if (entry->duration == 0)

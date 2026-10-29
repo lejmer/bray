@@ -85,17 +85,17 @@ static void product_prepare_second(void)
 static void product_detach(void)
 {}
 
-static void product_admit(uint32_t release, RunOutcome* outcome)
+static void product_admit(uint32_t operation, RunOutcome* outcome)
 {
-    (void)release;
+    (void)operation;
     *outcome = (RunOutcome){0};
 }
 
-static void product_admit_second(uint32_t release, RunOutcome* outcome)
+static void product_admit_second(uint32_t operation, RunOutcome* outcome)
 {
-    product_admit(release, outcome);
+    product_admit(operation, outcome);
 
-    if (release == 0 && product_failure == 1)
+    if (operation == 0 && product_failure == 1)
     {
         outcome->state = 2;
         outcome->report = panic_report();
@@ -152,7 +152,7 @@ static StaticEntry product_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        1, 0, {{1}}, ordinal, 1, product_access,
+        2, 0, {{1}}, ordinal, 1, product_access,
         ordinal == 0 ? product_prepare_first : product_prepare_second,
         {1, ordinal == 0 ? product_admit : product_admit_second, product_finalize, product_resolve},
         product_destroy, product_detach, product_dependency, 0
@@ -164,9 +164,9 @@ static StaticEntry product_entry(size_t ordinal)
 }
 
 static const HostDescriptor teardown_products[] = {
-    {1, 0, {1}, product_entry, 2, NULL},
-    {1, 0, {2}, product_entry, 2, NULL},
-    {1, 0, {3}, product_entry, 2, NULL},
+    {2, 0, {1}, product_entry, 2, NULL},
+    {2, 0, {2}, product_entry, 2, NULL},
+    {2, 0, {3}, product_entry, 2, NULL},
 };
 
 extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObservation*);
@@ -185,15 +185,15 @@ static HostObservation product_control(unsigned selected, uint32_t operation)
 static unsigned interrupted_admitted;
 static unsigned interrupted_released;
 
-static void interrupted_admission(uint32_t release, RunOutcome* outcome)
+static void interrupted_admission(uint32_t operation, RunOutcome* outcome)
 {
-    product_admit(release, outcome);
+    product_admit(operation, outcome);
 
-    if (release != 0)
+    if (operation == 1)
     {
         ++interrupted_released;
     }
-    else if (++interrupted_admitted == 1)
+    else if (operation == 0 && ++interrupted_admitted == 1)
     {
         atomic_store(&reject_allocations, 1);
     }
@@ -204,7 +204,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        1, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
+        2, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
         {1, interrupted_admission, product_finalize, product_resolve},
         product_destroy, product_detach, product_dependency, 0
     };
@@ -216,7 +216,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
 }
 
 static const HostDescriptor interrupted_product = {
-    1, 0, {4}, interrupted_entry, 4096, NULL
+    2, 0, {4}, interrupted_entry, 4096, NULL
 };
 
 static void check_interrupted_formation(void)
@@ -331,9 +331,9 @@ static StaticEntry thread_product_entry(size_t ordinal)
     return entry;
 }
 
-static void reject_thread_backing(uint32_t release, RunOutcome* outcome)
+static void reject_thread_backing(uint32_t operation, RunOutcome* outcome)
 {
-    assert(release == 0);
+    assert(operation == 0);
 
     *outcome = (RunOutcome){0};
     outcome->state = 3;
@@ -341,7 +341,7 @@ static void reject_thread_backing(uint32_t release, RunOutcome* outcome)
 
 static void check_thread_product_teardown(void)
 {
-    static const HostDescriptor descriptor = {1, 0, {5}, thread_product_entry, 2, NULL};
+    static const HostDescriptor descriptor = {2, 0, {5}, thread_product_entry, 2, NULL};
     HostObservation result;
 
     product_failure = 0;

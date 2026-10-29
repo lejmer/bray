@@ -108,7 +108,7 @@ trusted internal func form(pos key: usize) -> Observation
 
     let selected = trusted descriptor(key);
 
-    if selected.version != 1 || selected.asynchronous > 1
+    if selected.version != 2 || selected.asynchronous > 1
     {
         return unavailable(3);
     }
@@ -236,7 +236,7 @@ trusted internal func form(pos key: usize) -> Observation
             {
                 let entry = trusted selected.static_entry(ordinal);
 
-                if entry.version != 1 || entry.duration > 1 || entry.finalizer.execution > 2
+                if entry.version != 2 || entry.duration > 1 || entry.finalizer.execution > 2
                 {
                     failure = 3;
                     break;
