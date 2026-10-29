@@ -1,8 +1,8 @@
 # Repository tasks
 
-Run repository automation from the root of the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM with `cargo
-llvm`, which works before compiler crates can build. These are contributor tools, separate from Bray Tack's user-facing
-commands.
+Run repository automation from the root of the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM
+with `cargo llvm`, which works before compiler crates can build. These are contributor tools, separate from Bray Tack's
+user-facing commands.
 
 ## Format and check a change
 
@@ -41,7 +41,8 @@ The workspace defaults select `bray`, `brayc`, and `xtask` together. The named-b
 compiler, CLI, style, format, and runtime preparation commands share dependency features. Cargo compiles only the
 requested binary and its dependencies when running an alias. Nested compiler builds use the same workspace defaults.
 The focused `cargo llvm` bootstrap remains independent so it can provision LLVM before compiler tools build.
-Use `cargo build --workspace` to build every workspace package, including other binaries such as `brayfmt` and `bray-lsp`.
+Use `cargo build --workspace` to build every workspace package, including other binaries such as `brayfmt` and
+`bray-lsp`.
 
 Run these shared tool commands from the checkout root. Cargo selects the enclosing package when invoked inside a
 member directory, which changes the feature set. Explicit `-p` selections are still useful for focused crate work, but
@@ -64,8 +65,8 @@ fresh. These observations describe command reuse after cache population, not col
 
 Cargo places the compiler executable in `<target-dir>/tooling/brayc` (`brayc.exe` on Windows), where `<target-dir>`
 defaults to the checkout's `target` directory. When invoking that compiler directly, select compatible standard-library
-inputs with `--standard-library-root <bundle-root>` and native runtime inputs with `--runtime-artifact <metadata>`. Building the
-compiler under a different Cargo profile does not copy [toolchain bundles](#build-required-artifacts) beside it.
+inputs with `--standard-library-root <bundle-root>` and native runtime inputs with `--runtime-artifact <metadata>`.
+Building the compiler under a different Cargo profile does not copy [toolchain bundles](#build-required-artifacts) beside it.
 
 ### Build measurements
 
@@ -149,5 +150,6 @@ cargo xtask package-interface validate <path>
 ## Compiler test tiers
 
 Run `cargo xtask test compiler` for the measured fast compiler suite. Select `--tier native`, `--tier proof`,
-`--tier exhaustive`, or `--tier all` for broader coverage. Add `--shard index/count` for a deterministic portion of a tier.
-See [Compiler test tiers](testing.md#compiler-test-tiers) for reference timing targets, portable work checks, configurable timeouts, reports, and direct Cargo commands.
+`--tier exhaustive`, or `--tier all` for broader coverage. Add `--shard index/count` for a deterministic portion of a
+tier. See [Compiler test tiers](testing.md#compiler-test-tiers) for reference timing targets, portable work checks, configurable timeouts, reports,
+and direct Cargo commands.

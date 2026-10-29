@@ -22,9 +22,8 @@ Progress goes to standard error. The only standard output line is the `candidate
 
 The first run prepares a target-specific toolchain under Cargo's target directory. Later runs reuse it when the
 compiler producer, Cargo lockfile, runtime, temporal provider, standard library, target, and resolved native tools are
-unchanged. Preparation identities fingerprint selected tool contents, including replacements at the same path. Changing report
-options does not rebuild that toolchain. Follow the [artifact storage rules](build-artifacts.md) when working across
-checkouts.
+unchanged. Preparation identities fingerprint selected tool contents, including replacements at the same path. Changing
+report options does not rebuild that toolchain. Follow the [artifact storage rules](build-artifacts.md) when working across checkouts.
 
 ## Focus a run
 
@@ -70,56 +69,59 @@ Use `cargo xtask performance gate` to evaluate retained reports from the existin
 Commit the candidate before measuring. Resolve the pull request's current merge base with `git merge-base origin/develop
 HEAD`, measure that exact clean commit, and measure the clean candidate. Give both runs the same `--host-class <label>`
 describing the controlled machine class and scheduling environment. Retain the source-identified reports, toolchain, and
-measurement artifacts. Refresh the base ref before gating. A stale global baseline cannot replace the computed merge base.
+measurement artifacts. Refresh the base ref before gating. A stale global baseline cannot replace the computed merge
+base.
 
 Gating starts with merge bases that contain the schema-2 measurement producer. A merge base predating that producer,
-including this gate's introduction, cannot supply an accepted baseline; retain its absolute reports and assess the change
-manually. After the producer lands, measure both revisions with their own checkout's runner. Do not backfill missing
-identity fields, relabel an older report, or run the candidate runner against an older checkout: the runner embeds its
-compiler, so that would misidentify the measured implementation.
+including this gate's introduction, cannot supply an accepted baseline; retain its absolute reports and assess the
+change manually. After the producer lands, measure both revisions with their own checkout's runner. Do not backfill
+missing identity fields, relabel an older report, or run the candidate runner against an older checkout: the runner
+embeds its compiler, so that would misidentify the measured implementation.
 
 For compiler comparisons, hold the imported standard library and runtime fixed. An ordinary measurement prepares these
-inputs automatically. Retain complete copies of its standard-library bundle and runtime package, using the paths recorded
-in the report's compiler invocations, outside any cache that subsequent runs may rebuild. Then give both checkout-local
-runners the same absolute `--standard-library <bundle-directory>` and `--runtime <metadata.brayrt>` paths:
+inputs automatically. Retain complete copies of its standard-library bundle and runtime package, using the paths
+recorded in the report's compiler invocations, outside any cache that subsequent runs may rebuild. Then give both
+checkout-local runners the same absolute `--standard-library <bundle-directory>` and `--runtime <metadata.brayrt>`
+paths:
 
 ```text
 cargo xtask performance --output profiles/base --host-class controlled-host --standard-library /retained/standard-library --runtime /retained/runtime/bray-runtime.brayrt
 ```
 
-Run the equivalent command in the candidate checkout with a separate output directory. These two options must be supplied
-together. They select prebuilt inputs without rebuilding them; the existing compiler and linker consumers still validate
-their artifact contents, target, and runtime ABI. Keep the retained directories immutable throughout both runs and any
-confirmation. The runtime's producer identity includes compiler source inputs, so automatically rebuilding it separately
-for each revision would change its identity even when runtime instructions happen to be identical. A compiler change that
-cannot consume the shared artifacts is an incomparable experiment; retain its whole-toolchain evidence separately.
+Run the equivalent command in the candidate checkout with a separate output directory. These two options must be
+supplied together. They select prebuilt inputs without rebuilding them; the existing compiler and linker consumers still
+validate their artifact contents, target, and runtime ABI. Keep the retained directories immutable throughout both runs
+and any confirmation. The runtime's producer identity includes compiler source inputs, so automatically rebuilding it
+separately for each revision would change its identity even when runtime instructions happen to be identical. A compiler
+change that cannot consume the shared artifacts is an incomparable experiment; retain its whole-toolchain evidence
+separately.
 
 ```text
 cargo xtask performance gate --base-ref origin/develop --baseline profiles/base/candidate.json --candidate profiles/candidate/candidate.json --output profiles/gate
 ```
 
 Reports must match corpus, compiler mode, target, LLVM and Rust toolchain, optimization, runtime linkage, runtime input
-contents, standard-library manifest, worker budget, host class, and sampling configuration. Report schema 2 records these
-identities and measurement start time. Earlier reports need fresh measurements from a revision containing that producer.
-A runtime or bundle mismatch is an incomparable experiment and fails identity validation. Establish equivalent inputs
-before calling that difference a candidate regression. Keep whole-toolchain migration evidence separately when its inputs
-intentionally differ.
+contents, standard-library manifest, worker budget, host class, and sampling configuration. Report schema 2 records
+these identities and measurement start time. Earlier reports need fresh measurements from a revision containing that
+producer. A runtime or bundle mismatch is an incomparable experiment and fails identity validation. Establish equivalent
+inputs before calling that difference a candidate regression. Keep whole-toolchain migration evidence separately when
+its inputs intentionally differ.
 
-The repository owns the limits in [performance-policy.json](../../xtask/performance-policy.json). The initial structural
-policy permits no executable-size increase for each named workload. Additional deterministic limits use exact metric
-names: `object.bytes`, `executable.section.<name>.bytes`, `compiler.operation.<name>.executions`,
-`compiler.metric.<name>`, and `observation.<name>`. Each limit declares `maximum_increase` and an optional `maximum_value`.
-Operation limits count executions, including zero for a known operation absent from the sparse statistics. Compiler
-metric units must match and describe counts or bytes. The detailed comparison's operation rows remain timing attribution;
-timing metrics cannot become structural limits.
-A configured metric without comparable evidence fails validation. Unconfigured metrics remain visible as attribution
-and do not silently become merge limits. No aggregate improvement can excuse an individual workload's failure.
+The repository owns the limits in [performance-policy.json](../../xtask/performance-policy.json). The initial structural policy permits no
+executable-size increase for each named workload. Additional deterministic limits use exact metric names:
+`object.bytes`, `executable.section.<name>.bytes`, `compiler.operation.<name>.executions`, `compiler.metric.<name>`, and
+`observation.<name>`. Each limit declares `maximum_increase` and an optional `maximum_value`. Operation limits count
+executions, including zero for a known operation absent from the sparse statistics. Compiler metric units must match and
+describe counts or bytes. The detailed comparison's operation rows remain timing attribution. Timing metrics cannot
+become structural limits. A configured metric without comparable evidence fails validation. Unconfigured metrics remain
+visible as attribution and do not silently become merge limits. No aggregate improvement can excuse an individual
+workload's failure.
 
-Timing decisions always name `pass`, `review-required`, or `confirmed-regression`. The policy uses medians, three combined
-median absolute deviations, at least seven samples, and raw intervals at least 10,000 timer-resolution units long. A
-positive delta, including a 2 percent miss, needs review on its first observation. Insufficient or noisy evidence also
-needs review. There is no universal percentage cutoff. Timing can block only when an independently measured baseline and
-candidate pair both exceed their noise and adjusted resolution bounds:
+Timing decisions always name `pass`, `review-required`, or `confirmed-regression`. The policy uses medians, three
+combined median absolute deviations, at least seven samples, and raw intervals at least 10,000 timer-resolution units
+long. A positive delta, including a 2 percent miss, needs review on its first observation. Insufficient or noisy
+evidence also needs review. There is no universal percentage cutoff. Timing can block only when an independently
+measured baseline and candidate pair both exceed their noise and adjusted resolution bounds:
 
 ```text
 cargo xtask performance gate --base-ref origin/develop --baseline profiles/base/candidate.json --candidate profiles/candidate/candidate.json --confirmation-baseline profiles/base-confirmation/candidate.json --confirmation-candidate profiles/candidate-confirmation/candidate.json --output profiles/gate-confirmed
@@ -132,19 +134,16 @@ cannot establish a confirmed timing regression. Execution sampling does not supp
 
 The gate writes `gate.json`, `gate.html`, and the existing detailed comparison reports. It also retains baseline and
 candidate JSON/HTML reports with absolute peer measurements, plus both confirmation JSON reports when supplied.
-It exits unsuccessfully for
-unwaived confirmed regressions or either report's conformance failure. Review-required evidence remains visible and
-requires human assessment without an automatic noisy-timing block. A successful regression gate does not establish the
-absolute health or competitive targets in BRA-540, BRA-541, BRA-542, or BRA-428. Retain their candidate peer and resource
-reports separately. Their failures cannot be waived by this policy.
+It exits unsuccessfully for unwaived confirmed regressions or either report's conformance failure. Review-required
+evidence remains visible and requires human assessment without an automatic noisy-timing block.
 
 ### Time-limited waivers
 
 Add a waiver to the repository policy only with a linked PR approval. Declare one exact `workload`, `metric`, and
 `target`, numerical `maximum_increase` and `maximum_value` in that metric's recorded units, `rationale`, `owner`, Linear
-`issue` URL, `approved_by`, `approval` URL, `approved_on`, and `expires_on`. Dates use `YYYY-MM-DD` in UTC. Expiry is exclusive
-at the start of the stated day, and the initial policy allows at most 30 days after approval. No wildcard scope, unknown
-field, missing issue or approval, duplicate scope, expired approval, or exceeded bound is accepted.
+`issue` URL, `approved_by`, `approval` URL, `approved_on`, and `expires_on`. Dates use `YYYY-MM-DD` in UTC. Expiry is
+exclusive at the start of the stated day, and the initial policy allows at most 30 days after approval. No wildcard
+scope, unknown field, missing issue or approval, duplicate scope, expired approval, or exceeded bound is accepted.
 
 With any waiver present, the gate requires `curl`, network access to `https://api.linear.app/graphql`, and
 `LINEAR_API_KEY`. It checks every tracking issue live and fails closed on missing access, archived or closed issues, or
@@ -162,11 +161,11 @@ or isolated helper does not establish this checkpoint.
 Use the existing focused performance run to measure successful execution, compilation, and executable size. Pass
 `--checkpoint <checkpoint.json>` to the gate to retain the experiment with its matched reports. The checkpoint declares
 `workload`, `caller_and_callee`, `cleanup_and_report_release`, `ownership_or_failure_case`, `correctness_evidence`,
-`hypothesis`, `expected_improvement`, `stopping_condition`, `attribution`, and `attribution_evidence`. All evidence fields
-must be nonempty and the workload must occur in the reports. Attribution is `whole_change_only`, `generated_work`,
-`retained_runtime_code`, or `runtime_operations`. Use `whole_change_only` until a cause has been isolated. Reference the
-existing compiler-operation, artifact/section, allocation/copy, and runtime-operation evidence before prescribing a
-redesign. Recording a checkpoint grants no waiver and does not establish final peer parity.
+`hypothesis`, `expected_improvement`, `stopping_condition`, `attribution`, and `attribution_evidence`. All evidence
+fields must be nonempty and the workload must occur in the reports. Attribution is `whole_change_only`,
+`generated_work`, `retained_runtime_code`, or `runtime_operations`. Use `whole_change_only` until a cause has been
+isolated. Reference the existing compiler-operation, artifact/section, allocation/copy, and runtime-operation evidence
+before prescribing a redesign. Recording a checkpoint grants no waiver and does not establish final peer parity.
 
 For the meaning and limits of measurements, see [compiler comparisons](performance-reference.md#compiler-comparisons),
 [sample ordering](performance-reference.md#runtime-peers-and-sample-ordering), [short-workload
@@ -197,7 +196,6 @@ hard errors and never produce a comparison. Structurally invalid candidates are 
 
 Linux application runtime dependencies are static for Bray, Rust, and C++. Provider metadata selects the C++ runtime
 archive and static GCC unwinder, and native product planning preserves those static requirements through linking.
-Operating-system libraries may remain dynamic. This linkage contract does not establish the competitive runtime footprint
-goals tracked by BRA-404.
+Operating-system libraries may remain dynamic.
 
 Return to [repository tasks](xtask.md) to choose another workflow.

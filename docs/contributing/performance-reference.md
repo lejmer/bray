@@ -52,11 +52,11 @@ artifact publication can change the conditions of later samples even when every 
 activity changes during a round, retain and label that round, then collect another complete matched batch. Do not remove
 individual slow samples, insert waits, restore redundant artifact reads or slow a producer to make a comparison pass.
 
-Use separate summary-profile invocations and `bray profile compare` to examine import work, native demand, cache outcomes,
-staging and linking. Compare counts as well as durations, and do not add inclusive operation times. A difference between
-published-consumer and pipeline results supports investigating the producer handoff. A slowdown shared by unchanged
-consumer executables across both conditions supports investigating host/cache drift. Neither observation alone identifies
-a particular filesystem filter, background service or clock policy.
+Use separate summary-profile invocations and `bray profile compare` to examine import work, native demand, cache
+outcomes, staging and linking. Compare counts as well as durations, and do not add inclusive operation times.
+A difference between published-consumer and pipeline results supports investigating the producer handoff. A slowdown
+shared by unchanged consumer executables across both conditions supports investigating host/cache drift. Neither
+observation alone identifies a particular filesystem filter, background service or clock policy.
 
 Report the matched medians for library, consumer and complete workspace against the protected implementation baseline.
 A consumer improvement does not excuse a library or workspace regression. Keep the historical samples, the new matched

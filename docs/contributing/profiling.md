@@ -70,7 +70,8 @@ cargo xtask standard-library build --output target/release/lib/bray/standard-lib
 ```
 
 The standard-library command writes one report per target and bypasses current-bundle reuse for profiled builds. Use
-`--profile trace` with the same output option when the aggregate report indicates that a causal event timeline is needed.
+`--profile trace` with the same output option when the aggregate report indicates that a causal event timeline is
+needed.
 
 ## Read the summary
 
