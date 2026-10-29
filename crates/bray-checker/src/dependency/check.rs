@@ -174,6 +174,12 @@ where
                 }
             }
             SemanticSelection::Iteration(_) | SemanticSelection::ScopedUse(_) => {
+                if request.view().node_is_recovered(entry.expression().into()) != Some(false) {
+                    is_recovered = true;
+
+                    continue;
+                }
+
                 let sites = match entry.selection() {
                     SemanticSelection::Iteration(_) => [
                         bray_bound_tree::BoundExecutionSite::Iterate(entry.expression()),
