@@ -8,16 +8,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: compiler-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   compiler-tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.97.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
       - uses: actions/cache@v4
         with:
           path: target/toolchains/llvm/downloads
@@ -27,8 +36,8 @@ jobs:
         id: prepare
         run: |
           cargo test -p bray-compilation --no-run
-          cargo build --release -p xtask
-      - name: Enforce fast compiler test budget
+          cargo build --release --bin xtask
+      - name: Report fast compiler reference timing
         run: cargo xtask test compiler
       - name: Run all slow tiers in deterministic parallel shards
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}

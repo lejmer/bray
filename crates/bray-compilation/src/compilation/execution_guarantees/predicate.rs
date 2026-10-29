@@ -1140,6 +1140,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn proof_depth_does_not_limit_independent_callees() {
         let count = bray_checker::ConstantEvaluationLimits::default().call_depth() + 1;
         let mut source = String::from("module app;");
@@ -1183,6 +1184,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn production_clauses_resolve_their_owners_through_shared_symbol_identity() {
         let checked = crate::test_support::production_standard_library_compilation(
             crate::SelectedTarget::default(),

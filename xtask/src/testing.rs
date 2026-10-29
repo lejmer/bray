@@ -1,4 +1,5 @@
 mod command;
+mod execution;
 mod inventory;
 mod options;
 mod report;

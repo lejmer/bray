@@ -174,7 +174,7 @@ pub(crate) fn production_fixture(
     fixtures: &ProductionFixtureCache,
     caller: &str,
     target: crate::SelectedTarget,
-    build: fn(&str, crate::SelectedTarget) -> Compilation,
+    build: impl FnOnce(&str, crate::SelectedTarget) -> Compilation,
 ) -> Compilation {
     let fixture = {
         let mut fixtures = fixtures
@@ -921,6 +921,12 @@ pub(crate) fn production_standard_library_compilation(
     target: crate::SelectedTarget,
     caller: &str,
 ) -> Compilation {
+    static FIXTURES: ProductionFixtureCache = OnceLock::new();
+
+    production_fixture(&FIXTURES, caller, target, build_production_standard_library)
+}
+
+fn build_production_standard_library(caller: &str, target: crate::SelectedTarget) -> Compilation {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../standard-library/std/src");
 
@@ -1125,7 +1131,8 @@ pub(crate) fn assert_boolean_constants(compilation: &Compilation, expected: &[(&
 
 #[cfg(test)]
 mod fixture_tests {
-    use std::sync::{Arc, OnceLock};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier, OnceLock};
 
     use super::{
         ProductionFixtureCache, production_fixture, source_function_body_key, source_input,
@@ -1165,10 +1172,39 @@ mod fixture_tests {
     fn revised_probes_share_syntax_and_keep_diagnostics_isolated() {
         let fixtures: ProductionFixtureCache = OnceLock::new();
         let target = SelectedTarget::baseline();
-        let first = production_fixture(&fixtures, "module app;", target.clone(), build);
+        let constructions = AtomicUsize::new(0);
+
+        let counted_build = |caller: &str, target: SelectedTarget| {
+            constructions.fetch_add(1, Ordering::Relaxed);
+
+            build(caller, target)
+        };
+
+        let barrier = Barrier::new(2);
+
+        let (first, second) = std::thread::scope(|scope| {
+            let first = scope.spawn(|| {
+                barrier.wait();
+
+                production_fixture(&fixtures, "module app;", target.clone(), &counted_build)
+            });
+
+            let second = scope.spawn(|| {
+                barrier.wait();
+
+                production_fixture(&fixtures, "module app;", target.clone(), &counted_build)
+            });
+
+            (
+                first.join().expect("first fixture caller"),
+                second.join().expect("second fixture caller"),
+            )
+        });
+
+        assert_eq!(constructions.load(Ordering::Relaxed), 1);
+
         let key = source_function_body_key(&first, "unchanged");
         let bound = first.bound_unit(key.clone()).expect("base bound unit");
-        let second = production_fixture(&fixtures, "module app;", target.clone(), build);
 
         assert!(Arc::ptr_eq(
             &bound,
@@ -1186,7 +1222,7 @@ mod fixture_tests {
             }
         "#,
             target.clone(),
-            build,
+            &counted_build,
         );
 
         assert!(invalid.check_diagnostics().has_errors());
@@ -1203,7 +1239,7 @@ mod fixture_tests {
             }
         "#,
             target,
-            build,
+            &counted_build,
         );
 
         assert!(!revised.check_diagnostics().has_errors());
@@ -1217,12 +1253,16 @@ mod fixture_tests {
                 .expect("reused syntax"),
         ));
 
+        assert_eq!(constructions.load(Ordering::Relaxed), 1);
+
         let windows = production_fixture(
             &fixtures,
             "module app;",
             SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
-            build,
+            &counted_build,
         );
+
+        assert_eq!(constructions.load(Ordering::Relaxed), 2);
 
         assert_ne!(
             first.options().selected_target(),

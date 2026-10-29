@@ -283,6 +283,7 @@ mod tests {
     "#;
 
     #[test]
+    #[ignore = "tier:proof"]
     fn output_demand_reuses_source_work_beyond_the_analysis_working_set() {
         let count = 4_112;
         let mut source = String::from("module test.package;\n");

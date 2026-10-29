@@ -120,7 +120,8 @@ pub(super) fn batches(tests: &[SelectedTest]) -> Vec<&[SelectedTest]> {
 
     for (index, test) in tests.iter().enumerate() {
         if index > start
-            && (tests[start].executable != test.executable
+            && (index - start == 16
+                || tests[start].executable != test.executable
                 || bytes + test.name.encode_utf16().count() + 3 > 24_000)
         {
             batches.push(&tests[start..index]);
@@ -248,6 +249,7 @@ mod tests {
                     tier: Tier::All,
                     shard,
                     shards: 3,
+                    ..Options::default()
                 },
             ) {
                 assert!(names.insert(test.name));
@@ -268,7 +270,8 @@ mod tests {
                 &Options {
                     tier: Tier::Proof,
                     shard: 1,
-                    shards: 1
+                    shards: 1,
+                    ..Options::default()
                 }
             )
             .len(),
@@ -292,6 +295,28 @@ mod tests {
         assert_eq!(
             groups.iter().map(|group| group.len()).sum::<usize>(),
             tests.len()
+        );
+
+        let many: Vec<_> = (0..200)
+            .map(|index| SelectedTest {
+                binary: "compiler".to_owned(),
+                executable: "compiler".into(),
+                name: format!("case_{index}"),
+                tier: "fast".to_owned(),
+            })
+            .collect();
+
+        let groups = batches(&many);
+
+        assert!(groups.iter().all(|group| group.len() <= 16));
+
+        assert_eq!(
+            groups
+                .into_iter()
+                .flatten()
+                .map(|test| &test.name)
+                .collect::<Vec<_>>(),
+            many.iter().map(|test| &test.name).collect::<Vec<_>>()
         );
     }
 }

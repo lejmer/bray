@@ -148,6 +148,6 @@ cargo xtask package-interface validate <path>
 
 ## Compiler test tiers
 
-Run `cargo xtask test compiler` for the budgeted fast compiler suite. Select `--tier native`, `--tier proof`,
+Run `cargo xtask test compiler` for the measured fast compiler suite. Select `--tier native`, `--tier proof`,
 `--tier exhaustive`, or `--tier all` for broader coverage. Add `--shard index/count` for a deterministic portion of a tier.
-See [Compiler test tiers](testing.md#compiler-test-tiers) for budgets, reports, fixture isolation, and direct Cargo commands.
+See [Compiler test tiers](testing.md#compiler-test-tiers) for reference timing targets, portable work checks, configurable timeouts, reports, and direct Cargo commands.

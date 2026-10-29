@@ -859,6 +859,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn failed_call_inputs_expire_on_caught_paths() {
         for count in [64, 128, 256] {
             let mut source = String::from(

@@ -2,12 +2,10 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use subprocess::Exec;
-
-use super::inventory::{batches, inventory, select};
+use super::inventory::{inventory, select};
 use super::options::Options;
-use super::report::{Recorder, Report, write};
-use crate::{json, validation_process, workspace};
+use super::report::{Report, write};
+use crate::{json, workspace};
 
 pub(crate) fn run(arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = Options::parse(arguments).and_then(|options| {
@@ -46,7 +44,7 @@ fn execute(root: &Path, options: &Options) -> Result<(), String> {
 
     let preparation_seconds = started.elapsed().as_secs_f64();
     let execution_started = Instant::now();
-    let budget = options.tier.budget();
+    let reference_target = options.tier.reference_target();
 
     let mut report = Report {
         schema: 1,
@@ -55,76 +53,44 @@ fn execute(root: &Path, options: &Options) -> Result<(), String> {
         shards: options.shards,
         preparation_seconds,
         execution_seconds: 0.0,
-        budget_seconds: budget.as_secs_f64(),
+        reference_target_seconds: reference_target.as_secs_f64(),
+        reference_target_exceeded: false,
+        timeout_seconds: options.timeout.as_secs_f64(),
         selected: tests.len(),
         success: true,
         tests: Vec::new(),
     };
 
-    let mut log = Vec::new();
-
     eprintln!(
-        "Running {} compiler tests, tier {}, shard {}/{}, budget {}s",
+        "Running {} compiler tests, tier {}, shard {}/{}, reference target {}s, timeout {}s",
         tests.len(),
         options.tier.name(),
         options.shard,
         options.shards,
-        budget.as_secs()
+        reference_target.as_secs(),
+        options.timeout.as_secs()
     );
 
-    for batch in batches(&tests) {
-        let remaining = budget.saturating_sub(execution_started.elapsed());
+    let result =
+        super::execution::run(root, &directory, &tests, execution_started, options.timeout);
 
-        let command = Exec::cmd(&batch[0].executable)
-            .args(&[
-                "--include-ignored",
-                "--exact",
-                "--test-threads=1",
-                "--color=never",
-            ])
-            .args(
-                &batch
-                    .iter()
-                    .map(|test| test.name.as_str())
-                    .collect::<Vec<_>>(),
-            )
-            .cwd(root.join("crates/bray-compilation"))
-            .env("BRAY_TEST_PROFILE_OUTPUT", directory.join("phases"));
+    report.success = result.success;
+    report.tests = result.tests;
 
-        let mut recorder = Recorder::new(batch);
+    report.finish(execution_started.elapsed());
 
-        let result = validation_process::output_observed(command, remaining, &mut |bytes| {
-            recorder.observe(bytes)
-        });
-
-        match result {
-            Ok(output) => {
-                report.success &= output.status.success() && recorder.complete();
-                log.extend_from_slice(&output.stdout);
-                log.extend_from_slice(&output.stderr);
-            }
-            Err(error) => {
-                report.success = false;
-                log.extend_from_slice(error.to_string().as_bytes());
-            }
-        }
-
-        report.tests.extend(recorder.tests);
-
-        if !report.success {
-            break;
-        }
+    if report.reference_target_exceeded {
+        eprintln!(
+            "Reference runtime target exceeded: {:.3}s, target {}s. This timing observation does not fail the suite.",
+            report.execution_seconds,
+            reference_target.as_secs()
+        );
     }
 
-    report.execution_seconds = execution_started.elapsed().as_secs_f64();
-
-    report.success &=
-        report.execution_seconds <= budget.as_secs_f64() && report.tests.len() == tests.len();
-
-    std::fs::write(directory.join("run.log"), &log)
+    std::fs::write(directory.join("run.log"), &result.log)
         .map_err(|error| format!("could not write compiler test log: {error}"))?;
 
-    eprint!("{}", String::from_utf8_lossy(&log));
+    eprint!("{}", String::from_utf8_lossy(&result.log));
 
     let success = report.success;
 
@@ -132,7 +98,7 @@ fn execute(root: &Path, options: &Options) -> Result<(), String> {
     eprintln!("Compiler test report: {}", directory.display());
 
     if !success {
-        return Err("compiler test tier failed or exceeded its budget, see run.log".to_owned());
+        return Err("compiler test tier failed or exceeded its timeout, see run.log".to_owned());
     }
 
     Ok(())

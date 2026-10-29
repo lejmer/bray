@@ -3108,6 +3108,7 @@ fn mutable_slice_foreign_output_keeps_its_extent_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_standard_input_keeps_buffer_authority() {
     let application = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
@@ -3154,6 +3155,7 @@ fn trusted_implementation_does_not_export_undeclared_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_channel_declarations_check_their_own_bodies() {
     let application = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
@@ -3191,6 +3193,7 @@ fn production_channel_declarations_check_their_own_bodies() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_channel_rejects_fabrication_and_protocol_access() {
     let application = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
@@ -3824,6 +3827,7 @@ fn opaque_drivers_retain_the_borrows_held_by_deferred_values() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_owner_transport_and_async_observations_preserve_authority() {
     let application = crate::test_support::production_standard_library_compilation(
         crate::SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
@@ -4082,6 +4086,7 @@ fn opaque_cleanup_preserves_independent_owner_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_synchronization_api_cleanup_checks() {
     let names = [
         "synchronization_owners_guard_and_publish_values",

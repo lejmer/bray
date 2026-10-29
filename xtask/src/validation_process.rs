@@ -66,9 +66,11 @@ struct ObservedCapture<'a> {
 
 impl Write for ObservedCapture<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let start = self.capture.bytes.len();
         let written = self.capture.write(bytes)?;
 
-        (self.observe)(&bytes[..written]);
+        // Observers obey the same capture bound, including output without newlines.
+        (self.observe)(&self.capture.bytes[start..]);
 
         Ok(written)
     }
@@ -450,12 +452,19 @@ mod tests {
 
     #[test]
     fn excessive_output_is_drained_and_explicitly_truncated_after_reaping() {
-        let failure = output(fixture("excessive"), Duration::from_secs(5))
-            .expect_err("incomplete capture must never satisfy an output oracle");
+        let mut observed = Vec::new();
+
+        let failure = output_observed(
+            fixture("excessive"),
+            Duration::from_secs(5),
+            &mut |bytes| observed.extend_from_slice(bytes),
+        )
+        .expect_err("incomplete capture must never satisfy an output oracle");
 
         assert!(matches!(failure.cause, Cause::CaptureLimit));
         assert!(failure.status.is_some_and(|status| status.success()));
         assert_eq!(failure.stdout.bytes.len(), CAPTURE_LIMIT);
+        assert_eq!(observed, failure.stdout.bytes);
         assert!(failure.stdout.discarded >= CAPTURE_LIMIT);
         assert!(failure.to_string().contains("stdout truncated:"));
     }

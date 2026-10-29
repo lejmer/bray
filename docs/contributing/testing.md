@@ -9,24 +9,27 @@ Use [Compiler profiling](profiling.md) to diagnose compiler performance and comp
 
 ## Compiler test tiers
 
-The default `bray-compilation` suite is the fast behavior tier. Its execution budget is **120 seconds** on a development
-host with four available CPU workers and the pinned LLVM toolchain. Compilation is measured separately. The workspace
-optimizes analysis dependencies in the test profile while leaving the large compilation crate unoptimized for fast
-rebuilds.
+The default `bray-compilation` suite is the fast behavior tier. Its reference execution target is **120 seconds** on a
+development host with four available CPU workers and the pinned LLVM toolchain. Wall time is reported rather than used
+as a portable pass/fail threshold. Compilation is measured separately. The workspace
+uses an optimized compiler test profile and retains Cargo's incremental cache for local rebuilds. The task harness remains
+unoptimized in the test profile.
 
-Run the budgeted suite with stable Cargo and Rust's standard test harness:
+Run the measured suite with stable Cargo and Rust's standard test harness:
 
 ```text
 cargo xtask test compiler
 ```
 
 No additional test runner is required. `cargo test -p bray-compilation` runs the same fast test selection through Cargo's
-ordinary harness. Focused Cargo filters continue to work. The budgeted command records preparation and execution
-separately, terminates a tier that exceeds its budget, and returns failure for incomplete coverage or failed tests.
+ordinary harness. Focused Cargo filters continue to work. The command records preparation and execution
+separately and returns failure for incomplete coverage or failed tests. A generous command timeout contains hangs.
+The default is 30 minutes and can be changed with `--timeout-seconds`, so slower or busy machines do not fail a speed
+threshold. Exceeding the reference target is recorded in the report and printed without failing the suite.
 
 Expensive tests carry an explicit `#[ignore = "tier:..."]` reason. They remain executable coverage:
 
-| Tier | Coverage | Execution budget per shard |
+| Tier | Coverage | Reference execution target per shard |
 | --- | --- | --- |
 | `fast` | Small semantic, query, lowering, and orchestration checks | 120 seconds |
 | `native` | LLVM generation, native emission, linking, and execution integration | 300 seconds |
@@ -41,13 +44,13 @@ cargo xtask test compiler --tier all
 cargo xtask test compiler --tier proof --shard 2/4
 ```
 
-The `all` tier has a 600 second execution budget. To run everything directly with Cargo, use
+The `all` tier has a 600 second reference target. To run everything directly with Cargo, use
 `cargo test -p bray-compilation -- --include-ignored`. Use `--ignored` to run only the explicit slow tiers. A focused
 ignored test also needs `--ignored` or `--include-ignored`.
 
 Shards divide the sorted `(binary, test name)` inventory by ordinal modulo the shard count. The shard union covers the
 selected tier exactly once. CI runs the fast tier and every slow tier on each pull request and on `develop`, with
-parallel shards for the slow tiers. Do not remove a test or shrink its stress inputs to meet the fast budget. Put
+parallel shards for the slow tiers. Do not remove a test or shrink its stress inputs to meet the reference target. Put
 substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused behavior test in `fast`
 where appropriate. New ignored tests must carry one of these tier tags or discovery fails.
 
@@ -55,18 +58,28 @@ Reports remain under `target/compiler-tests/<tier>/<index>-of-<count>/`, respect
 complete selection, raw log, JUnit report, and a JSON timing report with the slowest cases first. CI retains these
 artifacts on success and failure. Test durations are observed serial completion spans, including harness and process
 startup overhead for the first test in a batch. They are useful for identifying expensive cases, rather than precise
-microbenchmarks. Each shard runs bounded argument batches with one test at a time so completed fixture work can be
-shared. Compiler worker-count and parallel-demand tests still exercise their own requested worker budgets.
+microbenchmarks. Each shard runs up to four bounded argument batches concurrently. Batches contain at most 16 tests and workers take the next available batch. Each batch runs one test at a time so
+completed fixture work can be shared and per-test completion spans remain attributable. Compiler worker-count and parallel-demand tests still exercise their own requested worker budgets.
 
-Production host and synchronization fixtures share parsed and discovered source snapshots per target. Identical host
+Production host, synchronization, and standard-library fixtures share parsed and discovered source snapshots per target. Identical host
 requests also share completed bound and proof results. Changed probes fork immutable snapshots through the compiler's
 normal dependency invalidation. They retain separate diagnostics and cannot alter the baseline. Cache initialization
 uses a separate one-time cell per target and does not hold the inventory lock during compilation. Tests that inspect
-cold-query behavior, cancellation, or worker scheduling continue to construct fresh compilations.
+cold-query behavior, cancellation, or worker scheduling continue to construct fresh compilations. Regression checks use
+deterministic work: concurrent and repeated probe requests construct exactly one production fixture per target, and
+repeated production symbol, checking, and lowering demands perform zero additional query evaluations. These checks
+are independent of CPU speed and system load.
 
 The proof tier's `production_fixture_phase_timings` case records ordinary compiler summary profiles after parsing,
 symbol binding, checking, and lowering. The tier runner retains these under `phases/`. These checkpoints are cumulative
-and include query evaluation and reuse counters. Use [Compiler profiling](profiling.md) to interpret the reports.
+and include query evaluation and reuse counters. A final `reuse` checkpoint records the no-additional-work assertion. Use [Compiler profiling](profiling.md) to interpret the reports.
+
+A reference run on 2026-10-29 with a four-CPU Linux quota completed 1,911 fast tests in 57.89 seconds. All 277 slow tests
+passed in the four-shard CI arrangement in a further 8 minutes 44 seconds, covering all 2,188 compiled tests without
+missing or duplicated identities. This is about ten minutes for complete execution across the tiers. A single `--tier all`
+run completed the same 2,188 tests in 8 minutes 8 seconds. The first optimized test-profile build took 7 minutes 7 seconds
+with dependencies already available. Build time is reported separately from
+the timing targets and operational timeout.
 
 ## Test a changed Rust crate
 

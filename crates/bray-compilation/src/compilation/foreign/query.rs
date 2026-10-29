@@ -433,6 +433,7 @@ mod tests {
     use crate::{CompilationOptions, CompilationRequest, WorkerBudget};
 
     #[test]
+    #[ignore = "tier:proof"]
     fn validated_boundaries_survive_the_query_cache_working_set() {
         use std::fmt::Write;
         use std::sync::atomic::{AtomicUsize, Ordering};

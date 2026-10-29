@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -22,10 +22,20 @@ pub(super) struct Report {
     pub(super) shards: usize,
     pub(super) preparation_seconds: f64,
     pub(super) execution_seconds: f64,
-    pub(super) budget_seconds: f64,
+    pub(super) reference_target_seconds: f64,
+    pub(super) reference_target_exceeded: bool,
+    pub(super) timeout_seconds: f64,
     pub(super) selected: usize,
     pub(super) success: bool,
     pub(super) tests: Vec<TestTiming>,
+}
+
+impl Report {
+    pub(super) fn finish(&mut self, elapsed: Duration) {
+        self.execution_seconds = elapsed.as_secs_f64();
+        self.reference_target_exceeded = self.execution_seconds > self.reference_target_seconds;
+        self.success &= self.tests.len() == self.selected;
+    }
 }
 
 pub(super) struct Recorder {
@@ -128,7 +138,7 @@ pub(super) fn write(directory: &Path, mut report: Report) -> Result<(), String> 
     }
 
     if !report.success {
-        junit.push_str("<testcase name=\"tier-completion\"><failure message=\"tier failed, exceeded its budget, or did not execute its complete selection, see run.log\"/></testcase>");
+        junit.push_str("<testcase name=\"tier-completion\"><failure message=\"tier failed, exceeded its timeout, or did not execute its complete selection, see run.log\"/></testcase>");
     }
 
     junit.push_str("</testsuite></testsuites>\n");
@@ -153,6 +163,34 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{Recorder, SelectedTest};
+
+    #[test]
+    fn reference_timing_does_not_fail_complete_correct_results() {
+        let mut report = super::Report {
+            schema: 1,
+            tier: "fast".to_owned(),
+            shard: 1,
+            shards: 1,
+            preparation_seconds: 0.0,
+            execution_seconds: 0.0,
+            reference_target_seconds: 1.0,
+            reference_target_exceeded: false,
+            timeout_seconds: 1800.0,
+            selected: 0,
+            success: true,
+            tests: Vec::new(),
+        };
+
+        report.finish(Duration::from_secs(2));
+
+        assert!(report.reference_target_exceeded);
+        assert!(report.success);
+
+        report.selected = 1;
+        report.finish(Duration::from_secs(2));
+
+        assert!(!report.success);
+    }
 
     #[test]
     fn records_split_output_failures_and_should_panic_tests() {

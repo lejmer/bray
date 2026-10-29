@@ -254,6 +254,36 @@ mod tests {
             .expect("production lowering");
 
         checkpoint(&compilation, "lower");
+
+        let before = query_evaluations(&compilation);
+
+        compilation.check_diagnostics();
+
+        compilation
+            .symbol_graph()
+            .expect("cached production symbols");
+
+        compilation
+            .lowered_unit(source_function_body_key(&compilation, "host_access"))
+            .expect("cached production lowering");
+
+        assert_eq!(
+            query_evaluations(&compilation),
+            before,
+            "repeated production demands must perform no additional query evaluations"
+        );
+
+        checkpoint(&compilation, "reuse");
+    }
+
+    fn query_evaluations(compilation: &Compilation) -> u64 {
+        compilation
+            .profile_report()
+            .expect("fixture profiling enabled")
+            .queries
+            .iter()
+            .map(|query| query.evaluations)
+            .sum()
     }
 
     fn checkpoint(compilation: &Compilation, phase: &str) {

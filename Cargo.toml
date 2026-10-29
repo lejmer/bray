@@ -73,8 +73,8 @@ debug = 1
 opt-level = 1
 debug = 1
 
-# Keep edits to orchestration and its large test harness cheap to rebuild.
-[profile.test.package.bray-compilation]
+# The task harness has little analysis work and benefits from cheap rebuilds.
+[profile.test.package.xtask]
 opt-level = 0
 
 # Keep release optimization and its codegen-unit count while enabling incremental reuse.
