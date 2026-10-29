@@ -1,10 +1,10 @@
 use bray_diagnostics::DiagnosticKind;
-use bray_symbols::PackageIdentity;
 
-use crate::test_support::{source_function_body_key, source_input};
-use crate::{Compilation, CompilationRequest};
+use super::fixtures::production_host_compilation;
+use crate::test_support::source_function_body_key;
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_report_consumers_check_their_callback_protocol() {
     let compilation = production_host_compilation("module app;");
 
@@ -64,6 +64,7 @@ fn production_report_consumers_check_their_callback_protocol() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
     for (body, valid) in [
         (
@@ -118,6 +119,7 @@ fn native_report_addresses_retain_authority_only_for_the_unchanged_owner() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
     let compilation = production_host_compilation(
         r#"
@@ -144,6 +146,7 @@ fn raw_typed_incident_headers_do_not_grant_disposal_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn retained_incident_values_require_the_exact_ownership_witness() {
     for (body, valid) in [
         (
@@ -212,6 +215,7 @@ fn retained_incident_values_require_the_exact_ownership_witness() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
     let compilation = production_host_compilation(
         r#"
@@ -235,6 +239,7 @@ fn incident_outcome_destinations_require_distinct_exclusive_borrows() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_nested_bodies_and_contracts_are_checked() {
     let compilation = production_host_compilation("module app;");
 
@@ -297,6 +302,7 @@ fn production_host_nested_bodies_and_contracts_are_checked() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_lease_cannot_claim_preservation_across_fallible_preparation() {
     let compilation = production_host_compilation(
         r#"
@@ -330,6 +336,7 @@ fn production_host_lease_cannot_claim_preservation_across_fallible_preparation()
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_retained_exit_execution_contracts_are_verified() {
     let compilation = production_host_compilation(
         r#"module app;
@@ -362,6 +369,7 @@ using core.target;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_statics_require_mutation_authority() {
     for operation in [
         "core.atomic.store<u64, 2>(&bray.runtime.bootstrap.host.SYNCHRONIZATION, 0);",
@@ -404,6 +412,7 @@ fn production_host_statics_require_mutation_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
     for memory in ["core.memory", "std.memory"] {
         let source = r#"
@@ -450,6 +459,7 @@ fn production_raw_synchronization_pointer_does_not_grant_safe_atomic_access() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn native_exit_authority_is_required_by_actual_production_operations() {
     for (operation, valid) in [
         (
@@ -542,6 +552,7 @@ using std.memory;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn source_attachment_owner_requires_the_native_thread_protocol() {
     for (body, valid) in [
         ("let owner = trusted acquire();", true),
@@ -587,6 +598,7 @@ fn source_attachment_owner_requires_the_native_thread_protocol() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn source_report_chain_requires_unchanged_exclusive_ownership() {
     for (body, valid) in [
         ("let owner = trusted admit(2);", true),
@@ -637,6 +649,7 @@ fn source_report_chain_requires_unchanged_exclusive_ownership() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_owner_transfers_do_not_run_disposal_inside_the_transfer() {
     let compilation = production_host_compilation("module app;");
 
@@ -657,6 +670,7 @@ fn production_owner_transfers_do_not_run_disposal_inside_the_transfer() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_borrow_remains_total() {
     let compilation = production_host_compilation(
         r#"module app;
@@ -684,6 +698,7 @@ using core.target;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_attachment_growth_only_transfers_prepared_backing_under_the_lease() {
     let compilation = production_host_compilation("module app;");
     let key = source_function_body_key(&compilation, "insert_attachment");
@@ -709,6 +724,7 @@ fn production_attachment_growth_only_transfers_prepared_backing_under_the_lease(
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn bootstrap_module_dependencies_do_not_form_export_cycles() {
     let compilation = crate::test_support::compilation(
         "internal module root; using internal root.host;\n\
@@ -722,6 +738,7 @@ fn bootstrap_module_dependencies_do_not_form_export_cycles() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn opaque_attachment_ordinals_complete_without_becoming_pure_observations() {
     for (parameter, result, body) in [
         (
@@ -759,6 +776,7 @@ using core.target;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn callback_reconstruction_requires_the_actual_callable_address_evidence() {
     for (requirement, valid) in [
         (
@@ -813,6 +831,7 @@ func production_probe(pos pointer: FunctionPointer<Callback>) -> Callback
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_authority_cannot_be_constructed_from_fields() {
     let cases = [
         ("let pointer = trusted host_access_pointer(&lease);", None),
@@ -896,6 +915,7 @@ fn production_host_authority_cannot_be_constructed_from_fields() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_report_pool_mutation_requires_protocol_authority() {
     for operation in [
         "let mut guard = trusted bray.runtime.bootstrap.pool.lock(); let pool = guard.get(); pool.credits = 0; pool.free = 1;",
@@ -924,6 +944,7 @@ fn production_report_pool_mutation_requires_protocol_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
     for operation in [
         "let prepared = trusted prepare_host_storage();",
@@ -954,6 +975,7 @@ fn production_host_partial_lifecycle_cannot_escape_the_complete_operation() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_attachment_scan_keeps_its_returned_mutable_borrow_live() {
     let compilation = production_host_compilation("module app;");
     let key = source_function_body_key(&compilation, "find_attachment");
@@ -980,6 +1002,7 @@ fn production_attachment_scan_keeps_its_returned_mutable_borrow_live() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_exit_completion_validates_its_producer_and_total_retirement() {
     let compilation = production_host_compilation("module app;");
 
@@ -1021,6 +1044,7 @@ fn production_exit_completion_validates_its_producer_and_total_retirement() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_lease_destructor_checks_and_remains_total() {
     let compilation = production_host_compilation("module app;");
 
@@ -1061,6 +1085,7 @@ fn production_lease_destructor_checks_and_remains_total() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
     let compilation = production_host_compilation("module app;");
 
@@ -1088,6 +1113,7 @@ fn production_selected_exit_destructor_checks_its_mandatory_cleanup() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
     for (body, expected) in [
         ("let moved = completed;", None),
@@ -1134,6 +1160,7 @@ fn production_retirement_owner_preserves_its_frozen_row_and_lock() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
     for (operation, cleans_up) in [
         ("trusted core.target.abort();", false),
@@ -1214,6 +1241,7 @@ fn catastrophic_abort_skips_lease_cleanup_without_continuing() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_shutdown_owner_uses_ordinary_completion_rules() {
     for (parameter, condition, body, valid) in [
         ("ShutdownOwner", "true", "", false),
@@ -1269,6 +1297,7 @@ fn production_shutdown_owner_uses_ordinary_completion_rules() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn owned_exit_witnesses_move_into_their_consuming_operation() {
     let compilation = crate::test_support::compilation(
         r#"
@@ -1289,6 +1318,7 @@ fn owned_exit_witnesses_move_into_their_consuming_operation() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_ones() {
     for (body, valid) in [
         (
@@ -1339,6 +1369,7 @@ fn execution_domains_use_live_witnesses_without_accepting_fabricated_or_stale_on
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn completion_witnesses_require_proven_preservation_across_calls() {
     for (body, valid) in [
         ("", true),
@@ -1393,6 +1424,7 @@ fn completion_witnesses_require_proven_preservation_across_calls() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn closing_epoch_authority_cannot_be_copied_from_internal_fields() {
     for (body, valid) in [
         ("", true),
@@ -1445,6 +1477,7 @@ using core.atomic;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
     for (body, valid) in [
         (
@@ -1510,6 +1543,7 @@ fn cleanup_registration_requires_the_prepared_owner_and_exact_slot_lease() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
     for (body, valid) in [
         ("", true),
@@ -1552,6 +1586,7 @@ fn inactive_exit_authority_requires_the_unchanged_whole_owner() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn a_live_payload_borrow_preserves_only_its_enclosing_projection() {
     for (body, valid) in [
         ("poke(payload); payload.second = 3;", true),
@@ -1595,6 +1630,7 @@ fn a_live_payload_borrow_preserves_only_its_enclosing_projection() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
     for (body, valid) in [
         (
@@ -1670,6 +1706,7 @@ fn total_indexing_requires_a_live_bound_on_the_selected_sequence() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
     for body in [
         "return &mut values[index];",
@@ -1704,6 +1741,7 @@ fn total_indexing_preserves_bounds_across_optional_borrow_initialization() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn total_loop_bounds_keep_the_evaluated_condition_across_iterations() {
     let compilation = production_host_compilation(
         r#"
@@ -1741,6 +1779,7 @@ fn total_loop_bounds_keep_the_evaluated_condition_across_iterations() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn total_record_scans_require_a_bounded_unaliased_counter() {
     for (guard, body, increment, valid) in [
         ("index < count", "", "index += 1;", true),
@@ -1804,197 +1843,8 @@ fn total_record_scans_require_a_bounded_unaliased_counter() {
     }
 }
 
-pub(in crate::compilation) fn production_host_compilation(caller: &str) -> Compilation {
-    production_host_compilation_for_target(caller, crate::SelectedTarget::baseline())
-}
-
-pub(in crate::compilation) fn production_host_compilation_for_target(
-    caller: &str,
-    target: crate::SelectedTarget,
-) -> Compilation {
-    let sources = [
-        include_str!("../../../../../standard-library/std/src/std.bray"),
-        include_str!("../../../../../standard-library/std/src/numeric/policy.bray"),
-        include_str!("../../../../../standard-library/std/src/memory/pointer.bray"),
-        include_str!("../../../../../standard-library/std/src/memory/storage.bray"),
-        include_str!("../../../../../standard-library/std/src/memory/allocation.bray"),
-        include_str!("../../../../../standard-library/std/src/numeric/limits.bray"),
-        include_str!("../../../../../standard-library/std/src/memory/buffer.bray"),
-        include_str!("../../../../../standard-library/std/src/memory/function.bray"),
-        include_str!("../../../../../standard-library/std/src/platform.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/entry.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/entry/protocol.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/entry/bridge/address.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/abi.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/admission.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/cleanup.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/control.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/execution.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/formation.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/operations.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/owner.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/progress.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/state.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/storage.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/thread_domain.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/thread_cleanup.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/product/thread_registration.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/owner.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/access.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/attachment.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/attachment/entry.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/attachment/acquisition.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/attachment/exit.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/attachment/cleanup.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/bootstrap.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/pool.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/pool/access.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/pool/growth.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/record_pool.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/records.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/panic.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report/transfer.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report/chain.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report/consumer.bray"),
-        include_str!("../../../../../standard-library/std/src/sync.bray"),
-        include_str!("../../../../../standard-library/std/src/sync/spin_lock.bray"),
-        include_str!("../../../../../standard-library/std/src/sync/spin_lock/state.bray"),
-        include_str!("../../../../../standard-library/std/src/sync/tickets.bray"),
-        include_str!("../../../../../standard-library/std/src/sync/spin_lock/lock.bray"),
-        include_str!("../../../../../standard-library/std/src/sync/spin_lock/guard.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/thread.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/thread/destruction.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/thread/destruction/common.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/thread/destruction/unix.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/thread/destruction/windows.bray"),
-        include_str!("../../../../../standard-library/std/src/thread.bray"),
-        include_str!("../../../../../standard-library/std/src/thread/boundary.bray"),
-        include_str!("../../../../../standard-library/std/src/thread/windows.bray"),
-        include_str!("../../../../../standard-library/std/src/thread/unix.bray"),
-        include_str!("../../../../../standard-library/std/src/thread/linux.bray"),
-        include_str!("../../../../../standard-library/std/src/thread/darwin.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/status.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/representation.bray"),
-        include_str!("../../../../../standard-library/std/src/time/units.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/linux.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/darwin.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/windows.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/memory/heap.bray"),
-        include_str!("../../../../../standard-library/std/src/runtime/memory.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/heap.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/heap/windows.bray"),
-        include_str!("../../../../../standard-library/std/src/platform/heap/unix.bray"),
-        include_str!("../../../../../standard-library/std/src/os/windows.bray"),
-        include_str!("../../../../../standard-library/std/src/os.bray"),
-        include_str!("../../../../../standard-library/std/src/os/unix.bray"),
-        include_str!("../../../../../standard-library/std/src/os/unix/thread.bray"),
-        include_str!("../../../../../standard-library/std/src/os/unix/linux.bray"),
-        include_str!("../../../../../standard-library/std/src/os/unix/darwin.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/host/synchronization.bray"),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/x86_64_pc_windows_msvc.bray"
-        ),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/aarch64_pc_windows_msvc.bray"
-        ),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/x86_64_unknown_linux_gnu.bray"
-        ),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/aarch64_unknown_linux_gnu.bray"
-        ),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/x86_64_apple_darwin.bray"
-        ),
-        include_str!(
-            "../../../../../standard-library/std/src/os/generated/aarch64_apple_darwin.bray"
-        ),
-        include_str!("../../../../../runtime/bootstrap/src/report/output.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report/incident.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/report/sink.bray"),
-        include_str!("../../../../../standard-library/std/src/io.bray"),
-        include_str!("../../../../../standard-library/std/src/io/platform.bray"),
-        include_str!("../../../../../standard-library/std/src/io/windows.bray"),
-        include_str!("../../../../../standard-library/std/src/io/unix.bray"),
-        caller,
-        include_str!("../../../../../runtime/bootstrap/src/activation/data.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/completion.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/provider.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/abandonment.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/access.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/advance.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/completion.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/entry.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/retirement.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/run/step.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/storage.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/access.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/inactive.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/transition.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/composition.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/callback.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/execution.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/execution/access.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/execution/invoke.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/execution/outcome.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/requirements.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/inactive.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/active.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/activation/requirements/state.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/storage/data.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/storage/admission.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/storage/activation.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/storage/boundary.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/storage/bundle.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/outgoing/admission.bray"),
-        include_str!("../../../../../runtime/bootstrap/src/outgoing/activation.bray"),
-    ];
-
-    let request = CompilationRequest::with_options(
-        PackageIdentity::try_new("std").expect("standard library identity must be valid"),
-        sources
-            .iter()
-            .enumerate()
-            .map(|(index, source)| {
-                source_input(
-                    source,
-                    u32::try_from(index).expect("host source index must fit"),
-                )
-            })
-            .collect(),
-        crate::CompilationOptions::new(
-            crate::WorkerBudget::serial(),
-            bray_symbols::ProductKind::Library,
-            target,
-        )
-        .with_native_link_inputs(["c", "pthread", "Kernel32", "bray_runtime_host"].map(
-            |name| {
-                bray_symbols::NativeLinkRequirement::new(
-                    bray_base::NonEmptySharedStr::try_new(name).expect("native test library name"),
-                    bray_symbols::NativeLinkKind::System,
-                )
-            },
-        )),
-    )
-    .with_standard_library_source_authority();
-
-    let compilation =
-        Compilation::load(request).expect("actual production host declarations must load");
-
-    assert!(
-        !compilation.syntax_tree_result().diagnostics().has_errors(),
-        "actual bootstrap module declarations must parse: {:?}",
-        compilation.syntax_tree_result().diagnostics()
-    );
-
-    compilation
-}
-
 #[test]
+#[ignore = "tier:proof"]
 fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
     for (body, valid) in [
         ("trusted deallocate_bytes(pointer, 64, align = 32);", true),
@@ -2046,6 +1896,7 @@ fn cleanup_backing_requires_the_live_allocation_and_its_exact_layout() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_storage_lease_requires_admission_evidence() {
     for (admission, body, valid) in [
         (true, "let status = trusted retire(pointer);", true),
@@ -2118,6 +1969,7 @@ fn production_storage_lease_requires_admission_evidence() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_storage_boundaries_prove_their_declared_memory_effects() {
     let compilation = production_host_compilation("module probe;");
     let mut failures = Vec::new();
@@ -2191,6 +2043,7 @@ fn production_storage_boundaries_prove_their_declared_memory_effects() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
     for (body, valid) in [
         (
@@ -2245,6 +2098,7 @@ fn activation_cursor_fields_do_not_create_or_repair_selection_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_tokens_require_both_producer_and_entry_authority() {
     for (requirements, valid) in [
         ("", false),
@@ -2297,6 +2151,7 @@ fn activation_tokens_require_both_producer_and_entry_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_publication_requires_the_exact_producer_witness() {
     for (requirements, expression, valid) in [
         ("", "token", false),
@@ -2351,6 +2206,7 @@ fn activation_publication_requires_the_exact_producer_witness() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_dispatch_requires_exact_native_ownership() {
     for (requirements, valid) in [
         ("", false),
@@ -2407,6 +2263,7 @@ fn activation_dispatch_requires_exact_native_ownership() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn native_activation_requires_producer_and_exact_entry_authority() {
     for (requirements, valid) in [
         (
@@ -2476,6 +2333,7 @@ fn native_activation_requires_producer_and_exact_entry_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn native_activation_dispatch_requires_both_exact_callback_addresses() {
     for (requirement, valid) in [
         ("", false),
@@ -2552,6 +2410,7 @@ fn native_activation_dispatch_requires_both_exact_callback_addresses() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_retirement_does_not_preserve_dispatch_ownership() {
     for (operation, valid) in [(0, true), (5, false)] {
         let caller = format!(
@@ -2601,6 +2460,7 @@ fn activation_retirement_does_not_preserve_dispatch_ownership() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_deferred_retirement_preserves_dispatch_ownership() {
     let compilation = production_host_compilation(
         r#"
@@ -2645,6 +2505,7 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_callback_requires_one_exact_authorized_invocation() {
     for (execution, descriptor, context, operation, argument, progress, records, repeat, valid) in [
         (
@@ -2813,6 +2674,7 @@ fn activation_callback_requires_one_exact_authorized_invocation() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_retirement_requires_retained_native_destinations() {
     for (requirement, valid) in [
         ("", false),
@@ -2893,6 +2755,7 @@ fn activation_retirement_requires_retained_native_destinations() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn inactive_inspection_requires_retained_exact_owner_and_output() {
     for (producer, owner, output, valid) in [
         (false, "pointer", "output", false),
@@ -2956,6 +2819,7 @@ fn inactive_inspection_requires_retained_exact_owner_and_output() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
     for (owner, valid) in [("", false), ("token", true), ("other", false)] {
         let ownership = if owner.is_empty() {
@@ -3010,6 +2874,7 @@ fn metadata_inspection_cannot_infer_exclusive_ownership_from_a_producer() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
     for (owner, retained, output, valid) in [
         ("", "pointer", "output", false),
@@ -3074,6 +2939,7 @@ fn active_snapshot_requires_exact_dispatch_ownership_and_retained_output() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn composition_requires_the_exact_parent_token_continuation_and_origin() {
     for (parent, token, state, origin, destination, abandoning, valid) in [
         ("parent", "token", "state", "origin", "destination", 0, true),
@@ -3180,6 +3046,7 @@ fn composition_requires_the_exact_parent_token_continuation_and_origin() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_completion_requires_the_exact_admitted_destination() {
     for (requirement, valid) in [
         ("", false),
@@ -3244,6 +3111,7 @@ fn activation_completion_requires_the_exact_admitted_destination() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows() {
     let mut failures = Vec::new();
 
@@ -3292,6 +3160,7 @@ fn activation_header_access_retains_ownership_and_excludes_overlapping_borrows()
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
     for (authority, valid) in [
         ("", false),
@@ -3352,6 +3221,7 @@ fn inactive_cursor_requires_the_exact_native_token_and_outcome_pair() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn inactive_cleanup_retains_only_its_independent_native_destination() {
     for (authority, valid) in [
         ("", false),

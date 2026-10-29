@@ -869,18 +869,16 @@ impl Lowerer<'_> {
             );
         };
 
-        let decision = self.storage_decision(id.into(), |purpose| {
-            purpose == StorageAccessPurpose::Write
-        });
+        let decision =
+            self.storage_decision(id.into(), |purpose| purpose == StorageAccessPurpose::Write);
 
-        let (current, destination) = match self.lower_access_place(
-            *destination_id,
-            decision.access(),
-            current,
-        )? {
-            super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
-            super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
-        };
+        let (current, destination) =
+            match self.lower_access_place(*destination_id, decision.access(), current)? {
+                super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
+                super::super::access::LoweredPlace::Terminated(completion) => {
+                    return Ok(completion);
+                }
+            };
 
         let compound = operator.binary_operator().map(|operator| {
             let (selection, result_type) = self.selected_operator_operation(id);

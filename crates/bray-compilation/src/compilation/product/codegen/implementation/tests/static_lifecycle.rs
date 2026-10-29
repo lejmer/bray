@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:native"]
 fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     let source = concat!(
         "module app;\n",
@@ -127,6 +128,7 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn shared_libraries_own_hosts_while_archives_contribute_storage() {
     let source = r#"
             module app;
@@ -186,6 +188,7 @@ fn shared_libraries_own_hosts_while_archives_contribute_storage() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn shared_library_runtime_roles_do_not_require_static_storage() {
     let source = r#"
             module app;
@@ -222,6 +225,7 @@ fn shared_library_runtime_roles_do_not_require_static_storage() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn shared_library_tls_retains_only_demanded_worker_execution() {
     let source = r#"
         module app;
@@ -263,6 +267,7 @@ fn shared_library_tls_retains_only_demanded_worker_execution() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn public_library_static_contributes_a_linked_host_table_entry() {
     let source = concat!(
         "module app;\n",
@@ -315,6 +320,7 @@ fn public_library_static_contributes_a_linked_host_table_entry() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn private_lifecycle_static_is_a_retained_product_root() {
     let source = concat!(
         "module app;\n",
@@ -401,6 +407,7 @@ fn private_lifecycle_static_is_a_retained_product_root() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_mapping_retains_selected_lifecycle_helpers() {
     let source = concat!(
         "module app;\n",
@@ -459,6 +466,7 @@ fn static_mapping_retains_selected_lifecycle_helpers() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_admission_counts_repeated_constant_owners() {
     let (_, plan) = runtime_native_plan(
         r#"
@@ -485,6 +493,7 @@ fn static_admission_counts_repeated_constant_owners() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_host_orders_dependencies_reached_only_by_finalization() {
     for finalizer in ["", "impl Provider { finalize() {} }\n"] {
         let source = concat!(
@@ -543,6 +552,7 @@ fn static_host_orders_dependencies_reached_only_by_finalization() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn static_mapping_retains_asynchronous_fallible_finalizer() {
     let source = concat!(
         "module app;\n",
@@ -641,6 +651,7 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn fallible_static_admission_retains_resolution_backing_after_lifecycle_discharge() {
     let source = concat!(
         "module app;\n",
@@ -683,11 +694,20 @@ fn fallible_static_admission_retains_resolution_backing_after_lifecycle_discharg
         .0;
 
     assert!(callback.contains("switch i32"), "{callback}");
-    assert_eq!(callback.matches("@bray_runtime_outgoing_admission").count(), 1);
-    assert_eq!(callback.matches("@bray_runtime_outgoing_discharge").count(), 2);
+
+    assert_eq!(
+        callback.matches("@bray_runtime_outgoing_admission").count(),
+        1
+    );
+
+    assert_eq!(
+        callback.matches("@bray_runtime_outgoing_discharge").count(),
+        2
+    );
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn generic_static_failure_uses_its_selected_overaligned_requirement() {
     for (alignment, artifact) in [
         (64, bray_codegen::BackendArtifactKind::RelocatableObject),
@@ -759,6 +779,7 @@ fn generic_static_failure_uses_its_selected_overaligned_requirement() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() {
     for destructor in ["", "panic(\"destruction failed\");"] {
         let source = r#"

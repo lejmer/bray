@@ -754,6 +754,7 @@ mod tests {
     };
 
     #[test]
+    #[ignore = "tier:proof"]
     fn emission_reuses_demanded_source_outputs_beyond_the_query_cache_working_set() {
         use std::fmt::Write;
         use std::sync::Arc;

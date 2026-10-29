@@ -14,6 +14,7 @@ use bray_symbols::{ConstantTermData, ConstantValueKind, GenericArgument};
 use std::collections::BTreeSet;
 
 #[test]
+#[ignore = "tier:native"]
 fn scalar_and_nullable_branches_prune_native_demand_only_when_enabled() {
     let (_, compilation) = codegen_compilation(concat!(
         "module app;\n",
@@ -135,6 +136,7 @@ fn scalar_and_nullable_branches_prune_native_demand_only_when_enabled() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn numeric_constant_branch_removes_its_native_dependency() {
     let (_, compilation) = codegen_compilation(concat!(
         "module app;\n",
@@ -215,6 +217,7 @@ fn numeric_constant_branch_removes_its_native_dependency() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn repeated_scalar_expression_uses_one_dominating_result() {
     let (_, compilation) = codegen_compilation(concat!(
         "module app;\n",
@@ -294,6 +297,7 @@ fn repeated_scalar_expression_uses_one_dominating_result() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
     let mut source = String::from("module app;\nfunc main() -> i32 {\n");
 
@@ -366,6 +370,7 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_division_by_zero_remains_in_optimized_mir() {
     let (_, compilation) = codegen_compilation(concat!(
         "module app;\n",
@@ -421,6 +426,7 @@ fn runtime_division_by_zero_remains_in_optimized_mir() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn unknown_join_and_loop_values_keep_reachable_calls() {
     let (_, compilation) = codegen_compilation(concat!(
         "module app;\n",
@@ -485,6 +491,7 @@ fn unknown_join_and_loop_values_keep_reachable_calls() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn generic_scalar_branches_follow_each_concrete_substitution() {
     let source = concat!(
         "module app;\n",
@@ -560,6 +567,7 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_constant_prunes_its_transitive_native_dependency() {
     let dependency = generic_dependency_from_fixture(
         true,
@@ -645,6 +653,7 @@ fn imported_generic_constant_prunes_its_transitive_native_dependency() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
     let dependency = generic_dependency_from_fixture(
         true,

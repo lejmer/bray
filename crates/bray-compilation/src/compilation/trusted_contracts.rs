@@ -9,7 +9,10 @@ mod tests;
 mod host_tests;
 
 #[cfg(test)]
-pub(in crate::compilation) use host_tests::{
+mod fixtures;
+
+#[cfg(test)]
+pub(in crate::compilation) use fixtures::{
     production_host_compilation, production_host_compilation_for_target,
 };
 

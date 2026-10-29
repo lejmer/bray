@@ -26,6 +26,7 @@ mod runtime_artifact;
 mod source_format;
 mod standard_library;
 mod style;
+mod testing;
 mod text;
 mod validation_process;
 mod windows_crt;

@@ -37,6 +37,7 @@ const SCALAR_COMPARISON_CALL_SOURCE: &str = concat!(
 );
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_templates_specialize_with_private_helpers_in_the_consumer() {
     let compilation = generic_consumer(generic_dependency(true));
 
@@ -139,6 +140,7 @@ fn imported_generic_templates_specialize_with_private_helpers_in_the_consumer() 
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_platform_service_templates_retain_their_role_during_specialization() {
     let role = PlatformServiceRole::StandardOutputFlush;
 
@@ -228,6 +230,7 @@ public func invoke<T>(pos value: T)
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn scalar_comparison_callable_is_lowered_as_native_intrinsic() {
     assert_source_emits_valid_native_units(
         SCALAR_COMPARISON_CALL_SOURCE,
@@ -236,6 +239,7 @@ fn scalar_comparison_callable_is_lowered_as_native_intrinsic() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_trait_default_bodies_specialize_with_the_consumer_implementation() {
     let compilation = generic_consumer_for_target_with_source(
         trait_default_dependency(),
@@ -292,6 +296,7 @@ fn imported_trait_default_bodies_specialize_with_the_consumer_implementation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_template_families_merge_protected_frame_requirements() {
     let compilation = async_generic_consumer(generic_async_dependency());
 
@@ -361,6 +366,7 @@ fn imported_generic_template_families_merge_protected_frame_requirements() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_completed_results_retain_concrete_cleanup_lanes() {
     let compilation = generic_consumer_for_target_with_source(
         generic_async_dependency(),
@@ -472,6 +478,7 @@ fn imported_completed_results_retain_concrete_cleanup_lanes() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_templates_are_shared_by_concurrent_requests() {
     let compilation = generic_consumer(generic_dependency(true));
     let address = imported_nested_template_address(&compilation);
@@ -518,6 +525,7 @@ fn imported_generic_templates_are_shared_by_concurrent_requests() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_executable_templates_reject_a_different_target_contract() {
     let compilation = generic_consumer_for_target(
         generic_dependency(true),
@@ -545,6 +553,7 @@ fn imported_executable_templates_reject_a_different_target_contract() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn malformed_imported_executable_templates_publish_dependency_diagnostics() {
     let compilation = generic_consumer(generic_dependency_with_templates(true, true));
 
@@ -569,6 +578,7 @@ fn malformed_imported_executable_templates_publish_dependency_diagnostics() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_body_without_an_implementation_template_is_diagnosed() {
     let compilation = generic_consumer(generic_dependency(false));
 
@@ -860,6 +870,7 @@ fn imported_nested_template_address(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_generic_destructors_retain_their_receiver_continuations() {
     let dependency = generic_dependency_from_fixture(
         true,

@@ -17,6 +17,7 @@ use bray_testing::TemporaryFile;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:native"]
 fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
     let (_, compilation) = codegen_compilation(include_str!(
         "../../../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
@@ -93,6 +94,7 @@ fn runtime_native_plan_with_source_roles(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_runtime_defaults_coalesce_with_consumer_generated_bodies() {
     let (backend, plan) = runtime_native_plan_for_product(
         "module app; public func answer(pos value: i32 = 42) -> i32 { return value; }",
@@ -138,6 +140,7 @@ fn library_runtime_defaults_coalesce_with_consumer_generated_bodies() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_source_imports_share_generated_runtime_calls() {
     let source = r#"
             trusted module app;
@@ -186,6 +189,7 @@ fn runtime_source_imports_share_generated_runtime_calls() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
     let source = concat!(
         "trusted module app;\n",
@@ -237,6 +241,7 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn bootstrap_identity_entries_contain_abnormal_exits_without_attaching() {
     for target in bray_target::NativeTarget::ALL {
         for body in [
@@ -305,6 +310,7 @@ fn bootstrap_identity_entries_contain_abnormal_exits_without_attaching() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn bootstrap_status_entries_contain_body_failures_without_attaching() {
     for target in bray_target::NativeTarget::ALL {
         for body in [
@@ -449,6 +455,7 @@ fn bootstrap_status_cancellation_returns_native_failure_without_reporting_a_pani
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_static_with_inactive_represented_children_emits_its_accessor() {
     let source = r#"trusted module app;
 
@@ -521,6 +528,7 @@ trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity:
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
     let source = r#"trusted module app;
 
@@ -603,6 +611,7 @@ trusted internal func initialize(pos worker_capacity: usize, pos timer_capacity:
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_atomic_word_calls_survive_generic_specialization() {
     let source = r#"
         module app;
@@ -662,6 +671,7 @@ fn native_atomic_word_calls_survive_generic_specialization() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn native_atomic_word_production_source_bindings_export() {
     use crate::test_support::source_input;
     use crate::{Compilation, CompilationOptions, CompilationRequest};

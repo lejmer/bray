@@ -151,6 +151,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn every_native_target_produces_its_exact_codegen_contract() {
         for native in NativeTarget::ALL {
             let selected = SelectedTarget::for_native(native);

@@ -27,6 +27,7 @@ use std::fs;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn native_products_allow_platform_runtime_dependencies() {
     for target in NativeTarget::ALL {
         assert_eq!(
@@ -38,6 +39,7 @@ fn native_products_allow_platform_runtime_dependencies() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn source_authority_selects_native_provider_units_and_flags() {
     let directory = tempfile::tempdir().expect("temporary fixture directory must be created");
     let selected = SelectedTarget::baseline();

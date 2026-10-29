@@ -37,6 +37,7 @@ const DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE: &str = concat!(
 );
 
 #[test]
+#[ignore = "tier:native"]
 fn synchronous_i32_executable_hosts_emit_native_units() {
     let backend = Arc::new(
         bray_codegen_llvm::LlvmCodeGenerator::try_new()
@@ -164,6 +165,7 @@ fn synchronous_i32_executable_hosts_emit_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn borrowed_literal_identity_remains_reachable_for_every_representation() {
     let (_, compilation) = codegen_compilation_for_product(
         concat!(
@@ -216,6 +218,7 @@ fn borrowed_literal_identity_remains_reachable_for_every_representation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn inlined_callee_parameter_remains_valid_across_blocks() {
     assert_source_emits_valid_native_units(
         concat!(
@@ -235,6 +238,7 @@ fn inlined_callee_parameter_remains_valid_across_blocks() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn borrowed_union_patterns_emit_valid_native_units() {
     assert_source_emits_valid_native_units(
         concat!(
@@ -254,6 +258,7 @@ fn borrowed_union_patterns_emit_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn indexed_static_accesses_emit_valid_native_units() {
     assert_source_emits_valid_native_units(
         r#"module app;
@@ -272,6 +277,7 @@ public trusted func read() -> usize
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn aggregate_static_borrows_emit_valid_native_units_in_either_declaration_order() {
     let types = r#"
             module app;
@@ -306,6 +312,7 @@ fn aggregate_static_borrows_emit_valid_native_units_in_either_declaration_order(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_aggregate_static_borrows_emit_valid_native_units() {
     let dependency = generic_dependency_from_fixture(
         true,
@@ -401,6 +408,7 @@ fn imported_aggregate_static_borrows_emit_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn aggregate_static_relocation_preserves_native_export_names() {
     let source = r#"
             module app;
@@ -441,6 +449,7 @@ fn aggregate_static_relocation_preserves_native_export_names() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn never_calls_in_typed_return_paths_emit_valid_native_units() {
     assert_source_emits_valid_native_units(
         r#"trusted module app;
@@ -465,6 +474,7 @@ public trusted func select(pos terminate_now: bool) -> u64
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_execution_guarantees_emit_native_units() {
     let dependency = generic_dependency_from_fixture(
         true,
@@ -522,6 +532,7 @@ fn imported_execution_guarantees_emit_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn weakened_callable_execution_contract_emits_native_units() {
     assert_source_emits_valid_native_units(
         r#"
@@ -546,6 +557,7 @@ fn weakened_callable_execution_contract_emits_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn explicit_generic_tuple_expectations_reach_direct_callable_elements() {
     let _ = codegen_compilation_for_product(
         DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE,
@@ -554,6 +566,7 @@ fn explicit_generic_tuple_expectations_reach_direct_callable_elements() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn concrete_literal_array_length_reaches_native_codegen() {
     let source = r#"
             module app;
@@ -586,6 +599,7 @@ fn concrete_literal_array_length_reaches_native_codegen() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn compile_only_emission_preserves_specialized_cleanup_mir() {
     let source = r#"
             module app;
@@ -684,6 +698,7 @@ fn compile_only_emission_preserves_specialized_cleanup_mir() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn tuple_destructuring_projects_each_initializer_field_once() {
     let (_, compilation) = codegen_compilation_for_product(
         concat!(
@@ -732,6 +747,7 @@ fn tuple_destructuring_projects_each_initializer_field_once() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn returned_padded_tuple_destructuring_preserves_the_aggregate_payload() {
     let (backend, compilation) = codegen_compilation_for_product(
         r#"
@@ -802,6 +818,7 @@ public func update(pos records: Records) -> Records
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn constant_slice_places_emit_valid_native_units() {
     for body in [
         "return value[0];",
@@ -816,6 +833,7 @@ fn constant_slice_places_emit_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn predicate_complement_preserves_the_declared_integer_width() {
     for (ty, bits) in [
         ("u8", 8),
@@ -855,6 +873,7 @@ fn predicate_complement_preserves_the_declared_integer_width() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn predicate_power_handles_zero_and_one_bit_counts_without_full_width_shifts() {
     for maximum in [0, 1, 2, 64] {
         let source = format!(
@@ -885,6 +904,7 @@ fn predicate_power_handles_zero_and_one_bit_counts_without_full_width_shifts() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn predicate_signed_complement_preserves_exact_intermediates() {
     for (ty, bits, maximum) in [
         ("i8", 8, i64::from(i8::MAX)),
@@ -919,6 +939,7 @@ fn predicate_signed_complement_preserves_exact_intermediates() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn closed_array_extents_reach_native_layout_and_cleanup() {
     let source = r#"
         module app;

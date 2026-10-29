@@ -68,6 +68,15 @@ unwrap_used = "deny"
 [profile.dev.package.bray-compilation]
 debug = 1
 
+# Compiler behavior tests exercise substantial analyses. Keep the local test loop optimized.
+[profile.test]
+opt-level = 1
+debug = 1
+
+# The task harness has little analysis work and benefits from cheap rebuilds.
+[profile.test.package.xtask]
+opt-level = 0
+
 # Keep release optimization and its codegen-unit count while enabling incremental reuse.
 [profile.tooling]
 inherits = "release"

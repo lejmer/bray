@@ -17,6 +17,7 @@ use super::fixtures::{
 };
 
 #[test]
+#[ignore = "tier:proof"]
 fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
     use std::fmt::Write;
     use std::sync::atomic::{AtomicUsize, Ordering};

@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::fs;
 
 #[test]
+#[ignore = "tier:native"]
 fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
     let source = concat!(
         "module app;\n",
@@ -163,6 +164,7 @@ const FALLBACK_LIBRARY_SOURCE: &str = r#"
         "#;
 
 #[test]
+#[ignore = "tier:native"]
 fn ordinary_library_fallback_publication_is_exact() {
     let source = FALLBACK_LIBRARY_SOURCE;
 
@@ -256,6 +258,7 @@ fn ordinary_library_fallback_publication_is_exact() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
     let target = NativeTarget::X86_64MacOs;
 
@@ -381,6 +384,7 @@ fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_publication_preserves_named_native_dependencies() {
     for callable in [false, true] {
         let mut source = String::from("trusted module app;\n");
@@ -477,6 +481,7 @@ fn library_publication_preserves_named_native_dependencies() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn optional_native_storage_keeps_unrelated_library_exports_exact() {
     let source = r#"
             trusted module app;
@@ -569,6 +574,7 @@ fn optional_native_storage_keeps_unrelated_library_exports_exact() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() {
     let source = FALLBACK_LIBRARY_SOURCE;
 

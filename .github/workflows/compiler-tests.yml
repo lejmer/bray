@@ -1,0 +1,69 @@
+name: Compiler tests
+
+on:
+  pull_request:
+  schedule:
+    - cron: '23 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compiler-tests-${{ github.ref }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'full' || 'fast' }}
+  cancel-in-progress: true
+
+jobs:
+  compiler-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-workspace-crates: true
+          cache-on-failure: true
+      - uses: actions/cache@v4
+        with:
+          path: target/toolchains/llvm/downloads
+          key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json') }}
+      - run: cargo llvm fetch
+      - name: Prepare compiler tests and runner in the same profile
+        id: prepare
+        run: |
+          cargo test -p bray-compilation --no-run
+          cargo build --profile test --bin xtask
+      - name: Report fast compiler reference timing
+        run: cargo run --profile test --bin xtask -- test compiler
+      - name: Run native compiler integration coverage
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
+        run: cargo run --profile test --bin xtask -- test compiler --tier native
+      - name: Run nightly or manual proof and exhaustive coverage
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        shell: bash
+        run: |
+          status=0
+          for tier in proof exhaustive; do
+            processes=()
+            for shard in 1 2 3 4; do
+              cargo run --profile test --bin xtask -- test compiler --tier "$tier" --shard "$shard/4" &
+              processes+=("$!")
+            done
+            for process in "${processes[@]}"; do
+              wait "$process" || status=1
+            done
+          done
+          exit "$status"
+      - name: Retain selection, timing, phase, and failure reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiler-test-reports
+          path: target/compiler-tests/
+          if-no-files-found: error

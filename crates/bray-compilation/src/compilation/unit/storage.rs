@@ -305,6 +305,7 @@ mod tests {
     use crate::test_support::{compilation, source_function_body_key};
 
     #[test]
+    #[ignore = "tier:proof"]
     fn dense_scalar_assignments_retain_only_current_storage() {
         for count in [64, 128, 256, 1024] {
             let mut source = String::from(
@@ -349,6 +350,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn moved_cleanup_free_values_retain_only_current_storage() {
         for count in [64, 128, 256, 1024] {
             for partial in [false, true] {
@@ -600,6 +602,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn unused_scalar_locals_retain_bounded_storage() {
         for count in [64, 128, 256, 1024] {
             let mut source = String::from(
@@ -642,6 +645,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn unused_scalar_parameters_do_not_enter_flow_state() {
         for count in [64, 128, 256, 1024] {
             let mut source = String::from("module example;\nfunc caller(\n");
@@ -799,6 +803,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn optionally_used_scalar_locals_expire_on_skipped_paths() {
         for count in [64, 128, 256, 1024] {
             for short_circuit in [false, true] {
@@ -854,6 +859,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn failed_call_inputs_expire_on_caught_paths() {
         for count in [64, 128, 256] {
             let mut source = String::from(
@@ -922,6 +928,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn discarded_borrow_results_release_their_scalar_owners() {
         for count in [64, 128, 256, 1024] {
             let mut source = String::from(

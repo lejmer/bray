@@ -559,6 +559,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn production_exit_moves_keep_the_existing_cleanup_allowance() {
         let compilation = crate::compilation::trusted_contracts::production_host_compilation(
             r#"
@@ -663,6 +664,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn retained_exit_read_transfers_its_allowance() {
         let declarations = "trusted internal module bray.runtime.bootstrap.host;";
 
@@ -830,6 +832,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn host_formation_prepares_without_cleanup_admission() {
         let compilation =
             crate::compilation::trusted_contracts::production_host_compilation("module app;");
@@ -878,6 +881,7 @@ async func abandon(pos owner: Owner) { panic("body"); }
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn production_host_lease_has_empty_outgoing_capacity() {
         let compilation = crate::compilation::trusted_contracts::production_host_compilation(
             r#"

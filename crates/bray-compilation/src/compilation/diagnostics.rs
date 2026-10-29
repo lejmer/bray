@@ -912,6 +912,7 @@ func main() {}
     }
 
     #[test]
+    #[ignore = "tier:proof"]
     fn diagnostics_share_body_work_beyond_the_query_cache_working_set() {
         use std::fmt::Write;
         use std::sync::atomic::{AtomicUsize, Ordering};

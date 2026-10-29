@@ -59,18 +59,48 @@ impl Write for Capture {
     }
 }
 
+struct ObservedCapture<'a> {
+    capture: &'a mut Capture,
+    observe: &'a mut dyn FnMut(&[u8]),
+}
+
+impl Write for ObservedCapture<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        let start = self.capture.bytes.len();
+        let written = self.capture.write(bytes)?;
+
+        // Observers obey the same capture bound, including output without newlines.
+        (self.observe)(&self.capture.bytes[start..]);
+
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.capture.flush()
+    }
+}
+
 pub(crate) fn output(command: Exec, timeout: Duration) -> Result<Output, Box<Failure>> {
-    execute(command, timeout, false)
+    execute(command, timeout, false, &mut |_| {})
 }
 
 pub(crate) fn success(command: Exec, timeout: Duration) -> Result<Output, Box<Failure>> {
-    execute(command, timeout, true)
+    execute(command, timeout, true, &mut |_| {})
+}
+
+pub(crate) fn output_observed(
+    command: Exec,
+    timeout: Duration,
+    observe_stdout: &mut dyn FnMut(&[u8]),
+) -> Result<Output, Box<Failure>> {
+    execute(command, timeout, false, observe_stdout)
 }
 
 fn execute(
     command: Exec,
     timeout: Duration,
     require_success: bool,
+    observe_stdout: &mut dyn FnMut(&[u8]),
 ) -> Result<Output, Box<Failure>> {
     let mut failure = Box::new(Failure {
         command: command.to_cmdline_lossy(),
@@ -100,7 +130,7 @@ fn execute(
 
     // The communicator multiplexes both streams without reader workers that could
     // outlive this call when a descendant retains an inherited pipe handle.
-    let capture = capture(&mut child, deadline, timeout, &mut failure);
+    let capture = capture(&mut child, deadline, timeout, &mut failure, observe_stdout);
 
     if let Err(cause) = capture {
         failure.cause = cause;
@@ -137,6 +167,7 @@ fn capture(
     deadline: Instant,
     timeout: Duration,
     failure: &mut Failure,
+    observe_stdout: &mut dyn FnMut(&[u8]),
 ) -> Result<(), Cause> {
     let mut reader = child.communicate().map_err(Cause::Read)?;
 
@@ -153,7 +184,15 @@ fn capture(
         // otherwise avoid the timed wait inside the communicator.
         reader = reader.limit_size(READ_BATCH).limit_time(remaining);
 
-        if let Err(error) = reader.read_to(&mut failure.stdout, &mut failure.stderr) {
+        let result = reader.read_to(
+            &mut ObservedCapture {
+                capture: &mut failure.stdout,
+                observe: observe_stdout,
+            },
+            &mut failure.stderr,
+        );
+
+        if let Err(error) = result {
             return Err(if error.kind() == io::ErrorKind::TimedOut {
                 Cause::Timeout(timeout)
             } else {
@@ -284,7 +323,7 @@ mod tests {
 
     use subprocess::Exec;
 
-    use super::{CAPTURE_LIMIT, Cause, Failure, output, success};
+    use super::{CAPTURE_LIMIT, Cause, Failure, output, output_observed, success};
 
     fn fixture(mode: &str) -> Exec {
         Exec::cmd(std::env::current_exe().expect("test executable must be available"))
@@ -334,6 +373,21 @@ mod tests {
 
         assert!(String::from_utf8_lossy(&failure.stderr.bytes).contains("started"));
         assert!(!String::from_utf8_lossy(&failure.stderr.bytes).contains("fixture cleanup"));
+        assert_reaped(&failure);
+    }
+
+    #[test]
+    fn observation_sees_partial_stdout_before_the_deadline() {
+        let mut observed = Vec::new();
+
+        let failure = output_observed(fixture("hang"), Duration::from_millis(500), &mut |bytes| {
+            observed.extend_from_slice(bytes);
+        })
+        .expect_err("hanging observed child must time out");
+
+        assert!(matches!(failure.cause, Cause::Timeout(_)));
+        assert!(!observed.is_empty());
+        assert_eq!(observed, failure.stdout.bytes);
         assert_reaped(&failure);
     }
 
@@ -398,12 +452,19 @@ mod tests {
 
     #[test]
     fn excessive_output_is_drained_and_explicitly_truncated_after_reaping() {
-        let failure = output(fixture("excessive"), Duration::from_secs(5))
-            .expect_err("incomplete capture must never satisfy an output oracle");
+        let mut observed = Vec::new();
+
+        let failure = output_observed(
+            fixture("excessive"),
+            Duration::from_secs(5),
+            &mut |bytes| observed.extend_from_slice(bytes),
+        )
+        .expect_err("incomplete capture must never satisfy an output oracle");
 
         assert!(matches!(failure.cause, Cause::CaptureLimit));
         assert!(failure.status.is_some_and(|status| status.success()));
         assert_eq!(failure.stdout.bytes.len(), CAPTURE_LIMIT);
+        assert_eq!(observed, failure.stdout.bytes);
         assert!(failure.stdout.discarded >= CAPTURE_LIMIT);
         assert!(failure.to_string().contains("stdout truncated:"));
     }

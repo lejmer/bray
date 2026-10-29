@@ -11,6 +11,7 @@ use bray_target::NativeTarget;
 use std::collections::BTreeSet;
 
 #[test]
+#[ignore = "tier:native"]
 fn library_static_definition_survives_initializer_pruning() {
     let (backend, plan) = runtime_native_plan_for_product(
         "module app; static ANSWER: i32 = 42;",
@@ -41,6 +42,7 @@ fn library_static_definition_survives_initializer_pruning() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn initialized_protected_statics_preserve_scalar_and_product_representations() {
     let source = r#"
         trusted module app;
@@ -82,6 +84,7 @@ fn initialized_protected_statics_preserve_scalar_and_product_representations() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn trivial_generic_statics_use_direct_native_storage() {
     let source = concat!(
         "module app;\n",
@@ -140,6 +143,7 @@ fn trivial_generic_statics_use_direct_native_storage() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn exact_thread_static_emits_attachment_owned_cleanup() {
     let source = concat!(
         "module app;\n",
@@ -169,6 +173,7 @@ fn exact_thread_static_emits_attachment_owned_cleanup() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn repeated_static_references_emit_one_native_instance() {
     let source = r#"module app;
 
@@ -246,6 +251,7 @@ public func main() -> i32
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_cleanup_orders_declaration_names_independently_of_source_order() {
     let (_, plan) = runtime_native_plan_for_target(
         concat!(
@@ -296,6 +302,7 @@ fn static_cleanup_orders_declaration_names_independently_of_source_order() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn const_generic_static_specializations_emit_distinct_native_instances() {
     let source = concat!(
         "module app;\n",
@@ -382,6 +389,7 @@ fn const_generic_static_specializations_emit_distinct_native_instances() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_static_storage_fixture_prepares_for_windows() {
     let sources = [
         include_str!(concat!(

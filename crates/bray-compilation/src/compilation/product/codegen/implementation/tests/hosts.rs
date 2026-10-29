@@ -20,6 +20,7 @@ use bray_target::NativeTarget;
 use bray_testing::TemporaryFile;
 
 #[test]
+#[ignore = "tier:native"]
 fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
     let (backend, plan) = runtime_native_plan(include_str!(
         "../../../../../../../../xtask/fixtures/native-execution/async-i32.bray"
@@ -86,6 +87,7 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn independently_started_tasks_emit_native_units() {
     let source = concat!(
         "module async_tasks;\n",
@@ -187,6 +189,7 @@ fn independently_started_tasks_emit_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
     let cases = [
         (
@@ -254,6 +257,7 @@ fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn synchronous_panics_emit_a_runtime_owned_host_boundary() {
     for target in [
         SelectedTarget::baseline(),
@@ -295,6 +299,7 @@ fn synchronous_panics_emit_a_runtime_owned_host_boundary() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn direct_checked_calls_forward_outcomes_without_copying_reports() {
     let source = r#"
             module app;
@@ -418,6 +423,7 @@ fn direct_checked_calls_forward_outcomes_without_copying_reports() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
     let source = concat!(
         "trusted module app;\n",
@@ -481,6 +487,7 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn frame_constructors_claim_admitted_aligned_backing() {
     let (backend, plan) = runtime_native_plan(
         "module app; async func child() -> i32 { return 7; } async func main() -> i32 { return await child(); }",
@@ -504,6 +511,7 @@ fn frame_constructors_claim_admitted_aligned_backing() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn erased_async_factories_preserve_constructor_backing() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -544,6 +552,7 @@ fn erased_async_factories_preserve_constructor_backing() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -631,6 +640,7 @@ fn frame_backing_and_adapter_preserve_concrete_specialization_identity() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn failed_frame_resolution_selects_cancellation_before_source_entry() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -701,6 +711,7 @@ fn failed_frame_resolution_selects_cancellation_before_source_entry() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn owned_completion_emits_a_resumable_disposal_entry() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -743,6 +754,7 @@ fn owned_completion_emits_a_resumable_disposal_entry() {
     );
 }
 #[test]
+#[ignore = "tier:native"]
 fn generic_completed_results_retain_concrete_cleanup_lanes() {
     for (ty, value) in [("Guard", "Guard {}"), ("(Guard, i32)", "(Guard {}, 7)")] {
         let (_, plan) = runtime_native_plan(
@@ -825,6 +837,7 @@ fn generic_completed_results_retain_concrete_cleanup_lanes() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn inactive_cancellation_does_not_require_unentered_body_lanes() {
     let (_, plan) = runtime_native_plan(
         r#"
@@ -866,6 +879,7 @@ fn inactive_cancellation_does_not_require_unentered_body_lanes() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn task_observation_retains_concrete_cleanup_lanes_without_executing_them_at_construction() {
     let (backend, plan) = runtime_native_plan(
         r#"
