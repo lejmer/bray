@@ -25,6 +25,7 @@ impl Compilation {
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
         native_statics: &[bray_native_artifact::NativeStatic],
+        worker_cleanup: bool,
         mut runtime_dependencies: BTreeMap<
             bray_runtime_abi::NativeStaticIdentity,
             Vec<bray_runtime_abi::NativeStaticIdentity>,
@@ -190,7 +191,11 @@ impl Compilation {
                 statics,
             )
             .expect("ordered static host contributions must form a valid product mapping")
-            .with_execution(product_execution(entries, native_statics)),
+            .with_execution(
+                product_execution(entries, native_statics).or_else(|| {
+                    worker_cleanup.then_some(bray_symbols::CallableExecution::Synchronous)
+                }),
+            ),
         ))
     }
 
@@ -218,13 +223,19 @@ impl Compilation {
             return Err(NativeProductPlanningError::MissingRuntime);
         }
 
+        let worker_cleanup = roles.contains(&RuntimeAbiRole::ThreadStaticCleanupRegistration)
+            && capabilities.contains(&RuntimeCapability::CooperativeExecution);
+
         Ok(RuntimeRequirements::new(
             runtime.map(|runtime| runtime.identity().clone()),
             self.selected_target().target().runtime_abi(),
             runtime.map(|runtime| runtime.frame_abi()),
             target.identity().clone(),
             target.panic_abi().clone(),
-            roles.iter().copied(),
+            roles
+                .iter()
+                .copied()
+                .chain(worker_cleanup.then_some(RuntimeAbiRole::ProductExecutionProvider)),
             capabilities,
             [],
         ))
@@ -681,27 +692,19 @@ pub(super) fn product_execution(
     statics: &[super::super::realization::ProductStaticHostEntry],
     native_statics: &[bray_native_artifact::NativeStatic],
 ) -> Option<bray_symbols::CallableExecution> {
-    use bray_symbols::{CallableExecution, StaticStorageDuration};
+    use bray_symbols::CallableExecution;
 
     let executions = statics
         .iter()
-        .map(|entry| (entry.key().duration(), entry.cleanup_execution()))
+        .filter_map(|entry| entry.cleanup_execution())
         .chain(
             native_statics
                 .iter()
-                .map(|entry| (entry.duration(), entry.cleanup_execution())),
+                .filter_map(|entry| entry.cleanup_execution()),
         );
 
     executions
-        .filter_map(|(duration, execution)| {
-            if execution == Some(CallableExecution::Asynchronous) {
-                execution
-            } else if duration == StaticStorageDuration::ExactThread {
-                Some(CallableExecution::Synchronous)
-            } else {
-                None
-            }
-        })
+        .filter(|execution| *execution == CallableExecution::Asynchronous)
         .max()
 }
 

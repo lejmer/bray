@@ -1,12 +1,13 @@
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus,
-    NativeThreadStaticCleanupRegistration,
+    NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
 };
 
-use super::super::cleanup::admit_finalizer;
-use super::model::{THREAD_STATICS, ThreadStaticEntry, product_key, runtime_status};
-use super::resident::{execution_runtime, observe, static_order};
+use super::resident::observe;
+
+pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
+    std::ptr::from_ref(descriptor) as usize
+}
 
 pub(crate) fn control(
     descriptor: &NativeProductHostDescriptor,
@@ -15,182 +16,27 @@ pub(crate) fn control(
     observe(product_key(descriptor), operation)
 }
 
+#[expect(
+    unsafe_code,
+    reason = "Bray owns exact-thread membership and TLS cleanup"
+)]
+unsafe extern "C" {
+    safe fn bray_runtime_thread_attachment_identity(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64;
+    safe fn bray_runtime_thread_static_cleanup_registration(
+        registration: &NativeThreadStaticCleanupRegistration,
+    ) -> NativeRuntimeStatus;
+}
+
 pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostDescriptor) -> u64 {
-    if crate::bootstrap::current_runtime_thread().is_none() {
-        return 0;
-    }
-
-    if control(descriptor, NativeProductHostOperation::FORM).status()
-        != NativeProductHostStatus::SUCCESS
-    {
-        return 0;
-    }
-
-    let product = product_key(descriptor);
-
-    let allowed = THREAD_STATICS.with(|registry| {
-        if registry.borrow().products.contains_key(&product) {
-            return true;
-        }
-
-        observe(product, NativeProductHostOperation::OBSERVE).state()
-            == NativeProductHostState::OPEN
-    });
-
-    if !allowed {
-        return 0;
-    }
-
-    let worker = current_thread_is_product_worker(product);
-
-    THREAD_STATICS.with(|registry| {
-        registry
-            .borrow_mut()
-            .attachment(product, worker)
-            .map_or(0, |attachment| attachment.identity)
-    })
+    bray_runtime_thread_attachment_identity(descriptor)
 }
 
 pub(crate) fn register_thread_static(
     registration: &NativeThreadStaticCleanupRegistration,
 ) -> NativeRuntimeStatus {
-    if crate::bootstrap::current_runtime_thread().is_none() {
-        return NativeRuntimeStatus::NOT_INITIALIZED;
-    }
-
-    let formed = control(registration.product(), NativeProductHostOperation::FORM);
-
-    if formed.status() != NativeProductHostStatus::SUCCESS {
-        return runtime_status(formed.status());
-    }
-
-    let product = product_key(registration.product());
-    let worker = current_thread_is_product_worker(product);
-
-    let order = match static_order(
-        product,
-        registration.static_identity(),
-        registration.finalizer().execution().code(),
-    ) {
-        Ok(order) => order,
-        Err(status) => return status,
-    };
-
-    let product_identity = registration.product().identity();
-
-    THREAD_STATICS.with(|registry| {
-        let mut registry = registry.borrow_mut();
-
-        if registry.entries.iter().any(|registered| {
-            registered.product == product
-                && registered.static_identity == registration.static_identity()
-        }) {
-            return NativeRuntimeStatus::SUCCESS;
-        }
-
-        let admission = match admit_finalizer(registration.finalizer()) {
-            Ok(admission) => admission,
-            Err(error) => return super::super::execution::admission_failure(error),
-        };
-
-        if !registry.ensure_exit_callback() {
-            return NativeRuntimeStatus::NOT_INITIALIZED;
-        }
-
-        let Some(attachment) = registry.attachment(product, worker) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
-
-        if !attachment.acquired {
-            let observation = acquire_thread_attachment(product, attachment.worker);
-
-            if observation.status() != NativeProductHostStatus::SUCCESS {
-                registry.products.remove(&product);
-
-                return runtime_status(observation.status());
-            }
-
-            let Some(attachment) = registry.products.get_mut(&product) else {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            };
-
-            attachment.acquired = true;
-        }
-
-        registry.entries.push(ThreadStaticEntry {
-            admission,
-            product,
-            product_identity,
-            static_identity: registration.static_identity(),
-            order,
-            prepare: registration.prepare(),
-            finalizer: registration.finalizer(),
-            destroy: registration.destroy(),
-            detach: registration.detach(),
-        });
-
-        NativeRuntimeStatus::SUCCESS
-    })
-}
-
-pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bool> {
-    THREAD_STATICS.with(|registry| {
-        let mut registry = registry.borrow_mut();
-
-        if !registry.ensure_exit_callback() {
-            return None;
-        }
-
-        registry
-            .attachment(product, false)
-            .map(|attachment| attachment.acquired)
-    })
-}
-
-pub(in crate::product) fn acquire_thread_attachment(
-    product: usize,
-    worker: bool,
-) -> NativeProductHostObservation {
-    observe(
-        product,
-        if worker {
-            NativeProductHostOperation::ACQUIRE_WORKER_ATTACHMENT
-        } else {
-            NativeProductHostOperation::ACQUIRE_ATTACHMENT
-        },
-    )
-}
-
-pub(super) fn release_thread_attachment(
-    product: usize,
-    worker: bool,
-) -> NativeProductHostObservation {
-    observe(
-        product,
-        if worker {
-            NativeProductHostOperation::RELEASE_WORKER_ATTACHMENT
-        } else {
-            NativeProductHostOperation::RELEASE_ATTACHMENT
-        },
-    )
-}
-
-pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
-    THREAD_STATICS.with(|registry| {
-        if let Some(attachment) = registry.borrow_mut().products.get_mut(&product) {
-            attachment.acquired = true;
-        }
-    });
-}
-
-pub(in crate::product) fn discard_thread_attachment(product: usize) {
-    THREAD_STATICS.with(|registry| {
-        registry.borrow_mut().products.remove(&product);
-    });
-}
-
-fn current_thread_is_product_worker(product: usize) -> bool {
-    execution_runtime(product).is_some_and(|runtime| runtime.owns_current_worker())
+    bray_runtime_thread_static_cleanup_registration(registration)
 }
 
 #[cfg(test)]
@@ -219,6 +65,8 @@ mod tests {
         static THREAD_CLEANUP_ORDER: Cell<usize> = const { Cell::new(0) };
         static PENDING_INCIDENT: RefCell<Option<ProviderIncident>> = const { RefCell::new(None) };
         static INCIDENT_PROVIDER: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
+        static DEPENDENCY_PRODUCT: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
+        static DEPENDENCY_ACCESSES: Cell<usize> = const { Cell::new(0) };
         static RELEASED_PROVIDER: Cell<Option<(NativeProductHostState, usize)>> = const { Cell::new(None) };
         static RELEASED_PRODUCT_PHASE: Cell<Option<usize>> = const { Cell::new(None) };
     }
@@ -500,6 +348,45 @@ mod tests {
         }
     }
 
+    extern "C" fn dependent_thread_access() -> usize {
+        DEPENDENCY_ACCESSES.set(DEPENDENCY_ACCESSES.get() + 1);
+
+        let product = DEPENDENCY_PRODUCT
+            .get()
+            .expect("dependency accessor must retain its product descriptor");
+
+        let registration = NativeThreadStaticCleanupRegistration::new(
+            product,
+            NativeStaticIdentity::new([12; 32]),
+            detach_thread_static,
+            finalizer(second_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        usize::from(register_thread_static(&registration).is_success())
+    }
+
+    extern "C" fn dependent_thread_entry(index: usize) -> NativeStaticHostEntry {
+        if index == 0 {
+            return THREAD_FIRST_ENTRY;
+        }
+
+        NativeStaticHostEntry::new(
+            NativeStaticDuration::EXACT_THREAD,
+            NativeStaticIdentity::new([12; 32]),
+            1,
+            0,
+            dependent_thread_access,
+            detach_thread_static,
+            finalizer(second_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+            no_dependency,
+            0,
+        )
+    }
+
     extern "C" fn thread_incident_entry(index: usize) -> NativeStaticHostEntry {
         match index {
             0 => THREAD_PANICKING_ENTRY,
@@ -762,6 +649,108 @@ mod tests {
     }
 
     #[test]
+    fn failed_tls_backing_admission_can_retry_without_publishing_an_owner() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        THREAD_CLEANUP_ORDER.set(0);
+
+        extern "C" fn reject(_: u32, outcome: &mut bray_runtime_abi::NativeRunOutcome) {
+            *outcome = bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::RUNTIME_FAILURE,
+                0,
+            );
+        }
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([96; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        let scope = crate::bootstrap::RuntimeThreadScope::enter().expect("attachment enters");
+
+        let failed = NativeThreadStaticCleanupRegistration::new(
+            descriptor,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            NativeStaticFinalizer::new(
+                NativeStaticFinalizerExecution::SYNCHRONOUS,
+                reject,
+                first_thread_cleanup,
+                resolve_success,
+            ),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert_eq!(
+            register_thread_static(&failed),
+            bray_runtime_abi::NativeRuntimeStatus::OUTGOING_STORAGE_UNAVAILABLE
+        );
+
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 0);
+
+        let accepted = NativeThreadStaticCleanupRegistration::new(
+            descriptor,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            finalizer(first_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert!(register_thread_static(&accepted).is_success());
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FINISH_ROOT).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+        assert_eq!(scope.finish(), 0);
+    }
+
+    #[test]
+    fn thread_static_registration_admits_dependency_accessors_before_the_consumer() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        THREAD_CLEANUP_ORDER.set(0);
+        DEPENDENCY_ACCESSES.set(0);
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([97; 32]),
+            dependent_thread_entry,
+            2,
+        )));
+
+        DEPENDENCY_PRODUCT.set(Some(descriptor));
+
+        let scope = crate::bootstrap::RuntimeThreadScope::enter().expect("attachment enters");
+
+        let consumer = NativeThreadStaticCleanupRegistration::new(
+            descriptor,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            finalizer(first_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert!(register_thread_static(&consumer).is_success());
+        assert_eq!(DEPENDENCY_ACCESSES.get(), 1);
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FINISH_ROOT).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
+        assert_eq!(scope.finish(), 0);
+
+        DEPENDENCY_PRODUCT.set(None);
+    }
+
+    #[test]
     fn thread_static_product_preserves_an_existing_cleanup_runtime() {
         let _isolation = crate::native::test_runtime_isolation();
 
@@ -786,10 +775,31 @@ mod tests {
                 NativeProductHostStatus::SUCCESS
             );
 
-            assert!(super::execution_runtime(super::product_key(descriptor)).is_some());
+            extern "C" fn retained_cleanup(
+                _: usize,
+                _: &mut bray_runtime_abi::NativeRunOutcome,
+            ) -> NativeStaticFinalizerStatus {
+                crate::native::retain_current_runtime()
+                    .expect("cleanup retains its existing runtime")
+                    .expect("cleanup has its selected runtime")
+                    .release();
+
+                NativeStaticFinalizerStatus::SUCCESS
+            }
+
+            let registration = NativeThreadStaticCleanupRegistration::new(
+                descriptor,
+                NativeStaticIdentity::new([11; 32]),
+                detach_thread_static,
+                finalizer(retained_cleanup),
+                no_cleanup,
+                detach_thread_static,
+            );
+
+            assert!(register_thread_static(&registration).is_success());
 
             assert_eq!(
-                control(descriptor, NativeProductHostOperation::CLOSE).status(),
+                control(descriptor, NativeProductHostOperation::FINISH_ROOT).status(),
                 NativeProductHostStatus::CLOSED
             );
         })
@@ -797,6 +807,55 @@ mod tests {
 
         assert!(incident.is_none());
         runtime.release();
+    }
+
+    #[test]
+    fn closed_product_descriptor_address_can_be_reused_without_reviving_its_state() {
+        let mut descriptor = NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([94; 32]),
+            delayed_entry,
+            0,
+        );
+
+        let address = std::ptr::from_ref(&descriptor);
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        descriptor = NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([95; 32]),
+            delayed_entry,
+            0,
+        );
+
+        assert_eq!(address, std::ptr::from_ref(&descriptor));
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::ACQUIRE_ENTRY).active_entries(),
+            1
+        );
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSING
+        );
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::RELEASE_ENTRY).state(),
+            NativeProductHostState::CLOSED
+        );
     }
 
     #[test]
@@ -1269,6 +1328,97 @@ mod tests {
     }
 
     #[test]
+    fn nested_foreign_entry_retains_one_epoch_until_outer_cleanup() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        std::thread::spawn(|| {
+            THREAD_CLEANUP_ORDER.set(0);
+
+            let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([93; 32]),
+                thread_order_entry,
+                2,
+            )));
+
+            assert_eq!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                )
+                .status(),
+                NativeProductHostStatus::SUCCESS
+            );
+
+            let epoch = thread_attachment_identity(descriptor);
+
+            assert_ne!(epoch, 0);
+
+            assert_eq!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                )
+                .thread_attachments(),
+                1
+            );
+
+            assert_eq!(thread_attachment_identity(descriptor), epoch);
+
+            let registration = NativeThreadStaticCleanupRegistration::new(
+                descriptor,
+                NativeStaticIdentity::new([11; 32]),
+                detach_thread_static,
+                finalizer(first_thread_cleanup),
+                no_cleanup,
+                detach_thread_static,
+            );
+
+            assert!(register_thread_static(&registration).is_success());
+
+            assert_eq!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::DETACH_CURRENT_THREAD
+                )
+                .thread_attachments(),
+                1
+            );
+
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 0);
+            assert_eq!(thread_attachment_identity(descriptor), epoch);
+
+            assert_eq!(
+                control(descriptor, NativeProductHostOperation::CLOSE).state(),
+                NativeProductHostState::CLOSING
+            );
+
+            assert_ne!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                )
+                .status(),
+                NativeProductHostStatus::SUCCESS
+            );
+
+            assert_eq!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::DETACH_CURRENT_THREAD
+                )
+                .thread_attachments(),
+                0
+            );
+
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+            assert_eq!(thread_attachment_identity(descriptor), 0);
+            assert!(crate::bootstrap::current_runtime_thread().is_none());
+        })
+        .join()
+        .expect("nested attachment cleanup completes on its original thread");
+    }
+
+    #[test]
     fn cold_foreign_thread_exit_preserves_cleanup_context_dependencies() {
         let _isolation = crate::native::test_runtime_isolation();
 
@@ -1312,9 +1462,11 @@ mod tests {
         for observe_first in [false, true] {
             std::thread::spawn(move || {
                 if observe_first {
-                    assert!(!crate::product::attachment::has_foreign_attachment(
-                        super::product_key(descriptor)
-                    ));
+                    assert_eq!(
+                        control(descriptor, NativeProductHostOperation::OBSERVE)
+                            .thread_attachments(),
+                        0
+                    );
                 }
 
                 assert_eq!(
@@ -1359,6 +1511,91 @@ mod tests {
             control(descriptor, NativeProductHostOperation::CLOSE).state(),
             NativeProductHostState::CLOSED
         );
+    }
+
+    #[test]
+    fn closing_product_completes_through_outer_attachment_retirement() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn cleanup(
+            _: usize,
+            _: &mut bray_runtime_abi::NativeRunOutcome,
+        ) -> NativeStaticFinalizerStatus {
+            assert!(crate::bootstrap::current_runtime_thread().is_some());
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 0);
+            THREAD_CLEANUP_ORDER.set(1);
+            RUNS.fetch_add(1, Ordering::SeqCst);
+
+            NativeStaticFinalizerStatus::SUCCESS
+        }
+
+        for native_exit in [false, true] {
+            let descriptor: &'static NativeProductHostDescriptor = Box::leak(Box::new(
+                NativeProductHostDescriptor::new(
+                    NativeProductIdentity::new([170 + u8::from(native_exit); 32]),
+                    thread_order_entry,
+                    2,
+                )
+                .with_execution(
+                    crate::native::implementation::bray_runtime_product_execution_provider,
+                    false,
+                ),
+            ));
+
+            std::thread::spawn(move || {
+                THREAD_CLEANUP_ORDER.set(0);
+
+                let scope = if native_exit {
+                    assert_eq!(
+                        control(
+                            descriptor,
+                            NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                        )
+                        .status(),
+                        NativeProductHostStatus::SUCCESS,
+                    );
+
+                    None
+                } else {
+                    Some(
+                        crate::bootstrap::RuntimeThreadScope::enter()
+                            .expect("physical attachment enters"),
+                    )
+                };
+
+                let registration = NativeThreadStaticCleanupRegistration::new(
+                    descriptor,
+                    NativeStaticIdentity::new([11; 32]),
+                    detach_thread_static,
+                    finalizer(cleanup),
+                    no_cleanup,
+                    detach_thread_static,
+                );
+
+                assert!(register_thread_static(&registration).is_success());
+
+                assert_eq!(
+                    control(descriptor, NativeProductHostOperation::CLOSE).status(),
+                    NativeProductHostStatus::PENDING,
+                );
+
+                if let Some(scope) = scope {
+                    assert_eq!(scope.finish(), 0);
+                    assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+                }
+            })
+            .join()
+            .expect("pending product cleanup completes on its retiring thread");
+
+            let closed = control(descriptor, NativeProductHostOperation::OBSERVE);
+
+            assert_eq!(closed.status(), NativeProductHostStatus::CLOSED);
+            assert_eq!(closed.thread_attachments(), 0);
+        }
+
+        assert_eq!(RUNS.load(Ordering::SeqCst), 2);
     }
 
     #[test]

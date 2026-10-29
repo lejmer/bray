@@ -24,6 +24,7 @@ internal struct Attachment
     mut cleanup: AttachmentExit?;
     mut context_bridge: bray.runtime.bootstrap.entry.bridge.Callback?;
     mut report_observer: bray.runtime.bootstrap.entry.bridge.Observer?;
+    mut domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?;
 }
 
 internal struct HostOwner
@@ -37,13 +38,15 @@ internal struct HostOwner
 internal struct HostStorage
 {
     key: u64;
+    mut cleanup_key: u64;
     mut released: bool;
+    mut cleanup_released: bool;
     mut attachments: std.memory.RawBuffer<Attachment>;
     mut active: usize;
 }
 
-// The owner holds its backing and no active attachment. Its key is either live
-// or recorded as released. Only a live key may return to resident storage.
+// The owner retains every created key until release succeeds. An incomplete key
+// pair remains closed to attachment admission and retained for shutdown retry.
 trusted internal predicate prepared_host_storage(owner: &(HostStorage?));
 
 // Resident storage owns the key and every initialized attachment epoch. TLS contains
@@ -79,8 +82,14 @@ trusted internal func initialize_host() -> u32
             return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
         }
 
-        if host.storage matches ?_
+        if let ?storage = host.storage
         {
+            if storage.released || storage.cleanup_released || storage.key == std.numeric.U64_MAX ||
+                storage.cleanup_key == std.numeric.U64_MAX
+            {
+                return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
+            }
+
             return Ok(false);
         }
 
@@ -114,20 +123,35 @@ trusted internal func initialize_host() -> u32
             return none;
         }
 
-        if key == std.numeric.U64_MAX
-        {
-            _ = trusted internal std.thread.platform_thread_storage_destroy(key);
-
-            return none;
-        }
-
-        let storage: HostStorage =
+        // Keep each successfully created key owned even if a later step fails.
+        // Shutdown can retry its release before this partial host admits attachments.
+        let mut storage: HostStorage =
         {
             key = key,
+            cleanup_key = 0,
             released = false,
+            cleanup_released = true,
             attachments = buffer,
             active = 0
         };
+
+        if key == std.numeric.U64_MAX
+        {
+            return storage;
+        }
+
+        let mut cleanup_key: u64 = 0;
+
+        let cleanup_status = trusted internal std.thread.platform_thread_storage_create(
+            trusted internal bray.runtime.bootstrap.thread.destruction.attachment_destructor_address(),
+            std.memory.address_of_mut<u64>(&mut cleanup_key)
+        );
+
+        if cleanup_status.category == 0
+        {
+            storage.cleanup_key = cleanup_key;
+            storage.cleanup_released = false;
+        }
 
         return storage;
     };
@@ -170,9 +194,20 @@ trusted internal func initialize_host() -> u32
             if let ?storage = prepared
             {
                 let key: u64 = storage.key;
+                let cleanup_key: u64 = storage.cleanup_key;
+
+                let usable = !storage.released && !storage.cleanup_released && key != std.numeric.U64_MAX &&
+                    cleanup_key != std.numeric.U64_MAX;
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, prepared);
+
+                if !usable
+                {
+                    return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+                }
+
                 core.atomic.store<u64, 2>(&synchronization.key, key + 1);
+                core.atomic.store<u64, 2>(&synchronization.cleanup_key, cleanup_key + 1);
                 return bray.runtime.bootstrap.STATUS_SUCCESS;
             }
 
@@ -271,7 +306,23 @@ trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
         return 0;
     }
 
-    return trusted load_attachment_identity(observed - 1);
+    let attached = trusted load_attachment_identity(observed - 1);
+
+    if attached != 0
+    {
+        return attached;
+    }
+
+    let cleanup = core.atomic.load<u64, 1>(&synchronization.cleanup_key);
+
+    return if cleanup == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield trusted load_attachment_identity(cleanup - 1);
+    };
 }
 
 trusted internal func load_attachment_identity(pos key: u64) -> u64
@@ -403,6 +454,7 @@ trusted internal func insert_attachment(
             closing = false,
             context_bridge = none,
             report_observer = none,
+            domains = none,
             cleanup = none
         }
     );
@@ -483,6 +535,7 @@ trusted internal func shutdown_host() -> u32
 
                 host.transitioning = true;
                 core.atomic.store<u64, 2>(&synchronization.key, 0);
+                core.atomic.store<u64, 2>(&synchronization.cleanup_key, 0);
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
             }
 
@@ -510,38 +563,27 @@ trusted internal func shutdown_host() -> u32
             return (selected, retired, succeeded);
         }
 
-        let key: u64 = if let ?storage = retired
-        {
-            if storage.released
-            {
-                return (selected, retired, succeeded);
-            }
-
-            yield storage.key;
-        }
-        else
-        {
-            return (selected, retired, succeeded);
-        };
-
-        // No attachment remains, so key destruction cannot run a local callback.
-        // A panic before release restores the resident owner before report cleanup.
-        let destroyed: Result<std.platform.PlatformStatus, PanicReport> =
-            catch trusted internal std.thread.platform_thread_storage_destroy(key);
-
-        let released: bool = match destroyed
-        {
-            case Ok(status) { yield status.category == 0; }
-            case Error(_) { yield false; }
-        };
-
-        if released
+        let destroyed: Result<std.platform.PlatformStatus, PanicReport> = catch
         {
             if let ?storage = retired
             {
-                storage.released = true;
+                if !storage.cleanup_released
+                {
+                    let status = trusted internal std.thread.platform_thread_storage_destroy(storage.cleanup_key);
+
+                    storage.cleanup_released = status.category == 0;
+                }
+
+                if !storage.released
+                {
+                    let status = trusted internal std.thread.platform_thread_storage_destroy(storage.key);
+
+                    storage.released = status.category == 0;
+                }
             }
-        }
+
+            yield internal std.platform.success_status();
+        };
 
         return (selected, retired, destroyed);
     };
@@ -577,12 +619,22 @@ trusted internal func shutdown_host() -> u32
 
         if let ?storage = retired
         {
-            if !storage.released
+            if !storage.released || !storage.cleanup_released
             {
-                let key: u64 = storage.key;
+                let key = storage.key;
+                let cleanup_key = storage.cleanup_key;
+
+                let usable = !storage.released && !storage.cleanup_released && key != std.numeric.U64_MAX &&
+                    cleanup_key != std.numeric.U64_MAX;
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
-                core.atomic.store<u64, 2>(&synchronization.key, key + 1);
+
+                if usable
+                {
+                    core.atomic.store<u64, 2>(&synchronization.key, key + 1);
+                    core.atomic.store<u64, 2>(&synchronization.cleanup_key, cleanup_key + 1);
+                }
+
                 host.transitioning = false;
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }

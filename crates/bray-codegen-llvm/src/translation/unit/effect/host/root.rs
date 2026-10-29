@@ -169,7 +169,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             crate::translation::unit::support::extract_value(&self.builder, inactive, 1)?
                 .into_pointer_value();
 
-        let frame = self.inactive_token(context, descriptor)?;
+        let frame = crate::native::activation::inactive_token(
+            self.types.context(),
+            self.request.target(),
+            &self.builder,
+            context,
+            descriptor,
+        )?;
 
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
             panic!("root execution belongs to an executable host");

@@ -12,6 +12,8 @@
 #undef FlsAlloc
 #undef FlsFree
 #else
+#include <dlfcn.h>
+#include <errno.h>
 #include <pthread.h>
 #include <sched.h>
 #endif
@@ -26,8 +28,9 @@ static atomic_uint recursive_attachment_leave_status;
 extern uint32_t bray_runtime_thread_attachment_enter(void);
 extern uint32_t bray_runtime_thread_attachment_leave(void);
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
 static atomic_bool reject_key_creation;
+static atomic_uint reject_key_creation_at;
 static atomic_bool reject_key_destruction;
 static atomic_uint key_creation_attempts;
 static atomic_uint key_destruction_attempts;
@@ -35,11 +38,12 @@ static atomic_uint live_keys;
 static atomic_bool reenter_key_creation;
 static atomic_uint recursive_key_status;
 
+#ifdef _WIN32
 DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
 {
-    atomic_fetch_add(&key_creation_attempts, 1);
+    unsigned attempt = atomic_fetch_add(&key_creation_attempts, 1) + 1;
 
-    if (atomic_load(&reject_key_creation))
+    if (atomic_load(&reject_key_creation) || attempt == atomic_load(&reject_key_creation_at))
     {
         SetLastError(ERROR_NOT_ENOUGH_MEMORY);
         return FLS_OUT_OF_INDEXES;
@@ -82,6 +86,65 @@ BOOL WINAPI FlsFree(DWORD key)
 
 DWORD (WINAPI *__imp_FlsAlloc)(PFLS_CALLBACK_FUNCTION) = FlsAlloc;
 BOOL (WINAPI *__imp_FlsFree)(DWORD) = FlsFree;
+#else
+int pthread_key_create(pthread_key_t* key, void (*destructor)(void*))
+{
+    unsigned attempt = atomic_fetch_add(&key_creation_attempts, 1) + 1;
+
+    if (atomic_load(&reject_key_creation) || attempt == atomic_load(&reject_key_creation_at))
+    {
+        return EAGAIN;
+    }
+
+    if (atomic_exchange(&reenter_key_creation, 0))
+    {
+        atomic_store(&recursive_key_status, bray_runtime_thread_attachment_enter());
+    }
+
+    int (*create)(pthread_key_t*, void (*)(void*)) =
+        (int (*)(pthread_key_t*, void (*)(void*)))dlsym(RTLD_NEXT, "pthread_key_create");
+
+    if (create == NULL)
+    {
+        abort();
+    }
+
+    int status = create(key, destructor);
+
+    if (status == 0)
+    {
+        atomic_fetch_add(&live_keys, 1);
+    }
+
+    return status;
+}
+
+int pthread_key_delete(pthread_key_t key)
+{
+    atomic_fetch_add(&key_destruction_attempts, 1);
+
+    if (atomic_load(&reject_key_destruction))
+    {
+        return EBUSY;
+    }
+
+    int (*release)(pthread_key_t) = (int (*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_key_delete");
+
+    if (release == NULL)
+    {
+        abort();
+    }
+
+    int status = release(key);
+
+    if (status == 0)
+    {
+        atomic_fetch_sub(&live_keys, 1);
+    }
+
+    return status;
+}
+#endif
 #endif
 
 extern uint32_t bray_runtime_thread_attachment_enter(void);
@@ -561,9 +624,56 @@ static void* attached_native_thread(void* context)
     return 0;
 }
 
+#if defined(_WIN32) || defined(__linux__)
+static int check_partial_host_formation(void)
+{
+    unsigned creation_before = atomic_load(&key_creation_attempts);
+    unsigned destruction_before = atomic_load(&key_destruction_attempts);
+
+    atomic_store(&reject_key_creation_at, creation_before + 2);
+    atomic_store(&reject_key_destruction, 1);
+
+    if (
+        bray_runtime_thread_attachment_enter() != 4 ||
+        bray_runtime_current_native_thread_identity() != 0 ||
+        atomic_load(&live_keys) != 1 ||
+        atomic_load(&key_creation_attempts) != creation_before + 2
+    )
+    {
+        return 33;
+    }
+
+    // A partial host retains the first key and rejects new attachment admission.
+    if (
+        bray_runtime_thread_attachment_enter() != 4 ||
+        atomic_load(&key_creation_attempts) != creation_before + 2 ||
+        bray_runtime_structured_shutdown() != 4 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 1 ||
+        atomic_load(&live_keys) != 1
+    )
+    {
+        return 33;
+    }
+
+    atomic_store(&reject_key_destruction, 0);
+    atomic_store(&reject_key_creation_at, 0);
+
+    if (
+        bray_runtime_structured_shutdown() != 1 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 2 ||
+        atomic_load(&live_keys) != 0
+    )
+    {
+        return 33;
+    }
+
+    return 0;
+}
+#endif
+
 static int check_primitive_attachment(void)
 {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
     unsigned initial_live_allocations = atomic_load(&live_allocations);
     atomic_store(&reject_key_creation, 1);
 
@@ -592,6 +702,13 @@ static int check_primitive_attachment(void)
     atomic_store(&reject_allocations, 0);
 
     atomic_store(&reject_key_creation, 0);
+
+    int partial_status = check_partial_host_formation();
+
+    if (partial_status != 0)
+    {
+        return partial_status;
+    }
 #endif
 
     atomic_store(&reject_allocations, 1);
@@ -601,7 +718,7 @@ static int check_primitive_attachment(void)
 
     atomic_store(&reject_allocations, 0);
     atomic_store(&reenter_allocation, 1);
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
     atomic_store(&reenter_key_creation, 1);
 #endif
     unsigned startup_allocations = atomic_load(&allocation_attempts);
@@ -616,7 +733,7 @@ static int check_primitive_attachment(void)
         atomic_load(&allocated_bytes) - startup_bytes
     );
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
     if (atomic_load(&recursive_key_status) != 4)
         return 34;
 #endif
@@ -2742,6 +2859,7 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
 }
 
 static void check_product_teardown(void);
+static void check_thread_product_teardown(void);
 
 int main(void)
 {
@@ -2758,13 +2876,15 @@ int main(void)
     if (concurrent_status != 0)
         return concurrent_status;
 
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__linux__)
+    unsigned destruction_before = atomic_load(&key_destruction_attempts);
+
     atomic_store(&reject_key_destruction, 1);
 
     if (
         bray_runtime_structured_shutdown() != 4 ||
-        atomic_load(&key_destruction_attempts) != 1 ||
-        atomic_load(&live_keys) != 1 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 2 ||
+        atomic_load(&live_keys) != 2 ||
         bray_runtime_thread_attachment_enter() != 0 ||
         bray_runtime_current_native_thread_identity() == 0 ||
         bray_runtime_thread_attachment_leave() != 0
@@ -2775,7 +2895,7 @@ int main(void)
 
     if (
         bray_runtime_structured_shutdown() != 1 ||
-        atomic_load(&key_destruction_attempts) != 2 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 4 ||
         atomic_load(&live_keys) != 0
     )
         return 35;
@@ -2879,6 +2999,7 @@ int main(void)
     }
 
     check_product_teardown();
+    check_thread_product_teardown();
 
     if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
         return 77;
@@ -2886,11 +3007,8 @@ int main(void)
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;
 
-#ifdef _WIN32
-    if (
-        atomic_load(&live_keys) != 0 ||
-        atomic_load(&key_creation_attempts) != atomic_load(&key_destruction_attempts)
-    )
+#if defined(_WIN32) || defined(__linux__)
+    if (atomic_load(&live_keys) != 0)
         return 36;
 #endif
 

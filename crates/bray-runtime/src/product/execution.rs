@@ -5,7 +5,6 @@ use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
     NativeProductCleanupBody, NativeProductCleanupResult, NativeProductExecution,
-    NativeProductHostObservation, NativeProductHostOperation, NativeProductHostStatus,
     NativeRuntimeStatus, NativeStaticFinalizer,
 };
 
@@ -71,9 +70,7 @@ pub(crate) fn acquire(
         finalize,
         detach_workers,
         release,
-        attach,
-        detach,
-        finish_root,
+        current_worker,
     });
 
     NativeRuntimeStatus::SUCCESS
@@ -83,15 +80,30 @@ extern "C" fn with_cleanup(
     resource: usize,
     context: usize,
     body: NativeProductCleanupBody,
+    attachment: u64,
 ) -> NativeProductCleanupResult {
     let runtime = runtime(resource);
 
-    let result = crate::native::with_static_cleanup_context(runtime.as_ref(), || {
-        assert!(
-            body(context).is_success(),
-            "Bray terminal work completes after its cleanup context has entered"
+    let cleanup = || {
+        crate::native::with_static_cleanup_context(runtime.as_ref(), || {
+            assert!(
+                body(context).is_success(),
+                "Bray terminal work completes after its cleanup context has entered"
+            );
+        })
+    };
+
+    let result = if attachment == 0 {
+        cleanup()
+    } else {
+        assert_eq!(
+            crate::bootstrap::current_runtime_thread().map(|thread| thread.id().raw()),
+            Some(attachment),
+            "Bray retains the selected exact-thread epoch through this callback"
         );
-    });
+
+        crate::bootstrap::with_thread_cleanup(attachment, cleanup)
+    };
 
     match result {
         Ok(((), incident)) => {
@@ -187,23 +199,6 @@ extern "C" fn release(resource: usize) {
     }
 }
 
-extern "C" fn attach(product: usize) -> NativeProductHostObservation {
-    super::attachment::attach_current_thread(product)
-}
-
-extern "C" fn detach(product: usize) -> NativeProductHostObservation {
-    super::attachment::detach_current_thread(product)
-}
-
-extern "C" fn finish_root(product: usize) -> NativeProductHostObservation {
-    if super::attachment::has_foreign_attachment(product) {
-        return super::host::observation_with_status(
-            product,
-            NativeProductHostStatus::INVALID_ARGUMENT,
-        );
-    }
-
-    let observation = super::host::observe(product, NativeProductHostOperation::CLOSE);
-
-    super::host::drain_product_thread_statics(product).unwrap_or(observation)
+extern "C" fn current_worker(resource: usize) -> u32 {
+    u32::from(runtime(resource).is_some_and(|runtime| runtime.owns_current_worker()))
 }

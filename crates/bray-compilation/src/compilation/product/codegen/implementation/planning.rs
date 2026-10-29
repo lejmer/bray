@@ -199,6 +199,7 @@ impl Compilation {
             native_statics,
             native_main_thread,
             runtime_dependencies,
+            worker_cleanup,
         } = self.prepare_native_codegen(
             &product,
             semantic.value().kind(),
@@ -221,6 +222,7 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
+                    worker_cleanup,
                     runtime_dependencies,
                     &target,
                 )

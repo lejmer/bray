@@ -147,7 +147,7 @@ trusted internal func select_cleanup_slot(
 }
 
 trusted internal func prepare_attachment_cleanup(
-    pos callback: AttachmentCleanup
+    pos callback: AttachmentCleanup?
 ) -> (HostLease, AttachmentSelection, AttachmentExit)
     ensures(
         trusted host_access_live(owner = &result.0.acquisition),

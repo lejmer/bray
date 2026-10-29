@@ -94,27 +94,6 @@ fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], O
             ],
             Some(U32),
         )),
-        RuntimeAbiRole::ProductExecutionResource => Some((
-            &[USIZE, AbiField::Pointer(RepresentationRole::ScalarUsize)],
-            Some(U32),
-        )),
-        RuntimeAbiRole::ProductCleanupIncident => Some((
-            &[
-                USIZE,
-                AbiField::PointerStruct(PRODUCT_IDENTITY_FIELDS),
-                USIZE,
-            ],
-            Some(U32),
-        )),
-        RuntimeAbiRole::ProductThreadStaticOrder => Some((
-            &[
-                USIZE,
-                AbiField::PointerStruct(PRODUCT_IDENTITY_FIELDS),
-                U32,
-                AbiField::Pointer(RepresentationRole::ScalarU64),
-            ],
-            Some(U32),
-        )),
         _ => catalog_runtime_source_fields(role),
     }
 }
@@ -180,11 +159,10 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentMarkMain
+            | RuntimeAbiRole::ThreadAttachmentIdentity
+            | RuntimeAbiRole::ThreadStaticCleanupRegistration
             | RuntimeAbiRole::ProductHostControl
             | RuntimeAbiRole::ProductCleanupContinuation
-            | RuntimeAbiRole::ProductExecutionResource
-            | RuntimeAbiRole::ProductCleanupIncident
-            | RuntimeAbiRole::ProductThreadStaticOrder
     ) {
         return Ok(true);
     }

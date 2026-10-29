@@ -1,0 +1,292 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
+
+trusted internal func select_domain_exit_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos identity: u64,
+    pos key: usize,
+    pos explicit: bool,
+    pos cleanup: &mut PendingCleanup
+) -> u32
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+{
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, &mut anchor);
+
+    if let ?domain = trusted domain_in_host(host, identity, key)
+    {
+        if domain.busy || domain.closing || (explicit && domain.depth == 0) || (!explicit && domain.depth != 0)
+        {
+            return 3;
+        }
+
+        if explicit && domain.depth > 1
+        {
+            domain.depth -= 1;
+
+            return 1;
+        }
+
+        domain.closing = true;
+
+        trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
+            &mut domain.statics,
+            &mut cleanup.statics
+        );
+
+        return 0;
+    }
+
+    return 2;
+}
+
+trusted internal func acknowledge_domain_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos identity: u64,
+    pos key: usize,
+    pos cleanup: &mut PendingCleanup,
+    pos completed: bool
+) -> Observation
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+    uses(intrinsic)
+{
+    let mut worker: bool = false;
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, &mut anchor);
+
+    if let ?domain = trusted domain_in_host(host, identity, key)
+    {
+        if !domain.closing
+        {
+            trusted core.target.abort();
+        }
+
+        if !completed
+        {
+            trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(
+                &mut domain.statics,
+                &mut cleanup.statics
+            );
+
+            domain.closing = false;
+
+            return unavailable(5);
+        }
+
+        worker = domain.worker;
+        domain.identity = 0;
+        domain.depth = 0;
+    }
+    else
+    {
+        trusted core.target.abort();
+    }
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            product.state.incidents = add_count(product.state.incidents, cleanup.incidents);
+
+            if cleanup.incidents != 0
+            {
+                product.state.last_incident = cleanup.last_incident;
+            }
+
+            let operation: u32 = if worker
+            {
+                yield 13;
+            }
+            else
+            {
+                yield 8;
+            };
+
+            let status = product.state.transition(operation);
+
+            return product.state.observation(status);
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func leave_domain(pos identity: u64, pos key: usize, pos explicit: bool) -> Observation
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call, intrinsic)
+{
+    let mut cleanup: PendingCleanup =
+    {
+        statics = none,
+        execution = none,
+        cleaned = 0,
+        incidents = 0,
+        last_incident =
+        {
+            bytes = [0; 32]
+        }
+    };
+
+    let selected: u32 =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return unavailable(5);
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted select_domain_exit_locked(&lease, identity, key, explicit, &mut cleanup);
+    };
+
+    if selected != 0
+    {
+        let mut current = trusted transition(key, 6);
+
+        if selected == 3
+        {
+            current.status = selected;
+        }
+
+        return current;
+    }
+
+    let service = trusted domain_execution(key);
+    let mut completed: bool = true;
+
+    if let ?execution = service
+    {
+        let context = trusted core.target.expose_address<PendingCleanup>(
+            std.memory.address_of_mut<PendingCleanup>(&mut cleanup)
+        );
+
+        let callback: CleanupBody = cleanup_continuation;
+        let result = trusted execution.with_cleanup(execution.resource, context, callback, identity);
+
+        completed = result.status == 0;
+        cleanup.incidents = add_count(cleanup.incidents, result.incidents);
+    }
+    else
+    {
+        trusted clean_statics(&mut cleanup);
+    }
+
+    let mut current =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted acknowledge_domain_locked(&lease, identity, key, &mut cleanup, completed);
+    };
+
+    if !completed
+    {
+        current.status = 5;
+        return current;
+    }
+
+    // Reporting and destruction finish before release can trigger product teardown or worker join.
+    return trusted progress(key, current, identity);
+}
+
+trusted internal func cleanup_domains(pos identity: u64)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic, raw_memory)
+{
+    while true
+    {
+        let key: usize =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                trusted core.target.abort();
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+            let mut selected: usize = 0;
+
+            if let ?storage = host.storage
+            {
+                if let ?attachment = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0)
+                {
+                    if let ?domains = attachment.domains
+                    {
+                        let rows = trusted std.memory.initialized_slice_mut<ThreadDomain>(&mut domains);
+                        let mut index: usize = 0;
+
+                        while index < rows.length()
+                        {
+                            if rows[index].identity != 0
+                            {
+                                if rows[index].busy || rows[index].closing
+                                {
+                                    trusted core.target.abort();
+                                }
+
+                                rows[index].depth = 0;
+                                selected = rows[index].key;
+                                break;
+                            }
+
+                            index += 1;
+                        }
+                    }
+                }
+            }
+
+            yield selected;
+        };
+
+        if key == 0
+        {
+            return;
+        }
+
+        let result = trusted leave_domain(identity, key, false);
+
+        if result.status == 5
+        {
+            trusted core.target.abort();
+        }
+    }
+}

@@ -189,8 +189,10 @@ fn runtime_source_imports_share_generated_runtime_calls() {
 fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
     let source = concat!(
         "trusted module app;\n",
+        "trusted predicate entry_live();\n",
         "@abi(c)\n",
         "trusted internal func attachment_identity(pos descriptor: DataPointer<u8>) -> u64\n",
+        "    requires(trusted app.entry_live())\n",
         "{\n",
         "    _ = descriptor;\n",
         "    return 7;\n",
@@ -216,7 +218,9 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
 
     assert!(plan.mappings().iter().any(|mappings| {
         mappings.symbols().iter().any(|mapping| {
-            mapping.name().as_str() == symbol && mapping.linkage() == CodegenLinkage::Export
+            mapping
+                .native_entry()
+                .is_some_and(|entry| entry.name().as_str() == symbol)
         })
     }));
 
@@ -230,6 +234,74 @@ fn runtime_source_bindings_export_and_retain_the_canonical_role_symbol() {
             .iter()
             .all(|artifact| !artifact.is_empty())
     );
+}
+
+#[test]
+fn bootstrap_identity_entries_contain_abnormal_exits_without_attaching() {
+    for target in bray_target::NativeTarget::ALL {
+        for body in [
+            "return 73;",
+            "panic(\"lookup failed\");",
+            "let outcome: RunResult<unit> = Cancelled; try outcome; return 0;",
+        ] {
+            let source = format!(
+                r#"
+                trusted module app;
+                trusted predicate live();
+                @abi(c)
+                trusted internal func identity(pos descriptor: DataPointer<u8>) -> u64
+                    requires(trusted app.live())
+                {{ _ = descriptor; {body} }}
+            "#
+            );
+
+            let role = RuntimeAbiRole::ThreadAttachmentIdentity;
+
+            let binding =
+                bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.identity")
+                    .expect("identity source binding is valid");
+
+            let (backend, plan) = runtime_native_plan_with_source_roles(
+                &[&source],
+                ProductKind::Library,
+                SelectedTarget::for_native(target),
+                [binding],
+            );
+
+            let mapping = plan
+                .mappings()
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::symbols)
+                .find(|mapping| {
+                    mapping.native_entry().is_some_and(|entry| {
+                        entry.kind() == bray_runtime_interface::NativeEntryKind::RuntimeIdentity
+                    })
+                })
+                .expect("identity lookup has a non-attaching containment boundary");
+
+            assert!(mapping.signature().has_panic_report_context());
+
+            let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+                .iter()
+                .map(|artifact| String::from_utf8_lossy(artifact))
+                .collect::<String>();
+
+            assert!(
+                !ir.contains(
+                    RuntimeAbiRole::ForeignCallbackExecution
+                        .native_symbol()
+                        .expect("callback role has a symbol")
+                )
+            );
+
+            if body != "return 73;" {
+                assert!(
+                    ir.contains("ret i64 0"),
+                    "abnormal identity lookup must return zero: {ir}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

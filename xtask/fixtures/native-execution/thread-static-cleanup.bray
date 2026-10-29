@@ -1,0 +1,42 @@
+module thread_static_cleanup_execution;
+
+internal struct Provider
+{
+    mut value: i32;
+
+    finalize()
+    {
+        self.value = 0;
+    }
+}
+
+internal struct Consumer
+{
+    provider: &Provider;
+
+    destruct()
+    {
+        assert(self.provider.value == 17);
+    }
+}
+
+@thread_local internal static PROVIDER: Provider =
+{
+    value = 17
+};
+
+@thread_local internal static CONSUMER: Consumer =
+{
+    provider = &PROVIDER
+};
+
+func main() -> i32
+{
+    // Materializing the consumer must admit the provider reached by its stored borrow.
+    if CONSUMER.provider.value == 17
+    {
+        return 42;
+    }
+
+    return 1;
+}

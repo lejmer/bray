@@ -1,5 +1,6 @@
-use bray_codegen::CodegenTarget;
-use inkwell::{AddressSpace, context::Context, types::StructType};
+use bray_codegen::{CodegenFailure, CodegenTarget};
+use inkwell::values::{BasicValueEnum, PointerValue};
+use inkwell::{AddressSpace, builder::Builder, context::Context, types::StructType};
 
 pub(crate) fn descriptor_type<'context>(
     context: &'context Context,
@@ -60,6 +61,66 @@ pub(crate) fn header_type<'context>(
         ],
         false,
     )
+}
+
+/// Transfers the published frame lease through the native inactive-frame ABI.
+pub(crate) fn inactive_token<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+    builder: &Builder<'context>,
+    frame: PointerValue<'context>,
+    descriptor: PointerValue<'context>,
+) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+    let word = super::pointer_integer_type(context, target);
+
+    let header_offset = builder
+        .build_struct_gep(
+            descriptor_type(context, target),
+            descriptor,
+            1,
+            "frame.header.offset.slot",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let offset = builder
+        .build_load(word, header_offset, "frame.header.offset")
+        .map_err(CodegenFailure::backend_library)?
+        .into_int_value();
+
+    let address = builder
+        .build_ptr_to_int(frame, word, "frame.address")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let address = builder
+        .build_int_add(address, offset, "frame.header.address")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let header = builder
+        .build_int_to_ptr(address, frame.get_type(), "frame.header")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let lease = builder
+        .build_load(
+            crate::mapping::cleanup::lease_type(context, target),
+            header,
+            "frame.lease",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let token = builder
+        .build_insert_value(
+            super::inactive_frame_type(context, target).const_zero(),
+            lease,
+            0,
+            "frame.token.lease",
+        )
+        .map_err(CodegenFailure::backend_library)?;
+
+    let token = builder
+        .build_insert_value(token, descriptor, 1, "frame.token.descriptor")
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(token.into_struct_value().into())
 }
 
 pub(crate) fn lane_bits(requirements: &[bray_runtime_interface::ExecutionLaneRequirement]) -> u32 {

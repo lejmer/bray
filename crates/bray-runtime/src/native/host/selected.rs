@@ -1,13 +1,16 @@
 use std::cell::RefCell;
 use std::io;
+use std::mem::ManuallyDrop;
 
 use bray_runtime_abi::{NativePanicPrimary, NativeRunOutcome, NativeRunState, NativeRuntimeStatus};
 
 use crate::RootCancellationHandle;
 use crate::context::{TaskOutput, with_task_output};
 
+// Context contents belong to explicit scopes and runtime retirement. The slot itself
+// remains available to native TLS callbacks regardless of Rust destructor order.
 thread_local! {
-    static CALLBACKS: RefCell<Option<Selection>> = const { RefCell::new(None) };
+    static CALLBACKS: ManuallyDrop<RefCell<Option<Selection>>> = const { ManuallyDrop::new(RefCell::new(None)) };
 }
 
 pub(in crate::native) fn initialize_thread_context() {
@@ -74,7 +77,9 @@ impl NativeHostCallbacks {
 pub fn register_host_callbacks(callbacks: NativeHostCallbacks) -> NativeRuntimeStatus {
     super::super::state::initialize_thread_context();
 
-    CALLBACKS.with_borrow_mut(|selected| {
+    CALLBACKS.with(|cell| {
+        let selected = &mut *cell.borrow_mut();
+
         assert!(
             selected.is_none(),
             "one executable test session owns its host selection"
@@ -88,7 +93,9 @@ pub fn register_host_callbacks(callbacks: NativeHostCallbacks) -> NativeRuntimeS
 
     match super::super::bridge::Scope::enter() {
         Ok(bridge) => {
-            CALLBACKS.with_borrow_mut(|selected| {
+            CALLBACKS.with(|cell| {
+                let selected = &mut *cell.borrow_mut();
+
                 selected
                     .as_mut()
                     .expect("test selection remains installed during admission")
@@ -155,7 +162,9 @@ pub(in crate::native) fn record_cleanup_failure(count: usize) {
 }
 
 pub(in crate::native) fn finish() -> io::Result<()> {
-    let bridge = CALLBACKS.with_borrow_mut(|selected| {
+    let bridge = CALLBACKS.with(|cell| {
+        let selected = &mut *cell.borrow_mut();
+
         selected
             .as_mut()
             .and_then(|selected| selected.bridge.take())
@@ -164,13 +173,17 @@ pub(in crate::native) fn finish() -> io::Result<()> {
     // Retirement can report cleanup failure through the still-selected host.
     drop(bridge);
 
-    let selected = CALLBACKS.take();
+    let selected = CALLBACKS.with(|cell| cell.take());
 
     selected.map_or(Ok(()), |selected| (selected.callbacks.finish)())
 }
 
 fn callbacks() -> Option<NativeHostCallbacks> {
-    CALLBACKS.with_borrow(|selected| selected.as_ref().map(|selected| selected.callbacks))
+    CALLBACKS.with(|cell| {
+        let selected = &*cell.borrow();
+
+        selected.as_ref().map(|selected| selected.callbacks)
+    })
 }
 
 #[cfg(test)]

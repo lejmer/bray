@@ -1,130 +1,8 @@
 use bray_runtime_abi::{
-    NativeCleanupIncident, NativeInactiveFrame, NativeStaticCleanupCallback, NativeStaticFinalizer,
-    NativeStaticFinalizerExecution, NativeStaticFinalizerStatus, NativeStaticTransitionCallback,
+    NativeCleanupIncident, NativeInactiveFrame, NativeStaticFinalizer, NativeStaticFinalizerStatus,
 };
 
 use crate::incident::OwnedCleanupIncident as CleanupIncident;
-
-pub(super) struct StaticAdmission {
-    task: Option<crate::TaskAdmission>,
-    source: Option<bray_runtime_abi::NativeStaticAdmissionCallback>,
-}
-
-impl Drop for StaticAdmission {
-    fn drop(&mut self) {
-        if let Some(release) = self.source {
-            let mut outcome = bray_runtime_abi::NativeRunOutcome::new(
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                0,
-            );
-
-            release(1, &mut outcome);
-
-            assert_eq!(
-                outcome.state(),
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                "unused static cleanup allowance must discharge without failure"
-            );
-        }
-    }
-}
-
-pub(super) fn admit_finalizer(
-    finalizer: NativeStaticFinalizer,
-) -> Result<StaticAdmission, crate::TaskStartError> {
-    let task = (finalizer.execution() == NativeStaticFinalizerExecution::ASYNCHRONOUS)
-        .then(crate::TaskAdmission::new)
-        .transpose()?;
-
-    let source = finalizer.admission();
-
-    let mut outcome =
-        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
-
-    source(0, &mut outcome);
-
-    if outcome.state() != bray_runtime_abi::NativeRunState::COMPLETED {
-        drop(crate::incident::OwnedCleanupIncident::report_owner(
-            outcome.take_report(),
-        ));
-
-        return Err(crate::TaskStartError::OutgoingStorageUnavailable);
-    }
-
-    Ok(StaticAdmission {
-        task,
-        source: Some(source),
-    })
-}
-
-pub(super) fn run_static_cleanup(
-    admission: &mut StaticAdmission,
-    prepare: NativeStaticTransitionCallback,
-    finalizer: NativeStaticFinalizer,
-    destroy: NativeStaticCleanupCallback,
-    detach: NativeStaticTransitionCallback,
-) -> usize {
-    // Generated owner destruction discharges the accepted allowance. Drop rolls it back only
-    // if formation fails before cleanup starts.
-    admission.source = None;
-
-    prepare();
-
-    let [first, second, third, resolution] = match finalizer.execution() {
-        NativeStaticFinalizerExecution::NONE => [None, None, None, None],
-        NativeStaticFinalizerExecution::SYNCHRONOUS => {
-            let [first, second, third] = collect_finalizer_incidents(|incident, outcome| {
-                (finalizer.start())((&raw mut *incident).addr(), outcome)
-            });
-
-            [first, second, third, None]
-        }
-        NativeStaticFinalizerExecution::ASYNCHRONOUS => run_asynchronous_finalizer(
-            admission
-                .task
-                .take()
-                .expect("asynchronous finalizer storage was admitted with its static owner"),
-            finalizer,
-        ),
-        _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
-    };
-
-    let abandoned = [
-        first.as_ref(),
-        second.as_ref(),
-        third.as_ref(),
-        resolution.as_ref(),
-    ]
-    .into_iter()
-    .any(|incident| incident.is_some());
-
-    // Finalizer errors may retain their receiver. Consume them before its destructor
-    // or thread-static detachment can invalidate those dependencies.
-    let mut count = consume_incidents([first, second, third, resolution]);
-
-    let mut published =
-        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
-
-    destroy(u32::from(abandoned), &mut published);
-
-    count += consume_incidents([CleanupIncident::outcome(published)]);
-
-    detach();
-
-    count
-}
-
-fn consume_incidents(incidents: impl IntoIterator<Item = Option<CleanupIncident>>) -> usize {
-    let mut count = 0;
-
-    for incident in incidents.into_iter().flatten() {
-        count += 1;
-
-        let _ = incident.report();
-    }
-
-    count
-}
 
 pub(super) fn run_asynchronous_finalizer(
     admission: crate::TaskAdmission,
@@ -181,7 +59,11 @@ mod tests {
         NativeStaticFinalizerStatus,
     };
 
-    use super::{StaticAdmission, run_static_cleanup};
+    use crate::product::host::control;
+    use bray_runtime_abi::{
+        NativeProductHostDescriptor, NativeProductHostOperation, NativeProductIdentity,
+        NativeStaticDuration, NativeStaticHostEntry, NativeStaticIdentity,
+    };
 
     thread_local! {
         static RECEIVER: Cell<u32> = const { Cell::new(0) };
@@ -254,20 +136,45 @@ mod tests {
     fn incidents_retire_before_receiver_destruction_and_detachment() {
         OBSERVATIONS.set(0);
 
-        let mut storage = StaticAdmission {
-            task: None,
-            source: Some(admission),
-        };
+        extern "C" fn access() -> usize {
+            1
+        }
 
-        let finalizer = NativeStaticFinalizer::new(
-            NativeStaticFinalizerExecution::SYNCHRONOUS,
-            admission,
-            finalize,
-            resolve,
+        extern "C" fn dependency(_: usize) -> NativeStaticIdentity {
+            NativeStaticIdentity::new([0; 32])
+        }
+
+        extern "C" fn entry(_: usize) -> NativeStaticHostEntry {
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::PRODUCT,
+                NativeStaticIdentity::new([91; 32]),
+                0,
+                1,
+                access,
+                prepare,
+                NativeStaticFinalizer::new(
+                    NativeStaticFinalizerExecution::SYNCHRONOUS,
+                    admission,
+                    finalize,
+                    resolve,
+                ),
+                destroy,
+                detach,
+                dependency,
+                0,
+            )
+        }
+
+        let descriptor =
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([92; 32]), entry, 1);
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::FORM).initialized_statics(),
+            1
         );
 
         assert_eq!(
-            run_static_cleanup(&mut storage, prepare, finalizer, destroy, detach),
+            control(&descriptor, NativeProductHostOperation::CLOSE).cleanup_incidents(),
             2
         );
 

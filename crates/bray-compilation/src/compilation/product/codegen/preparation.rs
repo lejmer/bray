@@ -26,6 +26,7 @@ type ExecutableHostClosure = (
     Vec<bray_native_artifact::NativeStatic>,
     super::super::realization::NativeCallableEffects,
     BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
+    bool,
 );
 
 pub(super) struct NativeCodegenPreparation {
@@ -40,6 +41,7 @@ pub(super) struct NativeCodegenPreparation {
         bray_runtime_abi::NativeStaticIdentity,
         Vec<bray_runtime_abi::NativeStaticIdentity>,
     >,
+    pub(super) worker_cleanup: bool,
 }
 
 impl Compilation {
@@ -118,6 +120,14 @@ impl Compilation {
                 None => None,
             };
 
+            let worker_cleanup = requirements.is_some_and(|requirements| {
+                requirements.requires_role(
+                    bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
+                ) && requirements
+                    .capabilities()
+                    .contains(&RuntimeCapability::CooperativeExecution)
+            });
+
             let runtime_plan = if let Some(requirements) =
                 requirements.filter(|requirements| requirements.requires_implementation())
             {
@@ -142,6 +152,7 @@ impl Compilation {
                     native_statics,
                     BTreeMap::new(),
                     BTreeMap::new(),
+                    worker_cleanup,
                 ));
             };
 
@@ -210,6 +221,7 @@ impl Compilation {
                     native_statics,
                     callable_effects,
                     runtime_dependencies,
+                    worker_cleanup,
                 ));
             }
         }
@@ -243,6 +255,7 @@ impl Compilation {
                 native_statics: Vec::new(),
                 native_main_thread: BTreeSet::new(),
                 runtime_dependencies: BTreeMap::new(),
+                worker_cleanup: false,
             });
         }
 
@@ -274,6 +287,7 @@ impl Compilation {
             native_statics,
             callable_effects,
             runtime_dependencies,
+            worker_cleanup,
         ) = self.close_executable_host(
             product,
             kind,
@@ -415,6 +429,7 @@ impl Compilation {
             native_statics,
             native_main_thread,
             runtime_dependencies,
+            worker_cleanup,
         })
     }
 

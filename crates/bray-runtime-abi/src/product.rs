@@ -1,7 +1,7 @@
 use crate::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
-pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
+pub const PRODUCT_HOST_ABI_VERSION: u32 = 2;
 
 /// Stable identity of one loaded product instance.
 #[repr(transparent)]
@@ -163,10 +163,12 @@ impl NativeProductHostOperation {
     pub const ACQUIRE_WORKER_ATTACHMENT: Self = Self(12);
     /// Release one execution-service worker attachment after its exact-thread cleanup.
     pub const RELEASE_WORKER_ATTACHMENT: Self = Self(13);
+    /// Drain the current worker's implicit TLS domain before acknowledging detachment.
+    pub const DRAIN_THREAD_STATICS: Self = Self(14);
 
     /// Returns whether the value belongs to this ABI version.
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 0..=13)
+        matches!(self.0, 0..=14)
     }
 
     /// Returns the stable integer representation.
@@ -349,8 +351,9 @@ impl NativeStaticFinalizerStatus {
     }
 }
 
-/// Acquires a static owner's concrete allowance or discharges it before activation.
-/// The operation is zero for admission and one for discharge. The caller initializes the outcome.
+/// Acquires a static owner's concrete allowance or discharges retained ownership.
+/// Zero admits every allowance, one rolls back before activation, and two releases
+/// fallible-resolution backing after cleanup. The caller initializes the outcome.
 pub type NativeStaticAdmissionCallback = extern "C" fn(u32, &mut crate::NativeRunOutcome);
 
 /// Closed execution and completion contract for one static finalizer.
@@ -768,8 +771,15 @@ impl NativeProductHostObservation {
 mod tests {
     use super::{
         NativeCleanupIncident, NativeProductHostDescriptor, NativeProductHostObservation,
-        NativeStaticFinalizer, NativeStaticHostEntry, NativeThreadStaticCleanupRegistration,
+        NativeProductHostOperation, NativeStaticFinalizer, NativeStaticHostEntry,
+        NativeThreadStaticCleanupRegistration,
     };
+
+    #[test]
+    fn worker_drain_operation_belongs_to_the_host_abi() {
+        assert!(NativeProductHostOperation::DRAIN_THREAD_STATICS.is_known());
+        assert!(!NativeProductHostOperation(15).is_known());
+    }
 
     #[test]
     fn unpublished_cleanup_incident_has_no_payload_or_callbacks() {

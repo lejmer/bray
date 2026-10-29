@@ -1,0 +1,547 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
+
+internal struct ThreadDomain
+{
+    key: usize;
+    mut identity: u64;
+    mut depth: usize;
+    mut closing: bool;
+    mut busy: bool;
+    worker: bool;
+    mut statics: std.memory.RawBuffer<StaticOwner>?;
+}
+
+trusted internal func same_identity(pos left: Identity, pos right: Identity) -> bool
+    executes(pure, total)
+{
+    let mut byte: usize = 0;
+
+    while byte < 32 && left.bytes[byte] == right.bytes[byte]
+    {
+        byte += 1;
+    }
+
+    return byte == 32;
+}
+
+trusted internal func find_domain(
+    pos domains: &mut std.memory.RawBuffer<ThreadDomain>,
+    pos key: usize
+) -> (&mut ThreadDomain)?
+    executes(total)
+    uses(raw_memory)
+{
+    let rows = trusted std.memory.initialized_slice_mut<ThreadDomain>(domains);
+    let mut index: usize = 0;
+
+    while index < rows.length()
+    {
+        if rows[index].key == key && rows[index].identity != 0
+        {
+            return &mut rows[index];
+        }
+
+        index += 1;
+    }
+
+    return none;
+}
+
+trusted internal func domain_in_host(
+    pos host: &mut bray.runtime.bootstrap.host.HostOwner,
+    pos identity: u64,
+    pos key: usize
+) -> (&mut ThreadDomain)?
+{
+    if let ?storage = host.storage
+    {
+        if let ?attachment = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0)
+        {
+            if let ?domains = attachment.domains
+            {
+                return trusted find_domain(&mut domains, key);
+            }
+        }
+    }
+
+    return none;
+}
+
+trusted internal func reserve_domain_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos key: usize,
+    pos depth: usize,
+    pos worker: bool,
+    pos prepared: &mut(std.memory.RawBuffer<ThreadDomain>?),
+    pos statics: &mut(std.memory.RawBuffer<StaticOwner>?)
+) -> Result<u64, usize>
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let attached = trusted bray.runtime.bootstrap.host.current_attachment_locked(lease);
+
+    if attached == 0
+    {
+        return Ok(0);
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, &mut anchor);
+
+    {
+        let existing = trusted domain_in_host(host, attached, key);
+
+        if let ?domain = existing
+        {
+            if (domain.closing && depth != 0) || domain.busy || depth > std.numeric.USIZE_MAX - domain.depth
+            {
+                return Ok(0);
+            }
+
+            domain.depth += depth;
+
+            return Ok(domain.identity);
+        }
+    }
+
+    let identity = host.next_identity;
+
+    if identity == std.numeric.U64_MAX
+    {
+        return Ok(0);
+    }
+
+    {
+        let products = if let ?products = host.products
+        {
+            yield &mut products;
+        }
+        else
+        {
+            return Ok(0);
+        };
+
+        let product = match consume trusted find_product(products, key)
+        {
+            case ?product { yield product; }
+            case none { return Ok(0); }
+        };
+
+        if !(product.state.phase matches Open) || product.state.attachments == std.numeric.USIZE_MAX
+        {
+            return Ok(0);
+        }
+    }
+
+    let storage = if let ?storage = host.storage
+    {
+        yield &mut storage;
+    }
+    else
+    {
+        return Ok(0);
+    };
+
+    let attachment = match consume trusted bray.runtime.bootstrap.host.find_attachment(storage, attached, 0)
+    {
+        case ?attachment { yield attachment; }
+        case none { return Ok(0); }
+    };
+
+    if attachment.closing
+    {
+        return Ok(0);
+    }
+
+    let mut vacant: usize? = none;
+
+    if let ?domains = attachment.domains
+    {
+        let rows = trusted std.memory.initialized_slice_mut<ThreadDomain>(&mut domains);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].identity == 0
+            {
+                vacant = index;
+                break;
+            }
+
+            index += 1;
+        }
+    }
+
+    if vacant matches none
+    {
+        match consume trusted bray.runtime.bootstrap.heap.reserve<ThreadDomain>(&mut attachment.domains, prepared)
+        {
+            case Ok(ready)
+            {
+                if !ready
+                {
+                    return Ok(0);
+                }
+            }
+            case Error(capacity) { return Error(capacity); }
+        }
+    }
+
+    let domains = if let ?domains = attachment.domains
+    {
+        yield &mut domains;
+    }
+    else
+    {
+        yield trusted core.target.abort();
+    };
+
+    let mut domain: ThreadDomain =
+    {
+        key = key,
+        identity = identity,
+        depth = depth,
+        closing = false,
+        busy = false,
+        worker = worker,
+        statics = none
+    };
+
+    trusted internal std.memory.swap_values<(std.memory.RawBuffer<StaticOwner>?)>(&mut domain.statics, statics);
+
+    if let ?index = vacant
+    {
+        let rows = trusted std.memory.initialized_slice_mut<ThreadDomain>(domains);
+
+        trusted internal std.memory.swap_values<ThreadDomain>(&mut rows[index], &mut domain);
+    }
+    else
+    {
+        trusted internal std.memory.raw_buffer_push<ThreadDomain>(domains, domain);
+    }
+
+    host.next_identity += 1;
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            product.state.attachments += 1;
+
+            if worker
+            {
+                product.state.workers += 1;
+            }
+
+            return Ok(identity);
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func enter_domain(pos key: usize, pos depth: usize) -> u64
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    // Reuse existing membership before preparing any storage or execution service.
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return 0;
+        }
+
+        let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        if identity == 0
+        {
+            return 0;
+        }
+
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+        let mut open: bool = false;
+
+        if depth != 0
+        {
+            if let ?products = host.products
+            {
+                if let ?product = trusted find_product(&mut products, key)
+                {
+                    open = product.state.phase matches Open;
+                }
+            }
+        }
+
+        if let ?domain = trusted domain_in_host(host, identity, key)
+        {
+            if (depth != 0 && (!open || domain.closing)) || domain.busy || depth > std.numeric.USIZE_MAX - domain.depth
+            {
+                return 0;
+            }
+
+            domain.depth += depth;
+
+            return domain.identity;
+        }
+    }
+
+    let formed = trusted form(key);
+
+    if formed.state != 1
+    {
+        return 0;
+    }
+
+    // Entry retention covers descriptor and execution callbacks through membership commit.
+    let entry = trusted acquire_domain_entry(key);
+
+    if !entry.pending
+    {
+        return 0;
+    }
+
+    let identity: u64 = if trusted ensure_thread_cleanup() == 0
+    {
+        yield trusted prepare_domain(key, depth);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    return identity;
+}
+
+trusted internal func prepare_domain(pos key: usize, pos depth: usize) -> u64
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call)
+{
+    let mut statics: std.memory.RawBuffer<StaticOwner>? = none;
+
+    while true
+    {
+        let capacity = trusted prepare_thread_templates(key, &mut statics);
+
+        if capacity == 0
+        {
+            break;
+        }
+
+        statics = trusted bray.runtime.bootstrap.heap.try_buffer<StaticOwner>(capacity);
+
+        if statics matches none
+        {
+            return 0;
+        }
+    }
+
+    let service = trusted domain_execution(key);
+
+    let worker: bool = if let ?execution = service
+    {
+        yield trusted execution.current_worker(execution.resource) != 0;
+    }
+    else
+    {
+        yield false;
+    };
+
+    let mut prepared: std.memory.RawBuffer<ThreadDomain>? = none;
+
+    while true
+    {
+        let selected: Result<u64, usize> =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return 0;
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+            yield trusted reserve_domain_locked(&lease, key, depth, worker, &mut prepared, &mut statics);
+        };
+
+        match consume selected
+        {
+            case Ok(identity) { return identity; }
+            case Error(capacity)
+            {
+                prepared = trusted bray.runtime.bootstrap.heap.try_buffer<ThreadDomain>(capacity);
+
+                if prepared matches none
+                {
+                    return 0;
+                }
+            }
+        }
+    }
+}
+
+trusted internal func domain_execution(pos key: usize) -> NativeExecution?
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory, intrinsic)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return none;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?execution = product.execution
+            {
+                let selected: NativeExecution = match execution.value
+                {
+                    case ?value { yield value; }
+                    case none { yield trusted core.target.abort(); }
+                };
+
+                return trusted std.memory.read<NativeExecution>(std.memory.address_of<NativeExecution>(&selected));
+            }
+        }
+    }
+
+    return none;
+}
+
+@abi(c)
+trusted internal func thread_attachment_identity(pos pointer: DataPointer<Descriptor>) -> u64
+    requires(trusted native_host())
+    uses(intrinsic)
+{
+    let prepare = trusted lambda()
+        requires(trusted native_host())
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted prepare();
+
+    let key = trusted core.target.expose_address<Descriptor>(pointer);
+
+    return trusted enter_domain(key, 0);
+}
+
+trusted internal func ensure_thread_cleanup() -> u32
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return 4;
+        }
+
+        let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+        if let ?storage = host.storage
+        {
+            if let ?attachment = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0)
+            {
+                if attachment.cleanup matches ?_
+                {
+                    return 0;
+                }
+            }
+        }
+    }
+
+    return trusted bray.runtime.bootstrap.host.publish_attachment_cleanup(
+        trusted bray.runtime.bootstrap.host.prepare_attachment_cleanup(none)
+    );
+}
+
+// This temporary entry keeps descriptor and service ownership live during fallible
+// domain preparation. Its release also runs when preparation exits abnormally.
+trusted internal predicate domain_entry_owned(owner: &DomainEntry);
+
+internal struct DomainEntry
+{
+    key: usize;
+    mut pending: bool;
+
+    trusted destruct()
+        requires(
+            trusted domain_entry_owned(owner = &self),
+            trusted native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        when(!self.pending)
+        {
+            executes(pure, total)
+        }
+    {
+        if self.pending
+        {
+            self.pending = false;
+
+            _ = trusted progress(self.key, trusted transition(self.key, 2));
+        }
+    }
+}
+
+trusted internal func acquire_domain_entry(pos key: usize) -> DomainEntry
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted domain_entry_owned(owner = &result))
+{
+    let inactive = trusted lambda(pos key: usize) -> DomainEntry
+        ensures(trusted domain_entry_owned(owner = &result))
+    {
+        return
+        {
+            key = key,
+            pending = false
+        };
+    };
+
+    let commit = trusted lambda(pos owner: &mut DomainEntry)
+        requires(trusted domain_entry_owned(owner = &owner))
+        ensures(trusted domain_entry_owned(owner = &owner))
+        executes(total)
+    {
+        owner.pending = true;
+    };
+
+    let mut owner = trusted inactive(key);
+    let entered = trusted transition(key, 1);
+
+    if entered.status == 0
+    {
+        trusted commit(&mut owner);
+    }
+
+    return owner;
+}

@@ -473,6 +473,8 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::THREAD_ATTACHMENT_CLEANUP_SYMBOL,
         bray_runtime_abi::symbols::CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL,
         bray_runtime_abi::symbols::PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL,
+        bray_runtime_abi::symbols::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
+        bray_runtime_abi::symbols::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
         bray_runtime_interface::PlatformServiceRole::ThreadStorageCreate.native_symbol(),
         bray_runtime_interface::PlatformServiceRole::ThreadStorageLoad.native_symbol(),
         bray_runtime_interface::PlatformServiceRole::ThreadStorageStore.native_symbol(),
@@ -482,8 +484,6 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let forbidden = [
         bray_runtime_abi::symbols::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
-        bray_runtime_abi::symbols::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
-        bray_runtime_abi::symbols::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
         bray_runtime_abi::symbols::PRODUCT_EXECUTION_PROVIDER_SYMBOL,
         bray_runtime_abi::symbols::ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::TASK_ALLOCATION_SYMBOL,

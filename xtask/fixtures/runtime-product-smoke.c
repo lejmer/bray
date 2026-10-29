@@ -85,17 +85,17 @@ static void product_prepare_second(void)
 static void product_detach(void)
 {}
 
-static void product_admit(uint32_t release, RunOutcome* outcome)
+static void product_admit(uint32_t operation, RunOutcome* outcome)
 {
-    (void)release;
+    (void)operation;
     *outcome = (RunOutcome){0};
 }
 
-static void product_admit_second(uint32_t release, RunOutcome* outcome)
+static void product_admit_second(uint32_t operation, RunOutcome* outcome)
 {
-    product_admit(release, outcome);
+    product_admit(operation, outcome);
 
-    if (release == 0 && product_failure == 1)
+    if (operation == 0 && product_failure == 1)
     {
         outcome->state = 2;
         outcome->report = panic_report();
@@ -152,7 +152,7 @@ static StaticEntry product_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        1, 0, {{1}}, ordinal, 1, product_access,
+        2, 0, {{1}}, ordinal, 1, product_access,
         ordinal == 0 ? product_prepare_first : product_prepare_second,
         {1, ordinal == 0 ? product_admit : product_admit_second, product_finalize, product_resolve},
         product_destroy, product_detach, product_dependency, 0
@@ -164,9 +164,9 @@ static StaticEntry product_entry(size_t ordinal)
 }
 
 static const HostDescriptor teardown_products[] = {
-    {1, 0, {1}, product_entry, 2, NULL},
-    {1, 0, {2}, product_entry, 2, NULL},
-    {1, 0, {3}, product_entry, 2, NULL},
+    {2, 0, {1}, product_entry, 2, NULL},
+    {2, 0, {2}, product_entry, 2, NULL},
+    {2, 0, {3}, product_entry, 2, NULL},
 };
 
 extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObservation*);
@@ -185,15 +185,15 @@ static HostObservation product_control(unsigned selected, uint32_t operation)
 static unsigned interrupted_admitted;
 static unsigned interrupted_released;
 
-static void interrupted_admission(uint32_t release, RunOutcome* outcome)
+static void interrupted_admission(uint32_t operation, RunOutcome* outcome)
 {
-    product_admit(release, outcome);
+    product_admit(operation, outcome);
 
-    if (release != 0)
+    if (operation == 1)
     {
         ++interrupted_released;
     }
-    else if (++interrupted_admitted == 1)
+    else if (operation == 0 && ++interrupted_admitted == 1)
     {
         atomic_store(&reject_allocations, 1);
     }
@@ -204,7 +204,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
     ++product_visits;
 
     StaticEntry entry = {
-        1, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
+        2, 0, {{0}}, ordinal, 1, product_access, product_prepare_first,
         {1, interrupted_admission, product_finalize, product_resolve},
         product_destroy, product_detach, product_dependency, 0
     };
@@ -216,7 +216,7 @@ static StaticEntry interrupted_entry(size_t ordinal)
 }
 
 static const HostDescriptor interrupted_product = {
-    1, 0, {4}, interrupted_entry, 4096, NULL
+    2, 0, {4}, interrupted_entry, 4096, NULL
 };
 
 static void check_interrupted_formation(void)
@@ -289,12 +289,12 @@ static void check_product_teardown(void)
     product_visits = product_destroyed = product_sequence = 0;
     result = product_control(1, 0);
 
-    assert(result.status == 5 && result.state == 4);
+    assert(result.status == 7 && result.state == 4);
     assert(result.initialized_statics == 1 && result.cleaned_statics == 1);
     assert(product_visits == 2 && product_destroyed == 1 && product_sequence == 13);
 
     result = product_control(1, 0);
-    assert(result.status == 5 && product_visits == 2 && product_destroyed == 1);
+    assert(result.status == 7 && product_visits == 2 && product_destroyed == 1);
 
     product_failure = 2;
     product_visits = product_destroyed = product_sequence = 0;
@@ -307,4 +307,116 @@ static void check_product_teardown(void)
     assert(result.last_incident[0] == 1 && product_visits == 2);
 
     check_interrupted_formation();
+}
+
+typedef struct
+{
+    uintptr_t product;
+    StaticIdentity identity;
+    void (*prepare)(void);
+    StaticFinalizer finalizer;
+    void (*destroy)(uint32_t, RunOutcome*);
+    void (*detach)(void);
+} ThreadRegistration;
+
+extern uint64_t bray_runtime_thread_attachment_identity(const HostDescriptor*);
+extern uint32_t bray_runtime_thread_static_cleanup_registration(const ThreadRegistration*);
+
+static StaticEntry thread_product_entry(size_t ordinal)
+{
+    StaticEntry entry = product_entry(ordinal);
+
+    entry.duration = 1;
+
+    return entry;
+}
+
+static void reject_thread_backing(uint32_t operation, RunOutcome* outcome)
+{
+    assert(operation == 0);
+
+    *outcome = (RunOutcome){0};
+    outcome->state = 3;
+}
+
+static void check_thread_product_teardown(void)
+{
+    static const HostDescriptor descriptor = {2, 0, {5}, thread_product_entry, 2, NULL};
+    HostObservation result;
+
+    product_failure = 0;
+    product_visits = product_destroyed = product_sequence = 0;
+
+    assert(bray_runtime_thread_attachment_enter() == 0);
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 0, &result) == 0);
+    assert(result.status == 0 && product_visits == 2);
+
+    size_t bytes_before = atomic_load(&allocated_bytes);
+    unsigned blocks_before = atomic_load(&live_allocations);
+    uint64_t epoch = bray_runtime_thread_attachment_identity(&descriptor);
+
+    assert(epoch != 0 && product_visits == 2);
+
+    size_t membership_bytes = atomic_load(&allocated_bytes) - bytes_before;
+    unsigned membership_blocks = atomic_load(&live_allocations) - blocks_before;
+
+    // Register in the opposite order to the descriptor's cleanup order.
+    for (size_t index = 2; index != 0; --index)
+    {
+        StaticEntry entry = thread_product_entry(index - 1);
+
+        ThreadRegistration registration = {
+            (uintptr_t)&descriptor, entry.identity, entry.prepare,
+            entry.finalizer, entry.destroy, entry.detach
+        };
+
+        if (index == 2)
+        {
+            registration.finalizer.admission = reject_thread_backing;
+            assert(bray_runtime_thread_static_cleanup_registration(&registration) == 9);
+            assert(product_destroyed == 0 && product_sequence == 0);
+
+            registration.finalizer.admission = product_admit;
+        }
+
+        assert(bray_runtime_thread_static_cleanup_registration(&registration) == 0);
+    }
+
+    unsigned visits = product_visits;
+    unsigned before = bray_allocation_probe_begin();
+
+    for (unsigned index = 0; index < 256; ++index)
+    {
+        assert(bray_runtime_thread_attachment_identity(&descriptor) == epoch);
+    }
+
+    unsigned warm_allocations = bray_allocation_probe_end(before);
+
+    assert(warm_allocations == 0 && product_visits == visits);
+
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 9, &result) == 0);
+    assert(result.thread_attachments == 1);
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 9, &result) == 0);
+    assert(result.thread_attachments == 1);
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 5, &result) == 0);
+    assert(result.status == 1);
+
+    before = bray_allocation_probe_begin();
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 10, &result) == 0);
+    assert(result.thread_attachments == 1 && product_destroyed == 0);
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 10, &result) == 0);
+
+    unsigned cleanup_allocations = bray_allocation_probe_end(before);
+
+    assert(result.status == 2 && result.thread_attachments == 0);
+    assert(product_destroyed == 2 && product_sequence == 1324 && product_visits == visits);
+    assert(cleanup_allocations == 0);
+    assert(bray_runtime_thread_attachment_identity(&descriptor) == 0);
+    assert(bray_runtime_thread_attachment_leave() == 0);
+
+    printf(
+        "tls_domain membership_bytes=%zu membership_blocks=%u statics=2 "
+        "warm_accesses=256 warm_allocations=%u cleanup_allocations=%u\n",
+        membership_bytes, membership_blocks, warm_allocations, cleanup_allocations
+    );
 }

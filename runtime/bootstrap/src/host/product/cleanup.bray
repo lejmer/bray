@@ -37,6 +37,7 @@ internal struct AdmittedStatic
     destroy: Destroy;
     detach: Transition;
     mut source: bool;
+    mut resolution: bool;
     mut finalization: Finalization;
 
     trusted destruct()
@@ -49,6 +50,15 @@ internal struct AdmittedStatic
             let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
 
             trusted self.admission(1, output);
+
+            _ = trusted drain_outcome(output);
+        }
+        else if self.resolution
+        {
+            let mut outcome = trusted completed_outcome();
+            let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+            trusted self.admission(2, output);
 
             _ = trusted drain_outcome(output);
         }
@@ -186,6 +196,7 @@ trusted internal func clean_static(pos owner: &mut AdmittedStatic) -> usize
     uses(foreign_call)
 {
     owner.source = false;
+    owner.resolution = true;
 
     trusted owner.prepare();
 

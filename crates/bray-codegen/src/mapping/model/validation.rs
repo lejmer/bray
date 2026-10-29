@@ -155,7 +155,8 @@ pub fn mapped_symbol_runtime_roles(
             Some(bray_runtime_interface::NativeEntryKind::ForeignCallback) => true,
             Some(
                 bray_runtime_interface::NativeEntryKind::ThreadStorageExit
-                | bray_runtime_interface::NativeEntryKind::RuntimeStatus,
+                | bray_runtime_interface::NativeEntryKind::RuntimeStatus
+                | bray_runtime_interface::NativeEntryKind::RuntimeIdentity,
             ) => *role == RuntimeAbiRole::PanicReporting,
             Some(bray_runtime_interface::NativeEntryKind::EntryStatus) => {
                 *role == RuntimeAbiRole::PanicReporting
@@ -474,6 +475,7 @@ mod tests {
         for kind in [
             bray_runtime_interface::NativeEntryKind::ThreadStorageExit,
             bray_runtime_interface::NativeEntryKind::RuntimeStatus,
+            bray_runtime_interface::NativeEntryKind::RuntimeIdentity,
         ] {
             let roles: BTreeSet<_> =
                 super::mapped_symbol_runtime_roles(Some(kind), false).collect();

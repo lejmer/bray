@@ -27,7 +27,7 @@ internal struct AttachmentExit
     mut incidents: (&mut u32)?;
 
     trusted destruct()
-        uses(foreign_call)
+        uses(foreign_call, raw_memory, unchecked_alias, intrinsic)
         requires(
             (!self.ready && trusted attachment_exit_inactive(owner = &self)) || (self.ready &&
                 trusted attachment_exit_selected(owner = &self))
@@ -41,7 +41,15 @@ internal struct AttachmentExit
         {
             // Validate the closing epoch under the reacquired lease before issuing
             // retirement authority. This producer is local to the selected owner.
-            let retire = trusted lambda(pos identity: u64, pos native_thread: u64) -> AttachmentRetirement
+            let retire = trusted lambda(
+                pos identity: u64,
+                pos native_thread: u64,
+                pos retired_domains: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
+            ) -> AttachmentRetirement
+                requires(
+                    trusted bray.runtime.bootstrap.host.product.native_host(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access()
+                )
                 ensures(
                     result.lease.active,
                     trusted host_access_live(owner = &result.lease.acquisition),
@@ -83,6 +91,10 @@ internal struct AttachmentExit
                                     trusted core.target.abort();
                                 }
 
+                                trusted internal std.memory.swap_values<
+                                    (std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
+                                >(&mut entry.domains, retired_domains);
+
                                 yield std.memory.address_of_mut<Attachment>(entry);
                             }
                             case none { yield trusted core.target.abort(); }
@@ -110,6 +122,53 @@ internal struct AttachmentExit
                 };
             };
 
+            let authorize = trusted lambda(pos owner: &AttachmentExit)
+                requires(trusted attachment_exit_selected(owner = owner))
+                ensures(
+                    trusted bray.runtime.bootstrap.host.product.native_host(),
+                    trusted bray.runtime.bootstrap.pool.protocol_access()
+                )
+                executes(pure, total) {};
+
+            trusted authorize(&self);
+            trusted bray.runtime.bootstrap.host.product.cleanup_domains(self.identity);
+
+            // Source TLS cleanup has completed. Clear both native callback slots before
+            // the optional external callback, while its selected owner still retains context.
+            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+                &SYNCHRONIZATION,
+                trusted synchronization_pointer()
+            );
+
+            let callback_key = core.atomic.load<u64, 1>(&synchronization.key);
+            let context_key = core.atomic.load<u64, 1>(&synchronization.cleanup_key);
+
+            if callback_key != 0
+            {
+                let status = trusted internal std.thread.platform_thread_storage_store(
+                    callback_key - 1,
+                    std.memory.null<u8>()
+                );
+
+                if status.category != 0
+                {
+                    trusted core.target.abort();
+                }
+            }
+
+            if context_key != 0
+            {
+                let status = trusted internal std.thread.platform_thread_storage_store(
+                    context_key - 1,
+                    std.memory.null<u8>()
+                );
+
+                if status.category != 0
+                {
+                    trusted core.target.abort();
+                }
+            }
+
             let incidents: u32 = if let ?cleanup = self.cleanup
             {
                 yield cleanup(self.identity);
@@ -124,7 +183,15 @@ internal struct AttachmentExit
                 _ = trusted std.memory.replace_value<u32>(destination, incidents);
             }
 
-            let completed: AttachmentRetirement = trusted retire(self.identity, self.native_thread);
+            let mut retired_domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>? = none;
+
+            {
+                let completed: AttachmentRetirement = trusted retire(
+                    self.identity,
+                    self.native_thread,
+                    &mut retired_domains
+                );
+            }
         }
     }
 }
@@ -163,7 +230,8 @@ internal struct AttachmentRetirement
                 closing = true,
                 context_bridge = none,
                 report_observer = none,
-                cleanup = none
+                cleanup = none,
+                domains = none
             }
         );
 
@@ -332,6 +400,7 @@ trusted internal func select_attachment_slot(
     };
 
     let key = storage.key;
+    let cleanup_key = storage.cleanup_key;
     let attached = trusted load_attachment_identity(key);
 
     if scope.identity == 0 || storage.active == 0 || (attached != 0 && attached != scope.identity) || (!scope.native &&
@@ -368,11 +437,33 @@ trusted internal func select_attachment_slot(
                     };
                 }
 
-                let cleared = trusted internal std.thread.platform_thread_storage_store(key, std.memory.null<u8>());
-
-                if cleared.category != 0
+                if let ?domains = entry.domains
                 {
-                    return rejected;
+                    let rows = trusted std.memory.initialized_slice_mut<
+                        bray.runtime.bootstrap.host.product.ThreadDomain
+                    >(&mut domains);
+
+                    let mut index: usize = 0;
+
+                    while index < rows.length()
+                    {
+                        if rows[index].busy
+                        {
+                            return rejected;
+                        }
+
+                        index += 1;
+                    }
+                }
+
+                if !scope.native
+                {
+                    let cleared = trusted internal std.thread.platform_thread_storage_store(key, std.memory.null<u8>());
+
+                    if cleared.category != 0
+                    {
+                        return rejected;
+                    }
                 }
 
                 entry.closing = true;
@@ -394,6 +485,9 @@ trusted internal func select_attachment_slot(
                         status = 0
                     };
                 }
+
+                _ = trusted internal std.thread.platform_thread_storage_store(key, std.memory.null<u8>());
+                _ = trusted internal std.thread.platform_thread_storage_store(cleanup_key, std.memory.null<u8>());
 
                 entry.identity = 0;
                 entry.depth = 0;

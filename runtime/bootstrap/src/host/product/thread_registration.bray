@@ -1,0 +1,522 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
+
+@copy
+@layout(c)
+internal struct ThreadRegistration
+{
+    product: usize;
+    identity: Identity;
+    prepare: Transition;
+    finalizer: Finalizer;
+    destroy: Destroy;
+    detach: Transition;
+}
+
+trusted internal func registration_slot_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos key: usize,
+    pos identity: Identity,
+    pos execution: u32,
+    pos prepared: &mut(AdmittedStatic?),
+    pos commit: bool
+) -> u32
+    requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+    uses(raw_memory)
+{
+    let attachment = trusted bray.runtime.bootstrap.host.current_attachment_locked(lease);
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, &mut anchor);
+
+    if let ?domain = trusted domain_in_host(host, attachment, key)
+    {
+        if domain.closing || (!commit && domain.busy) || (commit && !domain.busy)
+        {
+            return 4;
+        }
+
+        if let ?statics = domain.statics
+        {
+            let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(&mut statics);
+            let mut index: usize = 0;
+
+            while index < entries.length()
+            {
+                if let Product(owner) = entries[index]
+                {
+                    if trusted same_identity(owner.identity, identity)
+                    {
+                        let mode: u32 = match owner.finalization
+                        {
+                            case None { yield 0; }
+                            case Synchronous(_) { yield 1; }
+                            case Asynchronous(_, _, _, _) { yield 2; }
+                        };
+
+                        return if mode == execution
+                        {
+                            yield 1;
+                        }
+                        else
+                        {
+                            yield 3;
+                        };
+                    }
+                }
+                else if let ExactThread(selected, _, mode) = entries[index]
+                {
+                    if trusted same_identity(selected, identity)
+                    {
+                        if mode != execution
+                        {
+                            return 3;
+                        }
+
+                        if commit
+                        {
+                            let mut transferred: AdmittedStatic? = none;
+
+                            trusted internal std.memory.swap_values<(AdmittedStatic?)>(prepared, &mut transferred);
+
+                            match consume transferred
+                            {
+                                case ?owner
+                                {
+                                    let mut value = StaticOwner.Product(owner);
+
+                                    trusted internal std.memory.swap_values<StaticOwner>(
+                                        &mut entries[index],
+                                        &mut value
+                                    );
+                                }
+                                case none {}
+                            }
+
+                            domain.busy = false;
+                        }
+                        else
+                        {
+                            domain.busy = true;
+                        }
+
+                        return 0;
+                    }
+                }
+
+                index += 1;
+            }
+        }
+    }
+
+    return 4;
+}
+
+trusted internal func declared_thread_registration(pos key: usize, pos identity: Identity, pos execution: u32) -> bool
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return false;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?statics = product.statics
+            {
+                let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(&mut statics);
+                let mut index: usize = 0;
+
+                while index < entries.length()
+                {
+                    if let ExactThread(selected, _, mode) = entries[index]
+                    {
+                        if trusted same_identity(selected, identity)
+                        {
+                            return mode == execution;
+                        }
+                    }
+
+                    index += 1;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+// Exact-thread dependency storage can be reached directly by constant initializers
+// and lifecycle code. Acquire each generated accessor before publishing the
+// consumer's cleanup owner so every reachable provider has matching backing.
+trusted internal func access_thread_dependencies(pos key: usize, pos identity: Identity) -> bool
+    requires(trusted native_host())
+    uses(foreign_call)
+{
+    let selected = trusted descriptor(key);
+    let mut ordinal: usize = 0;
+
+    while ordinal < selected.static_count
+    {
+        let owner = trusted selected.static_entry(ordinal);
+
+        if trusted same_identity(owner.identity, identity)
+        {
+            let mut dependency: usize = 0;
+
+            while dependency < owner.dependency_count
+            {
+                let required = trusted owner.dependency(dependency);
+                let mut provider: usize = 0;
+                let mut found: bool = false;
+
+                while provider < selected.static_count
+                {
+                    let entry = trusted selected.static_entry(provider);
+
+                    if trusted same_identity(entry.identity, required)
+                    {
+                        found = true;
+
+                        if entry.order <= owner.order || (entry.duration == 1 && trusted entry.access() == 0)
+                        {
+                            return false;
+                        }
+
+                        break;
+                    }
+
+                    provider += 1;
+                }
+
+                if !found
+                {
+                    return false;
+                }
+
+                dependency += 1;
+            }
+
+            return true;
+        }
+
+        ordinal += 1;
+    }
+
+    return false;
+}
+
+trusted internal predicate registration_guard_owned(owner: &RegistrationGuard);
+
+internal struct RegistrationGuard
+{
+    key: usize;
+    mut pending: bool;
+
+    trusted destruct()
+        requires(
+            trusted registration_guard_owned(owner = &self),
+            trusted native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        when(!self.pending)
+        {
+            executes(pure, total)
+        }
+        uses(intrinsic)
+    {
+        if self.pending
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                trusted core.target.abort();
+            }
+
+            let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+            if let ?domain = trusted domain_in_host(host, identity, self.key)
+            {
+                domain.busy = false;
+            }
+            else
+            {
+                trusted core.target.abort();
+            }
+        }
+    }
+}
+
+@abi(c)
+trusted internal func thread_static_cleanup_registration(pos pointer: DataPointer<ThreadRegistration>) -> u32
+    requires(trusted native_host())
+    uses(raw_memory, intrinsic)
+{
+    let registration_guard = trusted lambda(pos key: usize) -> RegistrationGuard
+        ensures(trusted registration_guard_owned(owner = &result))
+    {
+        return
+        {
+            key = key,
+            pending = false
+        };
+    };
+
+    let mark_guard = trusted lambda(pos owner: &mut RegistrationGuard, pos pending: bool)
+        requires(trusted registration_guard_owned(owner = &owner))
+        ensures(trusted registration_guard_owned(owner = &owner))
+        executes(total)
+    {
+        owner.pending = pending;
+    };
+
+    let source = trusted lambda(pos pointer: DataPointer<ThreadRegistration>) -> DataPointer<ThreadRegistration>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_read<ThreadRegistration>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<ThreadRegistration>(pointer = result),
+            trusted core.memory.aligned_for<ThreadRegistration>(pointer = result),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        executes(pure, total)
+    {
+        return pointer;
+    };
+
+    let registration = trusted std.memory.read<ThreadRegistration>(trusted source(pointer));
+    let key = registration.product;
+
+    if trusted bray.runtime.bootstrap.host.current_native_thread_identity() == 0
+    {
+        return bray.runtime.bootstrap.STATUS_NOT_INITIALIZED;
+    }
+
+    let formed = trusted form(key);
+
+    if formed.state != 1 && formed.state != 2
+    {
+        return 4;
+    }
+
+    if !trusted declared_thread_registration(key, registration.identity, registration.finalizer.execution)
+    {
+        return 3;
+    }
+
+    if trusted enter_domain(key, 0) == 0
+    {
+        return 4;
+    }
+
+    if !trusted access_thread_dependencies(key, registration.identity)
+    {
+        return 4;
+    }
+
+    let mut guard = trusted registration_guard(key);
+    let mut prepared: AdmittedStatic? = none;
+
+    let status: u32 =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return 4;
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted registration_slot_locked(
+            &lease,
+            key,
+            registration.identity,
+            registration.finalizer.execution,
+            &mut prepared,
+            false
+        );
+    };
+
+    if status != 0
+    {
+        return if status == 1
+        {
+            yield 0;
+        }
+        else
+        {
+            yield status;
+        };
+    }
+
+    trusted mark_guard(&mut guard, true);
+
+    let execution = trusted domain_execution(key);
+
+    let admission = trusted admit_static(
+        registration.identity,
+        registration.prepare,
+        registration.finalizer,
+        registration.destroy,
+        registration.detach,
+        &execution
+    );
+
+    let failure: u32 = match consume admission
+    {
+        case Ok(owner)
+        {
+            prepared = owner;
+            yield 0;
+        }
+        case Error(rejection)
+        {
+            yield if rejection == 6
+            {
+                yield 8;
+            }
+            else if rejection == 7
+            {
+                yield 9;
+            }
+            else
+            {
+                yield 4;
+            };
+        }
+    };
+
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        let committed = trusted registration_slot_locked(
+            &lease,
+            key,
+            registration.identity,
+            registration.finalizer.execution,
+            &mut prepared,
+            true
+        );
+
+        if committed != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    trusted mark_guard(&mut guard, false);
+
+    return failure;
+}
+
+// Copy the already checked product templates, retaining only exact-thread entries.
+// The caller allocates the returned capacity outside this transition lease.
+trusted internal func prepare_thread_templates(
+    pos key: usize,
+    pos prepared: &mut(std.memory.RawBuffer<StaticOwner>?)
+) -> usize
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return 0;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?statics = product.statics
+            {
+                let entries = trusted std.memory.initialized_slice_mut<StaticOwner>(&mut statics);
+                let mut count: usize = 0;
+                let mut index: usize = 0;
+
+                while index < entries.length()
+                {
+                    if entries[index] matches ExactThread(_, _, _)
+                    {
+                        count += 1;
+                    }
+
+                    index += 1;
+                }
+
+                if count == 0
+                {
+                    return 0;
+                }
+
+                if let ?buffer = prepared
+                {
+                    if buffer.capacity < count || buffer.initialized != 0
+                    {
+                        trusted core.target.abort();
+                    }
+
+                    index = 0;
+
+                    while index < entries.length()
+                    {
+                        if let ExactThread(identity, order, mode) = entries[index]
+                        {
+                            trusted internal std.memory.raw_buffer_push<StaticOwner>(
+                                &mut buffer,
+                                StaticOwner.ExactThread(identity, order, mode)
+                            );
+                        }
+
+                        index += 1;
+                    }
+
+                    return 0;
+                }
+
+                return count;
+            }
+        }
+    }
+
+    return 0;
+}
