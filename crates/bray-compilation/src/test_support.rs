@@ -166,6 +166,60 @@ static RUNTIME_STANDARD_LIBRARY_DEPENDENCIES: OnceLock<
     Mutex<HashMap<crate::SelectedTarget, DependencyInterfaceInput>>,
 > = OnceLock::new();
 
+// The cache owns immutable snapshots. Each revised probe uses normal dependency invalidation.
+pub(crate) type ProductionFixtureCache =
+    OnceLock<Mutex<HashMap<crate::SelectedTarget, Arc<OnceLock<Compilation>>>>>;
+
+pub(crate) fn production_fixture(
+    fixtures: &ProductionFixtureCache,
+    caller: &str,
+    target: crate::SelectedTarget,
+    build: fn(&str, crate::SelectedTarget) -> Compilation,
+) -> Compilation {
+    let fixture = {
+        let mut fixtures = fixtures
+            .get_or_init(Mutex::default)
+            .lock()
+            .expect("production fixture cache must remain available");
+
+        Arc::clone(fixtures.entry(target.clone()).or_default())
+    };
+
+    let baseline = fixture.get_or_init(|| {
+        let compilation = build("module app;", target);
+
+        // Parse and discover each unchanged source once, before publishing the snapshot.
+        compilation.declaration_table_result();
+
+        compilation
+    });
+
+    if caller == "module app;" {
+        // Identical requests share completed query values, including production proofs.
+        return baseline.clone();
+    }
+
+    let sources = baseline
+        .sources()
+        .iter()
+        .enumerate()
+        .map(|(index, source)| {
+            source_input(
+                if source.text() == "module app;" {
+                    caller
+                } else {
+                    source.text()
+                },
+                u32::try_from(index).expect("production source index must fit"),
+            )
+        })
+        .collect();
+
+    baseline
+        .updated_sources(sources)
+        .expect("production probe snapshot must load")
+}
+
 pub(crate) struct FactTestGate {
     held_event: FactCellTestEvent,
     shared: Arc<(Mutex<FactTestGateState>, Condvar)>,
@@ -1065,6 +1119,114 @@ pub(crate) fn assert_boolean_constants(compilation: &Compilation, expected: &[(&
             values.constant_value_data(result.value().value()).kind(),
             &bray_symbols::ConstantValueKind::Boolean(*expected),
             "{name}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod fixture_tests {
+    use std::sync::{Arc, OnceLock};
+
+    use super::{
+        ProductionFixtureCache, production_fixture, source_function_body_key, source_input,
+    };
+    use crate::{
+        Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
+    };
+
+    fn build(caller: &str, target: SelectedTarget) -> Compilation {
+        let request = CompilationRequest::with_options(
+            super::package_identity(),
+            vec![
+                source_input(caller, 0),
+                source_input(
+                    r#"
+                module dependency;
+
+                func unchanged() -> i32
+                {
+                    return 1;
+                }
+            "#,
+                    1,
+                ),
+            ],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                bray_symbols::ProductKind::Library,
+                target,
+            ),
+        );
+
+        Compilation::load(request).expect("fixture input")
+    }
+
+    #[test]
+    fn revised_probes_share_syntax_and_keep_diagnostics_isolated() {
+        let fixtures: ProductionFixtureCache = OnceLock::new();
+        let target = SelectedTarget::baseline();
+        let first = production_fixture(&fixtures, "module app;", target.clone(), build);
+        let key = source_function_body_key(&first, "unchanged");
+        let bound = first.bound_unit(key.clone()).expect("base bound unit");
+        let second = production_fixture(&fixtures, "module app;", target.clone(), build);
+
+        assert!(Arc::ptr_eq(
+            &bound,
+            &second.bound_unit(key).expect("shared bound unit")
+        ));
+
+        let invalid = production_fixture(
+            &fixtures,
+            r#"
+            module app;
+
+            func probe() -> i32
+            {
+                return missing;
+            }
+        "#,
+            target.clone(),
+            build,
+        );
+
+        assert!(invalid.check_diagnostics().has_errors());
+        assert!(!first.check_diagnostics().has_errors());
+
+        let revised = production_fixture(
+            &fixtures,
+            r#"
+            module app;
+
+            func probe() -> i32
+            {
+                return 2;
+            }
+        "#,
+            target,
+            build,
+        );
+
+        assert!(!revised.check_diagnostics().has_errors());
+
+        assert!(std::ptr::eq(
+            first
+                .source_unit_syntax(bray_source::SourceId::new(1))
+                .expect("base syntax"),
+            revised
+                .source_unit_syntax(bray_source::SourceId::new(1))
+                .expect("reused syntax"),
+        ));
+
+        let windows = production_fixture(
+            &fixtures,
+            "module app;",
+            SelectedTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc),
+            build,
+        );
+
+        assert_ne!(
+            first.options().selected_target(),
+            windows.options().selected_target()
         );
     }
 }

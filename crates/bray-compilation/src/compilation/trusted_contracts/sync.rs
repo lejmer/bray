@@ -1,7 +1,11 @@
+use std::sync::OnceLock;
+
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::PackageIdentity;
 
-use crate::test_support::{compilation, source_function_body_key, source_input};
+use crate::test_support::{
+    ProductionFixtureCache, compilation, production_fixture, source_function_body_key, source_input,
+};
 use crate::{Compilation, CompilationRequest};
 
 #[test]
@@ -109,6 +113,7 @@ fn owned_postconditions_follow_a_scoped_mutable_alias() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_spin_lock_rejects_fabricated_guard_authority() {
     for (body, valid) in [
         ("", true),
@@ -164,6 +169,12 @@ fn production_sync_compilation_for_target(
     caller: &str,
     target: crate::SelectedTarget,
 ) -> Compilation {
+    static FIXTURES: ProductionFixtureCache = OnceLock::new();
+
+    production_fixture(&FIXTURES, caller, target, build_production_sync)
+}
+
+fn build_production_sync(caller: &str, target: crate::SelectedTarget) -> Compilation {
     let sources = [
         include_str!("../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../standard-library/std/src/memory/pointer.bray"),
@@ -943,6 +954,7 @@ fn conditional_cleanup_cannot_publish_unconditional_guarantees() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_spin_lock_nullable_acquisition_retains_storage() {
     let compilation = production_sync_compilation(
         r#"
@@ -974,6 +986,7 @@ fn production_spin_lock_nullable_acquisition_retains_storage() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_mutex_requires_acquisition_authority() {
     for (body, valid) in [
         (
@@ -1023,6 +1036,7 @@ fn production_mutex_requires_acquisition_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_rw_lock_requires_distinct_acquisition_authority() {
     for (kind, method) in [("Read", "read"), ("Write", "write")] {
         for (guard, nullable, valid) in [
@@ -1115,6 +1129,7 @@ fn body_belongs_to(
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_lock_declarations_check_their_own_bodies() {
     let compilation = production_sync_compilation(
         r#"module app;
@@ -1177,6 +1192,7 @@ using core.target;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn consuming_guard_release_keeps_its_destructors_reference_effects() {
     let application = production_sync_compilation("module app;");
 
@@ -1230,6 +1246,7 @@ fn consuming_guard_release_keeps_its_destructors_reference_effects() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn independent_production_guards_keep_their_authority() {
     let compilation = production_sync_compilation(
         r#"
@@ -1257,6 +1274,7 @@ fn independent_production_guards_keep_their_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_synchronization_declarations_check_their_own_bodies() {
     let compilation = production_sync_compilation(
         r#"module app;
@@ -1319,6 +1337,7 @@ using core.target;
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_condition_variable_releases_and_reacquires_authority() {
     let compilation = production_sync_compilation(
         r#"
@@ -1385,6 +1404,7 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     let application = production_sync_compilation(
         r#"
@@ -1441,6 +1461,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_guard_borrow_origin_reaches_the_protected_payload() {
     let application = production_sync_compilation("module app;");
 
@@ -2062,6 +2083,7 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_spin_lock_rejects_detached_authority() {
     for (body, expected) in [
         (
@@ -2118,6 +2140,7 @@ fn production_spin_lock_rejects_detached_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
     use bray_runtime_interface::RuntimeAbiRole;
 
@@ -2168,6 +2191,7 @@ fn native_atomic_word_bridge_retains_wait_and_notification_roles() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn native_atomic_word_declarations_check_for_every_target() {
     for target in bray_target::NativeTarget::ALL {
         let compilation = production_sync_compilation_for_target(
@@ -2222,6 +2246,7 @@ fn native_atomic_word_declarations_check_for_every_target() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn generic_cleanup_effects_specialize_through_forwarding() {
     for (argument, valid) in [
         ("forward<u32>(7)", true),
@@ -2275,6 +2300,7 @@ fn generic_cleanup_effects_specialize_through_forwarding() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
     let application = production_sync_compilation(
         r#"
@@ -2299,6 +2325,7 @@ fn recursive_cleanup_effects_do_not_grow_with_generic_wrappers() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_guard_reacquisition_retains_original_lock_dependency() {
     let application = production_sync_compilation(
         r#"
@@ -2327,6 +2354,7 @@ fn production_guard_reacquisition_retains_original_lock_dependency() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
     for (observation, valid) in [("marker", true), ("word", false), ("scalar", false)] {
         let source = format!(
@@ -2386,6 +2414,7 @@ fn unknown_atomic_aliases_preserve_markers_but_revoke_content_observations() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn physical_entry_origin_does_not_erase_a_local_lifetime_anchor() {
     for (inside, valid) in [(true, true), (false, false)] {
         let observe = "observe(pointer);";
@@ -2565,6 +2594,7 @@ fn opaque_callback_does_not_reuse_a_carriers_borrowed_payload_snapshot() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_once_declarations_check_their_own_bodies() {
     let application = production_sync_compilation("module app;");
     let mut failures = Vec::new();
@@ -2613,6 +2643,7 @@ fn production_once_declarations_check_their_own_bodies() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_once_and_lazy_owners_keep_cleanup_authority() {
     for body in [
         "let once = std.sync.Once<u32>.empty(); let value = once.get_or_init(callback);",
@@ -2722,6 +2753,7 @@ fn shared_marker_borrows_preserve_the_original_owner_without_mutable_authority()
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_once_rejects_fabricated_instance_and_attempt_authority() {
     for body in [
         "let once: std.sync.Once<u32> = { prepared = { instance = std.sync.once.Marker {}, storage = std.memory.uninit<std.sync.once.State<u32>>() } }; let value = once.get_or_init(callback);",
@@ -2753,6 +2785,7 @@ fn production_once_rejects_fabricated_instance_and_attempt_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn barrier_preserves_its_nested_mutex_authority() {
     let compilation = production_sync_compilation(
         r#"
@@ -2948,6 +2981,7 @@ fn forwarded_nested_carrier_keeps_its_original_authority_boundary() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn static_once_keeps_initializer_authority() {
     let application = production_sync_compilation(
         r#"
@@ -3032,6 +3066,7 @@ fn static_initializers_preserve_only_established_owner_authority() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn mutable_slice_foreign_output_keeps_its_extent_authority() {
     let application = production_sync_compilation(
         r#"
@@ -3542,6 +3577,7 @@ fn loop_cleanup_keeps_independent_complete_carriers() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_guard_cleanup_survives_loop_payload_transitions() {
     for operation in [
         "payload.inner.change();",
@@ -4203,6 +4239,7 @@ fn task_cleanup_retains_loans_until_the_task_is_consumed() {
 }
 
 #[test]
+#[ignore = "tier:proof"]
 fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication() {
     for (owner, preparation, state, use_owner) in [
         (

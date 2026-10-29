@@ -276,6 +276,7 @@ trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> 
 "#;
 
 #[test]
+#[ignore = "tier:native"]
 fn target_fence_wrapper_emits_valid_native_units() {
     let (backend, compilation) =
         codegen_compilation_for_product(TARGET_FENCE_SOURCE, ProductKind::Library);
@@ -298,6 +299,7 @@ fn target_fence_wrapper_emits_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn structural_assembly_emits_valid_native_units() {
     let (backend, compilation) =
         codegen_compilation_for_product(STRUCTURAL_ASSEMBLY_SOURCE, ProductKind::Library);
@@ -398,6 +400,7 @@ fn structural_assembly_emits_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn indirect_memory_assembly_emits_valid_native_units() {
     let (backend, compilation) =
         codegen_compilation_for_product(MEMORY_ASSEMBLY_SOURCE, ProductKind::Library);
@@ -420,6 +423,7 @@ fn indirect_memory_assembly_emits_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn void_branching_assembly_emits_valid_native_units() {
     assert_source_emits_valid_native_units(
         VOID_BRANCHING_ASSEMBLY_SOURCE,
@@ -428,6 +432,7 @@ fn void_branching_assembly_emits_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn impure_diverging_assembly_survives_optimized_native_codegen() {
     let (backend, compilation) =
         codegen_compilation_for_product(DIVERGING_ASSEMBLY_SOURCE, ProductKind::Library);
@@ -451,6 +456,7 @@ fn impure_diverging_assembly_survives_optimized_native_codegen() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn device_volatile_contracts_accept_device_pointer_storage_contracts() {
     let native = NativeTarget::X86_64LinuxGnu.profile();
     let baseline = native.properties();
@@ -500,6 +506,7 @@ fn device_volatile_contracts_accept_device_pointer_storage_contracts() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn supported_atomic_generic_specializations_reach_codegen() {
     let compilation = crate::test_support::compilation(ATOMIC_GENERIC_SOURCE);
     let specializations = concrete_generic_specializations(&compilation);
@@ -510,6 +517,7 @@ fn supported_atomic_generic_specializations_reach_codegen() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_atomic_roots_exclude_open_generic_wrappers() {
     let compilation =
         crate::test_support::compilation_with_product(ATOMIC_LIBRARY_SOURCE, ProductKind::Library);
@@ -540,6 +548,7 @@ fn library_atomic_roots_exclude_open_generic_wrappers() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn atomic_fence_wrapper_emits_valid_native_units() {
     let (backend, compilation) =
         codegen_compilation_for_product(ATOMIC_FENCE_SOURCE, ProductKind::Library);
@@ -562,6 +571,7 @@ fn atomic_fence_wrapper_emits_valid_native_units() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
     let callback_source = concat!(
         "module app;\n",
@@ -642,6 +652,7 @@ fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_platform_cleanup_terminates_uncaught_panic() {
     assert_native_platform_cleanup_emits(
         "",
@@ -656,6 +667,7 @@ fn native_platform_cleanup_terminates_uncaught_panic() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_platform_cleanup_terminates_uncaught_cancellation() {
     assert_native_platform_cleanup_emits(
         "",
@@ -671,6 +683,7 @@ fn native_platform_cleanup_terminates_uncaught_cancellation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_platform_normal_return_consumes_retained_cleanup_incidents() {
     assert_native_platform_cleanup_emits(
         r#"
@@ -797,6 +810,7 @@ fn assert_native_platform_cleanup_emits(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn path_role_dispatches_to_the_runtime_override() {
     let source = r#"trusted module app;
 using core.memory;
@@ -873,6 +887,7 @@ func platform_path_override_test()
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn bray_platform_service_implementations_are_native_fallbacks() {
     let source = concat!(
         "trusted module app;\n",
@@ -1004,6 +1019,7 @@ fn assert_direct_platform_service(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn platform_source_bindings_export_and_retain_the_canonical_role_symbol() {
     let source = concat!(
         "trusted module app;\n",

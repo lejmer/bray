@@ -65,8 +65,8 @@ pub(super) fn declare<'context>(
                 types,
             )?;
 
-            let count = crate::native::pointer_integer_type(context, types.target())
-                .const_int(1, false);
+            let count =
+                crate::native::pointer_integer_type(context, types.target()).const_int(1, false);
 
             super::super::cleanup::bundle(&builder, descriptors, count, types).map(Some)
         })

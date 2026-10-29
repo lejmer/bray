@@ -18,6 +18,7 @@ use bray_symbols::{
 use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
+#[ignore = "tier:native"]
 fn concrete_generic_instances_realize_signatures_and_layouts() {
     let compilation = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
 
@@ -207,6 +208,7 @@ fn concrete_generic_instances_realize_signatures_and_layouts() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_roots_exclude_members_of_open_generic_containers() {
     let compilation = crate::test_support::compilation_with_product(
         concat!(
@@ -249,6 +251,7 @@ fn library_roots_exclude_members_of_open_generic_containers() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_roots_include_public_implementation_fulfillments() {
     let compilation = crate::test_support::compilation_with_product(
         concat!(
@@ -316,6 +319,7 @@ fn library_roots_include_public_implementation_fulfillments() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn trait_owned_default_bodies_specialize_with_the_selected_implementation() {
     let source = concat!(
         "module app;\n",
@@ -401,6 +405,7 @@ fn trait_owned_default_bodies_specialize_with_the_selected_implementation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn constrained_trait_owned_default_bodies_dispatch_required_members() {
     let source = concat!(
         "module app;\n",
@@ -484,6 +489,7 @@ fn constrained_trait_owned_default_bodies_dispatch_required_members() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn concrete_generic_specializations_are_stable_across_store_order() {
     let first = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
     let second = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
@@ -511,6 +517,7 @@ fn concrete_generic_specializations_are_stable_across_store_order() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn concrete_generic_instances_retain_exact_implementation_witnesses() {
     let compilation = crate::test_support::compilation(concat!(
         "module app;\n",

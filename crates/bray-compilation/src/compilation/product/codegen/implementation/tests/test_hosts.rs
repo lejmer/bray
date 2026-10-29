@@ -9,6 +9,7 @@ use bray_symbols::ProductKind;
 use bray_testing::TemporaryFile;
 
 #[test]
+#[ignore = "tier:native"]
 fn native_test_products_emit_every_entry_in_catalog_order() {
     let source = concat!(
         "module app.tests;\n",
@@ -101,6 +102,7 @@ fn native_test_products_emit_every_entry_in_catalog_order() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn empty_native_test_products_emit_a_successful_host() {
     let (backend, compilation) =
         codegen_compilation_for_product("module app.tests;\n", ProductKind::Test);

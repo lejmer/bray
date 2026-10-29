@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:native"]
 fn native_demand_inventory_is_stable_for_imports_exports_and_static_lifecycle() {
     let source = concat!(
         "module application;\n",
@@ -131,6 +132,7 @@ fn native_demand_inventory_is_stable_for_imports_exports_and_static_lifecycle() 
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_preparation_is_deterministic_across_worker_budgets() {
     let (serial_backend, serial_compilation) = codegen_compilation_for_product_with_worker_budget(
         CONCRETE_GENERIC_SOURCE,
@@ -184,6 +186,7 @@ fn native_preparation_is_deterministic_across_worker_budgets() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn fresh_native_plans_ignore_unrelated_semantic_interning() {
     let storage_source = r#"
             trusted module app;
@@ -417,6 +420,7 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn cancelled_native_preparation_publishes_no_partial_plan() {
     let (_, compilation) = codegen_compilation_for_product_with_worker_budget(
         CONCRETE_GENERIC_SOURCE,

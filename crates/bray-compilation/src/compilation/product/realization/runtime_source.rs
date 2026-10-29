@@ -356,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn attachment_retirement_roles_require_one_opaque_entry_condition_independent_of_spelling() {
         for (role, function) in [
             (RuntimeAbiRole::EntryContextRegistration, "install"),
@@ -486,6 +487,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn report_transfer_consumes_the_production_value_and_reporting_consumes_a_slot() {
         for target in bray_target::NativeTarget::ALL {
             let compilation =
@@ -676,6 +678,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn production_bootstrap_operations_and_layouts_cover_every_target() {
         for target in bray_target::NativeTarget::ALL {
             let compilation =
@@ -814,6 +817,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "tier:exhaustive"]
     fn thread_destructors_require_the_selected_native_callback_abi() {
         for target in bray_target::NativeTarget::ALL {
             let compilation = crate::test_support::compilation_with_options(

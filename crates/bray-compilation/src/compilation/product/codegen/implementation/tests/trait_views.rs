@@ -1,6 +1,7 @@
 use super::support::artifacts::unoptimized_library_ir;
 
 #[test]
+#[ignore = "tier:native"]
 fn borrowed_trait_view_emits_async_runtime_dispatch() {
     let ir = unoptimized_library_ir(
         r#"
@@ -50,6 +51,7 @@ fn borrowed_trait_view_emits_async_runtime_dispatch() {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
+#[ignore = "tier:native"]
 fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
     use super::support::compilation::codegen_compilation_for_product;
 
@@ -159,6 +161,7 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn borrowed_trait_view_preserves_imported_generic_witness_and_slot_order() {
     use super::support::compilation::codegen_configuration;
     use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};

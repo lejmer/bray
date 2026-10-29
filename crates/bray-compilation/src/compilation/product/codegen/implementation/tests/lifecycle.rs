@@ -13,6 +13,7 @@ use bray_ir::{MirOperationKind, MirTerminatorKind, MirUnitKey};
 use bray_symbols::ProductKind;
 
 #[test]
+#[ignore = "tier:native"]
 fn scoped_selected_calls_emit_native_artifacts() {
     for (enter, exit, result, returned) in [
         (
@@ -55,6 +56,7 @@ fn scoped_selected_calls_emit_native_artifacts() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn nested_cleanup_native_fixture_emits() {
     let (backend, plan) = runtime_native_plan_for_product(
         include_str!(concat!(
@@ -68,6 +70,7 @@ fn nested_cleanup_native_fixture_emits() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn custom_storage_cleanup_native_fixture_emits() {
     let (backend, plan) = runtime_native_plan(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -78,6 +81,7 @@ fn custom_storage_cleanup_native_fixture_emits() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn buffer_destruction_emits_ordinary_and_abandoned_element_paths() {
     let source = r#"
         module std.test;
@@ -361,6 +365,7 @@ fn broadcast_retains_nested_prefix(mir: &bray_ir::MirUnit, entry: bray_ir::MirBl
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn replacement_cleanup_helpers_emit_checked_outcomes() {
     for lifecycle in ["destruct() {}", "finalize() {} destruct() {}"] {
         let source = format!(
@@ -434,6 +439,7 @@ fn replacement_cleanup_helpers_emit_checked_outcomes() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn library_source_bodies_are_not_skipped_by_compiler_known_names() {
     for module in ["app", "std.memory"] {
         let source = format!("module {module}; func allocate() -> i32 {{ return 3; }}");
@@ -446,6 +452,7 @@ fn library_source_bodies_are_not_skipped_by_compiler_known_names() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn synchronous_finalizer_can_propagate_run_result_cancellation() {
     let source = r#"
             module app;
@@ -481,6 +488,7 @@ fn synchronous_finalizer_can_propagate_run_result_cancellation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn ordinary_async_finalizers_emit_admitted_frame_composition() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -519,6 +527,7 @@ fn ordinary_async_finalizers_emit_admitted_frame_composition() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn inactive_future_cleanup_emits_without_entering_child_body() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -558,6 +567,7 @@ fn inactive_future_cleanup_emits_without_entering_child_body() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn retained_finalizer_errors_with_inactive_futures_emit_native_artifacts() {
     let source = r#"
         module app;
@@ -614,6 +624,7 @@ fn retained_finalizer_errors_with_inactive_futures_emit_native_artifacts() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn source_destructor_parts_reuse_the_owner_cleanup_continuation() {
     for (execution, finalizer) in [
         ("", "finalize() {}"),
@@ -670,6 +681,7 @@ fn source_destructor_parts_reuse_the_owner_cleanup_continuation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn awaited_owners_retain_cleanup_before_the_enclosing_expression_accepts_them() {
     let (backend, plan) = runtime_native_plan(
         r#"
@@ -707,6 +719,7 @@ fn awaited_owners_retain_cleanup_before_the_enclosing_expression_accepts_them() 
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
     for execution in ["", "async "] {
         for entry_execution in ["", "async "] {
@@ -822,6 +835,7 @@ fn scoped_exit_errors_with_inactive_captures_plan_native_cleanup() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn moving_aligned_union_values_does_not_clear_dead_payload_bytes() {
     let (backend, plan) = runtime_native_plan_for_product(
         r#"
@@ -865,6 +879,7 @@ fn moving_aligned_union_values_does_not_clear_dead_payload_bytes() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn constrained_async_admission_realizes_the_selected_implementation() {
     let source = r#"
         module app;
@@ -901,6 +916,7 @@ fn constrained_async_admission_realizes_the_selected_implementation() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn admitted_synchronous_generic_cleanup_emits_native_units() {
     const SOURCE: &str = r#"
         module app;
@@ -989,6 +1005,7 @@ fn admitted_synchronous_generic_cleanup_emits_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn inactive_generic_scalar_future_emits_native_units() {
     assert_source_emits_valid_native_units(
         r#"
@@ -1002,6 +1019,7 @@ fn inactive_generic_scalar_future_emits_native_units() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports() {
     const SOURCE: &str = r#"
         module app;
@@ -1138,6 +1156,7 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn selected_associated_runtime_default_emits_source_and_imported_native_units() {
     const SOURCE: &str = r#"
         module app;

@@ -485,6 +485,7 @@ fn empty_acquisition_permit_does_not_enlarge_guard_layout() {
 }
 
 #[test]
+#[ignore = "tier:exhaustive"]
 fn exact_integer_storage_layout_excludes_allocation_padding() {
     let compilation = compilation("module app;");
 

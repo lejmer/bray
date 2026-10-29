@@ -17,6 +17,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:native"]
 fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -91,6 +92,7 @@ fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_reuse_defers_optional_executable_body_decoding() {
     let fixture = GenericDependencyFixture {
         source: r#"
@@ -144,6 +146,7 @@ fn native_reuse_defers_optional_executable_body_decoding() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_native_binding_retains_references_but_excludes_disconnected_package_units() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -201,6 +204,7 @@ fn imported_native_binding_retains_references_but_excludes_disconnected_package_
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -234,6 +238,7 @@ fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn static_library_reuses_imported_binding_without_flattening_dependency_archive() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -290,6 +295,7 @@ fn static_library_reuses_imported_binding_without_flattening_dependency_archive(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
     let fixture = GenericDependencyFixture {
         source: r#"
@@ -415,6 +421,7 @@ fn native_companions_reject_conflicting_publications_and_semantic_interfaces() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -446,6 +453,7 @@ fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn selected_native_binding_with_wrong_producer_reports_exact_import_failure() {
     let fixture = GenericDependencyFixture {
         source: "module templates;\npublic func hot(pos value: i32) -> i32 { return value + 1; }\n",
@@ -569,6 +577,7 @@ fn native_fixture_payloads(
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn reused_native_c_body_retains_its_distinct_callable_address() {
     let dependency = dependency_from_fixture_with_native(
         true,
@@ -657,6 +666,7 @@ fn reused_native_c_body_retains_its_distinct_callable_address() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn imported_async_companions_keep_the_selected_native_constructor_identity() {
     let dependency = dependency_from_fixture_with_native(
         true,

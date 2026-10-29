@@ -7,6 +7,67 @@ See [Repository tasks](xtask.md) for common commands and specialized workflows.
 
 Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
 
+## Compiler test tiers
+
+The default `bray-compilation` suite is the fast behavior tier. Its execution budget is **120 seconds** on a development
+host with four available CPU workers and the pinned LLVM toolchain. Compilation is measured separately. The workspace
+optimizes analysis dependencies in the test profile while leaving the large compilation crate unoptimized for fast
+rebuilds.
+
+Run the budgeted suite with stable Cargo and Rust's standard test harness:
+
+```text
+cargo xtask test compiler
+```
+
+No additional test runner is required. `cargo test -p bray-compilation` runs the same fast test selection through Cargo's
+ordinary harness. Focused Cargo filters continue to work. The budgeted command records preparation and execution
+separately, terminates a tier that exceeds its budget, and returns failure for incomplete coverage or failed tests.
+
+Expensive tests carry an explicit `#[ignore = "tier:..."]` reason. They remain executable coverage:
+
+| Tier | Coverage | Execution budget per shard |
+| --- | --- | --- |
+| `fast` | Small semantic, query, lowering, and orchestration checks | 120 seconds |
+| `native` | LLVM generation, native emission, linking, and execution integration | 300 seconds |
+| `proof` | Production bootstrap and synchronization proofs, dense ownership and storage stress | 600 seconds |
+| `exhaustive` | Full native target matrices | 600 seconds |
+
+```text
+cargo xtask test compiler --tier native
+cargo xtask test compiler --tier proof
+cargo xtask test compiler --tier exhaustive
+cargo xtask test compiler --tier all
+cargo xtask test compiler --tier proof --shard 2/4
+```
+
+The `all` tier has a 600 second execution budget. To run everything directly with Cargo, use
+`cargo test -p bray-compilation -- --include-ignored`. Use `--ignored` to run only the explicit slow tiers. A focused
+ignored test also needs `--ignored` or `--include-ignored`.
+
+Shards divide the sorted `(binary, test name)` inventory by ordinal modulo the shard count. The shard union covers the
+selected tier exactly once. CI runs the fast tier and every slow tier on each pull request and on `develop`, with
+parallel shards for the slow tiers. Do not remove a test or shrink its stress inputs to meet the fast budget. Put
+substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused behavior test in `fast`
+where appropriate. New ignored tests must carry one of these tier tags or discovery fails.
+
+Reports remain under `target/compiler-tests/<tier>/<index>-of-<count>/`, respecting `CARGO_TARGET_DIR`. They include the
+complete selection, raw log, JUnit report, and a JSON timing report with the slowest cases first. CI retains these
+artifacts on success and failure. Test durations are observed serial completion spans, including harness and process
+startup overhead for the first test in a batch. They are useful for identifying expensive cases, rather than precise
+microbenchmarks. Each shard runs bounded argument batches with one test at a time so completed fixture work can be
+shared. Compiler worker-count and parallel-demand tests still exercise their own requested worker budgets.
+
+Production host and synchronization fixtures share parsed and discovered source snapshots per target. Identical host
+requests also share completed bound and proof results. Changed probes fork immutable snapshots through the compiler's
+normal dependency invalidation. They retain separate diagnostics and cannot alter the baseline. Cache initialization
+uses a separate one-time cell per target and does not hold the inventory lock during compilation. Tests that inspect
+cold-query behavior, cancellation, or worker scheduling continue to construct fresh compilations.
+
+The proof tier's `production_fixture_phase_timings` case records ordinary compiler summary profiles after parsing,
+symbol binding, checking, and lowering. The tier runner retains these under `phases/`. These checkpoints are cumulative
+and include query evaluation and reuse counters. Use [Compiler profiling](profiling.md) to interpret the reports.
+
 ## Test a changed Rust crate
 
 Use nextest to run the tests for the crate you changed:

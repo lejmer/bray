@@ -25,6 +25,7 @@ use std::fs;
 use std::sync::Arc;
 
 #[test]
+#[ignore = "tier:native"]
 fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_statics() {
     let (_, compilation) = codegen_compilation_for_product(
         r#"
@@ -189,6 +190,7 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
     let fixture = GenericDependencyFixture {
         source: r#"
@@ -421,6 +423,7 @@ fn direct_native_imports_close_runtime_and_lifecycle_before_host_mapping() {
 }
 
 #[test]
+#[ignore = "tier:native"]
 fn runtime_native_references_select_ordinary_library_dependencies() {
     let fixture = GenericDependencyFixture {
         source: r#"
