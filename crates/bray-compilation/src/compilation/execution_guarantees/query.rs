@@ -564,7 +564,7 @@ mod tests {
             );
         }
 
-        let compilation = compilation(
+        for source in [
             r#"
                 module app;
 
@@ -580,21 +580,41 @@ mod tests {
                     first();
                 }
             "#,
-        );
+            r#"
+                module app;
+                trait Readable { func read() -> bool executes(pure, total); }
+                struct Value {}
+                impl Value(Readable) {
+                    func read() -> bool executes(pure, total) { return first(); }
+                }
+                func relay<T>(pos value: &T) -> bool
+                    with(T: Readable)
+                    executes(pure, total)
+                {
+                    return value.read();
+                }
+                func first() -> bool executes(pure, total) {
+                    let value = Value {};
+                    return relay<Value>(&value);
+                }
+            "#,
+        ] {
+            let compilation = compilation(source);
 
-        bray_testing::assert_goal_state_diagnostic_kind(
-            compilation.check_diagnostics(),
-            DiagnosticKind::CheckingCircularExecutionGuarantee,
-        );
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingCircularExecutionGuarantee,
+            );
 
-        let proof = compilation
-            .execution_properties(source_function_body_key(&compilation, "first"))
-            .expect("fixture callable must resolve its execution properties");
+            let proof = compilation
+                .execution_properties(source_function_body_key(&compilation, "first"))
+                .expect("fixture callable must resolve its execution properties");
 
-        assert_eq!(
-            &proof.value().properties,
-            &std::collections::BTreeSet::from([Pure])
-        );
+            assert_eq!(
+                &proof.value().properties,
+                &std::collections::BTreeSet::from([Pure])
+            );
+        }
     }
 
     #[test]

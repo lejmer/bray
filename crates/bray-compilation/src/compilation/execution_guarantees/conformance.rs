@@ -577,10 +577,34 @@ mod tests {
 
     #[test]
     fn abstract_calls_use_only_declared_unconditional_trait_promises() {
-        for (parameters, subject, constraint, promise, valid) in [
-            ("", "Value", "", "executes(total)", true),
-            ("<T>", "T", "with(T: Readable)", "executes(total)", true),
-            ("<T>", "T", "with(T: Readable)", "", false),
+        for (parameters, subject, constraint, promise, property, valid) in [
+            ("", "Value", "", "executes(total)", "total", true),
+            (
+                "<T>",
+                "T",
+                "with(T: Readable)",
+                "executes(total)",
+                "total",
+                true,
+            ),
+            ("<T>", "T", "with(T: Readable)", "", "total", false),
+            (
+                "",
+                "view Readable",
+                "",
+                "executes(pure, total)",
+                "pure",
+                true,
+            ),
+            (
+                "",
+                "view Readable",
+                "",
+                "executes(pure, total)",
+                "total",
+                false,
+            ),
+            ("", "view Readable", "", "", "pure", false),
         ] {
             let source = r#"
                 module app;
@@ -588,11 +612,11 @@ mod tests {
                 struct Value {}
                 impl Value(Readable)
                 {
-                    func read() -> bool executes(total) { return true; }
+                    func read() -> bool executes(pure, total) { return true; }
                 }
                 func rootPARAMETERS(pos value: &SUBJECT) -> bool
                     CONSTRAINT
-                    executes(total)
+                    executes(PROPERTY)
                 {
                     return value.read();
                 }
@@ -600,7 +624,8 @@ mod tests {
             .replace("PARAMETERS", parameters)
             .replace("SUBJECT", subject)
             .replace("CONSTRAINT", constraint)
-            .replace("PROMISE", promise);
+            .replace("PROMISE", promise)
+            .replace("PROPERTY", property);
 
             let compilation = compilation(&source);
 

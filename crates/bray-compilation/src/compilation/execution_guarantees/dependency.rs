@@ -188,6 +188,8 @@ impl Compilation {
                     return Ok(None);
                 };
 
+                // Ordinary indirect calls retain carried guarantees. Certifying a new total
+                // body also requires a resolved target with well-founded dependencies.
                 if property != ExecutionProperty::Pure {
                     return Ok(None);
                 }
