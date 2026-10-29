@@ -101,7 +101,7 @@ const CONTROL_LOWERING_SOURCE: &str = concat!(
     "\n",
     "    mut func next() -> bool?\n",
     "    {\n",
-    "        panic();\n",
+    "        panic(\"unreachable\");\n",
     "    }\n",
     "}\n",
     "\n",
@@ -1288,7 +1288,7 @@ fn generator_elements_cannot_escape_their_original_local_storage() {
                 let original: i32 = 42;
                 let references = {{ each item in 0..3 {{ yield &original; }} }};
                 for reference in {mode}references {{ return reference; }}
-                panic();
+                panic("unreachable");
             }}
         "#
         );
@@ -1319,7 +1319,7 @@ fn generator_elements_cannot_escape_their_original_local_storage() {
                     let references = {{ each item in 0..3 {{ yield &original; }} }};
                     let mut cursor = {receiver}(Iterable).iterate();
                     if let ?reference = {next} {{ return reference; }}
-                    panic();
+                    panic("unreachable");
                 }}
             "#
             );

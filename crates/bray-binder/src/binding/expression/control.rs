@@ -3,8 +3,16 @@ use bray_bound_tree::{
     BoundMatchExpression, BoundStructuredExpression, BoundStructuredExpressionKind,
 };
 use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+};
+use bray_source::SourceSpan;
 use bray_symbols::{LocalScopeBoundary, LocalScopeId};
-use bray_syntax::{ForExpressionSyntax, MatchExpressionSyntax, WithExpressionSyntax};
+use bray_syntax::{
+    ForExpressionSyntax, MatchExpressionSyntax, PanicExpressionSyntax, SourceSyntaxNode,
+    SyntaxNodeView, WithExpressionSyntax,
+};
 
 use super::ExpressionBinder;
 use super::support::iteration_source_mode;
@@ -13,6 +21,69 @@ use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode
 use crate::binding::BindingResult;
 
 impl ExpressionBinder {
+    /// Rejects message shapes in complete syntax before bound operands are published.
+    pub(super) fn reject_panic_arguments<C>(
+        binder: &mut Binder<'_, C>,
+        syntax: SyntaxNodeView<'_>,
+    ) -> bool
+    where
+        C: BindingQueryContext + ?Sized,
+    {
+        let syntax = syntax
+            .cast::<PanicExpressionSyntax>()
+            .expect("panic binding retains its panic expression syntax");
+
+        let list = syntax.argument_list();
+        let mut arguments = list.arguments();
+        let first = arguments.next();
+        let count = usize::from(first.is_some()) + arguments.count();
+        let source = syntax.source();
+
+        let (kind, argument, note, span) = if count != 1 {
+            (
+                DiagnosticKind::BindingPanicArgumentCountMismatch,
+                DiagnosticArg::actual_count(
+                    u64::try_from(count).expect("source argument count fits diagnostic counts"),
+                ),
+                DiagnosticNoteKind::PanicRequiresOneMessage,
+                SourceSpan::new(source.source_id(), list.full_range()),
+            )
+        } else {
+            let first = first.expect("one panic argument retains its syntax");
+
+            let Some(name) = first.identifier_token() else {
+                return false;
+            };
+
+            (
+                DiagnosticKind::BindingNamedPanicArgument,
+                DiagnosticArg::referenced_name(
+                    name.text(source.text())
+                        .expect("argument name belongs to its source"),
+                ),
+                DiagnosticNoteKind::PanicMessageRequiresPositionalArgument,
+                SourceSpan::new(source.source_id(), name.range()),
+            )
+        };
+
+        binder.add_diagnostic(
+            Diagnostic::new(
+                DiagnosticId::new(span.range().start().bytes()),
+                kind,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_arg(argument)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PanicArguments,
+                span,
+            ))
+            .with_note(DiagnosticNote::new(note)),
+        );
+
+        true
+    }
+
     pub(super) fn bind_with_expression<C>(
         &mut self,
         binder: &mut Binder<'_, C>,

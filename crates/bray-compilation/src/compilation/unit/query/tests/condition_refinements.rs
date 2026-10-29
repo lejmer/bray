@@ -608,10 +608,10 @@ fn replacing_a_borrowed_nullable_invalidates_total_call_evidence() {
 fn compound_completion_refinements_do_not_prune_effectful_entry_paths() {
     for ty in ["usize?", "&(usize?)", "&mut(usize?)"] {
         for body in [
-            "if value matches ?_ { panic(); }",
-            "if value matches none { panic(); }",
-            "match value { case ?_ { panic(); } case none {} }",
-            "while value matches ?_ { panic(); }",
+            "if value matches ?_ { panic(\"unreachable\"); }",
+            "if value matches none { panic(\"unreachable\"); }",
+            "match value { case ?_ { panic(\"unreachable\"); } case none {} }",
+            "while value matches ?_ { panic(\"unreachable\"); }",
         ] {
             let source =
                 format!("module app; func run(pos value: {ty}) executes(total) {{ {body} }}");

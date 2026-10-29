@@ -91,6 +91,10 @@ pub enum DiagnosticNoteKind {
     DirectiveArgumentMustHaveCompleteForm,
     /// Supply one generic argument for each declared generic parameter.
     GenericArgumentCountMustMatch,
+    /// Supply the panic expression's sole message.
+    PanicRequiresOneMessage,
+    /// Pass a panic message without an argument name.
+    PanicMessageRequiresPositionalArgument,
     /// Declare the cross-module path with using in the referencing module.
     ModuleDependencyRequiresUsing,
     /// Supply type syntax to a generic type parameter.
@@ -204,6 +208,10 @@ impl DiagnosticNoteKind {
                 "directive_argument_must_have_complete_form"
             }
             Self::GenericArgumentCountMustMatch => "generic_argument_count_must_match",
+            Self::PanicRequiresOneMessage => "panic_requires_one_message",
+            Self::PanicMessageRequiresPositionalArgument => {
+                "panic_message_requires_positional_argument"
+            }
             Self::ModuleDependencyRequiresUsing => "module_dependency_requires_using",
             Self::GenericArgumentRequiresType => "generic_argument_requires_type",
             Self::GenericApplicationRequiresDeclaredName => {

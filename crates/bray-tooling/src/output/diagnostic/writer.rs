@@ -67,6 +67,126 @@ mod tests {
     use crate::OutputFormat;
 
     #[test]
+    fn panic_argument_diagnostics_preserve_text_and_json_context() {
+        for (call, kind, code, message, help, argument, note, source_text) in [
+            (
+                "panic()",
+                "binding_panic_argument_count_mismatch",
+                6020,
+                "panic expects one message argument, received 0",
+                "provide exactly one message expression compatible with string",
+                serde_json::json!({"name":"actual_count", "value":{"kind":"count", "value":0}}),
+                "panic_requires_one_message",
+                "()",
+            ),
+            (
+                "panic(message = \"message\")",
+                "binding_named_panic_argument",
+                6021,
+                "panic does not accept named argument 'message'",
+                "pass the message as a positional argument",
+                serde_json::json!({"name":"referenced_name", "value":{"kind":"referenced_name", "value":"message"}}),
+                "panic_message_requires_positional_argument",
+                "message",
+            ),
+        ] {
+            let source = format!("module app; func main() {{ {call}; }}");
+
+            let compilation = Compilation::load(CompilationRequest::new(
+                PackageIdentity::try_new("test.package")
+                    .expect("fixture package identity is valid"),
+                vec![SourceInput::virtual_text(
+                    SourceIdentity::new(0),
+                    "panic.bray",
+                    SourceVersion::new(0),
+                    source,
+                )],
+            ))
+            .expect("panic fixture loads");
+
+            let diagnostics = compilation.check_diagnostics();
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+
+            write_diagnostics(
+                diagnostics,
+                Some(compilation.sources()),
+                OutputFormat::Text,
+                &mut stdout,
+                &mut stderr,
+            )
+            .expect("panic diagnostic text renders");
+
+            let text = String::from_utf8(stderr).expect("diagnostic text is UTF-8");
+
+            assert!(stdout.is_empty());
+
+            for expected in [message, help, "panic arguments", "panic.bray"] {
+                assert!(text.contains(expected), "{text}");
+            }
+
+            let mut stderr = Vec::new();
+
+            write_diagnostics(
+                diagnostics,
+                Some(compilation.sources()),
+                OutputFormat::Json,
+                &mut stdout,
+                &mut stderr,
+            )
+            .expect("panic diagnostic JSON renders");
+
+            let json: serde_json::Value =
+                serde_json::from_slice(&stdout).expect("diagnostic JSON parses");
+
+            let diagnostic = json["diagnostics"]
+                .as_array()
+                .expect("JSON has diagnostics")
+                .iter()
+                .find(|diagnostic| diagnostic["kind"] == kind)
+                .expect("JSON retains the panic argument cause");
+
+            let snapshot = serde_json::json!({
+                "code":diagnostic["code"], "kind":diagnostic["kind"], "severity":diagnostic["severity"],
+                "args":diagnostic["args"], "label":diagnostic["labels"][0]["kind"],
+                "note":diagnostic["notes"][0]["kind"],
+            });
+
+            assert!(stderr.is_empty());
+            assert_eq!(json["has_errors"], true);
+
+            assert_eq!(
+                snapshot,
+                serde_json::json!({
+                    "code":code, "kind":kind, "severity":"error", "args":[argument],
+                    "label":"panic_arguments", "note":note,
+                })
+            );
+
+            let start = usize::try_from(
+                diagnostic["primary_span"]["start"]
+                    .as_u64()
+                    .expect("span has its start"),
+            )
+            .expect("source offset fits the host");
+
+            let end = usize::try_from(
+                diagnostic["primary_span"]["end"]
+                    .as_u64()
+                    .expect("span has its end"),
+            )
+            .expect("source offset fits the host");
+
+            let input = compilation
+                .sources()
+                .get(bray_source::SourceId::new(0))
+                .expect("source is retained");
+
+            assert_eq!(&input.text()[start..end], source_text);
+        }
+    }
+
+    #[test]
     fn ignored_result_warnings_preserve_context_in_text_and_json() {
         let compilation = Compilation::load(CompilationRequest::new(
             PackageIdentity::try_new("test.package")

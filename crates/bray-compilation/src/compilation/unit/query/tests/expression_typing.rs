@@ -9,6 +9,155 @@ use bray_diagnostics::{DiagnosticArg, DiagnosticKind, DiagnosticType};
 use bray_symbols::ConstantValueKind;
 
 #[test]
+fn panic_arguments_require_one_message_before_lowering() {
+    for (call, count) in [("panic()", 0), ("panic(\"one\", \"two\")", 2)] {
+        for modifier in ["", "async "] {
+            for statement in [
+                format!("{call};"),
+                format!("for item in 0..2 {{ {call}; }}"),
+            ] {
+                let source = format!("module app; {modifier}func main() {{ {statement} }}");
+                let compilation = compilation(&source);
+                let diagnostics = compilation.check_diagnostics();
+
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::BindingPanicArgumentCountMismatch,
+                );
+
+                let diagnostic = diagnostics
+                    .iter()
+                    .find(|diagnostic| {
+                        diagnostic.kind() == DiagnosticKind::BindingPanicArgumentCountMismatch
+                    })
+                    .expect("panic argument count retains its specific cause");
+
+                assert!(
+                    diagnostic
+                        .args()
+                        .contains(&DiagnosticArg::actual_count(count))
+                );
+
+                let lowered = compilation
+                    .lowered_unit(source_callable_body_key(&compilation))
+                    .expect("invalid panic arguments preserve binding diagnostics");
+
+                assert!(lowered.value().is_none(), "{source}");
+            }
+        }
+    }
+}
+
+#[test]
+fn panic_arguments_reject_names_before_the_mapping_is_erased() {
+    for name in ["message", "other"] {
+        let source = format!("module app; func main() {{ panic({name} = \"message\"); }}");
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::BindingNamedPanicArgument,
+        );
+
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind() == DiagnosticKind::BindingNamedPanicArgument)
+            .expect("panic argument name retains its specific cause");
+
+        assert!(
+            diagnostic
+                .args()
+                .contains(&DiagnosticArg::referenced_name(name))
+        );
+
+        let span = diagnostic
+            .primary_span()
+            .expect("argument name retains its source");
+
+        assert_eq!(
+            compilation
+                .source(span.source_id())
+                .expect("source exists")
+                .text_slice(span.range()),
+            Some(name)
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .expect("named panic arguments preserve binding diagnostics");
+
+        assert!(lowered.value().is_none());
+    }
+}
+
+#[test]
+fn panic_arguments_accept_one_string_with_an_optional_trailing_comma() {
+    for call in [
+        "panic(\"message\")",
+        "panic(\"message\",)",
+        "panic(make_message(text = \"message\"))",
+    ] {
+        for modifier in ["", "async "] {
+            let source = format!(
+                "module app; func make_message(text: string) -> string {{ return text; }} \
+                 {modifier}func main() {{ for item in 0..2 {{ {call}; }} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "main"))
+                .expect("valid panic message lowers");
+
+            let mir = lowered
+                .value()
+                .as_ref()
+                .and_then(bray_lowering::LoweredUnit::mir)
+                .expect("valid panic retains executable MIR");
+
+            assert!(mir.is_valid(), "{source}: {mir:?}");
+        }
+    }
+}
+
+#[test]
+fn panic_and_assertion_arguments_preserve_required_message_and_condition_types() {
+    for call in ["panic(42)", "panic(true)", "assert(42)", "assert(true, 42)"] {
+        let source = format!("module app; func main() {{ {call}; }}");
+        let compilation = compilation(&source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingIncompatibleExpressionType,
+        );
+    }
+}
+
+#[test]
+fn assertion_arguments_keep_their_condition_and_optional_message_grammar() {
+    for call in [
+        "assert()",
+        "assert(true, \"one\", \"two\")",
+        "assert(condition = true)",
+    ] {
+        let source = format!("module app; func main() {{ {call}; }}");
+        let compilation = compilation(&source);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::SyntaxExpectedToken,
+        );
+    }
+}
+
+#[test]
 fn incompatible_pointer_handle_reports_a_call_error_before_lowering() {
     let compilation = compilation_with_sources_and_worker_budget(
         &[

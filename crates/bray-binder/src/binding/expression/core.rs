@@ -184,7 +184,15 @@ impl ExpressionBinder {
 
         let (operands, blocks) = children?;
 
-        let recovered = syntax.is_recovered() || binder.children_are_recovered(&operands, &blocks);
+        let syntax_recovered = syntax.is_recovered();
+
+        let invalid_arguments = !syntax_recovered
+            && kind == BoundStructuredExpressionKind::Panic
+            && Self::reject_panic_arguments(binder, syntax);
+
+        let recovered = syntax_recovered
+            || binder.children_are_recovered(&operands, &blocks)
+            || invalid_arguments;
 
         let mut expression = BoundStructuredExpression::new(
             binder.source_origin(&syntax),

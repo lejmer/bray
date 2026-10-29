@@ -691,6 +691,17 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::GenericArgumentCountMustMatch
                 ),
             ),
+            Self::BindingPanicArgumentCountMismatch => Self::quality_source(
+                &[ActualCount],
+                note_components!(&[ActualCount], DiagnosticNoteKind::PanicRequiresOneMessage),
+            ),
+            Self::BindingNamedPanicArgument => Self::quality_source(
+                &[ReferencedName],
+                note_components!(
+                    &[ReferencedName],
+                    DiagnosticNoteKind::PanicMessageRequiresPositionalArgument
+                ),
+            ),
             Self::BindingGenericApplicationRequiresName => Self::quality_source(
                 &[TokenText],
                 note_components!(

@@ -910,6 +910,25 @@ const BINDING_GENERIC_ARGUMENT_COUNT_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
 ];
 
+const BINDING_PANIC_ARGUMENT_COUNT_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("panic expects one message argument, received "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+];
+
+const BINDING_NAMED_PANIC_ARGUMENT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("panic does not accept named argument "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
+const NOTE_PANIC_REQUIRES_ONE_MESSAGE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "provide exactly one message expression compatible with string",
+)];
+
+const NOTE_PANIC_MESSAGE_REQUIRES_POSITIONAL_ARGUMENT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "pass the message as a positional argument",
+    )];
+
 const BINDING_GENERIC_APPLICATION_REQUIRES_NAME: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("generic arguments cannot be applied to "),
     MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
@@ -2019,6 +2038,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi
         | DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm
         | DiagnosticNoteKind::GenericArgumentCountMustMatch
+        | DiagnosticNoteKind::PanicRequiresOneMessage
+        | DiagnosticNoteKind::PanicMessageRequiresPositionalArgument
         | DiagnosticNoteKind::ModuleDependencyRequiresUsing
         | DiagnosticNoteKind::GenericArgumentRequiresType
         | DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
@@ -2778,6 +2799,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::BindingGenericArgumentCountMismatch => {
             MessageTemplate::new(BINDING_GENERIC_ARGUMENT_COUNT_MISMATCH)
         }
+        DiagnosticKind::BindingPanicArgumentCountMismatch => {
+            MessageTemplate::new(BINDING_PANIC_ARGUMENT_COUNT_MISMATCH)
+        }
+        DiagnosticKind::BindingNamedPanicArgument => {
+            MessageTemplate::new(BINDING_NAMED_PANIC_ARGUMENT)
+        }
         DiagnosticKind::BindingGenericApplicationRequiresName => {
             MessageTemplate::new(BINDING_GENERIC_APPLICATION_REQUIRES_NAME)
         }
@@ -3093,6 +3120,12 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::GenericArgumentCountMustMatch => {
             MessageTemplate::new(NOTE_GENERIC_ARGUMENT_COUNT_MUST_MATCH)
+        }
+        DiagnosticNoteKind::PanicRequiresOneMessage => {
+            MessageTemplate::new(NOTE_PANIC_REQUIRES_ONE_MESSAGE)
+        }
+        DiagnosticNoteKind::PanicMessageRequiresPositionalArgument => {
+            MessageTemplate::new(NOTE_PANIC_MESSAGE_REQUIRES_POSITIONAL_ARGUMENT)
         }
         DiagnosticNoteKind::GenericApplicationRequiresDeclaredName => {
             MessageTemplate::new(NOTE_GENERIC_APPLICATION_REQUIRES_DECLARED_NAME)
