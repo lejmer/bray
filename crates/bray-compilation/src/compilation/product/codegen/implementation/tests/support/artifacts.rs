@@ -1,5 +1,5 @@
-use super::compilation::{codegen_compilation_for_product, test_product_identity};
-use crate::CancellationToken;
+use super::compilation::{codegen_compilation, source_request_with_runtime, test_product_identity};
+use crate::{CancellationToken, CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_codegen::{
     BackendArtifactId, BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
     BackendArtifactRequirement, BackendSerializationOptions, CodeGenerator, CodegenOptions,
@@ -8,7 +8,14 @@ use bray_codegen::{
 use bray_symbols::ProductKind;
 
 pub(in super::super) fn unoptimized_library_ir(source: &str) -> String {
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -40,7 +47,14 @@ pub(in super::super) fn assert_source_emits_valid_native_units(
     source: &str,
     configuration: crate::BuildConfiguration,
 ) {
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(test_product_identity(), configuration, None, [], None)

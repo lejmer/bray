@@ -1,116 +1,37 @@
-use crate::{CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget};
+use crate::{CompilationOptions, CompilationRequest};
 use bray_codegen::{CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration};
-use bray_runtime_interface::PlatformServiceBinding;
-use bray_symbols::{NativeLinkRequirement, ProductIdentity, ProductKind};
+use bray_symbols::ProductIdentity;
 use std::sync::Arc;
 
 pub(in super::super) fn codegen_compilation(
-    source: &str,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_product(source, ProductKind::Executable)
-}
-
-pub(in super::super) fn codegen_compilation_for_product(
-    source: &str,
-    product_kind: ProductKind,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_product_target(source, product_kind, SelectedTarget::baseline())
-}
-
-fn codegen_compilation_for_product_target(
-    source: &str,
-    product_kind: ProductKind,
-    target: SelectedTarget,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_sources_target(&[source], product_kind, target, &[])
-}
-
-pub(in super::super) fn codegen_compilation_for_sources_target(
-    sources: &[&str],
-    product_kind: ProductKind,
-    target: SelectedTarget,
-    native_link_inputs: &[NativeLinkRequirement],
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_sources_target_with_platform_services(
-        sources,
-        product_kind,
-        target,
-        native_link_inputs,
-        [],
-    )
-}
-
-pub(super) fn codegen_compilation_for_sources_target_with_platform_services(
-    sources: &[&str],
-    product_kind: ProductKind,
-    target: SelectedTarget,
-    native_link_inputs: &[NativeLinkRequirement],
-    platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
-        sources,
-        product_kind,
-        target,
-        native_link_inputs,
-        platform_services,
-        WorkerBudget::serial(),
-    )
-}
-
-pub(in super::super) fn codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
-    sources: &[&str],
-    product_kind: ProductKind,
-    target: SelectedTarget,
-    native_link_inputs: &[NativeLinkRequirement],
-    platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
-    worker_budget: WorkerBudget,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_sources_target_with_source_roles(
-        sources,
-        product_kind,
-        target,
-        native_link_inputs,
-        platform_services,
-        [],
-        worker_budget,
-    )
-}
-
-pub(in super::super) fn codegen_compilation_for_sources_target_with_source_roles(
-    sources: &[&str],
-    product_kind: ProductKind,
-    target: SelectedTarget,
-    native_link_inputs: &[NativeLinkRequirement],
-    platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
-    runtime_roles: impl IntoIterator<Item = bray_runtime_interface::RuntimeRoleSourceBinding>,
-    worker_budget: WorkerBudget,
+    request: CompilationRequest,
 ) -> (
     Arc<bray_codegen_llvm::LlvmCodeGenerator>,
     crate::Compilation,
 ) {
     let (backend, codegen) = codegen_configuration();
 
-    let runtime_dependency = crate::test_support::runtime_standard_library_dependency(&target);
+    let compilation = crate::Compilation::load_with_codegen(request, codegen)
+        .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
 
-    let request = CompilationRequest::with_options(
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    (backend, compilation)
+}
+
+/// Assigns source identities in order and imports the target's cached test runtime library.
+pub(in super::super) fn source_request_with_runtime(
+    sources: &[&str],
+    options: CompilationOptions,
+) -> CompilationRequest {
+    let runtime_dependency =
+        crate::test_support::runtime_standard_library_dependency(options.selected_target());
+
+    CompilationRequest::with_options(
         crate::test_support::package_identity(),
         sources
             .iter()
@@ -123,23 +44,9 @@ pub(in super::super) fn codegen_compilation_for_sources_target_with_source_roles
                 )
             })
             .collect(),
-        CompilationOptions::new(worker_budget, product_kind, target)
-            .with_native_link_inputs(native_link_inputs.iter().cloned()),
+        options,
     )
     .with_dependency_interfaces([runtime_dependency])
-    .with_platform_services(platform_services)
-    .with_runtime_roles(runtime_roles);
-
-    let compilation = crate::Compilation::load_with_codegen(request, codegen)
-        .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"));
-
-    assert!(
-        compilation.check_diagnostics().is_empty(),
-        "{:#?}",
-        compilation.check_diagnostics()
-    );
-
-    (backend, compilation)
 }
 
 pub(in super::super) fn test_product_identity() -> ProductIdentity {

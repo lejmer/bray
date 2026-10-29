@@ -1,4 +1,5 @@
 use super::support::artifacts::unoptimized_library_ir;
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 #[test]
 #[ignore = "tier:native"]
@@ -53,10 +54,10 @@ fn borrowed_trait_view_emits_async_runtime_dispatch() {
 #[test]
 #[ignore = "tier:native"]
 fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
-    use super::support::compilation::codegen_compilation_for_product;
+    use super::support::compilation::{codegen_compilation, source_request_with_runtime};
 
-    let (backend, compilation) = codegen_compilation_for_product(
-        r#"
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[r#"
         module app;
 
         using first_value;
@@ -151,9 +152,13 @@ fn borrowed_trait_view_dispatches_distinct_implementations_natively() {
 
             return 1;
         }
-        "#,
-        bray_symbols::ProductKind::Library,
-    );
+        "#],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     assert_trait_view_call_guarantees(&compilation, "read", 1);
     assert_trait_view_call_guarantees(&compilation, "read_explicit", 1);

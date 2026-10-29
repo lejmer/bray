@@ -1,8 +1,6 @@
-use super::compilation::{
-    codegen_compilation_for_sources_target_with_platform_services, test_product_identity,
-};
+use super::compilation::{codegen_compilation, source_request_with_runtime, test_product_identity};
 use super::linker::{test_linked_product, test_linker};
-use crate::SelectedTarget;
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 use bray_runtime_interface::{
     BinarySymbolName, PlatformServiceBinding, PlatformServiceRole, ProtectedFrameAbiVersions,
@@ -96,12 +94,13 @@ pub(in super::super) fn runtime_native_plan_for_sources_target_with_platform_ove
     Arc<bray_codegen_llvm::LlvmCodeGenerator>,
     Arc<crate::compilation::product::codegen::NativeProductPlan>,
 ) {
-    let (backend, compilation) = codegen_compilation_for_sources_target_with_platform_services(
-        sources,
-        product_kind,
-        target,
-        native_link_inputs,
-        platform_services,
+    let (backend, compilation) = codegen_compilation(
+        source_request_with_runtime(
+            sources,
+            CompilationOptions::new(WorkerBudget::serial(), product_kind, target)
+                .with_native_link_inputs(native_link_inputs.iter().cloned()),
+        )
+        .with_platform_services(platform_services),
     );
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");

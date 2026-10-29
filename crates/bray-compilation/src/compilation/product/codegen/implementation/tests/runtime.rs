@@ -1,14 +1,13 @@
 use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind};
 use super::support::compilation::{
-    codegen_compilation, codegen_compilation_for_sources_target_with_source_roles,
-    test_product_identity,
+    codegen_compilation, source_request_with_runtime, test_product_identity,
 };
 use super::support::linker::{test_linked_product, test_linker};
 use super::support::runtime::{
     runtime_artifact, runtime_artifact_with_roles, runtime_native_plan_for_product,
 };
 use crate::compilation::product::codegen::NativeProductPlanningError;
-use crate::{SelectedTarget, WorkerBudget};
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_codegen::{BackendArtifactKind, CodegenLinkage};
 use bray_ir::MirUnitKey;
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeCompatibilityError};
@@ -19,8 +18,15 @@ use std::sync::Arc;
 #[test]
 #[ignore = "tier:native"]
 fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
-    let (_, compilation) = codegen_compilation(include_str!(
-        "../../../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[include_str!(
+            "../../../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
@@ -67,14 +73,12 @@ fn runtime_native_plan_with_source_roles(
     Arc<bray_codegen_llvm::LlvmCodeGenerator>,
     Arc<crate::compilation::product::codegen::NativeProductPlan>,
 ) {
-    let (backend, compilation) = codegen_compilation_for_sources_target_with_source_roles(
-        sources,
-        product_kind,
-        target,
-        &[],
-        [],
-        runtime_roles,
-        WorkerBudget::serial(),
+    let (backend, compilation) = codegen_compilation(
+        source_request_with_runtime(
+            sources,
+            CompilationOptions::new(WorkerBudget::serial(), product_kind, target),
+        )
+        .with_runtime_roles(runtime_roles),
     );
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");

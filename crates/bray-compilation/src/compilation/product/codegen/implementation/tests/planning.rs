@@ -1,8 +1,6 @@
 use super::support::artifacts::generated_artifacts;
 use super::support::compilation::{
-    codegen_compilation_for_product, codegen_compilation_for_sources_target,
-    codegen_compilation_for_sources_target_with_worker_budget_and_platform_services,
-    test_product_identity,
+    codegen_compilation, source_request_with_runtime, test_product_identity,
 };
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
 use super::support::linker::{test_linked_product, test_linker};
@@ -134,21 +132,27 @@ fn native_demand_inventory_is_stable_for_imports_exports_and_static_lifecycle() 
 #[test]
 #[ignore = "tier:native"]
 fn native_preparation_is_deterministic_across_worker_budgets() {
-    let (serial_backend, serial_compilation) = codegen_compilation_for_product_with_worker_budget(
-        CONCRETE_GENERIC_SOURCE,
-        ProductKind::Library,
-        WorkerBudget::serial(),
-    );
+    let (serial_backend, serial_compilation) = codegen_compilation(source_request_with_runtime(
+        &[CONCRETE_GENERIC_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let parallel_budget = WorkerBudget::new(4)
         .unwrap_or_else(|error| panic!("parallel worker budget must validate: {error:?}"));
 
     let (parallel_backend, parallel_compilation) =
-        codegen_compilation_for_product_with_worker_budget(
-            CONCRETE_GENERIC_SOURCE,
-            ProductKind::Library,
-            parallel_budget,
-        );
+        codegen_compilation(source_request_with_runtime(
+            &[CONCRETE_GENERIC_SOURCE],
+            CompilationOptions::new(
+                parallel_budget,
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        ));
 
     let serial = serial_compilation
         .native_product_plan(
@@ -251,19 +255,26 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
             Vec::new()
         };
 
-        let (first_backend, first_compilation) = codegen_compilation_for_sources_target(
+        let (first_backend, first_compilation) = codegen_compilation(source_request_with_runtime(
             &[source],
-            ProductKind::Library,
-            SelectedTarget::baseline(),
-            &native_links,
-        );
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            )
+            .with_native_link_inputs(native_links.iter().cloned()),
+        ));
 
-        let (second_backend, second_compilation) = codegen_compilation_for_sources_target(
-            &[source],
-            ProductKind::Library,
-            SelectedTarget::baseline(),
-            &native_links,
-        );
+        let (second_backend, second_compilation) =
+            codegen_compilation(source_request_with_runtime(
+                &[source],
+                CompilationOptions::new(
+                    WorkerBudget::serial(),
+                    ProductKind::Library,
+                    SelectedTarget::baseline(),
+                )
+                .with_native_link_inputs(native_links.iter().cloned()),
+            ));
 
         second_compilation
             .semantic_value_store()
@@ -400,7 +411,14 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
             let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
 
             let (changed_backend, changed_compilation) =
-                codegen_compilation_for_product(&changed_source, ProductKind::Library);
+                codegen_compilation(source_request_with_runtime(
+                    &[&changed_source],
+                    CompilationOptions::new(
+                        WorkerBudget::serial(),
+                        ProductKind::Library,
+                        SelectedTarget::baseline(),
+                    ),
+                ));
 
             let changed = plan(&changed_compilation);
 
@@ -422,12 +440,15 @@ fn fresh_native_plans_ignore_unrelated_semantic_interning() {
 #[test]
 #[ignore = "tier:native"]
 fn cancelled_native_preparation_publishes_no_partial_plan() {
-    let (_, compilation) = codegen_compilation_for_product_with_worker_budget(
-        CONCRETE_GENERIC_SOURCE,
-        ProductKind::Library,
-        WorkerBudget::new(4)
-            .unwrap_or_else(|error| panic!("parallel worker budget must validate: {error:?}")),
-    );
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[CONCRETE_GENERIC_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::new(4)
+                .unwrap_or_else(|error| panic!("parallel worker budget must validate: {error:?}")),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let cancellation = CancellationToken::new();
 
@@ -455,24 +476,6 @@ fn cancelled_native_preparation_publishes_no_partial_plan() {
             )
             .is_ok()
     );
-}
-
-fn codegen_compilation_for_product_with_worker_budget(
-    source: &str,
-    product_kind: ProductKind,
-    worker_budget: WorkerBudget,
-) -> (
-    Arc<bray_codegen_llvm::LlvmCodeGenerator>,
-    crate::Compilation,
-) {
-    codegen_compilation_for_sources_target_with_worker_budget_and_platform_services(
-        &[source],
-        product_kind,
-        SelectedTarget::baseline(),
-        &[],
-        [],
-        worker_budget,
-    )
 }
 
 fn native_partition_recipe(

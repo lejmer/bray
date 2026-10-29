@@ -1,13 +1,15 @@
 use super::support::artifacts::{
     generated_artifacts, generated_artifacts_of_kind, generated_artifacts_of_kind_with_options,
 };
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::linker::test_linker;
 use super::support::runtime::{
     runtime_artifact, runtime_native_plan, runtime_native_plan_for_sources_target,
     runtime_native_plan_for_sources_target_with_platform_overrides,
 };
-use crate::SelectedTarget;
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_base::NonEmptySharedStr;
 use bray_codegen::{BackendArtifactKind, CodegenResultMapping, OptimizationLevel};
 use bray_ir::MirHelperReference;
@@ -107,7 +109,14 @@ fn independently_started_tasks_emit_native_units() {
         "}\n",
     );
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Executable);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = runtime_artifact(&compilation, archive.path());
@@ -333,7 +342,14 @@ fn direct_checked_calls_forward_outcomes_without_copying_reports() {
             }
         "#;
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
