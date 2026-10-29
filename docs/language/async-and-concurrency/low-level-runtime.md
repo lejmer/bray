@@ -81,22 +81,6 @@ A runtime or wrapper is nonconforming if its safe surface permits data races, da
 ownership, unsynchronized shared mutation, leaked scoped capabilities, unresolved task, thread, or process obligations,
 unbounded hidden parallelism, or destruction of a running frame.
 
-## Implementation status
-
-These contracts describe the required architecture. The current Rust runtime and adapters do not establish delivery of
-the native Bray implementation. [BRA-553](https://linear.app/bray-lang/issue/BRA-553) owns bootstrap and host authority.
-[BRA-502](https://linear.app/bray-lang/issue/BRA-502) owns compiler-derived concrete cleanup requirements and physical
-backing. [BRA-561](https://linear.app/bray-lang/issue/BRA-561) owns compiler-produced frame descriptors and Bray activation.
-[BRA-505](https://linear.app/bray-lang/issue/BRA-505) and [BRA-506](https://linear.app/bray-lang/issue/BRA-506) supply finalizer
-and represented-ownership execution under the existing source rules.
-
-[BRA-557](https://linear.app/bray-lang/issue/BRA-557) owns dependency-ordered exact-thread cleanup.
-[BRA-555](https://linear.app/bray-lang/issue/BRA-555) supplies whole-product provider retention and replaces fixtures that
-expect code-only retention. Existing behavior checks remain enabled until that implementation supplies their replacement.
-[BRA-507](https://linear.app/bray-lang/issue/BRA-507) completes suspending host cleanup. Documentation alignment is neither
-native execution evidence nor cross-target proof. The WIP design's temporary language appendix remains until every
-native consumer is implemented.
-
 ## Navigation
 
 - [Language index](../index.md)
