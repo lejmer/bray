@@ -4,7 +4,7 @@ use bray_bound_tree::{
     BoundAssignmentOperator, BoundCallResult, BoundCallableTarget, BoundExpression,
     BoundExpressionId, BoundNameExpression, BoundOperator, BoundReferenceTarget, ConversionTarget,
     OperatorTarget, SelectedArgument, SelectedConversion, SelectedOperation, SemanticSelection,
-    StorageIdentity, StorageIdentityId,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StorageOperationStatus,
 };
 use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
@@ -862,14 +862,22 @@ impl Lowerer<'_> {
         operands: &[BoundExpressionId],
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let [destination, value_id] = operands else {
+        let [destination_id, value_id] = operands else {
             panic!(
                 "lowering contract violation: UnsupportedExpression {value:?}",
                 value = id
             );
         };
 
-        let (current, destination) = match self.lower_assignment_place(id, *destination, current)? {
+        let decision = self.storage_decision(id.into(), |purpose| {
+            purpose == StorageAccessPurpose::Write
+        });
+
+        let (current, destination) = match self.lower_access_place(
+            *destination_id,
+            decision.access(),
+            current,
+        )? {
             super::super::access::LoweredPlace::Continuing { block, place } => (block, place),
             super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
         };
@@ -896,6 +904,14 @@ impl Lowerer<'_> {
         let Some(current) = value.block else {
             return Ok(value);
         };
+
+        // The write occurs after the replacement value returns. Destination evaluation can
+        // continue even when a non-returning replacement makes the write unreachable.
+        assert_eq!(
+            decision.status(),
+            StorageOperationStatus::Valid,
+            "executed access must be reachable: {destination_id:?}"
+        );
 
         let Some(mut value) = value.value else {
             panic!(
