@@ -3,10 +3,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativeInactiveFrameTransfer, NativeProductExecution, NativeProductHostDescriptor,
-    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
-    NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
-    NativeTaskAllocation, NativeTaskHandle, NativeThreadStaticCleanupRegistration,
+    NativeInactiveFrameTransfer, NativeProductExecution, NativeRootHandle, NativeRootStart,
+    NativeRunOutcome, NativeRunResultLayout, NativeRuntimeConfiguration,
+    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
     NativeWakeCallback,
 };
 
@@ -36,25 +35,6 @@ native_export! {
         output: &mut std::mem::MaybeUninit<NativeProductExecution>,
     ) -> NativeRuntimeStatus {
         contain_status(|| crate::product::acquire_execution(asynchronous, output))
-    }
-}
-
-native_export! {
-    pub extern "C" fn resident_thread_attachment_identity(
-        descriptor: &'static NativeProductHostDescriptor,
-    ) -> u64 {
-        catch_unwind(AssertUnwindSafe(|| {
-            crate::product::thread_attachment_identity(descriptor)
-        }))
-        .unwrap_or(0)
-    }
-}
-
-native_export! {
-    pub extern "C" fn resident_thread_static_cleanup_registration(
-        registration: &NativeThreadStaticCleanupRegistration,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| crate::product::register_thread_static(registration))
     }
 }
 

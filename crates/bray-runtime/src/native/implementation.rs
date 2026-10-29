@@ -19,8 +19,7 @@ pub use super::export::{
     bray_runtime_task_destruction, bray_runtime_task_event_creation,
     bray_runtime_task_event_destruction, bray_runtime_task_event_signal,
     bray_runtime_task_observation_creation, bray_runtime_task_resolution, bray_runtime_task_start,
-    bray_runtime_wake, resident_thread_attachment_identity,
-    resident_thread_static_cleanup_registration,
+    bray_runtime_wake,
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};

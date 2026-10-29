@@ -11,6 +11,7 @@ unsafe extern "C" {
     safe fn bray_runtime_thread_attachment_enter() -> u32;
     safe fn bray_runtime_thread_attachment_leave() -> u32;
     safe fn bray_runtime_thread_attachment_mark_main() -> u32;
+    #[cfg(test)]
     safe fn bray_runtime_thread_attachment_cleanup(callback: extern "C" fn(u64) -> u32) -> u32;
     safe fn bray_runtime_current_native_thread_identity() -> u64;
     #[cfg(test)]
@@ -36,6 +37,7 @@ pub(crate) fn mark_current_runtime_thread_as_main() -> bool {
     bray_runtime_thread_attachment_mark_main() == 0
 }
 
+#[cfg(test)]
 pub(crate) fn register_thread_cleanup(callback: extern "C" fn(u64) -> u32) -> bool {
     bray_runtime_thread_attachment_cleanup(callback) == 0
 }
@@ -49,7 +51,7 @@ pub(crate) fn in_thread_cleanup() -> bool {
 }
 
 /// Borrows the identity supplied by Bray while it owns this cleanup callback.
-/// The target TLS slot is already clear. This view never acquires or retires an epoch.
+/// The selected closing owner retains this view through the callback's return.
 pub(crate) fn with_thread_cleanup<T>(identity: u64, callback: impl FnOnce() -> T) -> T {
     let thread = RuntimeThread::from_native_identity(identity)
         .expect("Bray invokes attachment cleanup with its live nonzero identity");

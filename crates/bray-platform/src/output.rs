@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::marker::PhantomData;
+use std::mem::ManuallyDrop;
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
@@ -254,9 +255,10 @@ struct CaptureState {
     discarded_byte_count: u64,
 }
 
+// Context contents belong to explicit scopes and runtime retirement. The slot itself
+// remains available to native TLS callbacks regardless of Rust destructor order.
 thread_local! {
-    static CURRENT_RUN_OUTPUT: RefCell<Option<RunOutputContext>> =
-        const { RefCell::new(None) };
+    static CURRENT_RUN_OUTPUT: ManuallyDrop<RefCell<Option<RunOutputContext>>> = const { ManuallyDrop::new(RefCell::new(None)) };
 }
 
 /// Installs per-run standard-stream routing for the duration of a callback.

@@ -332,7 +332,7 @@ trusted internal func progress(pos key: usize, pos mut observation: Observation)
                         std.memory.address_of_mut<PendingCleanup>(&mut cleanup)
                     );
 
-                    let result = trusted with_cleanup(resource, context, callback);
+                    let result = trusted with_cleanup(resource, context, callback, 0);
 
                     completed = result.status == 0;
                     cleanup.incidents = add_count(cleanup.incidents, result.incidents);

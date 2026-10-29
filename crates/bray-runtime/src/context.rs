@@ -1,4 +1,5 @@
 use std::cell::{Cell, RefCell};
+use std::mem::ManuallyDrop;
 
 use bray_runtime_abi::NativeThreadCancellationCallback;
 
@@ -15,11 +16,11 @@ pub(crate) type TaskOutput = Option<RunOutputContext>;
 #[cfg(not(feature = "test-output"))]
 pub(crate) type TaskOutput = ();
 
+// Context contents belong to explicit scopes and runtime retirement. The slot itself
+// remains available to native TLS callbacks regardless of Rust destructor order.
 thread_local! {
-    static CURRENT_CONTEXT: RefCell<Option<TaskExecutionContext>> =
-        const { RefCell::new(None) };
-    static CURRENT_RUN_CANCELLATION: RefCell<Option<CancellationContext>> =
-        const { RefCell::new(None) };
+    static CURRENT_CONTEXT: ManuallyDrop<RefCell<Option<TaskExecutionContext>>> = const { ManuallyDrop::new(RefCell::new(None)) };
+    static CURRENT_RUN_CANCELLATION: ManuallyDrop<RefCell<Option<CancellationContext>>> = const { ManuallyDrop::new(RefCell::new(None)) };
     static NATIVE_THREAD_CANCELLATION: Cell<Option<NativeThreadCancellation>> =
         const { Cell::new(None) };
 }
@@ -108,11 +109,13 @@ impl TaskExecutionContext {
 
 /// Returns the current task-local execution context.
 pub fn current_task_execution_context() -> Option<TaskExecutionContext> {
-    CURRENT_CONTEXT.with_borrow(Clone::clone)
+    CURRENT_CONTEXT.with(|cell| cell.borrow().clone())
 }
 
 pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
-    CURRENT_CONTEXT.with_borrow(|context| {
+    CURRENT_CONTEXT.with(|cell| {
+        let context = &*cell.borrow();
+
         context
             .as_ref()
             .map(|context| TaskStartSite::new(context.task, context.state))
@@ -120,7 +123,11 @@ pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
 }
 
 pub(crate) fn current_task_execution_lane() -> Option<ExecutionLane> {
-    CURRENT_CONTEXT.with_borrow(|context| context.as_ref().map(TaskExecutionContext::lane))
+    CURRENT_CONTEXT.with(|cell| {
+        let context = &*cell.borrow();
+
+        context.as_ref().map(TaskExecutionContext::lane)
+    })
 }
 
 pub(crate) fn with_task_frame_execution<T>(
@@ -128,12 +135,12 @@ pub(crate) fn with_task_frame_execution<T>(
     lane: ExecutionLane,
     callback: impl FnOnce() -> T,
 ) -> Option<T> {
-    let mut context = CURRENT_CONTEXT.with_borrow(Clone::clone)?;
+    let mut context = CURRENT_CONTEXT.with(|cell| cell.borrow().clone())?;
 
     context.state = execution.state();
     context.lane = lane;
 
-    let previous = CURRENT_CONTEXT.replace(Some(context));
+    let previous = CURRENT_CONTEXT.with(|cell| cell.replace(Some(context)));
     let _guard = TaskContextGuard(previous);
 
     Some(callback())
@@ -141,7 +148,9 @@ pub(crate) fn with_task_frame_execution<T>(
 
 /// Returns whether cancellation is currently observable in the current run.
 pub fn current_run_cancellation_observable() -> bool {
-    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+    CURRENT_RUN_CANCELLATION.with(|cell| {
+        let context = &*cell.borrow();
+
         context
             .as_ref()
             .is_some_and(CancellationContext::is_requested)
@@ -149,7 +158,9 @@ pub fn current_run_cancellation_observable() -> bool {
 }
 
 pub(crate) fn enter_current_run_cleanup_shield() {
-    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+    CURRENT_RUN_CANCELLATION.with(|cell| {
+        let context = &*cell.borrow();
+
         if let Some(context) = context.as_ref() {
             context.enter_shield();
         }
@@ -157,7 +168,9 @@ pub(crate) fn enter_current_run_cleanup_shield() {
 }
 
 pub(crate) fn leave_current_run_cleanup_shield() {
-    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+    CURRENT_RUN_CANCELLATION.with(|cell| {
+        let context = &*cell.borrow();
+
         if let Some(context) = context.as_ref() {
             context.leave_shield();
         }
@@ -166,7 +179,9 @@ pub(crate) fn leave_current_run_cleanup_shield() {
 
 /// Returns whether cancellation was requested for the current run, including while shielded.
 pub fn current_run_cancellation_requested() -> bool {
-    let requested = CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+    let requested = CURRENT_RUN_CANCELLATION.with(|cell| {
+        let context = &*cell.borrow();
+
         context
             .as_ref()
             .is_some_and(|context| context.observation().requested())
@@ -207,9 +222,10 @@ pub(crate) fn with_task_execution_context<T>(
     #[cfg(not(feature = "test-output"))]
     let () = context.output;
 
-    let previous = CURRENT_CONTEXT.replace(Some(context));
+    let previous = CURRENT_CONTEXT.with(|cell| cell.replace(Some(context)));
 
-    let previous_cancellation = CURRENT_RUN_CANCELLATION.replace(Some(cancellation));
+    let previous_cancellation =
+        CURRENT_RUN_CANCELLATION.with(|cell| cell.replace(Some(cancellation)));
 
     let _guard = ContextGuard {
         task: previous,
@@ -249,7 +265,7 @@ pub(crate) fn with_run_cancellation_context<T>(
     cancellation: CancellationContext,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let previous = CURRENT_RUN_CANCELLATION.replace(Some(cancellation));
+    let previous = CURRENT_RUN_CANCELLATION.with(|cell| cell.replace(Some(cancellation)));
 
     let _guard = RunCancellationGuard(previous);
 
@@ -257,8 +273,8 @@ pub(crate) fn with_run_cancellation_context<T>(
 }
 
 pub(crate) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
-    let task = CURRENT_CONTEXT.replace(None);
-    let cancellation = CURRENT_RUN_CANCELLATION.replace(None);
+    let task = CURRENT_CONTEXT.with(|cell| cell.replace(None));
+    let cancellation = CURRENT_RUN_CANCELLATION.with(|cell| cell.replace(None));
     let native_cancellation = NATIVE_THREAD_CANCELLATION.replace(None);
 
     let _guard = IndependentExecutionContextGuard {
@@ -292,15 +308,15 @@ impl Drop for ContextGuard {
         let previous_task = self.task.take();
         let previous_cancellation = self.cancellation.take();
 
-        CURRENT_CONTEXT.set(previous_task);
+        CURRENT_CONTEXT.with(|cell| drop(cell.replace(previous_task)));
 
-        CURRENT_RUN_CANCELLATION.set(previous_cancellation);
+        CURRENT_RUN_CANCELLATION.with(|cell| drop(cell.replace(previous_cancellation)));
     }
 }
 
 impl Drop for TaskContextGuard {
     fn drop(&mut self) {
-        CURRENT_CONTEXT.set(self.0.take());
+        CURRENT_CONTEXT.with(|cell| drop(cell.replace(self.0.take())));
     }
 }
 
@@ -316,8 +332,8 @@ struct IndependentExecutionContextGuard {
 
 impl Drop for IndependentExecutionContextGuard {
     fn drop(&mut self) {
-        CURRENT_CONTEXT.set(self.task.take());
-        CURRENT_RUN_CANCELLATION.set(self.cancellation.take());
+        CURRENT_CONTEXT.with(|cell| drop(cell.replace(self.task.take())));
+        CURRENT_RUN_CANCELLATION.with(|cell| drop(cell.replace(self.cancellation.take())));
         NATIVE_THREAD_CANCELLATION.set(self.native_cancellation.take());
     }
 }
@@ -330,7 +346,7 @@ impl Drop for NativeThreadCancellationGuard {
 
 impl Drop for RunCancellationGuard {
     fn drop(&mut self) {
-        CURRENT_RUN_CANCELLATION.set(self.0.take());
+        CURRENT_RUN_CANCELLATION.with(|cell| drop(cell.replace(self.0.take())));
     }
 }
 
@@ -512,7 +528,9 @@ mod tests {
             super::enter_current_run_cleanup_shield();
             super::enter_current_run_cleanup_shield();
 
-            super::CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+            super::CURRENT_RUN_CANCELLATION.with(|cell| {
+                let context = &*cell.borrow();
+
                 assert!(context.as_ref().expect("task cancellation context must remain installed while cleanup is shielded").request());
             });
 

@@ -1,5 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -19,18 +20,20 @@ use crate::{
     Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
+// Context contents belong to explicit scopes and runtime retirement. The slot itself
+// remains available to native TLS callbacks regardless of Rust destructor order.
 thread_local! {
-    static NATIVE_CONTEXT: RefCell<NativeExecutionContext> = {
+    static NATIVE_CONTEXT: ManuallyDrop<RefCell<NativeExecutionContext>> = {
         crate::context::initialize_thread_context();
         #[cfg(feature = "test-output")]
         super::super::host::initialize_thread_context();
-        crate::product::initialize_thread_static_registry();
-        RefCell::new(NativeExecutionContext::empty())
+        ManuallyDrop::new(RefCell::new(NativeExecutionContext::empty()))
     };
     static RETIREMENT: ThreadRetirement = const { ThreadRetirement };
 }
 
 /// Establishes context storage before an attachment can publish its cleanup owner.
+#[cfg(feature = "test-output")]
 pub(crate) fn initialize_thread_context() {
     NATIVE_CONTEXT.with(|_| {});
 }
@@ -39,8 +42,8 @@ struct ThreadRetirement;
 
 impl Drop for ThreadRetirement {
     fn drop(&mut self) {
-        // The guard retires before attachment and context TLS. Task and frame owners
-        // already carry their cleanup backing and contain user callback failures.
+        // Retire this owner explicitly. Product and frame owners retain their cleanup
+        // backing, and context slots remain available across native TLS callbacks.
         retire_runtime(replace_runtime(None));
     }
 }
@@ -65,7 +68,9 @@ impl NativeExecutionContext {
 }
 
 pub(in crate::native) fn current_runtime() -> Option<Rc<NativeRuntime>> {
-    NATIVE_CONTEXT.with_borrow(|context| {
+    NATIVE_CONTEXT.with(|cell| {
+        let context = &*cell.borrow();
+
         context.runtime.as_ref().map(|binding| {
             let (NativeRuntimeBinding::Owned(runtime) | NativeRuntimeBinding::Borrowed(runtime)) =
                 binding;
@@ -83,7 +88,11 @@ pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
 }
 
 fn replace_runtime(runtime: Option<NativeRuntimeBinding>) -> Option<NativeRuntimeBinding> {
-    NATIVE_CONTEXT.with_borrow_mut(|context| std::mem::replace(&mut context.runtime, runtime))
+    NATIVE_CONTEXT.with(|cell| {
+        let context = &mut *cell.borrow_mut();
+
+        std::mem::replace(&mut context.runtime, runtime)
+    })
 }
 
 fn retire_runtime(runtime: Option<NativeRuntimeBinding>) {
@@ -96,9 +105,11 @@ pub(in crate::native) fn with_bound_runtime<T>(
     runtime: Rc<NativeRuntime>,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let previous = NATIVE_CONTEXT.replace(NativeExecutionContext {
-        runtime: Some(NativeRuntimeBinding::Borrowed(runtime)),
-        task: None,
+    let previous = NATIVE_CONTEXT.with(|cell| {
+        cell.replace(NativeExecutionContext {
+            runtime: Some(NativeRuntimeBinding::Borrowed(runtime)),
+            task: None,
+        })
     });
 
     crate::context::with_independent_execution_context(|| {
@@ -109,7 +120,7 @@ pub(in crate::native) fn with_bound_runtime<T>(
 }
 
 pub(in crate::native) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
-    let previous = NATIVE_CONTEXT.replace(NativeExecutionContext::empty());
+    let previous = NATIVE_CONTEXT.with(|cell| cell.replace(NativeExecutionContext::empty()));
 
     crate::context::with_independent_execution_context(|| {
         let _scope = NativeExecutionContextScope(Some(previous));
@@ -120,7 +131,12 @@ pub(in crate::native) fn with_independent_execution_context<T>(callback: impl Fn
 
 /// A returned root handle remains owned by the caller's runtime after entry returns.
 pub(in crate::native) fn with_root_execution_context<T>(callback: impl FnOnce() -> T) -> T {
-    let previous = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.take());
+    let previous = NATIVE_CONTEXT.with(|cell| {
+        let context = &mut *cell.borrow_mut();
+
+        context.task.take()
+    });
+
     let _scope = NativeTaskScope(previous);
 
     crate::context::with_independent_execution_context(callback)
@@ -130,7 +146,12 @@ pub(in crate::native) fn with_current_task<T>(
     task: NativeTaskHandle,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let previous = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.replace(task));
+    let previous = NATIVE_CONTEXT.with(|cell| {
+        let context = &mut *cell.borrow_mut();
+
+        context.task.replace(task)
+    });
+
     let _scope = NativeTaskScope(previous);
 
     callback()
@@ -152,7 +173,7 @@ impl Drop for NativeExecutionContextScope {
         let cleanup =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| retire_runtime(runtime)));
 
-        NATIVE_CONTEXT.set(previous);
+        NATIVE_CONTEXT.with(|cell| drop(cell.replace(previous)));
 
         if let Err(payload) = cleanup {
             std::panic::resume_unwind(payload);
@@ -164,7 +185,11 @@ struct NativeTaskScope(Option<NativeTaskHandle>);
 
 impl Drop for NativeTaskScope {
     fn drop(&mut self) {
-        NATIVE_CONTEXT.with_borrow_mut(|context| context.task = self.0);
+        NATIVE_CONTEXT.with(|cell| {
+            let context = &mut *cell.borrow_mut();
+
+            context.task = self.0
+        });
     }
 }
 
@@ -727,10 +752,8 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::ALREADY_INITIALIZED;
     }
 
-    // Establish a fixed teardown order even when an earlier runtime was explicitly
-    // shut down before a later foreign attachment. Retirement runs while both the
-    // attachment owner and every context borrowed by its callbacks remain alive.
-    crate::product::initialize_thread_attachment_storage();
+    // Install explicit retirement for this runtime owner. Cleanup retains its own
+    // backing and context independently of native TLS destructor order.
     RETIREMENT.with(|_| {});
 
     #[cfg(test)]

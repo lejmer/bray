@@ -9,7 +9,7 @@ using internal bray.runtime.bootstrap.heap;
 
 internal struct Product
 {
-    key: usize;
+    mut key: usize;
     identity: Identity;
     mut descriptor: Descriptor?;
     mut state: State;
@@ -48,6 +48,8 @@ trusted internal func reserve_product_locked(
     pos prepared: &mut(std.memory.RawBuffer<Product>?)
 ) -> Result<bool, usize>
     requires(
+        trusted native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
@@ -66,6 +68,27 @@ trusted internal func reserve_product_locked(
         if trusted find_product(&mut products, key) matches ?_
         {
             return Ok(false);
+        }
+    }
+
+    if let ?products = host.products
+    {
+        let rows = trusted std.memory.initialized_slice_mut<Product>(&mut products);
+        let mut index: usize = 0;
+
+        while index < rows.length()
+        {
+            if rows[index].key == 0
+            {
+                // A retired row has released its static and execution owners.
+                let mut replacement = trusted fresh_product(key, descriptor);
+
+                trusted internal std.memory.swap_values<Product>(&mut rows[index], &mut replacement);
+
+                return Ok(true);
+            }
+
+            index += 1;
         }
     }
 
@@ -95,33 +118,39 @@ trusted internal func reserve_product_locked(
         return Ok(false);
     }
 
-    trusted internal std.memory.raw_buffer_push<Product>(
-        products,
-        {
-            key = key,
-            identity = descriptor.identity,
-            descriptor = descriptor,
-            state =
-            {
-                phase = Phase.Forming,
-                active_entries = 0,
-                external_roots = 0,
-                attachments = 0,
-                workers = 0,
-                initialized = 0,
-                cleaned = 0,
-                incidents = 0,
-                last_incident =
-                {
-                    bytes = [0; 32]
-                }
-            },
-            callers = 0,
-            failure = none,
-            statics = none,
-            execution = none
-        }
-    );
+    let value = trusted fresh_product(key, descriptor);
+
+    trusted internal std.memory.raw_buffer_push<Product>(products, value);
 
     return Ok(true);
+}
+
+trusted internal func fresh_product(pos key: usize, pos descriptor: Descriptor) -> Product
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    return
+    {
+        key = key,
+        identity = descriptor.identity,
+        descriptor = descriptor,
+        state =
+        {
+            phase = Phase.Forming,
+            active_entries = 0,
+            external_roots = 0,
+            attachments = 0,
+            workers = 0,
+            initialized = 0,
+            cleaned = 0,
+            incidents = 0,
+            last_incident =
+            {
+                bytes = [0; 32]
+            }
+        },
+        callers = 0,
+        failure = none,
+        statics = none,
+        execution = none
+    };
 }

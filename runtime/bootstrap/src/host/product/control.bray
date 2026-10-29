@@ -7,83 +7,42 @@ using std.numeric;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.pool;
 
-trusted internal func thread_callback_locked(
-    pos lease: &bray.runtime.bootstrap.host.HostLease,
-    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
-    pos key: usize,
-    pos operation: u32
-) -> Result<ThreadControl, u32>
-    requires(
-        lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-    )
-    uses(raw_memory, intrinsic)
-{
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
-
-    if let ?products = host.products
-    {
-        if let ?product = trusted find_product(&mut products, key)
-        {
-            if !(product.state.phase matches Open | Closing)
-            {
-                return Error(2);
-            }
-
-            if product.state.active_entries == std.numeric.USIZE_MAX
-            {
-                return Error(5);
-            }
-
-            if let ?execution = product.execution
-            {
-                let execution: NativeExecution = match execution.value
-                {
-                    case ?value { yield value; }
-                    case none { yield trusted core.target.abort(); }
-                };
-
-                let callback: ThreadControl = if operation == 9
-                {
-                    yield trusted std.memory.read<ThreadControl>(
-                        std.memory.address_of<ThreadControl>(&execution.attach)
-                    );
-                }
-                else if operation == 10
-                {
-                    yield trusted std.memory.read<ThreadControl>(
-                        std.memory.address_of<ThreadControl>(&execution.detach)
-                    );
-                }
-                else
-                {
-                    yield trusted std.memory.read<ThreadControl>(
-                        std.memory.address_of<ThreadControl>(&execution.finish_root)
-                    );
-                };
-
-                // The call retains providers until its work returns outside this lock.
-                product.state.active_entries += 1;
-
-                return Ok(callback);
-            }
-        }
-    }
-
-    return Error(3);
-}
-
 trusted internal func invoke_thread_control(pos key: usize, pos operation: u32) -> Observation
     requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
-    uses(foreign_call)
 {
-    let selected: Result<ThreadControl, u32> =
+    let native = trusted lambda()
+        requires(trusted native_host())
+        ensures(
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition(),
+            trusted bray.runtime.bootstrap.thread.destruction.native_attachment_release()
+        )
+        executes(pure, total) {};
+
+    trusted native();
+
+    if operation == 9
+    {
+        if trusted bray.runtime.bootstrap.host.thread_attachment_enter() != 0
+        {
+            return unavailable(5);
+        }
+
+        if trusted enter_domain(key, 1) != 0
+        {
+            return trusted transition(key, 6);
+        }
+
+        _ = trusted bray.runtime.bootstrap.host.thread_attachment_leave();
+
+        let mut current = trusted transition(key, 6);
+
+        current.status = 3;
+        return current;
+    }
+
+    let identity = trusted bray.runtime.bootstrap.host.current_native_thread_identity();
+
+    if operation == 10 || operation == 11
     {
         let lease = trusted bray.runtime.bootstrap.host.host_access();
 
@@ -94,42 +53,57 @@ trusted internal func invoke_thread_control(pos key: usize, pos operation: u32) 
 
         let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-        yield trusted thread_callback_locked(&lease, &mut anchor, key, operation);
-    };
-
-    let callback: ThreadControl = match consume selected
-    {
-        case Ok(callback) { yield callback; }
-        case Error(status)
+        let invalid: bool =
         {
-            if operation == 11 && status == 3
+            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+            yield if let ?domain = trusted domain_in_host(host, identity, key)
             {
-                return trusted observe(key, 5);
+                yield (operation == 11 && domain.depth != 0) || (operation == 10 && domain.depth == 0);
             }
+            else
+            {
+                yield operation == 10;
+            };
+        };
 
-            let mut current = trusted transition(key, 0);
+        let mut fresh_anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-            current.status = status;
+        if invalid
+        {
+            let mut current = trusted transition_locked(&lease, &mut fresh_anchor, key, 6);
 
+            current.status = 3;
             return current;
         }
-    };
-
-    let reported = trusted callback(key);
-    let mut current = trusted progress(key, trusted transition(key, 2));
-
-    if reported.status == 3 || reported.status >= 5
-    {
-        current.status = reported.status;
     }
 
-    return current;
+    if operation == 11
+    {
+        _ = trusted transition(key, 5);
+    }
+
+    let current = trusted leave_domain(identity, key, operation == 10);
+
+    if operation == 10 && current.status != 3 && current.status < 5
+    {
+        _ = trusted bray.runtime.bootstrap.host.thread_attachment_leave();
+    }
+
+    return if operation == 11
+    {
+        yield trusted progress(key, current);
+    }
+    else
+    {
+        yield current;
+    };
 }
 
 trusted internal func observe(pos key: usize, pos operation: u32) -> Observation
     requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    if operation > 13
+    if operation > 14
     {
         return unavailable(3);
     }
@@ -141,7 +115,7 @@ trusted internal func observe(pos key: usize, pos operation: u32) -> Observation
         return formed;
     }
 
-    if operation == 9 || operation == 10 || operation == 11
+    if operation == 9 || operation == 10 || operation == 11 || operation == 14
     {
         return trusted invoke_thread_control(key, operation);
     }

@@ -63,6 +63,8 @@ pub enum NativeEntryKind {
     ThreadStorageExit,
     /// Contain bootstrap failures and return the native runtime failure status.
     RuntimeStatus,
+    /// Contain bootstrap identity lookup failures and return the unavailable identity zero.
+    RuntimeIdentity,
     /// Preserve the body outcome and return entry cleanup status independently.
     EntryStatus,
 }
@@ -71,6 +73,7 @@ impl NativeEntryKind {
     /// Selects the non-attaching entry boundary required by a bootstrap role.
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
+            RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
             RuntimeAbiRole::ThreadStorageExit => Some(Self::ThreadStorageExit),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
@@ -81,11 +84,9 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentMarkMain
             | RuntimeAbiRole::ThreadAttachmentCleanup
+            | RuntimeAbiRole::ThreadStaticCleanupRegistration
             | RuntimeAbiRole::ProductHostControl
             | RuntimeAbiRole::ProductCleanupContinuation
-            | RuntimeAbiRole::ProductExecutionResource
-            | RuntimeAbiRole::ProductCleanupIncident
-            | RuntimeAbiRole::ProductThreadStaticOrder
             | RuntimeAbiRole::StructuredShutdown => Some(Self::RuntimeStatus),
             _ => None,
         }

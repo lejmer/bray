@@ -28,6 +28,19 @@ pub(super) fn audit_static_storage(
         root,
         target,
         runtime,
+        "bray-native-thread-static-cleanup-",
+        RepeatableFixtureAudit::new(
+            &["xtask/fixtures/native-execution/thread-static-cleanup.bray"],
+            42,
+            "dependency-ordered exact-thread cleanup",
+            &["bray.static.host."],
+        ),
+    )?;
+
+    audit_repeatable_fixtures(
+        root,
+        target,
+        runtime,
         "bray-native-static-storage-",
         RepeatableFixtureAudit::new(
             &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION],

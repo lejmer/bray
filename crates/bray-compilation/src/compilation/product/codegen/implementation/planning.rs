@@ -221,6 +221,14 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
+                    host.as_ref().is_some_and(|host| {
+                        host.requirements().roles().contains(
+                            &bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
+                        ) && host
+                            .requirements()
+                            .capabilities()
+                            .contains(&RuntimeCapability::CooperativeExecution)
+                    }),
                     runtime_dependencies,
                     &target,
                 )

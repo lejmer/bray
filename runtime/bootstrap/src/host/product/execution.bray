@@ -19,7 +19,8 @@ internal callable CleanupBody = @abi(c) trusted func(pos context: usize) -> u32
 internal callable CleanupContext = @abi(c) trusted func(
     pos resource: usize,
     pos context: usize,
-    pos callback: CleanupBody
+    pos callback: CleanupBody,
+    pos attachment: u64
 ) -> CleanupResult
     requires(trusted native_host());
 
@@ -47,7 +48,7 @@ internal callable WorkerDetach = @abi(c) trusted func(pos resource: usize, pos p
 internal callable ExecutionRelease = @abi(c) trusted func(pos resource: usize)
     requires(trusted native_host());
 
-internal callable ThreadControl = @abi(c) trusted func(pos product: usize) -> Observation
+internal callable CurrentWorker = @abi(c) trusted func(pos resource: usize) -> u32
     requires(trusted native_host());
 
 @copy
@@ -61,9 +62,7 @@ internal struct NativeExecution
     run_finalizer: AsyncFinalizer;
     detach_workers: WorkerDetach;
     release: ExecutionRelease;
-    attach: ThreadControl;
-    detach: ThreadControl;
-    finish_root: ThreadControl;
+    current_worker: CurrentWorker;
 }
 
 internal struct Execution

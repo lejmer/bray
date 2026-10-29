@@ -163,6 +163,8 @@ impl NativeProductHostOperation {
     pub const ACQUIRE_WORKER_ATTACHMENT: Self = Self(12);
     /// Release one execution-service worker attachment after its exact-thread cleanup.
     pub const RELEASE_WORKER_ATTACHMENT: Self = Self(13);
+    /// Drain the current worker's implicit TLS domain before acknowledging detachment.
+    pub const DRAIN_THREAD_STATICS: Self = Self(14);
 
     /// Returns whether the value belongs to this ABI version.
     pub const fn is_known(self) -> bool {

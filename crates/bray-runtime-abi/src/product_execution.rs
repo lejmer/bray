@@ -1,4 +1,4 @@
-use crate::{NativeProductHostObservation, NativeRuntimeStatus, NativeStaticFinalizer};
+use crate::{NativeRuntimeStatus, NativeStaticFinalizer};
 
 /// Executes the selected Bray terminal work while its caller retains the context.
 pub type NativeProductCleanupBody = extern "C" fn(usize) -> NativeRuntimeStatus;
@@ -26,8 +26,9 @@ pub struct NativeProductExecution {
     /// Retained execution-resource identity, valid until `release`.
     pub resource: usize,
     /// Enter a cleanup context and invoke the body once on successful entry.
+    /// A nonzero final argument borrows the selected exact-thread cleanup epoch.
     pub with_cleanup:
-        extern "C" fn(usize, usize, NativeProductCleanupBody) -> NativeProductCleanupResult,
+        extern "C" fn(usize, usize, NativeProductCleanupBody, u64) -> NativeProductCleanupResult,
     /// Admit one asynchronous frame before its static owner becomes live.
     pub admit: extern "C" fn(&mut usize) -> NativeRuntimeStatus,
     /// Release unused asynchronous frame admission after failed formation.
@@ -38,12 +39,8 @@ pub struct NativeProductExecution {
     pub detach_workers: extern "C" fn(usize, usize),
     /// Release execution retention after terminal reporting.
     pub release: extern "C" fn(usize),
-    /// Acquire a foreign-thread attachment using the shared Bray product state.
-    pub attach: extern "C" fn(usize) -> NativeProductHostObservation,
-    /// Retire a foreign-thread attachment using the shared Bray product state.
-    pub detach: extern "C" fn(usize) -> NativeProductHostObservation,
-    /// Close a root and drain its implicit exact-thread statics.
-    pub finish_root: extern "C" fn(usize) -> NativeProductHostObservation,
+    /// Returns whether the current thread belongs to this execution resource's workers.
+    pub current_worker: extern "C" fn(usize) -> u32,
 }
 
 /// Acquires only resources required by the descriptor's reachable execution consumers.

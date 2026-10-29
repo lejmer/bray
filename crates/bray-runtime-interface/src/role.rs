@@ -439,7 +439,7 @@ mod tests {
 
         assert_eq!(
             RuntimeAbiRole::ThreadStaticCleanupRegistration.source_declaration(),
-            None,
+            Some("host.product.thread_static_cleanup_registration"),
         );
 
         let binding = RuntimeAbiRole::RuntimeInitialization
@@ -486,7 +486,7 @@ mod tests {
             assert!(role.native_signature().is_some(), "{role:?}");
         }
 
-        assert_eq!(host, 31);
+        assert_eq!(host, 28);
         assert_eq!(execution, 21);
     }
 

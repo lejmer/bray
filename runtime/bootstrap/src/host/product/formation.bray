@@ -106,18 +106,53 @@ trusted internal func form(pos key: usize) -> Observation
         return unavailable(5);
     }
 
-    let existing = trusted transition(key, 0);
-
-    if existing.status != 3
-    {
-        return existing;
-    }
-
     let selected = trusted descriptor(key);
 
     if selected.version != 1 || selected.asynchronous > 1
     {
         return unavailable(3);
+    }
+
+    {
+
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return unavailable(5);
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+        if let ?products = host.products
+        {
+            if let ?product = trusted find_product(&mut products, key)
+            {
+                if !trusted same_identity(product.identity, selected.identity)
+                {
+                    if product.callers != 0 || !(product.state.phase matches Closed | Failed)
+                    {
+                        return unavailable(3);
+                    }
+
+                    product.key = 0;
+                }
+                else
+                {
+                    return product.state.observation(
+                        if let ?failure = product.failure
+                        {
+                            yield failure;
+                        }
+                        else
+                        {
+                            yield product.state.status();
+                        }
+                    );
+                }
+            }
+        }
     }
 
     let mut failure: u32? = none;
@@ -217,9 +252,33 @@ trusted internal func form(pos key: usize) -> Observation
 
                     if let ?buffer = statics
                     {
-                        match consume trusted admit_static(&entry, &execution, &mut buffer, &mut accepted)
+                        let service: NativeExecution? = if let ?provider = execution
                         {
-                            case Ok(_) {}
+                            yield provider.value;
+                        }
+                        else
+                        {
+                            yield none;
+                        };
+
+                        match consume trusted admit_static(
+                            entry.identity,
+                            entry.prepare,
+                            entry.finalizer,
+                            entry.destroy,
+                            entry.detach,
+                            &service
+                        )
+                        {
+                            case Ok(owner)
+                            {
+                                trusted internal std.memory.raw_buffer_push<StaticOwner>(
+                                    &mut buffer,
+                                    StaticOwner.Product(owner)
+                                );
+
+                                accepted += 1;
+                            }
                             case Error(status)
                             {
                                 failure = status;

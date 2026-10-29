@@ -131,13 +131,21 @@ trusted internal func enter_attachment_locked(
 
     let pointer: DataPointer<u8> = trusted core.target.from_exposed_address<u8>(address = next as usize);
 
-    let published: std.platform.PlatformStatus = trusted internal std.thread.platform_thread_storage_store(
-        key,
-        pointer
-    );
+    let context = trusted internal std.thread.platform_thread_storage_store(storage.cleanup_key, pointer);
+
+    let published: std.platform.PlatformStatus = if context.category == 0
+    {
+        yield trusted internal std.thread.platform_thread_storage_store(key, pointer);
+    }
+    else
+    {
+        yield context;
+    };
 
     if published.category != 0
     {
+        _ = trusted internal std.thread.platform_thread_storage_store(storage.cleanup_key, std.memory.null<u8>());
+
         {
             let selected = trusted find_attachment(storage, next, 0);
 

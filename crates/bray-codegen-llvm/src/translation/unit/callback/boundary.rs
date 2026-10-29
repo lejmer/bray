@@ -63,6 +63,7 @@ pub(super) fn translate_runtime_boundary<'context>(
     if matches!(
         kind,
         bray_runtime_interface::NativeEntryKind::RuntimeStatus
+            | bray_runtime_interface::NativeEntryKind::RuntimeIdentity
             | bray_runtime_interface::NativeEntryKind::EntryStatus
     ) {
         let (state, _) = native_run_outcome(&builder, result)?;
@@ -101,6 +102,8 @@ pub(super) fn translate_runtime_boundary<'context>(
                 "entry.cleanup.status",
             ))?
             .into_int_value()
+        } else if kind == bray_runtime_interface::NativeEntryKind::RuntimeIdentity {
+            context.i64_type().const_zero()
         } else {
             context.i32_type().const_int(
                 u64::from(bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code()),
