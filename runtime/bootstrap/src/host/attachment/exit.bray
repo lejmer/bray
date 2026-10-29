@@ -237,20 +237,6 @@ internal struct AttachmentRetirement
 
         trusted std.memory.write<usize>(active_pointer, self.remaining_active);
 
-        let cleanup_key = core.atomic.load<u64, 1>(&synchronization.cleanup_key);
-
-        if cleanup_key != 0
-        {
-            _ = trusted internal std.thread.platform_thread_storage_store(cleanup_key - 1, std.memory.null<u8>());
-        }
-
-        let key = core.atomic.load<u64, 1>(&synchronization.key);
-
-        if key != 0
-        {
-            _ = trusted internal std.thread.platform_thread_storage_store(key - 1, std.memory.null<u8>());
-        }
-
         _ = core.atomic.compare_exchange<u64, 3, 1>(&synchronization.main, expected = identity, desired = 0);
     }
 }
