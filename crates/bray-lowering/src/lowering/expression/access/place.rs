@@ -18,29 +18,6 @@ pub(in crate::lowering::expression) enum RootInitialization {
 }
 
 impl Lowerer<'_> {
-    pub(in crate::lowering::expression) fn lower_assignment_place(
-        &mut self,
-        assignment: BoundExpressionId,
-        expression: BoundExpressionId,
-        current: MirBlockId,
-    ) -> Result<LoweredPlace, LoweringError> {
-        let decision = self.storage_decision(assignment.into(), |purpose| {
-            purpose == StorageAccessPurpose::Write
-        });
-
-        let lowered = self.lower_access_place(expression, decision.access(), current)?;
-
-        if matches!(lowered, LoweredPlace::Continuing { .. }) {
-            assert_eq!(
-                decision.status(),
-                StorageOperationStatus::Valid,
-                "executed access must be reachable: {expression:?}"
-            );
-        }
-
-        Ok(lowered)
-    }
-
     pub(in crate::lowering) fn storage_decision(
         &self,
         occurrence: bray_bound_tree::BoundExecutionSite,

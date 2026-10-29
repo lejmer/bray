@@ -149,6 +149,7 @@ fn replacement_native_fixture_lowers_checked_cleanup_paths() {
         "abandoned_return",
         "return_across_catch",
         "exited_catch_does_not_handle_outer_cleanup",
+        "rhs_failure",
         "owned_cancellation",
         "borrowed_task",
         "borrowed_cancellation",
