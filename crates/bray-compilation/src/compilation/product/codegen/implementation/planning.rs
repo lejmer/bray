@@ -199,6 +199,7 @@ impl Compilation {
             native_statics,
             native_main_thread,
             runtime_dependencies,
+            worker_cleanup,
         } = self.prepare_native_codegen(
             &product,
             semantic.value().kind(),
@@ -221,14 +222,7 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
-                    host.as_ref().is_some_and(|host| {
-                        host.requirements().roles().contains(
-                            &bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
-                        ) && host
-                            .requirements()
-                            .capabilities()
-                            .contains(&RuntimeCapability::CooperativeExecution)
-                    }),
+                    worker_cleanup,
                     runtime_dependencies,
                     &target,
                 )

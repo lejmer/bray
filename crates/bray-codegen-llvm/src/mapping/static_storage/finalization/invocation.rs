@@ -96,26 +96,40 @@ fn declare_static_finalizer_start<'context>(
             .expect("static-storage realization requires an established mapping or value")
             .into_int_value();
 
-        let destination = match (finalization.execution(), finalization.result()) {
+        let (destination, future_type) = match (finalization.execution(), finalization.result()) {
             (
                 bray_symbols::CallableExecution::Synchronous,
                 ExecutableEntryResult::Fallible { ty, .. },
-            ) => builder
-                .build_alloca(types.map(ty)?, "static.finalize.result")
-                .map_err(CodegenFailure::backend_library)?,
+            ) => (
+                builder
+                    .build_alloca(types.map(ty)?, "static.finalize.result")
+                    .map_err(CodegenFailure::backend_library)?,
+                None,
+            ),
             (bray_symbols::CallableExecution::Synchronous, ExecutableEntryResult::Unit) => {
-                context.ptr_type(AddressSpace::default()).const_null()
+                (context.ptr_type(AddressSpace::default()).const_null(), None)
             }
             (bray_symbols::CallableExecution::Synchronous, ExecutableEntryResult::I32) => {
                 panic!("static-storage realization violated an established compiler contract");
             }
-            (bray_symbols::CallableExecution::Asynchronous, _) => builder
-                .build_int_to_ptr(
-                    supplied_destination,
-                    context.ptr_type(AddressSpace::default()),
-                    "static.finalize.frame",
+            (bray_symbols::CallableExecution::Asynchronous, _) => {
+                let ty = match symbol.signature().result() {
+                    CodegenResultMapping::Direct { ty, .. } => ty,
+                    CodegenResultMapping::Indirect { pointee, .. } => pointee,
+                    CodegenResultMapping::Void => {
+                        panic!("an asynchronous finalizer returns an inactive future")
+                    }
+                };
+
+                let ty = types.map(*ty)?;
+
+                (
+                    builder
+                        .build_alloca(ty, "static.finalize.future")
+                        .map_err(CodegenFailure::backend_library)?,
+                    Some(ty),
                 )
-                .map_err(CodegenFailure::backend_library)?,
+            }
         };
 
         let (arguments, name) = match symbol.signature().result() {
@@ -153,6 +167,43 @@ fn declare_static_finalizer_start<'context>(
 
             builder
                 .build_store(destination, result)
+                .map_err(CodegenFailure::backend_library)?;
+        }
+
+        if let Some(future_type) = future_type {
+            let future = builder
+                .build_load(future_type, destination, "static.finalize.future.value")
+                .map_err(CodegenFailure::backend_library)?
+                .into_struct_value();
+
+            let frame = builder
+                .build_extract_value(future, 0, "static.finalize.context")
+                .map_err(CodegenFailure::backend_library)?
+                .into_pointer_value();
+
+            let descriptor = builder
+                .build_extract_value(future, 1, "static.finalize.descriptor")
+                .map_err(CodegenFailure::backend_library)?
+                .into_pointer_value();
+
+            let token = crate::native::activation::inactive_token(
+                context,
+                types.target(),
+                &builder,
+                frame,
+                descriptor,
+            )?;
+
+            let output = builder
+                .build_int_to_ptr(
+                    supplied_destination,
+                    context.ptr_type(AddressSpace::default()),
+                    "static.finalize.native",
+                )
+                .map_err(CodegenFailure::backend_library)?;
+
+            builder
+                .build_store(output, token)
                 .map_err(CodegenFailure::backend_library)?;
         }
 

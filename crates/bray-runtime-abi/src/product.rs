@@ -168,7 +168,7 @@ impl NativeProductHostOperation {
 
     /// Returns whether the value belongs to this ABI version.
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 0..=13)
+        matches!(self.0, 0..=14)
     }
 
     /// Returns the stable integer representation.
@@ -770,8 +770,15 @@ impl NativeProductHostObservation {
 mod tests {
     use super::{
         NativeCleanupIncident, NativeProductHostDescriptor, NativeProductHostObservation,
-        NativeStaticFinalizer, NativeStaticHostEntry, NativeThreadStaticCleanupRegistration,
+        NativeProductHostOperation, NativeStaticFinalizer, NativeStaticHostEntry,
+        NativeThreadStaticCleanupRegistration,
     };
+
+    #[test]
+    fn worker_drain_operation_belongs_to_the_host_abi() {
+        assert!(NativeProductHostOperation::DRAIN_THREAD_STATICS.is_known());
+        assert!(!NativeProductHostOperation(15).is_known());
+    }
 
     #[test]
     fn unpublished_cleanup_incident_has_no_payload_or_callbacks() {

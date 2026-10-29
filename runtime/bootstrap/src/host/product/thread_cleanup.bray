@@ -223,7 +223,7 @@ trusted internal func leave_domain(pos identity: u64, pos key: usize, pos explic
     }
 
     // Reporting and destruction finish before release can trigger product teardown or worker join.
-    return trusted progress(key, current);
+    return trusted progress(key, current, identity);
 }
 
 trusted internal func cleanup_domains(pos identity: u64)

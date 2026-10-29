@@ -222,6 +222,47 @@ fn shared_library_runtime_roles_do_not_require_static_storage() {
 }
 
 #[test]
+fn shared_library_tls_retains_only_demanded_worker_execution() {
+    let source = r#"
+        module app;
+
+        @thread_local
+        internal static VALUE: i32 = 42;
+
+        @abi(c)
+        @symbol(name = "read_tls")
+        func read() -> i32 { return VALUE; }
+    "#;
+
+    for cooperative in [false, true] {
+        let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = runtime_artifact(&compilation, archive.path());
+        let linker = test_linker();
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                cooperative.then_some(RuntimeCapability::CooperativeExecution),
+                Some((&linker, bray_linker::LinkedProductKind::SharedLibrary)),
+            )
+            .expect("TLS library must preserve its selected execution requirements");
+
+        assert!(plan.executable_host().is_none());
+
+        assert_eq!(
+            plan.product_host()
+                .expect("TLS retains a product host")
+                .execution(),
+            cooperative.then_some(bray_symbols::CallableExecution::Synchronous),
+        );
+    }
+}
+
+#[test]
 fn public_library_static_contributes_a_linked_host_table_entry() {
     let source = concat!(
         "module app;\n",
@@ -584,17 +625,19 @@ fn static_mapping_retains_asynchronous_fallible_finalizer() {
             .all(|artifact| !artifact.is_empty())
     );
 
-    let (windows_backend, windows_plan) = runtime_native_plan_for_target(
-        source,
-        ProductKind::Executable,
-        SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
-    );
+    for target in NativeTarget::ALL {
+        let (backend, plan) = runtime_native_plan_for_target(
+            source,
+            ProductKind::Executable,
+            SelectedTarget::for_native(target),
+        );
 
-    assert!(
-        generated_artifacts(&windows_backend, &windows_plan)
-            .iter()
-            .all(|artifact| !artifact.is_empty())
-    );
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
 }
 
 #[test]

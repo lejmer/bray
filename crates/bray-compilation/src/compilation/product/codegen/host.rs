@@ -223,13 +223,19 @@ impl Compilation {
             return Err(NativeProductPlanningError::MissingRuntime);
         }
 
+        let worker_cleanup = roles.contains(&RuntimeAbiRole::ThreadStaticCleanupRegistration)
+            && capabilities.contains(&RuntimeCapability::CooperativeExecution);
+
         Ok(RuntimeRequirements::new(
             runtime.map(|runtime| runtime.identity().clone()),
             self.selected_target().target().runtime_abi(),
             runtime.map(|runtime| runtime.frame_abi()),
             target.identity().clone(),
             target.panic_abi().clone(),
-            roles.iter().copied(),
+            roles
+                .iter()
+                .copied()
+                .chain(worker_cleanup.then_some(RuntimeAbiRole::ProductExecutionProvider)),
             capabilities,
             [],
         ))
@@ -301,15 +307,6 @@ impl Compilation {
         if has_async_entries {
             runtime_roles.insert(RuntimeAbiRole::RootExecution);
             runtime_roles.extend(RuntimeAbiRole::host_controls());
-        }
-
-        if has_exact_thread_statics
-            && runtime_roles.iter().any(|role| {
-                role.required_capabilities()
-                    .contains(&RuntimeCapability::CooperativeExecution)
-            })
-        {
-            runtime_roles.insert(RuntimeAbiRole::ProductExecutionProvider);
         }
 
         if kind == ProductKind::Test && !entries.is_empty() {

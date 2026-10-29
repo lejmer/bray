@@ -1433,6 +1433,91 @@ mod tests {
     }
 
     #[test]
+    fn closing_product_completes_through_outer_attachment_retirement() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn cleanup(
+            _: usize,
+            _: &mut bray_runtime_abi::NativeRunOutcome,
+        ) -> NativeStaticFinalizerStatus {
+            assert!(crate::bootstrap::current_runtime_thread().is_some());
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 0);
+            THREAD_CLEANUP_ORDER.set(1);
+            RUNS.fetch_add(1, Ordering::SeqCst);
+
+            NativeStaticFinalizerStatus::SUCCESS
+        }
+
+        for native_exit in [false, true] {
+            let descriptor: &'static NativeProductHostDescriptor = Box::leak(Box::new(
+                NativeProductHostDescriptor::new(
+                    NativeProductIdentity::new([170 + u8::from(native_exit); 32]),
+                    thread_order_entry,
+                    2,
+                )
+                .with_execution(
+                    crate::native::implementation::bray_runtime_product_execution_provider,
+                    false,
+                ),
+            ));
+
+            std::thread::spawn(move || {
+                THREAD_CLEANUP_ORDER.set(0);
+
+                let scope = if native_exit {
+                    assert_eq!(
+                        control(
+                            descriptor,
+                            NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                        )
+                        .status(),
+                        NativeProductHostStatus::SUCCESS,
+                    );
+
+                    None
+                } else {
+                    Some(
+                        crate::bootstrap::RuntimeThreadScope::enter()
+                            .expect("physical attachment enters"),
+                    )
+                };
+
+                let registration = NativeThreadStaticCleanupRegistration::new(
+                    descriptor,
+                    NativeStaticIdentity::new([11; 32]),
+                    detach_thread_static,
+                    finalizer(cleanup),
+                    no_cleanup,
+                    detach_thread_static,
+                );
+
+                assert!(register_thread_static(&registration).is_success());
+
+                assert_eq!(
+                    control(descriptor, NativeProductHostOperation::CLOSE).status(),
+                    NativeProductHostStatus::PENDING,
+                );
+
+                if let Some(scope) = scope {
+                    assert_eq!(scope.finish(), 0);
+                    assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+                }
+            })
+            .join()
+            .expect("pending product cleanup completes on its retiring thread");
+
+            let closed = control(descriptor, NativeProductHostOperation::OBSERVE);
+
+            assert_eq!(closed.status(), NativeProductHostStatus::CLOSED);
+            assert_eq!(closed.thread_attachments(), 0);
+        }
+
+        assert_eq!(RUNS.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn finishing_root_drains_implicit_thread_statics_once() {
         THREAD_CLEANUP_ORDER.set(0);
 
