@@ -19,5 +19,6 @@ pub(in crate::compilation) use symbol::{
     imported_declaration_template, imported_declaration_template_at, imported_implementation,
     source_body_semantics, static_dependencies_from_contract, static_dependency_root,
     static_result_dependencies, type_binder, type_scope, visible_generic_parameters,
+    with_declaration_root,
 };
 pub(in crate::compilation) use value_type::bind_declared_value_type_templates;

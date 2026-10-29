@@ -905,51 +905,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [DestroyFrame]
             }
-            GeneratorBegin {
-                "Initialize one generator accumulation.", "generator_begin",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Usize, Usize, Usize, Usize, Bool] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [InitializeGenerator]
-            }
-            GeneratorPush {
-                "Append one value to generator accumulation.", "generator_push",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [AppendGeneratorValue]
-            }
-            GeneratorFinish {
-                "Finish generator accumulation and publish its value.", "generator_finish",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [FinishGenerator]
-            }
-            GeneratorCleanupBroadcast {
-                "Broadcast task cleanup through initialized generator elements.", "generator_cleanup_broadcast",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer, Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [BroadcastGeneratorCleanup]
-            }
-            GeneratorDestruction {
-                "Destroy initialized generator elements and release accumulation storage.", "generator_destruction",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer, Bool, Pointer, Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [DestroyGenerator]
-            }
             PanicReportConstruction {
                 "Construct one owned panic report.", "panic_report_construction",
                 native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, U64, U64, U64, U64, Pointer, Usize] -> PanicReport),

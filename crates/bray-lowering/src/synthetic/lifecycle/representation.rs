@@ -1,7 +1,6 @@
 use bray_ir::{
-    MirBlockKind, MirEdge, MirGeneratorOperation, MirHelperReference, MirOperand, MirOperationKind,
-    MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
-    MirUnitBuilder,
+    MirBlockKind, MirEdge, MirHelperReference, MirOperand, MirOperationKind, MirPlace,
+    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
@@ -165,54 +164,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             } => self.push_owned_indirection_lifecycle_operations(
                 builder, block, source, role, place, storage, target, borrow, release,
             ),
-            LifecycleAction::Generator(element) => {
-                let collection = Box::new(
-                    self.collection
-                        .as_ref()
-                        .expect("generator traversal borrows its enclosing cleanup collection")
-                        .collection(),
-                );
-
-                let operation = match role {
-                    bray_ir::MirGeneratedLifecycleRole::Destroy(_) => {
-                        MirGeneratorOperation::Destroy {
-                            destination: place,
-                            element,
-                            collection,
-                            abandoned: self
-                                .abandoned
-                                .clone()
-                                .expect("generator destruction retains its invocation argument"),
-                            runtime: MirRuntimeReference::new(
-                                RuntimeAbiRole::GeneratorDestruction,
-                                runtime_abi,
-                            ),
-                        }
-                    }
-                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
-                        bray_ir::MirCleanupPhase::TaskCancellation,
-                    ) => MirGeneratorOperation::CleanupBroadcast {
-                        destination: place,
-                        element,
-                        collection,
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::GeneratorCleanupBroadcast,
-                            runtime_abi,
-                        ),
-                    },
-                    _ => panic!("lifecycle representation does not support role {role:?}"),
-                };
-
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Generator(operation),
-                )?;
-
-                Ok(block)
-            }
-            action @ (LifecycleAction::RawBuffer(_)
+            action @ (LifecycleAction::Generator(_)
+            | LifecycleAction::RawBuffer(_)
             | LifecycleAction::ReleaseString
             | LifecycleAction::DestroyReport
             | LifecycleAction::Task) => self.push_selected_runtime_lifecycle(

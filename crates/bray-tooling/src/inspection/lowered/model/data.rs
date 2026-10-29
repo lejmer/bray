@@ -11,12 +11,11 @@ use bray_bound_tree::{
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
     MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirEdge,
-    MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
-    MirGeneratorOperation, MirHelperReference, MirHostOperation, MirImmediateValue, MirOperand,
-    MirOperation, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace,
-    MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind,
-    MirStoreKind, MirTaskTerminalState, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey,
-    MirUnitKind, MirValueOrigin,
+    MirFieldReference, MirFrameInitializer, MirFrameReference, MirHelperReference,
+    MirHostOperation, MirImmediateValue, MirOperand, MirOperation, MirOperationKind, MirPanicCause,
+    MirPatternPredicate, MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor,
+    MirSourceOrigin, MirStorageKind, MirStoreKind, MirTaskTerminalState, MirTerminatorKind,
+    MirUnaryOperator, MirUnit, MirUnitKey, MirUnitKind, MirValueOrigin,
 };
 use bray_symbols::{AnySymbolId, BorrowKind, CallableAbi, SemanticValueStore, SymbolGraph, TypeId};
 use serde::Serialize;
@@ -803,11 +802,6 @@ fn operation_parts(
 
             "pattern_projection"
         }
-        MirOperationKind::Generator(operation) => {
-            generator_operation(operation, parts, context)?;
-
-            "generator"
-        }
         MirOperationKind::Call(call) => {
             call_parts(call, parts, context)?;
 
@@ -836,6 +830,12 @@ fn operation_parts(
                 MirPanicCause::ExplicitTestFailure(message) => {
                     parts.attribute("cause", "explicit_test_failure");
                     parts.operand("message", message, context)?;
+                }
+                MirPanicCause::MemoryLayoutSizeOverflow => {
+                    parts.attribute("cause", "memory_layout_size_overflow");
+                }
+                MirPanicCause::MemoryLayoutUnsupportedAlignment => {
+                    parts.attribute("cause", "memory_layout_unsupported_alignment");
                 }
             }
 
@@ -1071,6 +1071,7 @@ fn memory_operation_parts(
                 MemoryLayoutQueryKind::Stride => "stride_of",
                 MemoryLayoutQueryKind::Layout => "layout_of",
                 MemoryLayoutQueryKind::Trailing => "trailing_layout_of",
+                MemoryLayoutQueryKind::LayoutStatus => "allocation_layout_status",
             };
 
             (name, vec![("type", ty)])
@@ -1497,68 +1498,6 @@ fn phase_behavior(
             bray_symbols::CurrentRunCancellation::MayEnter
         ),
     );
-}
-
-fn generator_operation(
-    operation: &MirGeneratorOperation,
-    parts: &mut OperationParts,
-    context: &MirInspectionContext<'_>,
-) -> Result<(), MirInspectionModelError> {
-    match operation {
-        MirGeneratorOperation::Begin {
-            kind,
-            destination,
-            element,
-            exact_count,
-        } => {
-            parts.attribute("step", "begin");
-            parts.attribute("generator_kind", generator_kind(*kind));
-
-            parts.attribute("has_exact_count", exact_count.is_some());
-            parts.r#type("element_type", *element, context)?;
-
-            if let Some(exact_count) = exact_count {
-                parts.semantic_value("exact_count", "constant_term", exact_count.slot(), None);
-            }
-
-            parts.place("destination", destination, context)?;
-        }
-        MirGeneratorOperation::Push { destination, value } => {
-            parts.attribute("step", "push");
-            parts.place("destination", destination, context)?;
-            parts.operand("value", value, context)?;
-        }
-        MirGeneratorOperation::Finish { destination } => {
-            parts.attribute("step", "finish");
-            parts.place("destination", destination, context)?;
-        }
-        MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            element,
-            runtime,
-            ..
-        } => {
-            parts.attribute("step", "cleanup_broadcast");
-            parts.r#type("element_type", *element, context)?;
-            runtime_reference("runtime", *runtime, parts);
-            parts.place("destination", destination, context)?;
-        }
-        MirGeneratorOperation::Destroy {
-            destination,
-            element,
-            abandoned,
-            runtime,
-            ..
-        } => {
-            parts.attribute("step", "destroy");
-            parts.operand("abandoned", abandoned, context)?;
-            parts.r#type("element_type", *element, context)?;
-            runtime_reference("runtime", *runtime, parts);
-            parts.place("destination", destination, context)?;
-        }
-    }
-
-    Ok(())
 }
 
 fn async_operation(
@@ -2861,13 +2800,6 @@ fn aggregate_kind(kind: MirAggregateKind) -> &'static str {
         MirAggregateKind::RepeatedArray => "repeated_array",
         MirAggregateKind::NullablePresent => "nullable_present",
         MirAggregateKind::Range => "range",
-    }
-}
-
-fn generator_kind(kind: MirGeneratorKind) -> &'static str {
-    match kind {
-        MirGeneratorKind::Array => "array",
-        MirGeneratorKind::General => "general",
     }
 }
 

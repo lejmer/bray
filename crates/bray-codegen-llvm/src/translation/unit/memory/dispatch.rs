@@ -1357,6 +1357,19 @@ mod tests {
             Some(types.layout_result),
         );
 
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::LayoutQuery {
+                ty: types.value,
+                kind: MemoryLayoutQueryKind::LayoutStatus,
+            },
+            [MirOperand::Value(size)],
+            [types.usize],
+            Some(types.usize),
+        );
+
         let layout = builder
             .push_operation(
                 entry,

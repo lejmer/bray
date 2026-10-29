@@ -129,8 +129,8 @@ pub use storage::{
     StorageOperationStatus, StorageOrigin, StoragePath, StoragePlan, StoragePlanBuildError,
     StoragePlanBuilder, StorageProjection, StorageProtocolCall, StorageReferencePath,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
-    StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageStateTarget,
-    StorageSuspensionState, StorageTarget, scoped_exit_completes_result,
+    StorageReplacementState, StorageScope, StorageScopeBuildError, StorageScopeOwners,
+    StorageStateTarget, StorageSuspensionState, StorageTarget, scoped_exit_completes_result,
     storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
     storage_identity_transfers_at_unit_exit,
 };
@@ -158,3 +158,6 @@ pub use unit::{
 pub use view::BoundUnitView;
 
 pub use unwind::{CheckedUnwind, UnwindBehavior};
+
+mod generator;
+pub use generator::GeneratorObservations;

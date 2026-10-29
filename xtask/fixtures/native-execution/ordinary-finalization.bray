@@ -238,7 +238,8 @@ struct BufferOwner
 
     async finalize()
     {
-        await std.task.yield_now();
+        // Suspend in the admitted finalizer frame without constructing a new future.
+        internal std.task.yield_current_task();
 
         let previous = core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS);
 
@@ -251,6 +252,32 @@ struct BufferOwner
 
         core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, previous * 10 + self.digit);
     }
+}
+
+struct FirstAdmissionOwner
+{
+    async finalize()
+    {
+        internal std.task.yield_current_task();
+    }
+}
+
+async func reject_generator_admission()
+{
+    _ = catch
+    {
+        let owners =
+        {
+            each item in 0..0
+            {
+                yield FirstAdmissionOwner
+                {
+                };
+            }
+        };
+
+        yield unit;
+    };
 }
 
 trusted async func represented_buffer()
@@ -309,6 +336,17 @@ trusted async func main()
     assert(attempts == 0, "mandatory cleanup requested fresh backing after admission");
     assert(core.atomic.load<usize, 1>(&ERRORS) == 3, "retained error and its inactive capture were not destroyed");
 
+    // The future is admitted before denial; the empty generator's distinct
+    // element type has not registered its local cleanup storage yet.
+    let initial = reject_generator_admission();
+
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+    await initial;
+
+    let initial_attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+
+    assert(initial_attempts > 0, "initial generator admission did not encounter denied allocation");
+
     await trusted represented_buffer();
 
     let buffer_attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
@@ -324,4 +362,222 @@ trusted async func main()
         core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 321,
         "buffer destruction did not resolve each initialized element once"
     );
+
+    core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await trusted represented_generator();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) == 0);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 987654321);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 987654321);
+
+    core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await trusted partial_generator();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) == 0);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 21);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 21);
+
+    core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await trusted failed_generator_growth();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) > 0);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 54321);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 54321);
+
+    core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await trusted consumed_generator();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) == 0);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 123);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 123);
+
+    core.atomic.store<usize, 4>(&BUFFER_FINALIZATIONS, 0);
+    core.atomic.store<usize, 4>(&BUFFER_DESTRUCTIONS, 0);
+    await trusted generator_iteration_result();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) == 0);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 231);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 231);
+
+    core.atomic.store<usize, 4>(&ERRORS, 0);
+    await trusted generator_failure();
+    assert(trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS)) == 0);
+
+    assert(
+        core.atomic.load<usize, 1>(&ERRORS) == 3,
+        "generator finalization lost a retained error or inactive capture"
+    );
+}
+
+trusted async func represented_generator()
+    uses(foreign_call)
+{
+    let start: usize = 1;
+    let end: usize = 10;
+    let source = start..end;
+
+    let owners =
+    {
+        each digit in source
+        {
+            yield BufferOwner
+            {
+                digit = digit
+            };
+        }
+    };
+
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+}
+
+trusted async func partial_generator()
+    uses(foreign_call)
+{
+    let start: usize = 1;
+    let end: usize = 4;
+    let source = start..end;
+
+    _ = catch
+    {
+        let owners =
+        {
+            each digit in source
+            {
+                if digit == 3
+                {
+                    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+                    panic("");
+                }
+
+                yield BufferOwner
+                {
+                    digit = digit
+                };
+            }
+        };
+
+        yield unit;
+    };
+}
+
+trusted async func failed_generator_growth()
+    uses(foreign_call)
+{
+    let start: usize = 1;
+    let end: usize = 6;
+    let source = start..end;
+
+    _ = catch
+    {
+        let owners =
+        {
+            each digit in source
+            {
+                let owner = BufferOwner
+                {
+                    digit = digit
+                };
+
+                if digit == 5
+                {
+                    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+                }
+
+                yield owner;
+            }
+        };
+
+        yield unit;
+    };
+}
+
+trusted async func generator_failure()
+    uses(foreign_call)
+{
+    _ = catch
+    {
+        let owners =
+        {
+            each item in 0..1
+            {
+                yield FailingOwner
+                {
+                    pending = retained_body(
+                        RetainedCapture
+                        {
+                        }
+                    )
+                };
+            }
+        };
+
+        core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+        panic("");
+        yield unit;
+    };
+}
+
+trusted async func consumed_generator()
+    uses(foreign_call)
+{
+    let start: usize = 1;
+    let end: usize = 4;
+    let source = start..end;
+
+    let owners =
+    {
+        each digit in source
+        {
+            yield BufferOwner
+            {
+                digit = digit
+            };
+        }
+    };
+
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+
+    for owner in move owners
+    {
+        if owner.digit == 2
+        {
+            break;
+        }
+    }
+
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 123);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 123);
+}
+
+trusted async func generator_iteration_result()
+    uses(foreign_call)
+{
+    let start: usize = 1;
+    let end: usize = 4;
+    let source = start..end;
+
+    let owners =
+    {
+        each digit in source
+        {
+            yield BufferOwner
+            {
+                digit = digit
+            };
+        }
+    };
+
+    core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+
+    let owner: BufferOwner = for item in move owners
+    {
+        break item;
+    }
+    else
+    {
+        panic("");
+    };
+
+    assert(owner.digit == 1);
+    assert(core.atomic.load<usize, 1>(&BUFFER_FINALIZATIONS) == 23);
+    assert(core.atomic.load<usize, 1>(&BUFFER_DESTRUCTIONS) == 23);
 }

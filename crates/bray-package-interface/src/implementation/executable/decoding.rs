@@ -13,9 +13,9 @@ use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
     MirBlockKind, MirCall, MirCallArgument, MirCallTarget, MirCallableReference, MirCleanupEdge,
     MirCleanupPhase, MirConstruction, MirConstructionInput, MirEdge, MirExecutableTemplateId,
-    MirFrameDescriptor, MirFrameReference, MirFrameState, MirGeneratorKind, MirGeneratorOperation,
-    MirImmediateValue, MirImportedExecutableKey, MirMemoryOperation, MirNumericConversionKind,
-    MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
+    MirFrameDescriptor, MirFrameReference, MirFrameState, MirImmediateValue,
+    MirImportedExecutableKey, MirMemoryOperation, MirNumericConversionKind, MirOperand,
+    MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
     MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirStorageKind,
     MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind, MirTextOperation,
     MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
@@ -709,7 +709,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 projection: self.pattern_projection()?,
                 operation: self.pattern_operation()?,
             }),
-            10 => Ok(MirOperationKind::Generator(self.generator_operation()?)),
             11 => Ok(MirOperationKind::Call(self.call()?)),
             12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
@@ -1461,66 +1460,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
-    fn generator_operation(
-        &mut self,
-    ) -> Result<MirGeneratorOperation, ExecutableTemplateDecodeError> {
-        match read_u32(&mut self.reader)? {
-            0 => {
-                let kind = self.generator_kind()?;
-                let destination = self.place()?;
-                let element = self.ty()?;
-
-                let exact_count = match read_u32(&mut self.reader)? {
-                    0 => None,
-                    1 => Some(self.constant_term()?),
-                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                };
-
-                Ok(MirGeneratorOperation::Begin {
-                    kind,
-                    destination,
-                    element,
-                    exact_count,
-                })
-            }
-            1 => Ok(MirGeneratorOperation::Push {
-                destination: self.place()?,
-                value: self.operand()?,
-            }),
-            2 => Ok(MirGeneratorOperation::Finish {
-                destination: self.place()?,
-            }),
-            3 => Ok(MirGeneratorOperation::CleanupBroadcast {
-                destination: self.place()?,
-                element: self.ty()?,
-                runtime: self.runtime_reference()?,
-                collection: Box::new(
-                    self.cleanup_collection()?
-                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
-                ),
-            }),
-            4 => Ok(MirGeneratorOperation::Destroy {
-                destination: self.place()?,
-                element: self.ty()?,
-                abandoned: self.operand()?,
-                runtime: self.runtime_reference()?,
-                collection: Box::new(
-                    self.cleanup_collection()?
-                        .ok_or(ExecutableTemplateDecodeError::Malformed)?,
-                ),
-            }),
-            _ => Err(ExecutableTemplateDecodeError::Malformed),
-        }
-    }
-
-    fn generator_kind(&mut self) -> Result<MirGeneratorKind, ExecutableTemplateDecodeError> {
-        match read_u32(&mut self.reader)? {
-            0 => Ok(MirGeneratorKind::Array),
-            1 => Ok(MirGeneratorKind::General),
-            _ => Err(ExecutableTemplateDecodeError::Malformed),
-        }
-    }
-
     fn memory_operation(&mut self) -> Result<MirMemoryOperation, ExecutableTemplateDecodeError> {
         let kind = self.memory_kind()?;
         let operands = self.operands()?;
@@ -1637,6 +1576,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     2 => bray_bound_tree::MemoryLayoutQueryKind::Stride,
                     3 => bray_bound_tree::MemoryLayoutQueryKind::Layout,
                     4 => bray_bound_tree::MemoryLayoutQueryKind::Trailing,
+                    5 => bray_bound_tree::MemoryLayoutQueryKind::LayoutStatus,
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 },
             }),
@@ -2035,6 +1975,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             0 => Ok(MirPanicCause::Message(self.operand()?)),
             1 => Ok(MirPanicCause::Assertion(self.optional_operand()?)),
             2 => Ok(MirPanicCause::ExplicitTestFailure(self.operand()?)),
+            3 => Ok(MirPanicCause::MemoryLayoutSizeOverflow),
+            4 => Ok(MirPanicCause::MemoryLayoutUnsupportedAlignment),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

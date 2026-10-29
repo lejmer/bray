@@ -1,7 +1,6 @@
-use std::marker::PhantomData;
-use std::rc::Rc;
-
 use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeRuntimeStatus};
+
+use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
 
 type Continuation = extern "C" fn(*const u8, usize, u32, &mut NativeRunOutcome) -> u32;
 
@@ -14,8 +13,6 @@ unsafe extern "C" {
         callbacks: &Callbacks,
         previous: &mut Callbacks,
     ) -> u32;
-    safe fn bray_runtime_thread_attachment_enter() -> u32;
-    safe fn bray_runtime_thread_attachment_leave() -> u32;
 }
 
 #[repr(C)]
@@ -54,21 +51,19 @@ extern "C" fn observe(
 
 /// Registration cannot leave this thread or outlive its enclosing native provider call.
 pub(crate) struct Scope {
-    previous: Option<Callbacks>,
-    thread: PhantomData<Rc<()>>,
+    registration: Option<(Callbacks, RuntimeThreadEntry)>,
 }
 
 impl Scope {
     pub(crate) fn enter() -> Result<Self, NativeRuntimeStatus> {
-        if bray_runtime_thread_attachment_enter() != 0 {
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
-
+        // Worker and enclosing entry scopes already secure this attachment's cleanup.
+        // Resuming admitted work must not accept another allocation-dependent owner.
+        let attachment = RuntimeThreadScope::enter_or_reuse()?;
         let mut previous = Callbacks::default();
         let status = bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
 
         if status != 0 {
-            if bray_runtime_thread_attachment_leave() != 0 {
+            if attachment.finish() != 0 {
                 super::host::record_cleanup_failure(1);
             }
 
@@ -76,8 +71,7 @@ impl Scope {
         }
 
         Ok(Self {
-            previous: Some(previous),
-            thread: PhantomData,
+            registration: Some((previous, attachment)),
         })
     }
 
@@ -86,13 +80,13 @@ impl Scope {
     }
 
     fn retire(&mut self) -> usize {
-        let Some(previous) = self.previous.take() else {
+        let Some((previous, attachment)) = self.registration.take() else {
             return 0;
         };
 
-        // The provider stays installed while the last acquisition runs cleanup.
-        // Nested acquisition retirement leaves the row alive, so restore its caller afterward.
-        let failures = usize::from(bray_runtime_thread_attachment_leave() != 0);
+        // Keep the provider installed through cleanup when this scope acquired the
+        // attachment. A borrowed attachment stays live while its caller is restored.
+        let failures = attachment.finish();
 
         if crate::bootstrap::current_runtime_thread().is_some() {
             let mut replaced = Callbacks::default();
@@ -237,6 +231,43 @@ mod tests {
 
         assert_eq!(previous, super::Callbacks::default());
         drop(thread);
+    }
+
+    #[test]
+    fn nested_scopes_restore_callbacks_and_preserve_the_enclosing_attachment() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        let thread =
+            crate::bootstrap::RuntimeThreadScope::enter().expect("fixture thread must attach");
+
+        let identity = thread.runtime().id();
+        let outer = super::Scope::enter().expect("outer bridge must enter");
+        let nested = super::Scope::enter().expect("nested bridge must enter");
+
+        assert_eq!(nested.finish(), 0);
+
+        assert_eq!(
+            crate::bootstrap::current_runtime_thread()
+                .expect("outer attachment remains live")
+                .id(),
+            identity
+        );
+
+        assert_eq!(outer.finish(), 0);
+
+        let mut previous = super::Callbacks::selected();
+
+        assert_eq!(
+            super::bray_runtime_entry_context_registration(
+                &super::Callbacks::default(),
+                &mut previous
+            ),
+            0
+        );
+
+        assert_eq!(previous, super::Callbacks::default());
+        assert_eq!(thread.finish(), 0);
+        assert!(crate::bootstrap::current_runtime_thread().is_none());
     }
 
     extern "C" fn continuation(

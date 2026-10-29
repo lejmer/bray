@@ -230,6 +230,8 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
                 TestPanicCause::RuntimePanic => 3,
                 TestPanicCause::AllocationFailure => 4,
                 TestPanicCause::EntryFailure => 5,
+                TestPanicCause::MemoryLayoutSizeOverflow => 6,
+                TestPanicCause::MemoryLayoutUnsupportedAlignment => 7,
             });
 
             encode_optional_source(encoder, report.source())?;
@@ -300,6 +302,8 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 3 => TestPanicCause::RuntimePanic,
                 4 => TestPanicCause::AllocationFailure,
                 5 => TestPanicCause::EntryFailure,
+                6 => TestPanicCause::MemoryLayoutSizeOverflow,
+                7 => TestPanicCause::MemoryLayoutUnsupportedAlignment,
                 _ => return Err(TestProtocolError::Malformed),
             };
 
@@ -665,6 +669,8 @@ mod tests {
             TestPanicCause::RuntimePanic,
             TestPanicCause::AllocationFailure,
             TestPanicCause::EntryFailure,
+            TestPanicCause::MemoryLayoutSizeOverflow,
+            TestPanicCause::MemoryLayoutUnsupportedAlignment,
         ] {
             let result = TestHostResult::after_cleanup(
                 TestHostCommandId::from_bytes([3; 32]),

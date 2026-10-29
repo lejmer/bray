@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_binder::BindingQueryContext;
+use bray_bound_tree::CheckedMemoryOperationKind;
 use bray_checker::CheckerRequestContext;
 use bray_codegen::{
     CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
@@ -35,6 +36,45 @@ impl Compilation {
     ) -> Result<BTreeSet<TypeId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
         let mut demanded = BTreeSet::new();
+
+        for operation in unit.operations() {
+            let bray_ir::MirOperationKind::Memory(memory) = operation.kind() else {
+                continue;
+            };
+
+            let owners = match memory.kind() {
+                CheckedMemoryOperationKind::RawBufferPush { .. }
+                | CheckedMemoryOperationKind::RawBufferPop { .. }
+                | CheckedMemoryOperationKind::RawBufferCapacity
+                | CheckedMemoryOperationKind::RawBufferInitializedCount
+                | CheckedMemoryOperationKind::RawBufferPointer
+                | CheckedMemoryOperationKind::RawBufferInitializedSlice
+                | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
+                | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
+                | CheckedMemoryOperationKind::RawBufferSetInitializedCount
+                | CheckedMemoryOperationKind::RawBufferRelease { .. } => 1,
+                CheckedMemoryOperationKind::RawBufferReplace { .. }
+                | CheckedMemoryOperationKind::RawBufferRelocate { .. } => 2,
+                _ => continue,
+            };
+
+            for owner in memory.operand_types().iter().take(owners) {
+                let owner = self.concrete_codegen_type(
+                    *owner,
+                    instance.substitution(),
+                    Some(instance),
+                    cancellation,
+                )?;
+
+                let TypeData::Borrow { target, .. } = *values.type_data(owner) else {
+                    panic!("checked raw-buffer operations borrow their represented owners");
+                };
+
+                // These operations access the buffer header through its borrow,
+                // even when no by-value owner appears in this codegen unit.
+                demanded.insert(target);
+            }
+        }
 
         for block in unit.blocks() {
             let MirTerminatorKind::PatternBranch {

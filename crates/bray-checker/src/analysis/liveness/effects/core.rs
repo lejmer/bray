@@ -161,7 +161,7 @@ impl OperationEffects {
                 .extend(retained);
         }
 
-        effects.retain_owner_control_transfer_dependencies(request.unit());
+        effects.retain_exit_dependencies(request.unit());
 
         effects
     }
@@ -413,16 +413,22 @@ impl OperationEffects {
         }
     }
 
-    fn retain_owner_control_transfer_dependencies(&mut self, unit: &BoundUnit) {
+    fn retain_exit_dependencies(&mut self, unit: &BoundUnit) {
         let mut transfers = unit
             .tree()
             .expressions()
             .filter_map(|(expression, node)| {
-                let BoundExpression::ControlTransfer(transfer) = node else {
-                    return None;
+                let value = match node {
+                    BoundExpression::ControlTransfer(transfer) => transfer.operand(),
+                    _ if bray_bound_tree::StorageScope::for_iteration(expression, node)
+                        .is_some() =>
+                    {
+                        Some(expression)
+                    }
+                    _ => None,
                 };
 
-                transfer.operand().map(|operand| {
+                value.map(|operand| {
                     (
                         expression,
                         retained_subtree_subjects(

@@ -5,7 +5,7 @@ use bray_compiler_known::{CatalogDeclarationSurfaceSyntax, CatalogSurfaceElement
 use super::CompilerKnownSymbolProvider;
 use crate::{
     AnySymbolId, MemberEntry, MemberLookupIndex, MemberLookupResult, MemberValidity,
-    MemberVisibility, SymbolKind, SymbolName,
+    MemberVisibility, NamedTypeSymbolId, SymbolKind, SymbolName,
 };
 
 pub(super) fn add_member_entry(
@@ -47,6 +47,12 @@ pub(super) fn build_member_indexes(
 }
 
 impl CompilerKnownSymbolProvider {
+    /// Resolves a hidden type name for binding compiler-owned declaration surfaces.
+    /// Ordinary source lookup does not consult this index.
+    pub fn internal_type(&self, name: &str) -> Option<NamedTypeSymbolId> {
+        self.internal_types.get(name).copied()
+    }
+
     /// Returns one compiler-known member's ordinary name.
     pub fn member_name(&self, owner: AnySymbolId, member: AnySymbolId) -> Option<&SymbolName> {
         self.member_indexes
@@ -77,6 +83,39 @@ impl CompilerKnownSymbolProvider {
                 index.lookup_with_access(name, is_accessible)
             })
     }
+}
+
+pub(super) fn internal_types(
+    provider: &CompilerKnownSymbolProvider,
+) -> BTreeMap<SymbolName, NamedTypeSymbolId> {
+    let mut types = BTreeMap::new();
+
+    for symbol in provider.declaration_symbols().values().copied() {
+        let ty = match symbol {
+            AnySymbolId::Struct(ty) => NamedTypeSymbolId::Struct(ty),
+            AnySymbolId::Union(ty) => NamedTypeSymbolId::Union(ty),
+            _ => continue,
+        };
+
+        let surface = provider
+            .declaration_semantics_for_symbol(symbol)
+            .expect("compiler-known type retains its declaration surface")
+            .surface();
+
+        if !has_internal_visibility(surface) {
+            continue;
+        }
+
+        let name = member_name(surface, symbol.kind())
+            .expect("compiler-known hidden type has a declaration name");
+
+        assert!(
+            types.insert(name.clone(), ty).is_none(),
+            "compiler-owned hidden type names are unique: {name:?}"
+        );
+    }
+
+    types
 }
 
 pub(super) fn member_name(

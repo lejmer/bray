@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    CallableContractSymbolId, ConstantExpressionExpectedType, GenericArgumentTemplate,
-    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
+    CallableContractSymbolId, ConstantExpressionExpectedType, GenericArgument,
+    GenericArgumentTemplate, GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
     GenericSubstitutionShapeError, MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData,
     TypeExpressionTemplate, TypeId,
 };
@@ -211,13 +211,34 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             .map(GenericArgumentTemplate::resolved_argument)
             .collect::<Option<Vec<_>>>();
 
+        let generator = self
+            .symbols
+            .compiler_known_provider()
+            .internal_type("GeneratorSurface")
+            == Some(definition);
+
         let Some(resolved_arguments) = resolved_arguments else {
+            assert!(
+                !generator,
+                "compiler-owned generator surfaces retain a resolved element type"
+            );
+
             return Ok(TypeExpressionTemplate::Named {
                 definition,
                 parameters: Arc::from(parameters),
                 arguments: Arc::from(arguments),
             });
         };
+
+        if generator {
+            let [GenericArgument::Type(element)] = resolved_arguments.as_slice() else {
+                panic!("compiler-owned generator surface has exactly one type argument");
+            };
+
+            return self
+                .intern_type(TypeData::Generator(*element))
+                .map(TypeExpressionTemplate::Resolved);
+        }
 
         let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
             return Err(BindingQueryError::Binding(

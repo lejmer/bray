@@ -141,6 +141,7 @@ fn transfers(
                 // These edges select control flow without reading another cached value.
                 Some(
                     AnalysisRefinement::TrustBoundary(_)
+                    | AnalysisRefinement::GeneratorStorageFailure(_)
                     | AnalysisRefinement::InvocationFailure(_)
                     | AnalysisRefinement::InvocationCancellation(_)
                     | AnalysisRefinement::InvocationCompletion(_)

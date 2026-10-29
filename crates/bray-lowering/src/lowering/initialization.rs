@@ -5,9 +5,9 @@ use bray_bound_tree::{BoundNodeOrigin, StorageCleanupPart, StorageCleanupProject
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockId, MirCapacityError,
-    MirCleanupPhase, MirEdge, MirGeneratorOperation, MirImmediateValue, MirOperand,
-    MirOperationCommit, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirSourceAnchor, MirStorageId, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
+    MirCleanupPhase, MirEdge, MirImmediateValue, MirOperand, MirOperationCommit, MirOperationKind,
+    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageId, MirStorageKind,
+    MirStoreKind, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -215,11 +215,6 @@ impl Lowerer<'_> {
             MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
                 source: place, ..
             })
-            | MirOperationKind::Generator(MirGeneratorOperation::Finish { destination: place })
-            | MirOperationKind::Generator(MirGeneratorOperation::Destroy {
-                destination: place,
-                ..
-            })
             | MirOperationKind::Destroy { place, .. }
             | MirOperationKind::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
@@ -235,10 +230,7 @@ impl Lowerer<'_> {
             MirOperationKind::Store { destination, .. }
             | MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
                 destination, ..
-            })
-            | MirOperationKind::Generator(MirGeneratorOperation::Begin { destination, .. }) => {
-                Some(Self::retained_place(destination))
-            }
+            }) => Some(Self::retained_place(destination)),
             _ => None,
         };
 

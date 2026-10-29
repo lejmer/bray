@@ -1,6 +1,7 @@
 module numbers;
 
 using std.io;
+using core.atomic;
 
 struct Stored
 {
@@ -13,11 +14,11 @@ impl Stored
     {
         if self.value == 65
         {
-            std.io.print("A");
+            _ = std.io.print("A");
         }
         else
         {
-            std.io.print("B");
+            _ = std.io.print("B");
         }
     }
 }
@@ -27,12 +28,135 @@ static STORED<const N: i32>: Stored = Stored
     value = N
 };
 
-public func answer() -> i32
+func answer() -> i32
 {
     return STORED<65>.value;
 }
 
-public func value<const N: i32>() -> i32
+func value<const N: i32>() -> i32
 {
     return STORED<N>.value;
 }
+
+internal static GENERATED_DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Generated
+{
+    destruct()
+    {
+        _ = core.atomic.fetch_add<usize, 0>(&GENERATED_DESTRUCTIONS, value = 1);
+    }
+}
+
+func create_generated() -> Generated
+{
+    return Generated
+    {
+    };
+}
+
+func generated_destructions() -> usize
+{
+    return core.atomic.load<usize, 1>(&GENERATED_DESTRUCTIONS);
+}
+
+func produce_and_consume<T>(pos create: func() -> T) -> usize
+{
+    let values =
+    {
+        each item in 0..6
+        {
+            yield create();
+        }
+    };
+
+    let mut count: usize = 0;
+
+    for generated in move values
+    {
+        count += 1;
+
+        if count == 3
+        {
+            break;
+        }
+    }
+
+    return count;
+}
+
+func count_generated<T>(pos element: T) -> usize
+    with(T: Copyable)
+{
+    let values =
+    {
+        each item in 0..6
+        {
+            yield element;
+            yield element;
+        }
+    };
+
+    let mut count: usize = 0;
+
+    for generated in values
+    {
+        count += 1;
+    }
+
+    return count;
+}
+
+predicate all_generated(count: i32) = all(
+    {
+        each item in 0..count
+        {
+            yield if item == 0
+            {
+                yield true;
+            }
+            else
+            {
+                yield item < count;
+            };
+        }
+    }
+);
+
+predicate any_generated(count: i32) = any(
+    {
+        each item in 0..count
+        {
+            yield item > 0;
+        }
+    }
+);
+
+const func observe_generated(
+    pos flag: bool,
+    expected: bool = any(
+        {
+            each item in 0..3
+            {
+                yield flag;
+            }
+        }
+    )
+) -> bool
+    {
+        let mut finished = false;
+
+        let values =
+        {
+            each item in 0..3
+            {
+                yield false;
+                finished = item == 2;
+                yield flag;
+            }
+        };
+
+        let alias = values;
+
+        return finished && !all(alias) && (any(alias) == flag) && (expected == flag);
+    }

@@ -26,7 +26,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.layout_integer_result(operation, layout.alignment().get())
             }
             MemoryLayoutQueryKind::Layout => {
-                self.translate_allocation_layout(operation, memory, layout)
+                self.translate_allocation_layout(operation, memory, layout, false)
+            }
+            MemoryLayoutQueryKind::LayoutStatus => {
+                self.translate_allocation_layout(operation, memory, layout, true)
             }
             MemoryLayoutQueryKind::Trailing => {
                 self.translate_trailing_layout(operation, memory, ty, layout)
@@ -53,6 +56,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirOperation,
         memory: &MirMemoryOperation,
         layout: bray_target::TargetValueLayout,
+        status_only: bool,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         self.translate_layout_components(
             operation,
@@ -60,6 +64,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             0,
             layout.size(),
             layout.alignment().get(),
+            status_only,
         )
     }
 
@@ -84,6 +89,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             offset,
             stride,
             layout.alignment().get(),
+            false,
         )
     }
 
@@ -98,6 +104,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         base: u64,
         stride: u64,
         alignment: u64,
+        status_only: bool,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [count] = memory.operands() else {
             panic!("checked MIR memory translation violated an established compiler contract");
@@ -122,6 +129,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .get();
 
         if alignment > maximum_alignment {
+            if status_only {
+                return self.layout_integer_result(operation, 2);
+            }
+
             return self.allocation_layout_error(result, 1);
         }
 
@@ -182,6 +193,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             base_overflow,
             "memory.layout.representable",
         ))?;
+
+        if status_only {
+            let BasicTypeEnum::IntType(status_type) = self.types.map(result)? else {
+                panic!("checked allocation layout status has an integer result");
+            };
+
+            return llvm(self.builder.build_select(
+                overflow,
+                status_type.const_int(1, false),
+                status_type.const_zero(),
+                "memory.layout.status",
+            ));
+        }
 
         let layout_type = self.union_payload_type(result, 0)?;
 

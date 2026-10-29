@@ -1,6 +1,7 @@
 mod branch;
 mod condition;
 mod failure;
+mod generator;
 mod guard;
 mod iteration;
 mod join;

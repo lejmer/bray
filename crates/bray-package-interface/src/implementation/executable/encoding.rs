@@ -12,12 +12,11 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
-    MirCleanupEdge, MirCleanupPhase, MirConstructionInput, MirEdge, MirGeneratorKind,
-    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation,
-    MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate,
-    MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
-    MirStoreKind, MirSwitchCase, MirTerminatorKind, MirTextOperation, MirTextOperationKind,
-    MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
+    MirCleanupEdge, MirCleanupPhase, MirConstructionInput, MirEdge, MirHostOperation,
+    MirImmediateValue, MirMemoryOperation, MirNumericConversionKind, MirOperand, MirOperationKind,
+    MirPanicCause, MirPatternPredicate, MirPlace, MirProjectionKind, MirRuntimeReference,
+    MirSourceAnchor, MirStorageKind, MirStoreKind, MirSwitchCase, MirTerminatorKind,
+    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -604,10 +603,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(subject)?;
                 self.pattern_projection(*projection)?;
                 self.pattern_operation(*operation);
-            }
-            MirOperationKind::Generator(operation) => {
-                self.wire.write_u32(10);
-                self.generator_operation(operation)?;
             }
             MirOperationKind::Call(call) => {
                 self.wire.write_u32(11);
@@ -1870,77 +1865,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         });
     }
 
-    fn generator_operation(
-        &mut self,
-        operation: &MirGeneratorOperation,
-    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
-        match operation {
-            MirGeneratorOperation::Begin {
-                kind,
-                destination,
-                element,
-                exact_count,
-            } => {
-                self.wire.write_u32(0);
-                self.generator_kind(*kind);
-                self.place(destination)?;
-                self.ty(*element)?;
-
-                match exact_count {
-                    Some(term) => {
-                        self.wire.write_u32(1);
-                        self.constant_term(*term)?;
-                    }
-                    None => self.wire.write_u32(0),
-                }
-            }
-            MirGeneratorOperation::Push { destination, value } => {
-                self.wire.write_u32(1);
-                self.place(destination)?;
-                self.operand(value)?;
-            }
-            MirGeneratorOperation::Finish { destination } => {
-                self.wire.write_u32(2);
-                self.place(destination)?;
-            }
-            MirGeneratorOperation::CleanupBroadcast {
-                destination,
-                element,
-                runtime,
-                collection,
-            } => {
-                self.wire.write_u32(3);
-                self.place(destination)?;
-                self.ty(*element)?;
-                self.runtime_reference(*runtime);
-                self.cleanup_collection(Some(collection))?;
-            }
-            MirGeneratorOperation::Destroy {
-                destination,
-                element,
-                abandoned,
-                runtime,
-                collection,
-            } => {
-                self.wire.write_u32(4);
-                self.place(destination)?;
-                self.ty(*element)?;
-                self.operand(abandoned)?;
-                self.runtime_reference(*runtime);
-                self.cleanup_collection(Some(collection))?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn generator_kind(&mut self, kind: MirGeneratorKind) {
-        self.wire.write_u32(match kind {
-            MirGeneratorKind::Array => 0,
-            MirGeneratorKind::General => 1,
-        });
-    }
-
     fn memory_operation(
         &mut self,
         operation: &MirMemoryOperation,
@@ -2076,6 +2000,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     bray_bound_tree::MemoryLayoutQueryKind::Stride => 2,
                     bray_bound_tree::MemoryLayoutQueryKind::Layout => 3,
                     bray_bound_tree::MemoryLayoutQueryKind::Trailing => 4,
+                    bray_bound_tree::MemoryLayoutQueryKind::LayoutStatus => 5,
                 });
             }
             Kind::RawAllocate => self.wire.write_u32(9),
@@ -2456,6 +2381,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(2);
                 self.operand(message)?;
             }
+            MirPanicCause::MemoryLayoutSizeOverflow => self.wire.write_u32(3),
+            MirPanicCause::MemoryLayoutUnsupportedAlignment => self.wire.write_u32(4),
         }
 
         Ok(())

@@ -198,6 +198,24 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             )));
         }
 
+        // Compiler-owned surfaces may name their hidden representation types.
+        // Every source declaration has a lexical module and uses ordinary lookup.
+        if self.module.is_none()
+            && matches!(
+                self.symbols.symbol_origin(self.owner),
+                Some(
+                    bray_symbols::SymbolOrigin::CompilerKnown
+                        | bray_symbols::SymbolOrigin::CompilerProvided
+                )
+            )
+            && references.len() == 1
+            && let Some(ty) = self.symbols.compiler_known_provider().internal_type(first)
+        {
+            return Ok(MemberLookupResult::Found(ResolvedName::Surface(
+                ty.into_any(),
+            )));
+        }
+
         if references.len() == 1
             && let Some(context) = self.self_type
         {

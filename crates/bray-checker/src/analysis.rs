@@ -6,6 +6,7 @@ mod condition;
 mod control;
 mod execution;
 mod fixed_point;
+mod generator;
 pub(crate) mod guarantee;
 mod id;
 pub(crate) mod liveness;

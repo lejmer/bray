@@ -41,10 +41,10 @@ pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitI
 pub use nullable::{MirNullableQuery, MirNullableQueryKind};
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
-    MirConstructionInput, MirFrameInitializer, MirGeneratorKind, MirGeneratorOperation,
-    MirHostOperation, MirMemoryOperation, MirNumericConversionKind, MirOperation,
-    MirOperationCommit, MirOperationKind, MirOutgoingOwner, MirPanicCause, MirStoreKind,
-    MirTaskTerminalState, MirTextOperation, MirTextOperationKind, MirUnaryOperator,
+    MirConstructionInput, MirFrameInitializer, MirHostOperation, MirMemoryOperation,
+    MirNumericConversionKind, MirOperation, MirOperationCommit, MirOperationKind, MirOutgoingOwner,
+    MirPanicCause, MirStoreKind, MirTaskTerminalState, MirTextOperation, MirTextOperationKind,
+    MirUnaryOperator,
 };
 pub use predicate::{MirPredicateKey, MirPredicateReference};
 pub use reference::{

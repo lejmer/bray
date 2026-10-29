@@ -55,7 +55,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
                 .filter_map(|id| self.domain.graph.operation(*id))
             {
                 if let super::super::model::AnalysisOperationKind::ScopeExit {
-                    block,
+                    scope: block,
                     exit,
                     phase: super::super::model::AnalysisScopeExitPhase::LifecycleResolution,
                     ..

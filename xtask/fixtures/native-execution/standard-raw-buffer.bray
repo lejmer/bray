@@ -18,6 +18,11 @@ internal struct CleanupProbe
 
 trusted func main() -> Result<unit, MemoryLayoutError>
 {
+    let empty: RawBuffer<CleanupProbe> = try trusted RawBuffer<CleanupProbe>(capacity = 0);
+
+    assert(initialized_count<CleanupProbe>(&empty) == 0);
+    assert(capacity<CleanupProbe>(&empty) == 0);
+
     let buffer: RawBuffer<u8> = try trusted RawBuffer<u8>(capacity = 5);
 
     assert(initialized_count<u8>(&buffer) == 0);

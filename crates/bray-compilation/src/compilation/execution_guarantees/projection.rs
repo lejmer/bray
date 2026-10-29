@@ -114,15 +114,15 @@ impl Compilation {
             ));
         }
 
-        if hook.is_some_and(|hook| hook.is_range_iteration())
+        if hook.is_some_and(|hook| hook.is_iteration())
             && (matches!(
                 obligation,
                 ExecutionObligation::Observation
                     | ExecutionObligation::Termination
                     | ExecutionObligation::Property(ExecutionProperty::Total, None)
-            ) || hook != Some(bray_compiler_known::ImplementationHook::RangeNext)
+            ) || hook.is_some_and(|hook| !hook.is_iteration_step())
                 && obligation == ExecutionObligation::Property(ExecutionProperty::Pure, None)
-                || hook == Some(bray_compiler_known::ImplementationHook::RangeNext)
+                || hook.is_some_and(|hook| hook.is_iteration_step())
                     && obligation == ExecutionObligation::FiniteIteration)
         {
             return Ok(true);

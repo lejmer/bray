@@ -28,6 +28,43 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let scope = self
+            .input
+            .unit()
+            .view()
+            .expression(id)
+            .and_then(|expression| bray_bound_tree::StorageScope::for_iteration(id, expression));
+
+        if let Some(scope) = scope {
+            self.active_scopes.push(scope);
+        }
+
+        let lowered = self.lower_expression_inner(id, current);
+
+        let lowered = lowered.and_then(|lowered| {
+            if scope.is_some() {
+                self.finish_iteration_scope(id, lowered)
+            } else {
+                Ok(lowered)
+            }
+        });
+
+        if let Some(scope) = scope {
+            assert_eq!(
+                self.active_scopes.pop(),
+                Some(scope),
+                "iteration cleanup scopes remain nested"
+            );
+        }
+
+        self.materialize_temporary(id, lowered?)
+    }
+
+    fn lower_expression_inner(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
         let expression = self.input.unit().view().expression(id).unwrap_or_else(|| {
             panic!(
                 "lowering contract violation: MissingBoundNode {value:?}",
@@ -40,6 +77,23 @@ impl Lowerer<'_> {
                 "lowering contract violation: RecoveredBoundNode {value:?}",
                 value = id
             );
+        }
+
+        if self
+            .input
+            .observed_generator(id)
+            .is_some_and(|producer| producer != id)
+        {
+            assert!(
+                matches!(expression, BoundExpression::Name(_)),
+                "elided generator aliases retain only their eager producer identity"
+            );
+
+            return Ok(LoweredExpression::continuing(
+                current,
+                None,
+                self.source(expression.origin()),
+            ));
         }
 
         let lowered = match expression {
@@ -223,7 +277,7 @@ impl Lowerer<'_> {
             return Ok(LoweredExpression::terminated(lowered.source));
         }
 
-        self.materialize_temporary(id, lowered)
+        Ok(lowered)
     }
 
     pub(in crate::lowering) fn invocation_completes(
@@ -1014,7 +1068,7 @@ impl Lowerer<'_> {
             return Ok(lowered);
         }
 
-        if let Some(lowered) = self.lower_range_call(id, current, &selection)? {
+        if let Some(lowered) = self.lower_iteration_call(id, current, &selection)? {
             return Ok(lowered);
         }
 

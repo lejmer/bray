@@ -3,11 +3,12 @@ use std::sync::Arc;
 
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageExitDisposition, AsyncSuspensionPoint,
-    AsyncTaskOperationKind, BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnit,
-    BoundUnitId, BoundUnitKind, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
+    AsyncTaskOperationKind, BoundDependencySubject, BoundExpressionId, BoundUnit, BoundUnitId,
+    BoundUnitKind, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
     CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
     CheckedRefinements, CheckedSemanticSelections, Liveness, StorageAccessId, StorageExitPoint,
     StorageFlow, StorageIdentityId, StoragePlan, StorageReplacementPlan, StorageReplacementState,
+    StorageScope,
 };
 use bray_ir::{MirOperand, MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
@@ -38,6 +39,7 @@ pub struct LoweringInput<'unit> {
         super::requirements::DeclarationPreconditions,
     >,
     unit: &'unit BoundUnit,
+    generator_observations: Option<&'unit bray_bound_tree::GeneratorObservations>,
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
     patterns: &'unit CheckedPatterns,
@@ -69,6 +71,27 @@ pub struct LoweringInput<'unit> {
 }
 
 impl<'unit> LoweringInput<'unit> {
+    pub(crate) fn observed_generator(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<BoundExpressionId> {
+        self.generator_observations
+            .and_then(|observations| observations.producer(expression))
+    }
+
+    pub(crate) fn observed_generator_fold(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<BoundExpressionId> {
+        self.generator_observations
+            .and_then(|observations| observations.fold(expression))
+    }
+
+    pub(crate) fn elides_generator_storage(&self, access: StorageAccessId) -> bool {
+        self.generator_observations
+            .is_some_and(|observations| observations.eliminates(self.storage, access))
+    }
+
     pub(crate) fn declaration_preconditions(
         &self,
         declaration: bray_symbols::CallableDefinitionId,
@@ -99,6 +122,7 @@ impl<'unit> LoweringInput<'unit> {
     )]
     pub fn new(
         unit: &'unit BoundUnit,
+        generator_observations: Option<&'unit bray_bound_tree::GeneratorObservations>,
         control_flow: &'unit CheckedControlFlow,
         expression_types: &'unit CheckedExpressionTypes,
         patterns: &'unit CheckedPatterns,
@@ -229,6 +253,11 @@ impl<'unit> LoweringInput<'unit> {
             for decision in plan.storage() {
                 if let AsyncStorageExitDisposition::Cleanup { phases, .. } = decision.disposition()
                     && phases.includes_lifecycle()
+                    && !generator_observations.is_some_and(|observations| {
+                        storage
+                            .root_access(decision.identity())
+                            .is_some_and(|access| observations.eliminates(storage, access))
+                    })
                 {
                     lifecycle_storage.insert(decision.identity());
                 }
@@ -239,6 +268,7 @@ impl<'unit> LoweringInput<'unit> {
             unwind: None,
             declaration_preconditions,
             unit,
+            generator_observations,
             control_flow,
             expression_types,
             patterns,
@@ -382,7 +412,7 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns checked scope-exit plans for active scopes in cleanup order.
     pub(crate) fn cleanup_plans(
         &self,
-        active_scopes: &[BoundBlockId],
+        active_scopes: &[StorageScope],
         scope_depth: usize,
         exit: AnyBoundNodeId,
     ) -> Vec<AsyncScopeExitPlan> {
@@ -421,7 +451,7 @@ impl<'unit> LoweringInput<'unit> {
     /// Returns the checked cleanup status for one scope exit.
     pub(crate) fn scope_cleanup_status(
         &self,
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
     ) -> ScopeExitCleanupStatus {
         let Some(plan) = self.async_analysis.scope_exit_plan(scope, exit) else {
@@ -481,6 +511,7 @@ impl<'unit> LoweringInput<'unit> {
                             .and_then(|identity| self.storage.root_access(identity))
                     }),
             )
+            .filter(|access| !self.elides_generator_storage(*access))
     }
 
     /// Returns the checked represented-part partition borrowed from async analysis.
@@ -898,9 +929,9 @@ mod tests {
             [],
             [],
             [],
-            [StorageExitPoint::new(scope, exit)],
+            [StorageExitPoint::new((scope).into(), exit)],
             [StorageExitDecision::new(
-                scope,
+                (scope).into(),
                 exit,
                 [],
                 [],
@@ -927,7 +958,15 @@ mod tests {
             [],
             [],
             [],
-            [AsyncScopeExitPlan::new(scope, exit, [], [], [], [], false)],
+            [AsyncScopeExitPlan::new(
+                (scope).into(),
+                exit,
+                [],
+                [],
+                [],
+                [],
+                false,
+            )],
             false,
         )
         .unwrap_or_else(|error| panic!("matching async exit must build: {error:?}"));
@@ -937,18 +976,18 @@ mod tests {
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
 
         assert_eq!(
-            input.scope_cleanup_status(scope, exit),
+            input.scope_cleanup_status((scope).into(), exit),
             ScopeExitCleanupStatus::NoCleanup
         );
 
-        assert_eq!(input.cleanup_plans(&[scope], 0, exit).len(), 1);
+        assert_eq!(input.cleanup_plans(&[(scope).into()], 0, exit).len(), 1);
 
         assert_eq!(
-            input.scope_cleanup_status(scope, unreachable_exit),
+            input.scope_cleanup_status((scope).into(), unreachable_exit),
             ScopeExitCleanupStatus::Unreachable
         );
 
-        input.cleanup_plans(&[scope], 0, unreachable_exit);
+        input.cleanup_plans(&[(scope).into()], 0, unreachable_exit);
     }
 
     #[test]
@@ -1071,6 +1110,7 @@ mod tests {
     ) -> LoweringInput<'inputs> {
         LoweringInput::new(
             unit,
+            None,
             control_flow,
             analysis.types,
             analysis.patterns,

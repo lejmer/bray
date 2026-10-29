@@ -1,4 +1,15 @@
-module operation_cleanup;
+@link(name = "bray_allocation_probe")
+trusted module operation_cleanup;
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_begin")
+extern trusted func deny_allocation() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_end")
+extern trusted func restore_allocation(pos before: u32) -> u32
+    uses(foreign_call);
 
 using core.atomic;
 
@@ -226,7 +237,8 @@ impl SliceAccess = Indexed(SliceIndex<usize>)
     }
 }
 
-func main() -> i32
+trusted func main() -> i32
+    uses(foreign_call)
 {
     let mut first = MutableValue
     {
@@ -429,6 +441,121 @@ func main() -> i32
 
     assert_cleanup_counts(13, 9, 19);
 
+    {
+        let values: [Source; 3] = [
+            each item in 0..3
+            {
+                yield Source
+                {
+                    value = 1
+                };
+            }
+        ];
+    }
+
+    assert_cleanup_counts(16, 9, 19);
+
+    {
+        _ = catch
+        {
+            let values: [Source; 3] = [
+                each item in 0..3
+                {
+                    if item == 2
+                    {
+                        panic("stop after two initialized elements");
+                    }
+
+                    yield Source
+                    {
+                        value = 1
+                    };
+                }
+            ];
+
+            yield unit;
+        };
+    }
+
+    assert_cleanup_counts(18, 9, 19);
+
+    {
+        let values =
+        {
+            each item in 0..6
+            {
+                yield Source
+                {
+                    value = 1
+                };
+
+                yield Source
+                {
+                    value = 1
+                };
+            }
+        };
+    }
+
+    assert_cleanup_counts(30, 9, 19);
+
+    {
+        let values =
+        {
+            each item in 0..0
+            {
+                yield Source
+                {
+                    value = 1
+                };
+            }
+        };
+    }
+
+    assert_cleanup_counts(30, 9, 19);
+
+    {
+        _ = catch
+        {
+            let values =
+            {
+                each item in 0..8
+                {
+                    if item == 5
+                    {
+                        panic("stop after growing the initialized prefix");
+                    }
+
+                    yield Source
+                    {
+                        value = 1
+                    };
+                }
+            };
+
+            yield unit;
+        };
+    }
+
+    assert_cleanup_counts(35, 9, 19);
+    verify_generator_iteration();
+    verify_nested_generator_cleanup();
+    trusted verify_denied_generator_growth(0);
+    trusted verify_denied_generator_growth(4);
+    verify_generator_predicates(0);
+    verify_generator_predicates(1);
+
+    let allocation_state = trusted deny_allocation();
+
+    verify_generator_predicates(observed_count());
+
+    assert(
+        trusted restore_allocation(allocation_state) == 0,
+        "predicate generator observation allocated collection storage"
+    );
+
+    verify_interrupted_iteration_sources();
+
     return 0;
 }
 
@@ -439,3 +566,435 @@ func assert_cleanup_counts(pos sources: usize, pos targets: usize, pos incidents
     assert(core.atomic.load<usize, 1>(&EXITS) == incidents, "failed conversion ran an unexpected exit");
     assert(core.atomic.load<usize, 1>(&INCIDENTS) == incidents, "failed conversion lost a retained exit report");
 }
+
+func verify_generator_iteration()
+{
+    let values =
+    {
+        each item in 0..9
+        {
+            yield item;
+        }
+    };
+
+    let mut expected: i32 = 0;
+
+    for value in values
+    {
+        assert(value == expected, "shared iteration changes production order");
+        expected += 1;
+    }
+
+    assert(expected == 9);
+
+    let flags =
+    {
+        each item in 0..9
+        {
+            yield item < 5;
+        }
+    };
+
+    assert(!all(flags));
+    assert(any(flags));
+
+    let mut produced: i32 = 0;
+
+    let result = all(
+        {
+            each item in 0..9
+            {
+                produced += 1;
+                yield false;
+            }
+        }
+    );
+
+    assert(!result && produced == 9, "a fold stops eager production");
+
+    produced = 0;
+
+    let any_result = any(
+        {
+            each item in 0..9
+            {
+                produced += 1;
+                yield true;
+            }
+        }
+    );
+
+    assert(any_result && produced == 9, "an any fold stops eager production");
+
+    let start: usize = 0;
+    let end: usize = 9;
+    let owned_source = start..end;
+
+    let owned =
+    {
+        each item in owned_source
+        {
+            yield Source
+            {
+                value = item
+            };
+        }
+    };
+
+    let mut expected_owner: usize = 0;
+
+    for value in move owned
+    {
+        assert(value.value == expected_owner, "consuming iteration changes production order");
+        expected_owner += 1;
+
+        if expected_owner == 5
+        {
+            break;
+        }
+    }
+
+    assert(expected_owner == 5);
+    assert_cleanup_counts(44, 9, 19);
+
+    let mut cursor = (&values)(Iterable).iterate();
+
+    assert(cursor(Iterator).next() matches ?0);
+    assert(cursor(Iterator).next() matches ?1);
+
+    let shared =
+    {
+        each item in 0..9
+        {
+            yield item;
+        }
+    };
+
+    assert(count_cursor(make_cursor(&shared)) == 9);
+    assert(count_cursor(make_cursor(shared)) == 9);
+}
+
+struct InterruptedIterable
+{
+}
+
+struct InterruptedCursor
+{
+}
+
+impl &InterruptedIterable(Iterable)
+{
+    type Element = bool;
+    type Cursor = InterruptedCursor;
+
+    consume func iterate() -> InterruptedCursor
+    {
+        return InterruptedCursor
+        {
+        };
+    }
+}
+
+impl InterruptedIterable(Iterable)
+{
+    type Element = bool;
+    type Cursor = InterruptedCursor;
+
+    consume func iterate() -> InterruptedCursor
+    {
+        return InterruptedCursor
+        {
+        };
+    }
+}
+
+impl InterruptedCursor(Iterator)
+{
+    type Element = bool;
+
+    mut func next() -> bool?
+    {
+        return none;
+    }
+}
+
+func interrupted_iteration_source() -> InterruptedIterable
+{
+    let owned = Source
+    {
+        value = 1
+    };
+
+    panic("iteration source does not complete");
+}
+
+func verify_interrupted_iteration_sources()
+{
+    let before = core.atomic.load<usize, 1>(&SOURCES);
+
+    let shared = catch
+    {
+        for value in interrupted_iteration_source() {}
+
+        yield unit;
+    };
+
+    assert(shared matches Error(_));
+
+    let consumed = catch
+    {
+        for value in move interrupted_iteration_source() {}
+
+        yield unit;
+    };
+
+    assert(consumed matches Error(_));
+
+    let shared_each = catch
+    {
+        _ =
+        {
+            each value in interrupted_iteration_source()
+            {
+                yield value;
+            }
+        };
+
+        yield unit;
+    };
+
+    assert(shared_each matches Error(_));
+
+    let consumed_each = catch
+    {
+        _ =
+        {
+            each value in move interrupted_iteration_source()
+            {
+                yield value;
+            }
+        };
+
+        yield unit;
+    };
+
+    assert(consumed_each matches Error(_));
+
+    let all_source = catch all(interrupted_iteration_source());
+    let any_source = catch any(interrupted_iteration_source());
+
+    assert(all_source matches Error(_));
+    assert(any_source matches Error(_));
+    assert(core.atomic.load<usize, 1>(&SOURCES) == before + 6);
+}
+
+func verify_nested_generator_cleanup()
+{
+    let before = core.atomic.load<usize, 1>(&SOURCES);
+
+    {
+        let empty: [Source; 0] = [
+            each item in 0..0
+            {
+                yield Source
+                {
+                    value = 1
+                };
+            }
+        ];
+
+        let nested =
+        {
+            each outer in 0..3
+            {
+                yield
+                {
+                    each inner in 0..2
+                    {
+                        yield Source
+                        {
+                            value = 1
+                        };
+                    }
+                };
+            }
+        };
+
+        for inner in move nested
+        {
+            for value in move inner
+            {
+                break;
+            }
+
+            break;
+        }
+    }
+
+    assert(
+        core.atomic.load<usize, 1>(&SOURCES) == before + 6,
+        "nested consuming iteration loses an initialized prefix"
+    );
+
+    {
+        let partial =
+        {
+            each item in 0..8
+            {
+                if item == 3
+                {
+                    break;
+                }
+
+                yield Source
+                {
+                    value = 1
+                };
+            }
+        };
+    }
+
+    assert(core.atomic.load<usize, 1>(&SOURCES) == before + 9, "early production exit loses an initialized prefix");
+}
+
+trusted func verify_denied_generator_growth(pos completed: usize)
+    uses(foreign_call)
+{
+    let before: usize = core.atomic.load<usize, 1>(&SOURCES);
+    let mut allocation_state: u32 = 0;
+    let start: usize = 0;
+    let end: usize = 8;
+    let source = start..end;
+
+    _ = catch
+    {
+        let values =
+        {
+            each item in source
+            {
+                let value = Source
+                {
+                    value = item
+                };
+
+                if item == completed
+                {
+                    allocation_state = trusted deny_allocation();
+                }
+
+                yield value;
+            }
+        };
+
+        yield unit;
+    };
+
+    let attempts = trusted restore_allocation(allocation_state);
+
+    assert(attempts > 0, "generator growth did not reach the denied allocator");
+
+    assert(
+        core.atomic.load<usize, 1>(&SOURCES) == before + completed + 1,
+        "denied growth lost a committed element or unresolved yielded owner"
+    );
+}
+
+func count_cursor<I>(pos mut cursor: I) -> usize
+    with(I: Iterator)
+{
+    let mut count: usize = 0;
+
+    loop
+    {
+        let value = cursor(Iterator).next();
+
+        if value matches none
+        {
+            break;
+        }
+
+        count += 1;
+    }
+
+    return count;
+}
+
+func make_cursor<S>(pos source: S) -> S(Iterable).Cursor
+    with(S: Iterable)
+{
+    return source(Iterable).iterate();
+}
+
+predicate all_generated(count: i32) = all(
+    {
+        each item in 0..count
+        {
+            yield if item == 0
+            {
+                yield true;
+            }
+            else
+            {
+                yield item < count;
+            };
+        }
+    }
+);
+
+predicate any_generated(count: i32) = any(
+    {
+        each item in 0..count
+        {
+            yield item > 0;
+        }
+    }
+);
+
+const func complete_production(pos flag: bool) -> bool
+{
+    let mut finished: bool = false;
+
+    let values =
+    {
+        each item in 0..3
+        {
+            yield false;
+            finished = item == 2;
+            yield flag;
+        }
+    };
+
+    return finished && !all(values) && (any(values) == flag);
+}
+
+const func complete_default(
+    pos count: i32,
+    complete: bool = all(
+        {
+            each item in 0..count
+            {
+                yield item < count;
+            }
+        }
+    )
+) -> bool
+    {
+        return complete;
+    }
+
+    func verify_generator_predicates(pos count: i32)
+        requires(count >= 0, all_generated(count = count), complete_production(count > 0), complete_default(count))
+    {
+        if count > 1
+        {
+            verify_positive_generator(count);
+        }
+    }
+
+    func observed_count() -> i32
+    {
+        return 3;
+    }
+
+    func verify_positive_generator(pos count: i32)
+        requires(any_generated(count = count)) {}

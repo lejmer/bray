@@ -1,9 +1,9 @@
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
-    MirCallTarget, MirCleanupPhase, MirGeneratorOperation, MirHelperReference, MirOperationKind,
-    MirProjectionKind, MirTerminatorKind, MirUnitId,
+    MirCallTarget, MirCleanupPhase, MirHelperReference, MirOperationKind, MirProjectionKind,
+    MirTerminatorKind, MirUnitId,
 };
-use bray_runtime_interface::{RuntimeAbiRole, RuntimeRoleContractEffect};
+use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{NamedTypeSymbolId, SymbolOrigin, TypeData};
 
 use super::lifecycle_fixtures::{generated_lifecycle, reachable_cleanup_operations};
@@ -369,80 +369,28 @@ fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage
         80,
     );
 
-    let [operation, discharge] = generated.operations() else {
-        panic!("generator destruction must destroy its representation and discharge its owner");
-    };
+    assert!(generated.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::Memory(memory) if matches!(memory.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element: ty } if *ty == element))));
+
+    assert!(generated.operations().iter().any(|operation| matches!(operation.kind(),
+        MirOperationKind::DischargeOutgoing { owner: bray_ir::MirOutgoingOwner::Value(ty), .. } if *ty == generator)));
 
     assert!(
-        matches!(discharge.kind(), MirOperationKind::DischargeOutgoing { owner: bray_ir::MirOutgoingOwner::Value(ty), .. } if *ty == generator)
+        generated
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Destroy { place, .. } if place.ty() == element))
     );
 
-    let MirOperationKind::Generator(MirGeneratorOperation::Destroy {
-        element: operation_element,
-        abandoned,
-        runtime,
-        ..
-    }) = operation.kind()
-    else {
-        panic!("generator destruction must use the generator destruction ABI");
-    };
-
-    assert_eq!(*operation_element, element);
-
-    assert!(matches!(abandoned, bray_ir::MirOperand::Copy(place)
-        if matches!(generated.storage(place.storage()).expect("fixture `storage` call must succeed").kind(), bray_ir::MirStorageKind::Parameter(1))));
-
-    assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorDestruction);
-
-    assert_eq!(
-        runtime.role().contract().effects(),
-        &[RuntimeRoleContractEffect::DestroyGenerator]
-    );
-
-    assert_eq!(
-        operation.kind().helper_references(),
-        [
-            MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                ty: element,
-            },
-            MirHelperReference::Destroy(element, bray_ir::MirDestructionDisposition::Dynamic),
-        ]
-    );
-
-    let owner = compilation
-        .concrete_codegen_lifecycle(
-            MirHelperReference::Destroy(generator, bray_ir::MirDestructionDisposition::Dynamic),
-            &target,
-        )
-        .expect("outer generator lifecycle instance must realize");
-
-    let dependencies = compilation
-        .concrete_codegen_dependencies_for_mir(
-            &owner,
-            &generated,
-            &target,
-            &CancellationToken::new(),
-        )
-        .expect("element lifecycle dependencies must realize");
-
-    let references = dependencies
-        .iter()
-        .map(|dependency| dependency.instance().generated_lifecycle_reference())
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        references,
-        [
-            Some(&MirHelperReference::Destroy(
-                element,
-                bray_ir::MirDestructionDisposition::Dynamic
-            )),
-            Some(&MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                ty: element,
-            }),
-        ]
+    assert!(
+        generated
+            .operations()
+            .iter()
+            .any(|operation| matches!(operation.kind(),
+        MirOperationKind::Memory(memory) if matches!(memory.kind(),
+            bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount)))
     );
 }
 

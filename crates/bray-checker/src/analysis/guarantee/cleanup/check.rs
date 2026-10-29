@@ -13,7 +13,7 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     cleanup: &bray_bound_tree::CheckedAsync,
-    scope: bray_bound_tree::BoundBlockId,
+    scope: bray_bound_tree::StorageScope,
     exit: AnyBoundNodeId,
     phase: super::super::super::model::AnalysisScopeExitPhase,
     property: ExecutionProperty,
@@ -30,7 +30,7 @@ pub(in crate::analysis::guarantee) fn check_scope_cleanup<C: CheckerRequestConte
             for access in plan.lifecycle_resolution() {
                 let identity = storage.root_identity(*access);
 
-                if property == ExecutionProperty::Pure && inert(*access) {
+                if inert(*access) {
                     continue;
                 }
 

@@ -60,7 +60,7 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         let one = self.integer_node(element, 1)?;
 
         let next = self.push_node(
-            CheckedTemplateOperation::Binary {
+            CheckedTemplateOperation::MachineBinary {
                 operation: ConstantBinaryOperation::Add,
                 left: start,
                 right: one,
@@ -69,6 +69,16 @@ impl SourceTemplateBuilder<'_, '_, '_> {
         );
 
         let advanced = self.push_node(CheckedTemplateOperation::tuple([next, end]), cursor_type);
+
+        let advanced = self.push_node(
+            CheckedTemplateOperation::Update {
+                subject: cursor,
+                base: cursor,
+                component: cursor,
+                value: advanced,
+            },
+            cursor_type,
+        );
 
         let present = self.push_node(
             CheckedTemplateOperation::Convert {

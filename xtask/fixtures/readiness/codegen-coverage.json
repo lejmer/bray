@@ -139,14 +139,6 @@
       }
     },
     {
-      "name": "Generator",
-      "disposition": "translated",
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
-        "symbol": "MirOperationKind::Generator"
-      }
-    },
-    {
       "name": "AdmitOutgoing",
       "disposition": "translated",
       "production": {
@@ -644,7 +636,7 @@
     },
     {
       "name": "MirBinaryOperator",
-      "variants": ["Add", "Subtract", "Multiply", "Exponentiate", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight"],
+      "variants": ["Add", "Subtract", "Multiply", "Exponentiate", "RealExponentiate", "ComplexMultiply", "ComplexDivide", "ComplexExponentiate", "Divide", "Remainder", "Equal", "NotEqual", "LessThan", "LessThanOrEqual", "GreaterThan", "GreaterThanOrEqual", "BitwiseAnd", "BitwiseOr", "BitwiseXor", "ShiftLeft", "ShiftRight"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/scalar.rs",
         "symbol": "translate_binary"
@@ -691,22 +683,6 @@
       }
     },
     {
-      "name": "MirGeneratorKind",
-      "variants": ["Array", "General"],
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/generator.rs",
-        "symbol": "translate_generator"
-      }
-    },
-    {
-      "name": "MirGeneratorOperation",
-      "variants": ["Begin", "Push", "Finish", "CleanupBroadcast", "Destroy"],
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/generator.rs",
-        "symbol": "match generator"
-      }
-    },
-    {
       "name": "MirImmediateValue",
       "variants": ["Boolean", "Unit", "EmptyPanicReport", "NullableAbsent"],
       "production": {
@@ -724,7 +700,7 @@
     },
     {
       "name": "MirPanicCause",
-      "variants": ["Message", "Assertion", "ExplicitTestFailure"],
+      "variants": ["Message", "Assertion", "ExplicitTestFailure", "MemoryLayoutSizeOverflow", "MemoryLayoutUnsupportedAlignment"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "match cause"

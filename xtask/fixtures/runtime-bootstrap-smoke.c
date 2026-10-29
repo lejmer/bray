@@ -1293,7 +1293,7 @@ static int check_activation_dispatch(ActivationHeader* header, ActivationCallbac
             callback,
             activation_ready,
             3,
-            6,
+            7,
             &untouched,
             &untouched_records,
             &incidents
@@ -1506,9 +1506,15 @@ static int check_activation_snapshot(ActivationHeader* header)
 
     if (
         bray_runtime_activation_snapshot(header, 0, 6, 0, &execution) != 3 ||
-        bray_runtime_activation_snapshot(header, 0, 3, 6, &execution) != 3 ||
+        bray_runtime_activation_snapshot(header, 0, 3, 7, &execution) != 3 ||
         memcmp(&unmodified, &execution, sizeof(execution)) != 0 ||
         activation_queries != queries
+    )
+        return 131;
+
+    if (
+        bray_runtime_activation_snapshot(header, 0, 3, 6, &execution) != 0 ||
+        activation_queries != queries + 1
     )
         return 131;
 

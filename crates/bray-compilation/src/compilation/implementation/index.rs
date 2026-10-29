@@ -15,6 +15,8 @@ enum SubjectBucket {
     Named(NamedTypeSymbolId),
     BorrowGeneric(BorrowKind),
     BorrowNamed(BorrowKind, NamedTypeSymbolId),
+    Generator,
+    BorrowGenerator(BorrowKind),
     Exact(TypeId),
 }
 
@@ -280,6 +282,7 @@ fn classify_subject(
             SubjectBucket::Generic
         }
         TypeData::Named { definition, .. } => SubjectBucket::Named(*definition),
+        TypeData::Generator(_) => SubjectBucket::Generator,
         TypeData::Borrow { kind, target } => {
             let target = values.type_data(*target);
 
@@ -292,6 +295,7 @@ fn classify_subject(
                 TypeData::Named { definition, .. } => {
                     SubjectBucket::BorrowNamed(*kind, *definition)
                 }
+                TypeData::Generator(_) => SubjectBucket::BorrowGenerator(*kind),
                 _ => SubjectBucket::Exact(subject),
             }
         }
@@ -304,6 +308,7 @@ fn query_buckets(subject: TypeId, values: &SemanticValueStore) -> Vec<SubjectBuc
 
     let exact = match data.as_ref() {
         TypeData::Named { definition, .. } => SubjectBucket::Named(*definition),
+        TypeData::Generator(_) => SubjectBucket::Generator,
         TypeData::Borrow { kind, target } => {
             let target = values.type_data(*target);
 
@@ -311,6 +316,7 @@ fn query_buckets(subject: TypeId, values: &SemanticValueStore) -> Vec<SubjectBuc
                 TypeData::Named { definition, .. } => {
                     SubjectBucket::BorrowNamed(*kind, *definition)
                 }
+                TypeData::Generator(_) => SubjectBucket::BorrowGenerator(*kind),
                 _ => SubjectBucket::Exact(subject),
             }
         }

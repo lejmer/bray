@@ -260,7 +260,7 @@ where
     })
 }
 
-pub(super) fn with_declaration_root<R>(
+pub(in crate::compilation) fn with_declaration_root<R>(
     context: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
     consume: impl FnOnce(SyntaxNodeView<'_>) -> BindingQueryResult<R>,

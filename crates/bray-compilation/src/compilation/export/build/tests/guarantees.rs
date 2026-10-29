@@ -2197,3 +2197,61 @@ fn guarded_foreign_assertions_and_postconditions_match_imported_behavior() {
         );
     }
 }
+
+#[test]
+fn imported_generator_predicates_reuse_eager_checked_loop_state() {
+    let provider = compilation(
+        r#"
+        module api;
+        predicate generated(count: i32) = all({ each item in 0..count { yield item < count; } });
+        predicate positive(count: i32) = any({ each item in 0..count { yield item > 0; } });
+        const func all_values(pos count: i32) -> bool { return all({ each item in 0..count { yield item < count; } }); }
+        const func any_values(pos count: i32) -> bool { return any({ each item in 0..count { yield item > 0; } }); }
+        const func eager(pos flag: bool) -> bool {
+            let mut finished: bool = false;
+            let mut produced: i32 = 0;
+            let values = { each item in 0..3 { produced += 1; yield false; finished = item == 2; yield flag; } };
+            return finished && produced == 3 && !all(values) && (any(values) == flag) && produced == 3;
+        }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(!bundle.constant_callable_bodies().is_empty());
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+        using example.package.api;
+        const EMPTY: bool = example.package.api.all_values(0) && !example.package.api.any_values(0);
+        const ONE: bool = example.package.api.all_values(1) && !example.package.api.any_values(1);
+        const MANY: bool = example.package.api.all_values(3) && example.package.api.any_values(3);
+        const EAGER: bool = example.package.api.eager(true);
+        func root(pos count: i32) requires(example.package.api.generated(count = count), example.package.api.eager(count > 0), EMPTY && ONE && MANY && EAGER) {}
+    "#,
+        [super::fixtures::implementation_dependency(bundle)],
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    crate::test_support::assert_boolean_constants(
+        &consumer,
+        &[
+            ("EMPTY", true),
+            ("ONE", true),
+            ("MANY", true),
+            ("EAGER", true),
+        ],
+    );
+}

@@ -1024,6 +1024,95 @@ mod tests {
     }
 
     #[test]
+    fn predicate_generator_operands_are_eager_finite_observations() {
+        let source = r#"
+            module app;
+            predicate direct(count: i32) = all({ each item in 0..count { yield item < count; } });
+            const func local() -> bool {
+                let mut finished: bool = false;
+                let mut produced: i32 = 0;
+                let values = { each item in 0..3 { produced += 1; yield false; finished = item == 2; yield true; } };
+                return finished && produced == 3 && !all(values) && any(values) && produced == 3;
+            }
+            predicate positive(count: i32) = any({ each item in 0..count { yield item > 0; } });
+            const func all_values(pos count: i32) -> bool { return all({ each item in 0..count { yield item < count; } }); }
+            const func any_values(pos count: i32) -> bool { return any({ each item in 0..count { yield item > 0; } }); }
+            const EMPTY: bool = all_values(0) && !any_values(0);
+            const ONE: bool = all_values(1) && !any_values(1);
+            const MANY: bool = all_values(3) && any_values(3);
+            const EAGER: bool = local();
+            const func branched() -> bool {
+                let values = { each item in 0..3 {
+                    yield if item == 0 { yield false; } else { yield true; };
+                } };
+                return !all(values) && any(values);
+            }
+            const BRANCHED: bool = branched();
+            func demand(pos count: i32) requires(count >= 0, direct(count = count), local()) {}
+            func proof() requires(EMPTY && ONE && MANY && EAGER) {}
+        "#;
+
+        let checked = compilation(source);
+
+        assert!(
+            !checked.check_diagnostics().has_errors(),
+            "{:#?}",
+            checked.check_diagnostics()
+        );
+
+        crate::test_support::assert_boolean_constants(
+            &checked,
+            &[
+                ("EMPTY", true),
+                ("ONE", true),
+                ("MANY", true),
+                ("EAGER", true),
+                ("BRANCHED", true),
+            ],
+        );
+    }
+
+    #[test]
+    fn predicate_generator_storage_elision_requires_exclusive_fold_observation() {
+        for (body, valid) in [
+            (
+                "let values = { each item in 0..3 { yield item > 0; } }; let alias = values; return any(alias);",
+                true,
+            ),
+            (
+                "let mut values = { each item in 0..3 { yield item > 0; } }; return any(values);",
+                false,
+            ),
+            (
+                "let values = { each item in 0..3 { yield item > 0; } }; for value in values { _ = value; } return true;",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "module app; const func sample() -> bool {{ {body} }} const RESULT: bool = sample();"
+            );
+
+            let checked = compilation(&source);
+
+            assert_eq!(
+                !checked.check_diagnostics().has_errors(),
+                valid,
+                "{body}: {:#?}",
+                checked.check_diagnostics()
+            );
+
+            if valid {
+                crate::test_support::assert_boolean_constants(&checked, &[("RESULT", true)]);
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    checked.check_diagnostics(),
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
     fn predicate_folds_require_finite_progress_instead_of_merely_total_next() {
         for (step, valid) in [
             ("self.remaining -= 1; return true;", true),

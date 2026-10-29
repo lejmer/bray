@@ -39,6 +39,139 @@ fn earlier_operands_survive_later_short_circuit_and_conditional_blocks() {
 }
 
 #[test]
+fn iteration_cursors_use_expression_cleanup_scopes() {
+    use bray_bound_tree::{BoundExecutionSite, BoundExpression, StorageScope, StorageScopeOwners};
+
+    for body in [
+        "for value in items {}",
+        "for value in items { break; }",
+        "for value in items { continue; }",
+        "for value in items { return; }",
+        r#"for value in items { panic("iteration"); }"#,
+        "let result: bool = for value in items { break value; } else { break false; };",
+        "let result: bool = all(items);",
+        "let result: bool = any(items);",
+        "let result = { each value in items { yield value; } };",
+    ] {
+        let source = format!(
+            r#"
+            module app;
+            using core.atomic;
+            static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+            struct Items {{}}
+            struct IterationCursor {{
+                async finalize() {{
+                    let previous = core.atomic.load<usize, 1>(&COUNT);
+                    core.atomic.store<usize, 4>(&COUNT, previous + 1);
+                }}
+            }}
+            impl &Items(Iterable) {{
+                type Element = bool;
+                type Cursor = IterationCursor;
+                consume func iterate() -> IterationCursor {{ return IterationCursor {{}}; }}
+            }}
+            impl IterationCursor(Iterator) {{
+                type Element = bool;
+                mut func next() -> bool? {{ return none; }}
+            }}
+            async func probe() {{ let items = Items {{}}; {body} }}
+            "#
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{body}: {:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "probe");
+
+        let unit = compilation
+            .bound_unit(key.clone())
+            .expect("iteration body binds");
+
+        let owners = StorageScopeOwners::collect(unit.value()).expect("iteration scopes nest");
+
+        let iterations = unit
+            .value()
+            .tree()
+            .expressions()
+            .filter_map(|(id, expression)| {
+                StorageScope::for_iteration(id, expression).map(|scope| (id, expression, scope))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(iterations.len(), 1, "{body}");
+
+        let (iteration, expression, scope) = iterations[0];
+
+        assert_eq!(
+            owners.scope(Some(StorageIdentity::InvocationResult(
+                BoundExecutionSite::Iterate(iteration)
+            ))),
+            Some(scope),
+            "{body}"
+        );
+
+        let body_scope = match expression {
+            BoundExpression::For(expression) => Some(expression.body()),
+            BoundExpression::Generator(expression) => Some(expression.body()),
+            _ => None,
+        };
+
+        if let Some(body_scope) = body_scope {
+            assert_eq!(
+                owners.scope(Some(StorageIdentity::InvocationResult(
+                    BoundExecutionSite::Next(iteration)
+                ))),
+                Some(body_scope.into()),
+                "{body}"
+            );
+        }
+
+        let storage = compilation
+            .storage_plan(key.clone())
+            .expect("cursor storage publishes");
+
+        let cleanup = compilation
+            .async_analysis(key.clone())
+            .expect("cursor cleanup publishes");
+
+        assert!(
+            cleanup.value().scope_exits().iter().any(|exit| {
+                exit.scope() == scope
+                    && exit.lifecycle_resolution().iter().any(|access| {
+                        storage
+                            .value()
+                            .root_identity(*access)
+                            .and_then(|identity| storage.value().identity(identity))
+                            == Some(StorageIdentity::InvocationResult(
+                                BoundExecutionSite::Iterate(iteration),
+                            ))
+                    })
+            }),
+            "{body}: {:?}",
+            cleanup.value()
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("iteration cleanup lowers");
+
+        assert!(
+            lowered
+                .value()
+                .as_ref()
+                .and_then(|unit| unit.mir())
+                .is_some_and(|mir| mir.is_valid()),
+            "{body}: {lowered:?}"
+        );
+    }
+}
+
+#[test]
 fn partial_cleanup_ignores_repaired_moves_at_retained_inner_exits() {
     for repair in ["outer.inner.first = replacement;", ""] {
         let source = format!(

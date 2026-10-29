@@ -13,7 +13,7 @@ where
     pub(super) fn report_escaping_storage_dependencies(
         &mut self,
         state: &StorageFlowState,
-        block: bray_bound_tree::BoundBlockId,
+        block: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
     ) {
         if !self.publish || self.query_failure.is_some() {
@@ -101,7 +101,7 @@ where
     fn report_escaping_return_references(
         &mut self,
         state: &StorageFlowState,
-        block: Option<bray_bound_tree::BoundBlockId>,
+        block: Option<bray_bound_tree::StorageScope>,
         exit: AnyBoundNodeId,
     ) {
         let Some(bray_bound_tree::StorageBinding::Identity(result)) = self

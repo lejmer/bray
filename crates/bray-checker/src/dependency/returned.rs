@@ -522,19 +522,35 @@ impl super::ValueInputs {
 
             let data = request.semantic_values().type_data(ty.ty());
 
-            if !matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            let borrowed_result = matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. });
+
+            let representation = request
+                .available_compiler_known_symbols()
+                .type_representation(request.semantic_values(), ty.ty());
+
+            if representation.is_some_and(|role| {
+                role.numeric_kind().is_some()
+                    || matches!(
+                        role,
+                        bray_compiler_known::RepresentationRole::ScalarBool
+                            | bray_compiler_known::RepresentationRole::Unit
+                            | bray_compiler_known::RepresentationRole::Never
+                    )
+            }) {
                 continue;
             }
 
             let Some(bray_bound_tree::SemanticSelection::Call(call)) =
                 selections.expression(expression)
             else {
-                if matches!(
-                    node,
-                    bray_bound_tree::BoundExpression::Block(_)
-                        | bray_bound_tree::BoundExpression::Match(_)
-                        | bray_bound_tree::BoundExpression::Structured(_)
-                ) {
+                if borrowed_result
+                    && matches!(
+                        node,
+                        bray_bound_tree::BoundExpression::Block(_)
+                            | bray_bound_tree::BoundExpression::Match(_)
+                            | bray_bound_tree::BoundExpression::Structured(_)
+                    )
+                {
                     let sources = self
                         .operands(expression)
                         .map(|source| (source, Vec::new()))
@@ -555,6 +571,52 @@ impl super::ValueInputs {
                     .expect("selected call has its owning selection"),
                 &mut declaration,
             )?;
+
+            for relation in template.template.borrows() {
+                let Some(entry) = relation.entry() else {
+                    continue;
+                };
+
+                let [projection] = relation.exit().projections() else {
+                    continue;
+                };
+
+                if !relation.is_exact()
+                    || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
+                    || relation.dereferences() != 0
+                    || !relation.target_projections().is_empty()
+                    || !entry.projections().is_empty()
+                    || relation.exit().subject_root() != DependencySubjectRoot::Result
+                {
+                    continue;
+                }
+
+                // Address equality alone does not identify the value's lifetime source.
+                // Resolve a copied field only when its complete result contract names this input.
+                let expected = DependencyRequirement::direct(
+                    DependencySubject::root(entry.subject_root()),
+                    DependencyRequirementKind::ValueDependencies,
+                );
+
+                if template.template.requirements() != [expected]
+                    || !template.template.carriers().is_empty()
+                {
+                    continue;
+                }
+
+                if let Some(argument) =
+                    result_argument(call.arguments(), call.receiver(), entry.subject_root())
+                {
+                    self.projections
+                        .entry(expression)
+                        .or_default()
+                        .insert(*projection, (argument, None));
+                }
+            }
+
+            if !borrowed_result {
+                continue;
+            }
 
             let sources = template
                 .template

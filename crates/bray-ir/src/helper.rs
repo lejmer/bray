@@ -7,7 +7,7 @@ use bray_symbols::{CallableAbi, CallableInstanceData, TypeId};
 
 use crate::{
     MirAnonymousCallableReference, MirAsyncOperation, MirCleanupPhase, MirFrameInitializer,
-    MirFrameReference, MirGeneratorOperation, MirOperationKind,
+    MirFrameReference, MirOperationKind,
 };
 
 /// Destruction choice established before a lifecycle helper is realized.
@@ -122,12 +122,6 @@ pub enum MirHelperReference {
     TypeForm(CallableInstanceData),
     /// Selected implementation callable for a semantic conversion.
     Conversion(CallableInstanceData),
-    /// Initialize generator accumulation.
-    BeginGenerator,
-    /// Append one yielded generator element.
-    PushGenerator,
-    /// Finish generator accumulation.
-    FinishGenerator,
     /// Construct one owned panic report from a checked failure cause.
     PanicReport,
     /// Invoke one compiler-recognized standard-library implementation.
@@ -178,9 +172,6 @@ impl MirHelperReference {
             | Self::Predicate(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
-            | Self::BeginGenerator
-            | Self::PushGenerator
-            | Self::FinishGenerator
             | Self::PanicReport
             | Self::StandardLibrary(_)
             | Self::Quiesce(_)
@@ -212,9 +203,6 @@ impl MirHelperReference {
             | Self::Predicate(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
-            | Self::BeginGenerator
-            | Self::PushGenerator
-            | Self::FinishGenerator
             | Self::PanicReport
             | Self::StandardLibrary(_)
             | Self::CreateFrame(_)
@@ -227,9 +215,6 @@ impl MirHelperReference {
     /// Returns the runtime role that directly realizes this helper when one is required.
     pub const fn runtime_role(&self) -> Option<RuntimeAbiRole> {
         match self {
-            Self::BeginGenerator => Some(RuntimeAbiRole::GeneratorBegin),
-            Self::PushGenerator => Some(RuntimeAbiRole::GeneratorPush),
-            Self::FinishGenerator => Some(RuntimeAbiRole::GeneratorFinish),
             Self::PanicReport => Some(RuntimeAbiRole::PanicReportConstruction),
             Self::ComposeAwaitedFrame(_) => Some(RuntimeAbiRole::AwaitedFrameComposition),
             Self::CommitAwaitedCompletion(_) => Some(RuntimeAbiRole::FrameCompletionMove),
@@ -283,34 +268,6 @@ impl MirOperationKind {
             Self::Convert { conversion, .. } => {
                 collect_conversion_helpers(conversion, &mut helpers);
             }
-            Self::Generator(operation) => match operation {
-                MirGeneratorOperation::Begin { .. } => {
-                    helpers.push(MirHelperReference::BeginGenerator);
-                }
-                MirGeneratorOperation::Push { .. } => {
-                    helpers.push(MirHelperReference::PushGenerator);
-                }
-                MirGeneratorOperation::Finish { .. } => {
-                    helpers.push(MirHelperReference::FinishGenerator);
-                }
-                MirGeneratorOperation::CleanupBroadcast { element, .. } => {
-                    helpers.push(MirHelperReference::Cleanup {
-                        phase: MirCleanupPhase::TaskCancellation,
-                        ty: *element,
-                    });
-                }
-                MirGeneratorOperation::Destroy { element, .. } => {
-                    helpers.push(MirHelperReference::Cleanup {
-                        phase: MirCleanupPhase::LifecycleResolution,
-                        ty: *element,
-                    });
-
-                    helpers.push(MirHelperReference::Destroy(
-                        *element,
-                        crate::MirDestructionDisposition::Dynamic,
-                    ));
-                }
-            },
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
             Self::Text(operation) => collect_text_helpers(operation, &mut helpers),
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),

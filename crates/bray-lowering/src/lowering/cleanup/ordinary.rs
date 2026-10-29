@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, BoundBlockId};
+use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, StorageScope};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
@@ -126,7 +126,7 @@ impl Lowerer<'_> {
         exit: AnyBoundNodeId,
         plans: &[AsyncScopeExitPlan],
         pending: Option<&MirPlace>,
-    ) -> Result<BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, MirPlace)>, LoweringError> {
+    ) -> Result<BTreeMap<StorageScope, (MirBlockId, MirBlockId, MirPlace)>, LoweringError> {
         let report_type = self.representation_type(RepresentationRole::PanicReport)?;
 
         let report_storage = self.builder.push_storage(

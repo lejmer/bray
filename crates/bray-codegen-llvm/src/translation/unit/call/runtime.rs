@@ -95,40 +95,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(ty.const_int(value, false).into())
     }
 
-    pub(in crate::translation::unit) fn helper_boolean_argument(
-        &mut self,
-        helper: &CodegenHelperMapping,
-        parameter: usize,
-        value: bool,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        self.helper_integer_argument(helper, parameter, u64::from(value))
-    }
-
-    pub(in crate::translation::unit) fn helper_integer_argument(
-        &mut self,
-        helper: &CodegenHelperMapping,
-        parameter: usize,
-        value: u64,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let key = helper
-            .symbol()
-            .expect("checked MIR call translation requires an established mapping or value");
-
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(key)
-            .expect("checked MIR call translation requires an established mapping or value");
-
-        let ty = parameter_type(symbol.signature(), parameter);
-
-        let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-            panic!("checked MIR call translation violated an established compiler contract");
-        };
-
-        Ok(ty.const_int(value, false).into())
-    }
-
     pub(in crate::translation::unit) fn helper_address(
         &self,
         helper: &CodegenHelperMapping,
@@ -159,20 +125,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR call translation requires an established mapping or value");
 
         Ok(Some(function.as_global_value().as_pointer_value().into()))
-    }
-
-    pub(in crate::translation::unit) fn runtime_null_pointer_argument(
-        &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-        parameter: usize,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let ty = self.runtime_parameter_type(runtime, parameter);
-
-        let BasicTypeEnum::PointerType(ty) = self.types.map(ty)? else {
-            panic!("checked MIR call translation violated an established compiler contract");
-        };
-
-        Ok(ty.const_null().into())
     }
 
     fn runtime_parameter_type(

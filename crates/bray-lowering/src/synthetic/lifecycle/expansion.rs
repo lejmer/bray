@@ -141,16 +141,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let indirect = matches!(
             action,
             bray_bound_tree::LifecycleAction::RawBuffer(_)
+                | bray_bound_tree::LifecycleAction::Generator(_)
                 | bray_bound_tree::LifecycleAction::Owned { .. }
         );
 
-        if matches!(action, bray_bound_tree::LifecycleAction::Generator(_))
-            || (indirect && !self.context.lifecycle_requires_frame(place.ty(), role)?)
-        {
+        if indirect && !self.context.lifecycle_requires_frame(place.ty(), role)? {
             return Ok(false);
         }
 
-        let buffer = matches!(action, bray_bound_tree::LifecycleAction::RawBuffer(_));
+        let buffer = matches!(
+            action,
+            bray_bound_tree::LifecycleAction::RawBuffer(_)
+                | bray_bound_tree::LifecycleAction::Generator(_)
+        );
 
         let discharge =
             matches!(role, MirGeneratedLifecycleRole::Destroy(_)) && (!indirect || buffer);

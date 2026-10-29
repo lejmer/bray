@@ -307,11 +307,16 @@ impl Compilation {
                 && matches!(
                     action,
                     bray_bound_tree::LifecycleAction::RawBuffer(_)
+                        | bray_bound_tree::LifecycleAction::Generator(_)
                         | bray_bound_tree::LifecycleAction::Owned { .. }
                 )
             {
                 for role in [
-                    if matches!(action, bray_bound_tree::LifecycleAction::RawBuffer(_)) {
+                    if matches!(
+                        action,
+                        bray_bound_tree::LifecycleAction::RawBuffer(_)
+                            | bray_bound_tree::LifecycleAction::Generator(_)
+                    ) {
                         bray_ir::MirGeneratedLifecycleRole::ReleaseBuffer
                     } else {
                         bray_ir::MirGeneratedLifecycleRole::Destroy(

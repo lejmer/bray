@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression,
     BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitView, SemanticSelection,
-    StoragePlan,
+    StoragePlan, StorageScope,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::SyntaxAnchor;
@@ -72,7 +72,7 @@ fn build_control_flow_graph_with_storage<C, E>(
     request: CheckerUnitView<'_, C>,
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
-    cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    cleanup_scopes: std::collections::BTreeSet<StorageScope>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     patterns: Option<&bray_bound_tree::CheckedPatterns>,
     completion_semantics: Option<&bray_bound_tree::CheckedExpressionSemantics>,
@@ -125,14 +125,14 @@ where
     pub(super) storage: ControlFlowGraphAssembler,
     pub(super) loops: Vec<LoopContext>,
     pub(super) catches: Vec<CatchContext>,
-    pub(super) yield_regions: Vec<SyntaxAnchor>,
+    pub(super) yield_regions: Vec<(SyntaxAnchor, BoundExpressionId)>,
     pub(super) result_yields: Vec<ResultYieldContext>,
-    pub(super) scopes: Vec<BoundBlockId>,
+    pub(super) scopes: Vec<StorageScope>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-    pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    pub(super) cleanup_scopes: std::collections::BTreeSet<StorageScope>,
     cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
-    pub(super) scoped_uses: std::collections::BTreeMap<BoundBlockId, BoundExpressionId>,
+    pub(super) scoped_uses: std::collections::BTreeMap<StorageScope, BoundExpressionId>,
     pub(super) patterns: Option<&'view bray_bound_tree::CheckedPatterns>,
     pub(super) completion_semantics: Option<&'view bray_bound_tree::CheckedExpressionSemantics>,
 }
@@ -166,7 +166,7 @@ where
         request: CheckerUnitView<'view, C>,
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-        mut cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        mut cleanup_scopes: std::collections::BTreeSet<StorageScope>,
         cleanup_free_operations: std::collections::BTreeSet<BoundExpressionId>,
     ) -> Self {
         let scoped_uses: std::collections::BTreeMap<_, _> = selections
@@ -184,7 +184,7 @@ where
                         panic!("selected scoped use retains its sole body");
                     };
 
-                    Some((*body, scoped.expression()))
+                    Some((StorageScope::Block(*body), scoped.expression()))
                 }
                 _ => None,
             })
@@ -259,7 +259,7 @@ where
 
         self.push_bound(current, id.into());
 
-        self.scopes.push(id);
+        self.scopes.push(id.into());
 
         if self.scopes.len() == 1 {
             current = self.enter_callable_body(current);
@@ -691,7 +691,24 @@ where
                     return None;
                 }
 
-                if target.is_some_and(|target| self.yield_regions.contains(&target)) {
+                if let Some((_, region)) = target
+                    .and_then(|target| {
+                        self.yield_regions
+                            .iter()
+                            .rev()
+                            .find(|(anchor, _)| *anchor == target)
+                    })
+                    .copied()
+                {
+                    // Growth is fallible before the staged element becomes part of the prefix.
+                    let block = if matches!(self.view.expression(region), Some(BoundExpression::Structured(region))
+                        if region.kind() == bray_bound_tree::BoundStructuredExpressionKind::GeneralGenerator)
+                    {
+                        self.push_generator_storage_failure(block, id.into(), region)
+                    } else {
+                        block
+                    };
+
                     let continuation = self.push_block();
 
                     self.push_edge(block, continuation, AnalysisEdgeKind::Yield, None);
@@ -1604,10 +1621,16 @@ mod tests {
         assert_eq!(
             phases,
             [
-                (inner, AnalysisScopeExitPhase::TaskCancellationBroadcast),
-                (inner, AnalysisScopeExitPhase::LifecycleResolution),
-                (outer, AnalysisScopeExitPhase::TaskCancellationBroadcast),
-                (outer, AnalysisScopeExitPhase::LifecycleResolution),
+                (
+                    inner.into(),
+                    AnalysisScopeExitPhase::TaskCancellationBroadcast
+                ),
+                (inner.into(), AnalysisScopeExitPhase::LifecycleResolution),
+                (
+                    outer.into(),
+                    AnalysisScopeExitPhase::TaskCancellationBroadcast
+                ),
+                (outer.into(), AnalysisScopeExitPhase::LifecycleResolution),
             ]
         );
     }
@@ -1719,7 +1742,7 @@ mod tests {
 
     fn reachable_scope_exit_phases(
         graph: &ControlFlowGraph,
-    ) -> Vec<(bray_bound_tree::BoundBlockId, AnalysisScopeExitPhase)> {
+    ) -> Vec<(bray_bound_tree::StorageScope, AnalysisScopeExitPhase)> {
         let mut pending = vec![graph.entry()];
         let mut visited = vec![false; graph.blocks().len()];
         let mut phases = Vec::new();
@@ -1744,7 +1767,12 @@ mod tests {
                     continue;
                 };
 
-                if let AnalysisOperationKind::ScopeExit { block, phase, .. } = operation.kind() {
+                if let AnalysisOperationKind::ScopeExit {
+                    scope: block,
+                    phase,
+                    ..
+                } = operation.kind()
+                {
                     phases.push((block, phase));
                 }
             }

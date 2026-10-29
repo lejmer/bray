@@ -71,6 +71,25 @@ fn infer_reachable_results(
         return super::imported::imported_result_dependencies(context, address);
     }
 
+    if let Some(template) = context
+        .compilation()
+        .available_compiler_known_symbols()
+        .symbol_implementation(root.into_any())
+        .and_then(|hook| {
+            bray_checker::generator_result_dependencies(
+                context.compilation().available_compiler_known_symbols(),
+                hook,
+            )
+        })
+    {
+        let template = context
+            .semantic_values()
+            .intern_dependency_contract_template(template)
+            .expect("generator result contract retains its receiver values");
+
+        return Ok(DiagnosticResult::without_diagnostics(template));
+    }
+
     if let Some(result) = source_summary(context, root.into_any())? {
         return Ok(result);
     }

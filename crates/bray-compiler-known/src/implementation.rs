@@ -260,6 +260,14 @@ define_catalog_enum! {
         RangeMoveIterate => "RangeMoveIterate",
         /// Advances a range cursor by one element.
         RangeNext => "RangeNext",
+        /// Borrows a generator's initialized values for shared iteration.
+        GeneratorSharedIterate => "GeneratorSharedIterate",
+        /// Copies the next value from a shared generator cursor.
+        GeneratorSharedNext => "GeneratorSharedNext",
+        /// Moves a generator into its consuming cursor in production order.
+        GeneratorMoveIterate => "GeneratorMoveIterate",
+        /// Transfers the next element from a consuming generator cursor.
+        GeneratorMoveNext => "GeneratorMoveNext",
         /// Fails the current test root with one owned message.
         TestingFail => "TestingFail",
     }
@@ -302,11 +310,36 @@ impl ImplementationHook {
         )
     }
 
-    /// Fixed iteration operations over the supplied half-open integer range.
-    pub const fn is_range_iteration(self) -> bool {
+    /// Returns whether this operation implements a compiler-owned generator cursor.
+    pub const fn is_generator_iteration(self) -> bool {
         matches!(
             self,
-            Self::RangeSharedIterate | Self::RangeMoveIterate | Self::RangeNext
+            Self::GeneratorSharedIterate
+                | Self::GeneratorMoveIterate
+                | Self::GeneratorSharedNext
+                | Self::GeneratorMoveNext
+        )
+    }
+
+    /// Compiler-provided finite iteration operations over ranges and generated values.
+    pub const fn is_iteration(self) -> bool {
+        matches!(
+            self,
+            Self::RangeSharedIterate
+                | Self::RangeMoveIterate
+                | Self::RangeNext
+                | Self::GeneratorSharedIterate
+                | Self::GeneratorSharedNext
+                | Self::GeneratorMoveIterate
+                | Self::GeneratorMoveNext
+        )
+    }
+
+    /// Whether this iteration operation advances its mutable cursor by one element.
+    pub const fn is_iteration_step(self) -> bool {
+        matches!(
+            self,
+            Self::RangeNext | Self::GeneratorSharedNext | Self::GeneratorMoveNext
         )
     }
 
@@ -470,6 +503,10 @@ mod tests {
             ImplementationHook::RangeSharedIterate,
             ImplementationHook::RangeMoveIterate,
             ImplementationHook::RangeNext,
+            ImplementationHook::GeneratorSharedIterate,
+            ImplementationHook::GeneratorSharedNext,
+            ImplementationHook::GeneratorMoveIterate,
+            ImplementationHook::GeneratorMoveNext,
             ImplementationHook::TestingFail,
         ];
 

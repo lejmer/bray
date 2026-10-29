@@ -365,12 +365,24 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                         continue;
                     }
 
+                    if let Some(producer) =
+                        self.generator_observations.producer(binding.initializer())
+                    {
+                        self.generator_summary(producer)?;
+                        continue;
+                    }
+
                     let value = self.expression(binding.initializer())?;
                     let value = self.record_evaluation(value);
 
                     self.bind_pattern_value(binding.pattern(), value)?;
                 }
                 bray_bound_tree::BoundBlockItem::Expression(id) => {
+                    if let Some(producer) = self.generator_observations.producer(*id) {
+                        self.generator_summary(producer)?;
+                        continue;
+                    }
+
                     let expression = self
                         .unit
                         .view()
@@ -378,6 +390,22 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                         .expect("checked block item exists");
 
                     if let BoundExpression::ControlTransfer(transfer) = expression {
+                        if transfer.kind() == bray_bound_tree::BoundControlTransferKind::Yield
+                            && let Some(root) = transfer
+                                .target()
+                                .and_then(|target| self.generator_targets.get(&target))
+                                .copied()
+                        {
+                            self.generator_yield(
+                                root,
+                                transfer
+                                    .operand()
+                                    .expect("Boolean generator yield retains its value"),
+                            )?;
+
+                            continue;
+                        }
+
                         match transfer.kind() {
                             bray_bound_tree::BoundControlTransferKind::Yield
                             | bray_bound_tree::BoundControlTransferKind::Return => {

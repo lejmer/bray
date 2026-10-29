@@ -27,14 +27,18 @@ where
                 };
 
                 self.push_bound(current, (*scope).into());
-                self.scopes.push(*scope);
+                self.scopes.push((*scope).into());
 
                 let completion = self.build_operands(expression.operands(), current)?;
 
                 self.push_bound(completion, id.into());
                 self.scopes.pop();
 
-                Some(Some(self.push_scope_exit(completion, *scope, id.into())))
+                Some(Some(self.push_scope_exit(
+                    completion,
+                    (*scope).into(),
+                    id.into(),
+                )))
             }
             BoundStructuredExpressionKind::Conditional => {
                 self.build_branches(expression.blocks(), expression.operands(), current)
@@ -140,7 +144,7 @@ where
 
         let completion = self.push_block();
 
-        if self.scoped_uses.contains_key(body) {
+        if self.scoped_uses.contains_key(&(*body).into()) {
             let completed = self.push_block();
 
             current = self.begin_invocation(
@@ -283,8 +287,14 @@ where
         expression: &bray_bound_tree::BoundStructuredExpression,
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
+        let current = if expression.kind() == BoundStructuredExpressionKind::GeneralGenerator {
+            self.push_generator_storage_failure(current, id.into(), id)
+        } else {
+            current
+        };
+
         self.yield_regions
-            .push(expression.origin().source_anchor().syntax());
+            .push((expression.origin().source_anchor().syntax(), id));
 
         let completion = self.build_operands(expression.operands(), current);
 
@@ -681,7 +691,7 @@ where
 
         if let Some(body_exit) = self.build_block(body, body_entry)? {
             let body_exit = scope.map_or(body_exit, |scope| {
-                self.push_scope_exit(body_exit, scope, body.into())
+                self.push_scope_exit(body_exit, scope.into(), body.into())
             });
 
             self.push_edge(body_exit, header, AnalysisEdgeKind::LoopBack, None);
@@ -690,7 +700,7 @@ where
         let exhausted = if let Some(scope) = scope {
             self.scopes.pop();
 
-            self.push_scope_exit(exhausted, scope, condition.into())
+            self.push_scope_exit(exhausted, scope.into(), condition.into())
         } else {
             exhausted
         };

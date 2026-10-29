@@ -1,4 +1,5 @@
 mod build;
+mod generator;
 mod protocol;
 mod range;
 mod state;

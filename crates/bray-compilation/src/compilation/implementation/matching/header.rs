@@ -199,7 +199,8 @@ impl<'values> HeaderMatcher<'values> {
                 self.match_constant(*pattern_length, *actual_length)
             }
             (TypeData::Slice(pattern), TypeData::Slice(actual))
-            | (TypeData::Nullable(pattern), TypeData::Nullable(actual)) => {
+            | (TypeData::Nullable(pattern), TypeData::Nullable(actual))
+            | (TypeData::Generator(pattern), TypeData::Generator(actual)) => {
                 self.match_type(*pattern, *actual)
             }
             (

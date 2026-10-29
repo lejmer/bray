@@ -65,6 +65,37 @@ func run()
     destructor_receiver_transfer();
     aggregate_input_cleanup();
     discard_cleanup();
+    generator_cleanup();
+}
+
+func generator_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let start: usize = 1;
+    let end: usize = 4;
+    let source = start..end;
+
+    {
+        let values =
+        {
+            each id in source
+            {
+                yield Guard
+                {
+                    id = id
+                };
+            }
+        };
+
+        for value in move values
+        {
+            assert(value.id == 1);
+            break;
+        }
+    }
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 123);
 }
 
 func rejected_guard() -> Guard

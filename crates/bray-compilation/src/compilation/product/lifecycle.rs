@@ -278,11 +278,7 @@ impl Compilation {
 
                 CodegenLifecycleNeeds::represented(child)
             }
-            TypeData::Generator(_) => CodegenLifecycleNeeds::DESTROY
-                .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
-                .with(CodegenLifecycleNeeds::QUIESCE)
-                .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
-            TypeData::OwnedIndirection { target, .. } => {
+            TypeData::OwnedIndirection { target, .. } | TypeData::Generator(target) => {
                 let children =
                     self.compute_codegen_lifecycle_needs(*target, cancellation, graph)?;
 

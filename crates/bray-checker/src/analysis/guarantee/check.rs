@@ -5,7 +5,9 @@ use bray_bound_tree::{
     StoragePlan,
 };
 
-use super::super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
+use super::super::model::{
+    AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisRefinement,
+};
 use super::flow::analyze_execution_flow;
 use super::state::ExecutionState;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
@@ -76,6 +78,11 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             // remains part of ownership and unwind analysis, not this body proof.
             edge.kind() == AnalysisEdgeKind::EntryCancellation
                 || (property != Some(ExecutionProperty::Pure) && edge.is_dependency_failure())
+                // Checked template observation eliminates collection storage, while
+                // ordinary native construction retains its admission and growth failures.
+                || (predicate || internal)
+                    && matches!(edge.refinement(), Some(AnalysisRefinement::GeneratorStorageFailure(producer))
+                        if prepared.generator_observations.producer(producer).is_some())
         })
         .map(|edge| edge.id())
         .collect();
@@ -297,21 +304,27 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                 }
                 AnalysisOperationKind::Result { .. } => true,
                 AnalysisOperationKind::ScopeExit {
-                    block, exit, phase, ..
+                    scope, exit, phase, ..
                 } => super::cleanup::check_scope_cleanup(
                     request,
                     storage,
                     body.asynchronous(),
-                    block,
+                    scope,
                     exit,
                     phase,
                     property,
                     |access| {
-                        candidate
-                            .inert_cleanup
-                            .get(&(exit, access))
-                            .copied()
-                            .unwrap_or(false)
+                        (property == ExecutionProperty::Pure
+                            && candidate
+                                .inert_cleanup
+                                .get(&(exit, access))
+                                .copied()
+                                .unwrap_or(false))
+                            || (predicate || internal)
+                                && reachable
+                                    .domain
+                                    .generator_observations
+                                    .eliminates(storage, access)
                     },
                     &mut candidate.dependencies,
                     diagnostics,
@@ -565,14 +578,9 @@ fn check_expression_eligibility<C: CheckerRequestContext + ?Sized>(
 ) {
     let request = flow.domain.request;
 
-    let eligibility = super::predicate::expression_eligibility(
-        request,
-        expression,
-        flow.domain.semantics,
-        flow.domain.storage,
-        body.storage_flow(),
-        flow.domain.yield_targets,
-    );
+    let eligibility = flow
+        .domain
+        .expression_eligibility(expression, body.storage_flow());
 
     if eligibility != super::predicate::ExpressionEligibility::Constant {
         record_constant_failure(request, candidate, expression.into());

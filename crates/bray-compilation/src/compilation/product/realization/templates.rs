@@ -19,7 +19,7 @@ impl Compilation {
 
         if self.compiler_provided_heap_method(definition).is_some()
             || self
-                .compiler_provided_numeric_hook(definition, cancellation)?
+                .compiler_provided_hook(definition, cancellation)?
                 .is_some()
         {
             return Ok(MirUnitKey::CompilerProvidedCallable(definition));
@@ -64,7 +64,7 @@ impl Compilation {
         self.codegen_external_callable_template(definition, cancellation)
     }
 
-    fn compiler_provided_numeric_hook(
+    fn compiler_provided_hook(
         &self,
         definition: bray_symbols::CallableDefinitionId,
         cancellation: &CancellationToken,
@@ -75,7 +75,10 @@ impl Compilation {
             .map_err(crate::fact::FactQueryError::from)?;
 
         Ok(hook
-            .filter(|hook| hook.is_available() && hook.hook().is_numeric_policy())
+            .filter(|hook| {
+                hook.is_available()
+                    && (hook.hook().is_numeric_policy() || hook.hook().is_generator_iteration())
+            })
             .map(|hook| hook.hook()))
     }
 
@@ -87,15 +90,49 @@ impl Compilation {
     ) -> Result<bray_ir::MirUnit, CodegenPreparationError> {
         let definition = self.codegen_callable_definition(instance.key())?;
 
-        let Some(hook) = self.compiler_provided_numeric_hook(definition, cancellation)? else {
+        let Some(hook) = self.compiler_provided_hook(definition, cancellation)? else {
             return self.codegen_heap_method_mir(instance, unit, cancellation);
         };
 
         let callable = instance
             .callable_instance()
-            .expect("numeric callable body retains its selected instance");
+            .expect("compiler-provided callable body retains its selected instance");
 
         let signature = self.codegen_instance_signature(instance, cancellation)?;
+
+        if hook.is_generator_iteration() {
+            let parameters = signature
+                .parameters()
+                .iter()
+                .map(|parameter| match parameter {
+                    bray_codegen::CodegenParameterMapping::Direct { ty, .. } => *ty,
+                    bray_codegen::CodegenParameterMapping::Indirect { pointee, .. } => *pointee,
+                    bray_codegen::CodegenParameterMapping::Ignore => {
+                        panic!("generator protocol receiver has represented storage")
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let result = match signature.result() {
+                bray_codegen::CodegenResultMapping::Direct { ty, .. } => *ty,
+                bray_codegen::CodegenResultMapping::Indirect { pointee, .. } => *pointee,
+                bray_codegen::CodegenResultMapping::Void => {
+                    panic!("generator protocol produces a represented result")
+                }
+            };
+
+            return bray_lowering::lower_generator_callable(
+                self.semantic_value_store()?,
+                self.available_compiler_known_symbols(),
+                unit,
+                callable,
+                hook,
+                &parameters,
+                result,
+                instance.key().target(),
+            )
+            .map_err(Into::into);
+        }
 
         let parameters = signature
             .parameters()

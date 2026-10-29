@@ -77,6 +77,12 @@ impl Observation {
                     NativePanicCause::RUNTIME_PANIC => TestPanicCause::RuntimePanic,
                     NativePanicCause::ALLOCATION_FAILURE => TestPanicCause::AllocationFailure,
                     NativePanicCause::ENTRY_FAILURE => TestPanicCause::EntryFailure,
+                    NativePanicCause::MEMORY_LAYOUT_SIZE_OVERFLOW => {
+                        TestPanicCause::MemoryLayoutSizeOverflow
+                    }
+                    NativePanicCause::MEMORY_LAYOUT_UNSUPPORTED_ALIGNMENT => {
+                        TestPanicCause::MemoryLayoutUnsupportedAlignment
+                    }
                     NativePanicCause::MESSAGE | NativePanicCause::EXPLICIT_TEST_FAILURE => {
                         TestPanicCause::Message
                     }

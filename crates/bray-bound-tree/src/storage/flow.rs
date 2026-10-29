@@ -5,7 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageScope,
 };
 
 /// An evaluated storage route whose exact origin is retained for functional state interpretation.
@@ -209,18 +209,18 @@ impl StorageSuspensionState {
 /// One lexical scope exit proven reachable by checked control flow.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageExitPoint {
-    scope: BoundBlockId,
+    scope: StorageScope,
     exit: AnyBoundNodeId,
 }
 
 impl StorageExitPoint {
     /// Creates one lowering-reachable scope exit.
-    pub const fn new(scope: BoundBlockId, exit: AnyBoundNodeId) -> Self {
+    pub const fn new(scope: StorageScope, exit: AnyBoundNodeId) -> Self {
         Self { scope, exit }
     }
 
     /// Returns the lexical scope being exited.
-    pub const fn scope(self) -> BoundBlockId {
+    pub const fn scope(self) -> StorageScope {
         self.scope
     }
 
@@ -233,7 +233,7 @@ impl StorageExitPoint {
 /// Storage and borrow state that remains relevant at one lexical scope exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageExitDecision {
-    scope: BoundBlockId,
+    scope: StorageScope,
     exit: AnyBoundNodeId,
     live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
@@ -251,7 +251,7 @@ impl StorageExitDecision {
         reason = "scope exits retain each independent storage fact without combining their meanings"
     )]
     pub fn new(
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
@@ -275,7 +275,7 @@ impl StorageExitDecision {
     }
 
     /// Returns the lexical scope being exited.
-    pub const fn scope(&self) -> BoundBlockId {
+    pub const fn scope(&self) -> StorageScope {
         self.scope
     }
 
@@ -906,7 +906,7 @@ mod tests {
         );
 
         let exit = StorageExitDecision::new(
-            scope,
+            scope.into(),
             scope.into(),
             [storage, storage],
             [storage, storage],
@@ -935,7 +935,7 @@ mod tests {
             [operation],
             [suspension],
             [scope],
-            [StorageExitPoint::new(scope, scope.into())],
+            [StorageExitPoint::new(scope.into(), scope.into())],
             [exit],
             false,
         )

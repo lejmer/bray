@@ -628,6 +628,8 @@ const fn panic_cause(cause: TestPanicCause) -> &'static str {
         TestPanicCause::RuntimePanic => "runtime_panic",
         TestPanicCause::AllocationFailure => "allocation_failure",
         TestPanicCause::EntryFailure => "entry_failure",
+        TestPanicCause::MemoryLayoutSizeOverflow => "memory_layout_size_overflow",
+        TestPanicCause::MemoryLayoutUnsupportedAlignment => "memory_layout_unsupported_alignment",
     }
 }
 

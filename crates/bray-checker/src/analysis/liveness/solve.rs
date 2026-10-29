@@ -179,7 +179,7 @@ fn collect_liveness(
                 .expect("liveness block retains its operation");
 
             if let AnalysisOperationKind::ScopeExit {
-                block,
+                scope: block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
                 preserves_exit_value,

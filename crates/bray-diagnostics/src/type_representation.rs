@@ -214,8 +214,6 @@ pub enum DiagnosticStoredTypeProblem {
     Slice,
     /// A trait view was used as an inline member.
     TraitView,
-    /// A suspended generator value was used as an inline member.
-    Generator,
     /// Contextual `Self` remained unresolved at the storage boundary.
     ContextualSelf,
     /// A referenced named type has no finite inline representation.
@@ -234,7 +232,6 @@ impl DiagnosticStoredTypeProblem {
             }
             Self::Slice => "slice",
             Self::TraitView => "trait_view",
-            Self::Generator => "generator",
             Self::ContextualSelf => "contextual_self",
             Self::ReferencedTypeHasNoFiniteRepresentation => {
                 "referenced_type_has_no_finite_representation"

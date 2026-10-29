@@ -3,9 +3,9 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 
 use crate::{
-    AnyBoundNodeId, BodyBehaviorCall, BoundBlockId, BoundDependencyContractId,
-    BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
-    StorageIdentityId,
+    AnyBoundNodeId, BodyBehaviorCall, BoundDependencyContractId, BoundDependencySubject,
+    BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId, StorageIdentityId,
+    StorageScope,
 };
 
 /// A language-defined operation on an owned future or task.
@@ -247,7 +247,7 @@ pub enum AsyncStorageCleanupRequirement {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AsyncStorageRequirement {
     identity: StorageIdentityId,
-    owner: Option<BoundBlockId>,
+    owner: Option<StorageScope>,
     transfers: bool,
     cleanup: AsyncStorageCleanupRequirement,
     parts: Option<Arc<[crate::StorageCleanupPart]>>,
@@ -257,7 +257,7 @@ impl AsyncStorageRequirement {
     /// Creates one checked storage requirement.
     pub const fn new(
         identity: StorageIdentityId,
-        owner: Option<BoundBlockId>,
+        owner: Option<StorageScope>,
         transfers: bool,
         cleanup: AsyncStorageCleanupRequirement,
     ) -> Self {
@@ -291,7 +291,7 @@ impl AsyncStorageRequirement {
     }
 
     /// Returns the lexical scope that owns the identity.
-    pub const fn owner(&self) -> Option<BoundBlockId> {
+    pub const fn owner(&self) -> Option<StorageScope> {
         self.owner
     }
 
@@ -339,7 +339,7 @@ impl AsyncStorageExitDecision {
 /// The ordered semantic work required when one lexical task scope exits.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncScopeExitPlan {
-    scope: BoundBlockId,
+    scope: StorageScope,
     exit: AnyBoundNodeId,
     scoped_exit: Option<BoundExpressionId>,
     storage: Arc<[AsyncStorageExitDecision]>,
@@ -352,7 +352,7 @@ pub struct AsyncScopeExitPlan {
 impl AsyncScopeExitPlan {
     /// Creates a two-phase scope-exit plan.
     pub fn new(
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
         storage: impl IntoIterator<Item = AsyncStorageExitDecision>,
         cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
@@ -373,7 +373,7 @@ impl AsyncScopeExitPlan {
     }
 
     /// Returns the lexical scope being exited.
-    pub const fn scope(&self) -> BoundBlockId {
+    pub const fn scope(&self) -> StorageScope {
         self.scope
     }
 
@@ -695,7 +695,7 @@ impl CheckedAsync {
     /// Returns the cleanup plan for one scope-exit occurrence.
     pub fn scope_exit_plan(
         &self,
-        scope: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
     ) -> Option<&AsyncScopeExitPlan> {
         let first = self.scope_exits_by_node.partition_point(|index| {
@@ -749,7 +749,7 @@ mod tests {
         let operation = AsyncTaskOperation::new(operand, AsyncTaskOperationKind::Start);
 
         let cleanup = AsyncScopeExitPlan::new(
-            BoundBlockId::from_slot(unit, 4),
+            BoundBlockId::from_slot(unit, 4).into(),
             BoundBlockId::from_slot(unit, 4).into(),
             [AsyncStorageExitDecision::new(
                 crate::StorageIdentityId::from_slot(unit, 5),
@@ -819,7 +819,7 @@ mod tests {
         ];
 
         let plans = coordinates.map(|(scope, exit)| {
-            AsyncScopeExitPlan::new(scope, exit.into(), [], [], [], [], false)
+            AsyncScopeExitPlan::new(scope.into(), exit.into(), [], [], [], [], false)
         });
 
         let requirements = [second_identity, first_identity].map(|identity| {
@@ -860,7 +860,7 @@ mod tests {
 
         for (index, (scope, exit)) in coordinates.into_iter().enumerate() {
             assert_eq!(
-                analysis.scope_exit_plan(scope, exit.into()),
+                analysis.scope_exit_plan(scope.into(), exit.into()),
                 Some(&plans[index])
             );
         }
@@ -892,7 +892,7 @@ mod tests {
         );
 
         assert_eq!(
-            analysis.scope_exit_plan(second_scope, second_exit.into()),
+            analysis.scope_exit_plan(second_scope.into(), second_exit.into()),
             None
         );
 
@@ -908,7 +908,7 @@ mod tests {
             );
 
             assert_eq!(
-                analysis.scope_exit_plan(first_scope, missing_exit.into()),
+                analysis.scope_exit_plan(first_scope.into(), missing_exit.into()),
                 None
             );
         }

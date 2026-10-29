@@ -1,10 +1,10 @@
-use bray_bound_tree::{AnyBoundNodeId, BoundBlockId};
+use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, StorageScope};
 
 use crate::CheckerRequestContext;
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind};
+use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
 pub(crate) fn exclude_cleanup_free_edges(
     graph: &super::model::ControlFlowGraph,
@@ -39,7 +39,7 @@ where
 {
     fn scoped_exit(
         &self,
-        scope: BoundBlockId,
+        scope: StorageScope,
     ) -> Option<(
         bray_bound_tree::BoundExpressionId,
         bray_bound_tree::BoundCallResult,
@@ -59,21 +59,21 @@ where
     pub(super) fn push_scope_exit(
         &mut self,
         current: AnalysisBlockId,
-        block: BoundBlockId,
+        scope: StorageScope,
         exit: AnyBoundNodeId,
     ) -> AnalysisBlockId {
         let retained_depth = self.scopes.len();
-        let inserted = self.scopes.last() != Some(&block);
+        let inserted = self.scopes.last() != Some(&scope);
 
         if inserted {
-            self.scopes.push(block);
+            self.scopes.push(scope);
         }
 
         self.push_cleanup_failures(current, self.scopes.len().saturating_sub(1), exit);
         self.scopes.truncate(retained_depth);
 
         self.storage
-            .push_scope_exit(current, block, exit, true, self.scoped_exit(block))
+            .push_scope_exit(current, scope, exit, true, self.scoped_exit(scope))
     }
 
     pub(super) fn push_exit(
@@ -110,6 +110,30 @@ where
         };
 
         self.storage.push_exit(block, kind);
+    }
+
+    pub(super) fn push_generator_storage_failure(
+        &mut self,
+        block: AnalysisBlockId,
+        exit: AnyBoundNodeId,
+        producer: BoundExpressionId,
+    ) -> AnalysisBlockId {
+        let failure = self.push_block();
+        let completed = self.push_block();
+
+        // Runtime storage work has its own failure and commit boundary. Later
+        // source evaluation and a selected iterator's proofs cannot precede it.
+        self.push_edge(
+            block,
+            failure,
+            AnalysisEdgeKind::Panic,
+            Some(AnalysisRefinement::GeneratorStorageFailure(producer)),
+        );
+
+        self.push_edge(block, completed, AnalysisEdgeKind::Sequential, None);
+        self.push_exit(failure, AnalysisExitKind::Panic, exit);
+
+        completed
     }
 
     pub(super) fn push_dependency_failures(

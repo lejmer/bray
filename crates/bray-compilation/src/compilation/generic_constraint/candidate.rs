@@ -8,20 +8,6 @@ use super::super::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
-    pub(in crate::compilation) fn implementation_candidate_constraint_outcome(
-        &self,
-        candidate: &ImplementationCandidate,
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<ProofOutcome, FactQueryError> {
-        self.implementation_candidate_constraint_outcome_with_evidence(
-            candidate,
-            &[],
-            cancellation,
-            diagnostics,
-        )
-    }
-
     pub(in crate::compilation) fn implementation_candidate_constraint_outcome_with_evidence(
         &self,
         candidate: &ImplementationCandidate,

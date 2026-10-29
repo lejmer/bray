@@ -1,7 +1,10 @@
 use bray_bound_tree::{
     BoundControlTransferExpression, BoundControlTransferKind, BoundExpressionId,
 };
-use bray_ir::{MirBlockId, MirGeneratorOperation, MirOperand, MirOperationKind, MirSourceAnchor};
+use bray_ir::{
+    MirBinaryOperator, MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirSourceAnchor, MirStoreKind,
+};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -128,7 +131,7 @@ impl Lowerer<'_> {
         &mut self,
         id: BoundExpressionId,
         expression: &BoundControlTransferExpression,
-        current: MirBlockId,
+        mut current: MirBlockId,
         source: MirSourceAnchor,
         value: Option<MirOperand>,
     ) -> Result<LoweredExpression, LoweringError> {
@@ -182,9 +185,24 @@ impl Lowerer<'_> {
 
                 Ok(LoweredExpression::terminated(source))
             }
+            YieldTarget::GeneratorObservation { folds, .. } => {
+                let boolean = folds[0].ty();
+
+                let value = self
+                    .adapt_control_transfer_value(expression, current, &source, value, boolean)?;
+
+                self.push_generator_observation(id, current, &source, folds, value)?;
+
+                Ok(LoweredExpression::continuing(
+                    current,
+                    Some(self.unit_operand(self.expression_type(id))),
+                    source,
+                ))
+            }
             YieldTarget::Generator {
                 destination,
                 element_type,
+                array_count,
                 ..
             } => {
                 let value = self.adapt_control_transfer_value(
@@ -195,12 +213,68 @@ impl Lowerer<'_> {
                     element_type,
                 )?;
 
-                self.push_operation(
-                    current,
-                    Self::retained_source(&source),
-                    MirOperationKind::Generator(MirGeneratorOperation::Push { destination, value }),
-                    None,
-                )?;
+                if let Some(count) = array_count {
+                    let element = MirPlace::new(
+                        destination.storage(),
+                        [MirProjection::new(
+                            MirProjectionKind::Index(MirOperand::Copy(Self::retained_place(
+                                &count,
+                            ))),
+                            destination.ty(),
+                            element_type,
+                        )],
+                        element_type,
+                    );
+
+                    self.push_operation(
+                        current,
+                        Self::retained_source(&source),
+                        MirOperationKind::Store {
+                            kind: MirStoreKind::Initialize,
+                            destination: element,
+                            value,
+                        },
+                        None,
+                    )?;
+
+                    let one = crate::operand::integer_constant(
+                        self.input.semantic_values(),
+                        count.ty(),
+                        1,
+                    )?;
+
+                    let next = self.push_typed_value_operation(
+                        id,
+                        current,
+                        Self::retained_source(&source),
+                        MirOperationKind::Binary {
+                            operator: MirBinaryOperator::Add,
+                            left: MirOperand::Copy(Self::retained_place(&count)),
+                            right: one,
+                        },
+                        count.ty(),
+                    )?;
+
+                    self.push_operation(
+                        current,
+                        Self::retained_source(&source),
+                        MirOperationKind::Store {
+                            kind: MirStoreKind::Assign,
+                            destination: count,
+                            value: next,
+                        },
+                        None,
+                    )?;
+                } else {
+                    current = self.push_generator_element(
+                        id,
+                        current,
+                        &source,
+                        destination,
+                        element_type,
+                        value,
+                    )?;
+                }
 
                 let result = self.unit_operand(self.expression_type(id));
 

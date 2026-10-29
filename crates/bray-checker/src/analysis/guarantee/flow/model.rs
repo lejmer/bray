@@ -59,9 +59,11 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<
-        bray_bound_tree::BoundBlockId,
+        bray_bound_tree::StorageScope,
         Vec<(crate::ExecutionPlace, bray_bound_tree::StorageIdentityId)>,
     >,
+    pub(in crate::analysis::guarantee) generator_observations:
+        &'a bray_bound_tree::GeneratorObservations,
     pub(in crate::analysis) yield_targets: &'a BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(in crate::analysis::guarantee) graph: &'a ControlFlowGraph,
     pub(super) excluded_edges: BTreeSet<AnalysisEdgeId>,

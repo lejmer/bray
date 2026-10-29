@@ -1355,7 +1355,7 @@ fn scoped_capability_annotations_do_not_select_enter_in_source_or_imported_inter
 
                 assert_eq!(
                     owners.identity_scope(storage.value(), identity),
-                    Some(expression.blocks()[0])
+                    Some(expression.blocks()[0].into())
                 );
             } else {
                 assert!(

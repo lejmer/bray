@@ -124,7 +124,34 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
             self.push_result(current, id, super::model::AnalysisResultPhase::Begin);
         }
 
-        let completion = self.build_expression_inner(id, current)?;
+        let scope = self
+            .view()
+            .expression(id)
+            .and_then(|expression| bray_bound_tree::StorageScope::for_iteration(id, expression));
+
+        if let Some(scope) = scope {
+            self.scopes.push(scope);
+        }
+
+        let completion = self.build_expression_inner(id, current);
+
+        let completion = completion.map(|completion| {
+            completion.map(|current| {
+                scope.map_or(current, |scope| {
+                    self.push_scope_exit(current, scope, id.into())
+                })
+            })
+        });
+
+        if let Some(scope) = scope {
+            assert_eq!(
+                self.scopes.pop(),
+                Some(scope),
+                "iteration cleanup scopes remain nested"
+            );
+        }
+
+        let completion = completion?;
 
         let Some(current) = completion else {
             return Some(None);

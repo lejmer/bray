@@ -53,6 +53,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "memory.buffer.owns_storage",
         ))?;
 
+        // A zero-capacity buffer skips the allocator but still needs a valid
+        // checked-call outcome on the continuation shared with the allocating path.
+        let outcome = if self.checked_call_operations.contains(&operation_id) {
+            let outcome = self.checked_call_panic_report_context()?;
+
+            self.set_pending_call_context(outcome)?;
+
+            Some(outcome)
+        } else {
+            None
+        };
+
         llvm(
             self.builder
                 .build_conditional_branch(present, allocate, done),
@@ -68,10 +80,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryAllocate),
         );
 
-        let pointer = self
-            .invoke_operation_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
-            .and_then(pointer_value)
-            .expect("checked allocator produces a pointer on normal completion");
+        let arguments = [bytes.into(), alignment.into()];
+
+        let pointer = match outcome {
+            Some(outcome) => {
+                self.invoke_helper_with_panic_report_context(helper, &arguments, outcome)
+            }
+            None => self.invoke_helper(helper, &arguments),
+        }?
+        .and_then(pointer_value)
+        .expect("checked allocator produces a pointer on normal completion");
 
         self.observe_memory_allocation(bytes)?;
 

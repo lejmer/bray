@@ -27,18 +27,6 @@ fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
 
     let cases = [
         (
-            MirHelperReference::BeginGenerator,
-            runtime(RuntimeAbiRole::GeneratorBegin),
-        ),
-        (
-            MirHelperReference::PushGenerator,
-            runtime(RuntimeAbiRole::GeneratorPush),
-        ),
-        (
-            MirHelperReference::FinishGenerator,
-            runtime(RuntimeAbiRole::GeneratorFinish),
-        ),
-        (
             MirHelperReference::PanicReport,
             runtime(RuntimeAbiRole::PanicReportConstruction),
         ),
@@ -63,24 +51,6 @@ fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
     for (reference, expected) in cases {
         assert_eq!(direct_helper_symbol(&owner, &reference), Some(expected));
     }
-}
-
-#[test]
-fn generator_runtime_helpers_use_stable_erased_abis() {
-    let compilation = compilation("module app; func main() {}");
-
-    let begin = compilation
-        .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
-        .expect("generator begin signature must realize");
-
-    let destruction = compilation
-        .codegen_runtime_signature(RuntimeAbiRole::GeneratorDestruction)
-        .expect("generator destruction signature must realize");
-
-    assert_eq!(begin.parameters().len(), 6);
-    assert_eq!(destruction.parameters().len(), 6);
-    assert_eq!(begin.result(), &CodegenResultMapping::Void);
-    assert_eq!(destruction.result(), &CodegenResultMapping::Void);
 }
 
 #[test]
@@ -180,17 +150,17 @@ fn task_event_runtime_helpers_use_event_and_status_scalars() {
 }
 
 #[test]
-fn generator_runtime_signatures_demand_concrete_opaque_pointers() {
+fn frame_completion_signatures_demand_concrete_opaque_pointers() {
     let compilation = compilation("module app; func main() {}");
     let target = codegen_target(&compilation);
 
     let signature = compilation
-        .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
-        .expect("generator begin signature must realize");
+        .codegen_runtime_signature(RuntimeAbiRole::FrameCompletionMove)
+        .expect("frame completion signature must realize");
 
     let Some(CodegenParameterMapping::Direct { ty: pointer, .. }) = signature.parameters().first()
     else {
-        panic!("generator begin must receive one direct state pointer");
+        panic!("frame completion must receive one direct state pointer");
     };
 
     let element = compilation

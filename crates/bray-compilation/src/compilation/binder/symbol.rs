@@ -18,6 +18,7 @@ pub(in crate::compilation) use result_dependencies::{
 mod static_storage;
 pub(in crate::compilation) use static_storage::static_dependencies_from_contract;
 mod surface;
+pub(in crate::compilation) use surface::with_declaration_root;
 mod template;
 
 #[cfg(test)]
