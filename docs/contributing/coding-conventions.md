@@ -270,9 +270,9 @@ C, C++, Rust, assembly, LLVM IR, and supporting headers. Use lowercase ASCII wor
 hyphens, such as `async-tasks.bray`, `static-storage-host.c`, `static-storage-host.h`, or `runtime-smoke.rs`.
 Module and declaration names continue to follow their language's identifier rules.
 
-Keep structural entry filenames such as `main.bray`, `main.rs`, `lib.rs`, and `build.rs` unchanged. Token and parser-input
-corpora retain their corpus-specific naming rules. Generated `build` and `target` directories are output rather than
-scenario fixtures.
+Keep structural entry filenames such as `main.bray`, `main.rs`, `lib.rs`, and `build.rs` unchanged. Token and
+parser-input corpora retain their corpus-specific naming rules. Generated `build` and `target` directories are output
+rather than scenario fixtures.
 
 Both `cargo xtask style` and `cargo xtask style check` reject compiled fixture filename violations. Include any new
 compiled fixture language in the style check when introducing it.
@@ -371,10 +371,10 @@ reason:
 File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or
 `repeated-module-prefix`. Item-level exemptions must appear immediately before the affected item and apply only to
 `function-too-large`, `non-thin-lib-root`, `non-thin-module-root`, or `wildcard-import`. Unknown rules, malformed
-directives, empty reasons, and invalid placement are errors. A `context-erasing-failure-conversion` exemption must appear
-immediately before the affected expression and may be used only when no exact leaf cause or context can be represented.
-Broad-failure markers with extra syntax or invalid placement are errors. An exemption that does not suppress a diagnostic
-produces a warning.
+directives, empty reasons, and invalid placement are errors. A `context-erasing-failure-conversion` exemption must
+appear immediately before the affected expression and may be used only when no exact leaf cause or context can be
+represented. Broad-failure markers with extra syntax or invalid placement are errors. An exemption that does not
+suppress a diagnostic produces a warning.
 
 Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exemption is appropriate only when naming the
 symbols explicitly is unreasonable to maintain, such as a machine-generated file or an API whose names are defined by

@@ -1,9 +1,9 @@
 # Build artifacts across checkouts
 
-Run the shared [developer Cargo commands](xtask.md#use-optimized-incremental-tooling) from the root of the Bray checkout
-you intend to change. This retains the workspace's common tool selection and dependency features. Focused Cargo package
-commands and retained task executables also support member directories. Retained executables select the workspace
-containing the current directory, even when the executable comes from a shared Cargo target directory.
+Run the shared [developer Cargo commands](xtask.md#use-optimized-incremental-tooling) from the root of the Bray checkout you intend to change. This retains the
+workspace's common tool selection and dependency features. Focused Cargo package commands and retained task executables
+also support member directories. Retained executables select the workspace containing the current directory, even when
+the executable comes from a shared Cargo target directory.
 
 ## Choose artifact storage
 
@@ -22,9 +22,8 @@ See [Cargo's build directory setting](https://doc.rust-lang.org/cargo/reference/
 
 ## Build toolchain bundles
 
-Use the focused guides for [LLVM provisioning](llvm.md), [runtime artifacts](runtime-artifacts.md), and
-[standard-library bundles](standard-library.md#build-a-bundle). The runtime and standard-library guides include the
-installed paths expected beside release binaries.
+Use the focused guides for [LLVM provisioning](llvm.md), [runtime artifacts](runtime-artifacts.md), and [standard-library bundles](standard-library.md#build-a-bundle).
+The runtime and standard-library guides include the installed paths expected beside release binaries.
 
 Long workflows print phase starts, completions, and repeated-work counts to standard error. Child compiler progress
 remains visible while machine-readable command output stays on standard output.
