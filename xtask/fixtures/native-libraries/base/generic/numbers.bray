@@ -28,19 +28,19 @@ static STORED<const N: i32>: Stored = Stored
     value = N
 };
 
-public func answer() -> i32
+func answer() -> i32
 {
     return STORED<65>.value;
 }
 
-public func value<const N: i32>() -> i32
+func value<const N: i32>() -> i32
 {
     return STORED<N>.value;
 }
 
 internal static GENERATED_DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
-public struct Generated
+struct Generated
 {
     destruct()
     {
@@ -48,19 +48,19 @@ public struct Generated
     }
 }
 
-public func create_generated() -> Generated
+func create_generated() -> Generated
 {
     return Generated
     {
     };
 }
 
-public func generated_destructions() -> usize
+func generated_destructions() -> usize
 {
     return core.atomic.load<usize, 1>(&GENERATED_DESTRUCTIONS);
 }
 
-public func produce_and_consume<T>(pos create: func() -> T) -> usize
+func produce_and_consume<T>(pos create: func() -> T) -> usize
 {
     let values =
     {
@@ -85,7 +85,7 @@ public func produce_and_consume<T>(pos create: func() -> T) -> usize
     return count;
 }
 
-public func count_generated<T>(pos element: T) -> usize
+func count_generated<T>(pos element: T) -> usize
     with(T: Copyable)
 {
     let values =
@@ -107,7 +107,7 @@ public func count_generated<T>(pos element: T) -> usize
     return count;
 }
 
-public predicate all_generated(count: i32) = all(
+predicate all_generated(count: i32) = all(
     {
         each item in 0..count
         {
@@ -123,7 +123,7 @@ public predicate all_generated(count: i32) = all(
     }
 );
 
-public predicate any_generated(count: i32) = any(
+predicate any_generated(count: i32) = any(
     {
         each item in 0..count
         {
@@ -132,7 +132,7 @@ public predicate any_generated(count: i32) = any(
     }
 );
 
-public const func observe_generated(
+const func observe_generated(
     pos flag: bool,
     expected: bool = any(
         {

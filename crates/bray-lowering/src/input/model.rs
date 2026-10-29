@@ -254,9 +254,9 @@ impl<'unit> LoweringInput<'unit> {
                 if let AsyncStorageExitDisposition::Cleanup { phases, .. } = decision.disposition()
                     && phases.includes_lifecycle()
                     && !generator_observations.is_some_and(|observations| {
-                        storage.root_access(decision.identity()).is_some_and(|access| {
-                                observations.eliminates(storage, access)
-                        })
+                        storage
+                            .root_access(decision.identity())
+                            .is_some_and(|access| observations.eliminates(storage, access))
                     })
                 {
                     lifecycle_storage.insert(decision.identity());

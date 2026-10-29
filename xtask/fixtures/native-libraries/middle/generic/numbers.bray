@@ -2,17 +2,17 @@ module numbers;
 
 using fixture.base.numbers;
 
-public func result() -> i32
+func result() -> i32
 {
     return fixture.base.numbers.answer();
 }
 
-public func generated_count<T>(pos create: func() -> T) -> usize
+func generated_count<T>(pos create: func() -> T) -> usize
 {
     return fixture.base.numbers.produce_and_consume<T>(create);
 }
 
-public func verify_generated(pos count: i32)
+func verify_generated(pos count: i32)
     requires(
         count >= 0,
         fixture.base.numbers.all_generated(count = count),

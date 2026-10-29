@@ -954,6 +954,68 @@ fn generator_iteration_lowers_selected_cursor_operations() {
 }
 
 #[test]
+fn iteration_sources_preserve_termination_and_normal_completion() {
+    let consumers = [
+        "for value in produce() {}",
+        "for value in move produce() {}",
+        "_ = { each value in produce() { yield value; } };",
+        "_ = { each value in move produce() { yield value; } };",
+        "_ = all(produce());",
+        "_ = any(produce());",
+    ];
+
+    for (ty, ready, statements) in [
+        ("Items", "return Items {};", &consumers[..]),
+        ("Range<i32>", "return 0..2;", &consumers[..4]),
+    ] {
+        for statement in statements {
+            for production in [ready, "panic(\"source failure\");"] {
+                for execution in ["", "async "] {
+                    let source = format!(
+                        r#"
+                        module app;
+                        struct Items {{}}
+                        struct IterationCursor {{}}
+                        impl &Items(Iterable) {{
+                            type Element = bool;
+                            type Cursor = IterationCursor;
+                            consume func iterate() -> IterationCursor {{ return IterationCursor {{}}; }}
+                        }}
+                        impl Items(Iterable) {{
+                            type Element = bool;
+                            type Cursor = IterationCursor;
+                            consume func iterate() -> IterationCursor {{ return IterationCursor {{}}; }}
+                        }}
+                        impl IterationCursor(Iterator) {{
+                            type Element = bool;
+                            mut func next() -> bool? {{ return none; }}
+                        }}
+                        func produce() -> {ty} {{ {production} }}
+                        {execution}func main() {{ {statement} }}
+                        "#
+                    );
+
+                    let compilation = compilation(&source);
+
+                    assert!(
+                        compilation.check_diagnostics().is_empty(),
+                        "{source}: {:?}",
+                        compilation.check_diagnostics()
+                    );
+
+                    let lowered = compilation
+                        .lowered_unit(source_function_body_key(&compilation, "main"))
+                        .expect("iteration preserves its source completion");
+
+                    assert!(lowered.diagnostics().is_empty(), "{source}: {lowered:#?}");
+                    assert!(lowered_mir(&lowered).is_valid(), "{source}: {lowered:#?}");
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn temporary_generator_iteration_evaluates_its_producer() {
     for consume in [
         "_ = all({ each item in 0..9 { produced += 1; yield false; } });",
@@ -1099,10 +1161,13 @@ fn native_generator_default_reuses_its_checked_observation() {
         assert_eq!(!allocates, elided, "{source}: {mir:?}");
 
         if elided {
-            let values = compilation.semantic_value_store().expect("checked types publish");
+            let values = compilation
+                .semantic_value_store()
+                .expect("checked types publish");
 
             assert!(!mir.storages().iter().any(|storage| matches!(
-                values.type_data(storage.ty()).as_ref(), bray_symbols::TypeData::Generator(_)
+                values.type_data(storage.ty()).as_ref(),
+                bray_symbols::TypeData::Generator(_)
             )));
         }
     }

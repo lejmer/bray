@@ -2203,11 +2203,11 @@ fn imported_generator_predicates_reuse_eager_checked_loop_state() {
     let provider = compilation(
         r#"
         module api;
-        public predicate generated(count: i32) = all({ each item in 0..count { yield item < count; } });
-        public predicate positive(count: i32) = any({ each item in 0..count { yield item > 0; } });
-        public const func all_values(pos count: i32) -> bool { return all({ each item in 0..count { yield item < count; } }); }
-        public const func any_values(pos count: i32) -> bool { return any({ each item in 0..count { yield item > 0; } }); }
-        public const func eager(pos flag: bool) -> bool {
+        predicate generated(count: i32) = all({ each item in 0..count { yield item < count; } });
+        predicate positive(count: i32) = any({ each item in 0..count { yield item > 0; } });
+        const func all_values(pos count: i32) -> bool { return all({ each item in 0..count { yield item < count; } }); }
+        const func any_values(pos count: i32) -> bool { return any({ each item in 0..count { yield item > 0; } }); }
+        const func eager(pos flag: bool) -> bool {
             let mut finished: bool = false;
             let mut produced: i32 = 0;
             let values = { each item in 0..3 { produced += 1; yield false; finished = item == 2; yield flag; } };

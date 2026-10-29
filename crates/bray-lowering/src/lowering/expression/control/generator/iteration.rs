@@ -7,7 +7,7 @@ use crate::lowering::{LoweringError, block::LoweredExpression, lowerer::Lowerer}
 use crate::synthetic::GeneratorIterationLowerer;
 
 impl Lowerer<'_> {
-    pub(super) fn generator_cursor(
+    pub(in crate::lowering::expression::control) fn generator_cursor(
         &mut self,
         id: BoundExpressionId,
         block: MirBlockId,
@@ -32,7 +32,7 @@ impl Lowerer<'_> {
         lowering.generator_cursor(block, value, generator, cursor, hook)
     }
 
-    pub(super) fn generator_next(
+    pub(in crate::lowering::expression::control) fn generator_next(
         &mut self,
         id: BoundExpressionId,
         block: MirBlockId,

@@ -138,9 +138,11 @@ impl Lowerer<'_> {
         expression: &BoundForExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
+        let Some(iteration) = self.begin_iteration(id, expression.source(), current)? else {
+            return Ok(LoweredExpression::terminated(self.expression_source(id)));
+        };
 
-        let iteration = self.begin_iteration(id, expression.source(), current)?;
+        let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
         self.push_loop_target(
             expression.origin().source_anchor().syntax(),
@@ -196,7 +198,9 @@ impl Lowerer<'_> {
             );
         };
 
-        let iteration = self.begin_iteration(id, *source_expression, current)?;
+        let Some(iteration) = self.begin_iteration(id, *source_expression, current)? else {
+            return Ok(LoweredExpression::terminated(self.expression_source(id)));
+        };
 
         let join = self.builder.push_block(
             Self::retained_source(&iteration.source),
@@ -410,8 +414,52 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let source = self.source(expression.origin());
-        let iteration = self.lower_generator_iteration_loop(id, expression, current)?;
+
+        let Some(iteration) = self.begin_iteration(id, expression.source(), current)? else {
+            return Ok(LoweredExpression::terminated(source));
+        };
+
         let result_type = self.expression_type(id);
+
+        let break_block = self.builder.push_block(
+            Self::retained_source(&iteration.source),
+            MirBlockKind::Ordinary,
+        )?;
+
+        self.builder.push_block_parameter(
+            break_block,
+            Self::retained_source(&iteration.source),
+            result_type,
+        )?;
+
+        self.set_terminator(
+            break_block,
+            Self::retained_source(&iteration.source),
+            MirTerminatorKind::Goto(MirEdge::new(iteration.exhausted, [])),
+        )?;
+
+        self.loop_targets.push(LoopTarget {
+            syntax: expression.region(),
+            continue_block: iteration.header,
+            break_block,
+            result_type,
+            scope_depth: self.active_scopes.len(),
+        });
+
+        let pattern_subject = self.pattern_place_operand(
+            expression.pattern(),
+            Self::retained_place(&iteration.element),
+            iteration.item,
+        )?;
+
+        let item =
+            self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
+
+        let body = self.lower_block(expression.body(), item)?;
+
+        self.finish_edge(body, iteration.header)?;
+
+        self.loop_targets.pop();
 
         Ok(LoweredExpression::continuing(
             iteration.exhausted,
@@ -448,64 +496,12 @@ impl Lowerer<'_> {
         self.lower_generator(id, *iteration_id, &iteration, current, kind)
     }
 
-    fn lower_generator_iteration_loop(
-        &mut self,
-        id: BoundExpressionId,
-        expression: &BoundGeneratorExpression,
-        current: MirBlockId,
-    ) -> Result<Iteration, LoweringError> {
-        let iteration = self.begin_iteration(id, expression.source(), current)?;
-        let iteration_type = self.expression_type(id);
-
-        let break_block = self.builder.push_block(
-            Self::retained_source(&iteration.source),
-            MirBlockKind::Ordinary,
-        )?;
-
-        self.builder.push_block_parameter(
-            break_block,
-            Self::retained_source(&iteration.source),
-            iteration_type,
-        )?;
-
-        self.set_terminator(
-            break_block,
-            Self::retained_source(&iteration.source),
-            MirTerminatorKind::Goto(MirEdge::new(iteration.exhausted, [])),
-        )?;
-
-        self.loop_targets.push(LoopTarget {
-            syntax: expression.region(),
-            continue_block: iteration.header,
-            break_block,
-            result_type: iteration_type,
-            scope_depth: self.active_scopes.len(),
-        });
-
-        let pattern_subject = self.pattern_place_operand(
-            expression.pattern(),
-            Self::retained_place(&iteration.element),
-            iteration.item,
-        )?;
-
-        let item =
-            self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
-
-        let body = self.lower_block(expression.body(), item)?;
-
-        self.finish_edge(body, iteration.header)?;
-
-        self.loop_targets.pop();
-
-        Ok(iteration)
-    }
-
     fn begin_iteration(
         &mut self,
         id: BoundExpressionId,
         source_expression: BoundExpressionId,
         current: MirBlockId,
-    ) -> Result<Iteration, LoweringError> {
+    ) -> Result<Option<Iteration>, LoweringError> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(id).clone();
         let source = self.expression_source(id);
@@ -534,10 +530,7 @@ impl Lowerer<'_> {
         };
 
         let Some(mut current) = source_value.block else {
-            panic!(
-                "lowering contract violation: UnsupportedExpression {value:?}",
-                value = id
-            );
+            return Ok(None);
         };
 
         let Some(source_operand) = source_value.value else {
@@ -680,13 +673,13 @@ impl Lowerer<'_> {
             },
         )?;
 
-        Ok(Iteration {
+        Ok(Some(Iteration {
             header,
             item,
             exhausted,
             element,
             source,
-        })
+        }))
     }
 
     fn next_iteration_value(

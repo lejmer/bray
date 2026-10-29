@@ -554,6 +554,8 @@ trusted func main() -> i32
         "predicate generator observation allocated collection storage"
     );
 
+    verify_interrupted_iteration_sources();
+
     return 0;
 }
 
@@ -670,6 +672,120 @@ func verify_generator_iteration()
 
     assert(count_cursor(make_cursor(&shared)) == 9);
     assert(count_cursor(make_cursor(shared)) == 9);
+}
+
+struct InterruptedIterable
+{
+}
+
+struct InterruptedCursor
+{
+}
+
+impl &InterruptedIterable(Iterable)
+{
+    type Element = bool;
+    type Cursor = InterruptedCursor;
+
+    consume func iterate() -> InterruptedCursor
+    {
+        return InterruptedCursor
+        {
+        };
+    }
+}
+
+impl InterruptedIterable(Iterable)
+{
+    type Element = bool;
+    type Cursor = InterruptedCursor;
+
+    consume func iterate() -> InterruptedCursor
+    {
+        return InterruptedCursor
+        {
+        };
+    }
+}
+
+impl InterruptedCursor(Iterator)
+{
+    type Element = bool;
+
+    mut func next() -> bool?
+    {
+        return none;
+    }
+}
+
+func interrupted_iteration_source() -> InterruptedIterable
+{
+    let owned = Source
+    {
+        value = 1
+    };
+
+    panic("iteration source does not complete");
+}
+
+func verify_interrupted_iteration_sources()
+{
+    let before = core.atomic.load<usize, 1>(&SOURCES);
+
+    let shared = catch
+    {
+        for value in interrupted_iteration_source() {}
+
+        yield unit;
+    };
+
+    assert(shared matches Error(_));
+
+    let consumed = catch
+    {
+        for value in move interrupted_iteration_source() {}
+
+        yield unit;
+    };
+
+    assert(consumed matches Error(_));
+
+    let shared_each = catch
+    {
+        _ =
+        {
+            each value in interrupted_iteration_source()
+            {
+                yield value;
+            }
+        };
+
+        yield unit;
+    };
+
+    assert(shared_each matches Error(_));
+
+    let consumed_each = catch
+    {
+        _ =
+        {
+            each value in move interrupted_iteration_source()
+            {
+                yield value;
+            }
+        };
+
+        yield unit;
+    };
+
+    assert(consumed_each matches Error(_));
+
+    let all_source = catch all(interrupted_iteration_source());
+    let any_source = catch any(interrupted_iteration_source());
+
+    assert(all_source matches Error(_));
+    assert(any_source matches Error(_));
+    assert(core.atomic.load<usize, 1>(&SOURCES) == before + 6);
 }
 
 func verify_nested_generator_cleanup()
