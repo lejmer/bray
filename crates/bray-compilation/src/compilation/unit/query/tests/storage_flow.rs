@@ -1613,3 +1613,55 @@ fn assignment_publication_distinguishes_owned_slots_from_borrowed_input_referent
         assert!(!target.previous);
     }
 }
+
+#[test]
+fn iteration_source_recovery_preserves_syntax_diagnostics() {
+    let producer = "{ each item in 0..3 { yield true; } }";
+    let mut cases = Vec::new();
+
+    for consumer in [
+        "for value in SOURCE {}",
+        "for value in move SOURCE {}",
+        "let values = { each value in SOURCE { yield value; } }; _ = all(values);",
+        "let values = { each value in move SOURCE { yield value; } }; _ = any(values);",
+    ] {
+        cases.push((
+            consumer.replace("SOURCE", producer),
+            consumer.replace("SOURCE", &format!("({producer})")),
+        ));
+    }
+
+    for fold in ["all", "any"] {
+        cases.push((
+            format!("_ = {fold}({producer};"),
+            format!("_ = {fold}({producer});"),
+        ));
+    }
+
+    for (malformed, valid) in cases {
+        for (statement, recovered) in [(malformed, true), (valid, false)] {
+            let source = format!("module app; func main() {{ {statement} }}");
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            if recovered {
+                assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::SyntaxExpectedToken);
+                continue;
+            }
+
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+
+            let lowered = compilation
+                .lowered_unit(source_callable_body_key(&compilation))
+                .expect("grouped iteration source lowers");
+
+            let mir = lowered
+                .value()
+                .as_ref()
+                .and_then(bray_lowering::LoweredUnit::mir)
+                .expect("valid iteration source retains executable MIR");
+
+            assert!(mir.is_valid(), "{source}: {mir:?}");
+        }
+    }
+}

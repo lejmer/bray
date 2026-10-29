@@ -434,12 +434,7 @@ where
             Some(bray_bound_tree::BoundExpression::Structured(operation))
                 if operation.kind() == BoundStructuredExpressionKind::BooleanAllFold);
 
-        let selected = self.selections().is_some_and(|selections| {
-            matches!(
-                selections.expression(id),
-                Some(bray_bound_tree::SemanticSelection::Iteration(_))
-            )
-        });
+        let selected = self.has_complete_iteration(id);
 
         let next = bray_bound_tree::BoundExecutionSite::Next(id);
 
@@ -462,17 +457,22 @@ where
         Some(Some(completion))
     }
 
+    fn has_complete_iteration(&self, id: BoundExpressionId) -> bool {
+        self.view().node_is_recovered(id.into()) == Some(false)
+            && self.selections().is_some_and(|selections| {
+                matches!(
+                    selections.expression(id),
+                    Some(bray_bound_tree::SemanticSelection::Iteration(_))
+                )
+            })
+    }
+
     fn build_iteration_entry(
         &mut self,
         id: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> (AnalysisBlockId, AnalysisBlockId, AnalysisBlockId) {
-        let selected = self.selections().is_some_and(|selections| {
-            matches!(
-                selections.expression(id),
-                Some(bray_bound_tree::SemanticSelection::Iteration(_))
-            )
-        });
+        let selected = self.has_complete_iteration(id);
 
         let current = if selected {
             self.push_protocol_invocation(bray_bound_tree::BoundExecutionSite::Iterate(id), current)
