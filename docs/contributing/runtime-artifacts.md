@@ -48,8 +48,9 @@ host shutdown.
 Generic cancellation observation and cleanup shielding use the scoped entry provider. An ordinary synchronous entry has
 no selected execution provider. Async and test providers retain and restore their control callbacks with the existing
 exact-thread entry scope. The remaining Rust archives serve unfinished execution and test consumers, which stay outside the proved synchronous
-host closure. Selected-precision real and complex arithmetic uses [Bray numeric runtime kernels](numeric-runtime.md)
-and shares the synchronous provenance audit. Native thread operations that retain task-event or
+host closure. Selected-precision real and complex arithmetic uses the
+[numeric runtime implementation](../wip/bray-numeric-runtime-analysis.md) and shares the synchronous provenance audit.
+Native thread operations that retain task-event or
 atomic-wait services also retain their execution requirements; an ordinary synchronous entry does not remove reachable
 service demand.
 

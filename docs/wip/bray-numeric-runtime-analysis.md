@@ -1,4 +1,8 @@
-# Numeric runtime arithmetic
+# Numeric runtime implementation and cost analysis
+
+This analysis records the numeric runtime implementation and measured costs from BRA-659, as part of the Bray native
+runtime migration. Build commands and packaging checks are documented in the
+[runtime artifact guide](../contributing/runtime-artifacts.md).
 
 The `RealPower`, `ComplexMultiply`, `ComplexDivide` and `ComplexPower` runtime roles use the Bray bootstrap
 implementation. The role catalog remains the authority for ownership, symbols and native signatures. The compiler's
@@ -69,7 +73,7 @@ so build durations are observations rather than an isolated comparison of compil
 | Live usable allocation bytes at exit | 96 | 0 |
 
 Allocation measurements use the Linux/glibc process interposer described in the
-[synchronous footprint checkpoint](runtime-artifacts.md#synchronous-footprint-checkpoint). The native plan's inclusion
+[synchronous footprint checkpoint](../contributing/runtime-artifacts.md#synchronous-footprint-checkpoint). The native plan's inclusion
 reasons and the actual map's 521 retained runtime members authenticate against the Bray implementation artifacts;
 no opaque or project-owned Rust runtime unit is selected. Numeric demand has no execution capabilities or lanes.
 
@@ -92,4 +96,4 @@ input, precision or machine. A separate binary128 phase-reduction case with an i
 matches the compiler oracle and takes about 100 milliseconds in Bray versus 383 milliseconds in Rust on this host.
 That case exercises the larger-precision algorithms rather than only the fixed storage paths.
 
-See [runtime artifact verification](runtime-artifacts.md#verify-packaging-and-native-linking) for the containing workflow.
+See [runtime artifact verification](../contributing/runtime-artifacts.md#verify-packaging-and-native-linking) for the containing workflow.
