@@ -1,0 +1,110 @@
+module app;
+
+using std.memory;
+using core.atomic;
+
+@layout(c)
+struct Record
+{
+    byte: u8;
+    word: u64;
+}
+
+@layout(c)
+struct Trailing
+{
+    byte: u8;
+    words: [u64; ..];
+}
+
+@layout(transparent)
+struct Word
+{
+    value: u64;
+}
+
+const MAXIMUM: usize = ~0;
+
+const EXTENT: usize = 3;
+
+const func fixed_matches<T>(pos count: usize, pos bytes: usize, pos alignment: usize) -> bool
+{
+    match std.memory.layout_of<T>(count = count)
+    {
+        case Ok(layout) { return layout.bytes == bytes && layout.align == alignment; }
+        case Error(_) { return false; }
+    }
+}
+
+const func trailing_matches(pos count: usize, pos bytes: usize) -> bool
+{
+    match std.memory.trailing_layout_of<Trailing>(count = count)
+    {
+        case Ok(layout) { return layout.bytes == bytes && layout.align == 8; }
+        case Error(_) { return false; }
+    }
+}
+
+const func overflows<T>(pos count: usize) -> bool
+{
+    match std.memory.layout_of<T>(count = count)
+    {
+        case Error(std.memory.MemoryLayoutError.SizeOverflow) { return true; }
+        case _ { return false; }
+    }
+}
+
+const func trailing_overflows(pos count: usize) -> bool
+{
+    match std.memory.trailing_layout_of<Trailing>(count = count)
+    {
+        case Error(std.memory.MemoryLayoutError.SizeOverflow) { return true; }
+        case _ { return false; }
+    }
+}
+
+const func generic_size<T>() -> usize
+{
+    return std.memory.size_of<T>();
+}
+
+const SCALARS: bool = std.memory.size_of<u64>() == 8 && std.memory.align_of<u64>() == 8 && std.memory.stride_of<usize>(
+) == 8;
+
+const AGGREGATES: bool = generic_size<Record>() == 16 && std.memory.align_of<Record>() == 8 && std.memory.stride_of<
+    Record
+>() == 16 && generic_size<[u16; 3]>() == 6 && generic_size<[u16; EXTENT]>() == 6 && generic_size<(u8, u64)>() == 16 &&
+    generic_size<Word>() == 8 && generic_size<DataPointer<u8>>() == 8 && generic_size<Uninit<Record>>() == 16;
+
+const FIXED: bool = fixed_matches<Record>(0, 0, 8) && fixed_matches<Record>(3, 48, 8) && fixed_matches<unit>(
+    MAXIMUM,
+    0,
+    1
+) && overflows<Record>(MAXIMUM) && fixed_matches<u8>(MAXIMUM, MAXIMUM, 1);
+
+const FLEXIBLE: bool = std.memory.align_of<Trailing>() == 8 && trailing_matches(0, 8) && trailing_matches(3, 32) &&
+    trailing_overflows(MAXIMUM);
+
+static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+func main() -> i32
+{
+    assert(SCALARS && AGGREGATES && FIXED && FLEXIBLE);
+
+    core.atomic.store<usize, 0>(&COUNT, value = 3);
+
+    let ordinary: usize = core.atomic.load<usize, 0>(&COUNT);
+
+    assert(fixed_matches<Record>(ordinary, 48, 8));
+    assert(trailing_matches(ordinary, 32));
+
+    core.atomic.store<usize, 0>(&COUNT, value = MAXIMUM);
+
+    let large: usize = core.atomic.load<usize, 0>(&COUNT);
+
+    assert(overflows<Record>(large));
+    assert(trailing_overflows(large));
+    assert(fixed_matches<unit>(large, 0, 1));
+    assert(fixed_matches<u8>(large, MAXIMUM, 1));
+    return 0;
+}

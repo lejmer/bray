@@ -2567,6 +2567,12 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingTrailingLayoutQueryTypeUnsupported => {
             MessageTemplate::new(CHECKING_TRAILING_LAYOUT_QUERY_TYPE_UNSUPPORTED)
         }
+        DiagnosticKind::CheckingTypeLayoutOverflow => MessageTemplate::new(&[
+            MessageTemplatePart::Text("the storage size of "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" exceeds the addressable range of target "),
+            MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+        ]),
         DiagnosticKind::CheckingMemoryPointeeTypeUnsupported => {
             MessageTemplate::new(CHECKING_MEMORY_POINTEE_TYPE_UNSUPPORTED)
         }

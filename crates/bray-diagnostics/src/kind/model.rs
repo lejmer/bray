@@ -505,6 +505,8 @@ define_diagnostic_kinds! {
     CheckingFixedLayoutQueryTypeUnsupported,
     /// A trailing-layout helper names a type without flexible C storage.
     CheckingTrailingLayoutQueryTypeUnsupported,
+    /// A selected type layout exceeds the target addressable size.
+    CheckingTypeLayoutOverflow,
     /// A typed memory operation names a pointee without complete fixed-size storage.
     CheckingMemoryPointeeTypeUnsupported,
     /// A tagless union pattern lacks one exact active-variant fact.
@@ -936,6 +938,7 @@ impl DiagnosticKind {
             Self::CheckingCallableAddressTypeUnsupported => 7105,
             Self::CheckingFixedLayoutQueryTypeUnsupported => 7106,
             Self::CheckingTrailingLayoutQueryTypeUnsupported => 7107,
+            Self::CheckingTypeLayoutOverflow => 7133,
             Self::CheckingMemoryPointeeTypeUnsupported => 7111,
             Self::CheckingTaglessUnionPatternRequiresVariant => 7112,
             Self::CheckingForeignAbiTypeUnsupported => 7057,
@@ -1405,6 +1408,7 @@ impl DiagnosticKind {
             Self::CheckingTrailingLayoutQueryTypeUnsupported => {
                 "checking_trailing_layout_query_type_unsupported"
             }
+            Self::CheckingTypeLayoutOverflow => "checking_type_layout_overflow",
             Self::CheckingMemoryPointeeTypeUnsupported => {
                 "checking_memory_pointee_type_unsupported"
             }

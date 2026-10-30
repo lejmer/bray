@@ -105,7 +105,7 @@ pub(crate) fn raw_buffer_fields<C: CheckerRequestContext + ?Sized>(
 }
 
 pub(crate) fn type_supports_complete_fixed_layout<C>(
-    request: CheckerUnitView<'_, C>,
+    request: &C,
     ty: TypeId,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
@@ -115,7 +115,7 @@ where
 }
 
 fn type_supports_complete_fixed_layout_inner<C>(
-    request: CheckerUnitView<'_, C>,
+    request: &C,
     ty: TypeId,
     pending: &mut BTreeSet<TypeId>,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
@@ -130,7 +130,7 @@ where
 
     let complete = match data.as_ref() {
         TypeData::ExactInteger { .. } => true,
-        TypeData::Named { definition, .. } => match type_representation(request, ty) {
+        TypeData::Named { definition, .. } => match type_representation_for_context(request, ty) {
             Some(RepresentationRole::Uninit) => {
                 let element = request
                     .available_compiler_known_symbols()
@@ -177,7 +177,7 @@ where
 }
 
 pub(crate) fn type_supports_flexible_c_layout<C>(
-    request: CheckerUnitView<'_, C>,
+    request: &C,
     ty: TypeId,
 ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
@@ -201,7 +201,7 @@ where
     Ok(
         representation.layout() == bray_symbols::DeclaredLayoutMode::C
             && !representation.is_incomplete()
-            && representation.has_flexible_trailing_member(),
+            && representation.has_flexible_trailing_member(request.semantic_values()),
     )
 }
 

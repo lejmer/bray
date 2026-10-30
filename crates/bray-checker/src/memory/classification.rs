@@ -430,8 +430,9 @@ where
         );
     };
 
-    let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
-        .map_err(CheckerOutcome::from_query_error)?;
+    let complete =
+        crate::representation::type_supports_complete_fixed_layout(request.context(), pointee)
+            .map_err(CheckerOutcome::from_query_error)?;
 
     let data = request.semantic_values().type_data(pointee);
 
@@ -478,52 +479,75 @@ where
         );
     };
 
-    let fixed = crate::representation::type_supports_complete_fixed_layout(request, *ty)
-        .map_err(CheckerOutcome::from_query_error)?;
+    if layout_query_type_supported(request.context(), *ty, kind)
+        .map_err(CheckerOutcome::from_query_error)?
+    {
+        return Ok(true);
+    }
 
-    let flexible = crate::representation::type_supports_flexible_c_layout(request, *ty)
-        .map_err(CheckerOutcome::from_query_error)?;
+    let span = crate::diagnostic::expression_span(request, expression);
 
-    let valid = match kind {
+    diagnostics.add(layout_query_type_diagnostic(
+        kind,
+        hook,
+        diagnostics.len(),
+        Some(span),
+    ));
+
+    Ok(false)
+}
+
+pub(crate) fn layout_query_type_supported<C: CheckerRequestContext + ?Sized>(
+    context: &C,
+    ty: TypeId,
+    kind: MemoryLayoutQueryKind,
+) -> Result<bool, crate::CheckerQueryError<C::UpstreamError>> {
+    let fixed = crate::representation::type_supports_complete_fixed_layout(context, ty)?;
+    let flexible = crate::representation::type_supports_flexible_c_layout(context, ty)?;
+
+    Ok(match kind {
         MemoryLayoutQueryKind::Alignment => fixed || flexible,
         MemoryLayoutQueryKind::Trailing => flexible,
         MemoryLayoutQueryKind::Size
         | MemoryLayoutQueryKind::Stride
         | MemoryLayoutQueryKind::Layout
         | MemoryLayoutQueryKind::LayoutStatus => fixed,
-    };
+    })
+}
 
-    if valid {
-        return Ok(true);
-    }
-
-    let span = crate::diagnostic::expression_span(request, expression);
-
+pub(crate) fn layout_query_type_diagnostic(
+    kind: MemoryLayoutQueryKind,
+    hook: ImplementationHook,
+    index: usize,
+    span: Option<bray_source::SourceSpan>,
+) -> Diagnostic {
     let mut diagnostic = Diagnostic::new(
-        crate::diagnostic::diagnostic_id(diagnostics.len()),
+        crate::diagnostic::diagnostic_id(index),
         if kind == MemoryLayoutQueryKind::Trailing {
             DiagnosticKind::CheckingTrailingLayoutQueryTypeUnsupported
         } else {
             DiagnosticKind::CheckingFixedLayoutQueryTypeUnsupported
         },
         SeverityKind::Error,
-    )
-    .with_primary_span(span)
-    .with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::MemoryOperationFailure,
-        span,
-    ));
+    );
 
-    if kind != MemoryLayoutQueryKind::Trailing {
-        let operation =
-            crate::memory_diagnostics::diagnostic_memory_operation(hook).unwrap_or_else(|| panic!("validate_layout_query_type requires memory operation diagnostic classification, expression: {expression:?}, hook: {hook:?}"));
-
-        diagnostic = diagnostic.with_arg(DiagnosticArg::memory_operation(operation));
+    if let Some(span) = span {
+        diagnostic = diagnostic
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::MemoryOperationFailure,
+                span,
+            ));
     }
 
-    diagnostics.add(diagnostic);
+    if kind != MemoryLayoutQueryKind::Trailing {
+        diagnostic = diagnostic.with_arg(DiagnosticArg::memory_operation(
+            crate::memory_diagnostics::diagnostic_memory_operation(hook)
+                .expect("layout hook has a diagnostic operation"),
+        ));
+    }
 
-    Ok(false)
+    diagnostic
 }
 
 fn validate_callable_address_type<C>(
@@ -1331,12 +1355,12 @@ mod tests {
                 .unwrap_or_else(|error| panic!("generic parameter type must intern: {error:?}"));
 
             assert_eq!(
-                crate::representation::type_supports_complete_fixed_layout(request, ty),
+                crate::representation::type_supports_complete_fixed_layout(request.context(), ty),
                 Ok(true)
             );
 
             assert_eq!(
-                crate::representation::type_supports_flexible_c_layout(request, ty),
+                crate::representation::type_supports_flexible_c_layout(request.context(), ty),
                 Ok(true)
             );
         });

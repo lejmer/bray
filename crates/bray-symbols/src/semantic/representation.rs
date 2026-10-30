@@ -3,8 +3,9 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    GenericTypeParameterSymbolId, IntegerConstant, NamedTypeSymbolId, StructFieldSymbolId,
-    TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+    GenericTypeParameterSymbolId, IntegerConstant, NamedTypeSymbolId, SemanticValueStore,
+    StructFieldSymbolId, TypeData, TypeExpressionTemplate, TypeId, UnionPayloadFieldSymbolId,
+    UnionVariantSymbolId,
 };
 
 /// One product-type storage member retained for layout realization.
@@ -337,15 +338,18 @@ impl DeclaredTypeRepresentation {
     }
 
     /// Returns whether the structure ends in a flexible array member.
-    pub fn has_flexible_trailing_member(&self) -> bool {
-        matches!(
-            &self.storage,
-            DeclaredStorageShape::Structure(fields)
-                if matches!(
-                    fields.last().map(DeclaredStructStorageMember::ty),
-                    Some(TypeExpressionTemplate::FlexibleArray(_))
-                )
-        )
+    pub fn has_flexible_trailing_member(&self, values: &SemanticValueStore) -> bool {
+        let DeclaredStorageShape::Structure(fields) = &self.storage else {
+            return false;
+        };
+
+        match fields.last().map(DeclaredStructStorageMember::ty) {
+            Some(TypeExpressionTemplate::FlexibleArray(_)) => true,
+            Some(TypeExpressionTemplate::Resolved(ty)) => {
+                matches!(values.type_data(*ty).as_ref(), TypeData::FlexibleArray(_))
+            }
+            _ => false,
+        }
     }
 
     /// Returns the type's checked implicit-copy contract.

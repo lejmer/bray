@@ -21,6 +21,22 @@ use crate::renderer::DiagnosticRenderer;
 use crate::{DiagnosticLocale, RenderedDiagnosticNoteKind};
 
 #[test]
+fn layout_overflow_identifies_the_source_type_and_target() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingTypeLayoutOverflow,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_type(DiagnosticType::Array))
+    .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"));
+
+    assert_eq!(
+        DiagnosticRenderer::english().render(&diagnostic).message(),
+        "the storage size of array type exceeds the addressable range of target 'x86_64-unknown-linux-gnu'"
+    );
+}
+
+#[test]
 fn recursive_cleanup_limit_identifies_the_callable_and_recovery() {
     let span = bray_source::SourceSpan::new(
         bray_source::SourceId::new(0),

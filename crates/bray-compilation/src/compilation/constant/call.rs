@@ -575,6 +575,21 @@ impl Compilation {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
+        if bray_bound_tree::MemoryLayoutQueryKind::for_implementation_hook(hook.hook()).is_some() {
+            return checker_result(bray_checker::evaluate_constant_layout_intrinsic(
+                &context,
+                callable,
+                hook.hook(),
+                arguments,
+                result_type,
+                limits,
+                |ty| {
+                    self.constant_memory_layout(ty, cancellation)
+                        .map_err(checker_call_query_error)
+                },
+            ));
+        }
+
         checker_result(bray_checker::evaluate_constant_intrinsic(
             &context,
             callable,
