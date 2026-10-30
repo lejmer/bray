@@ -1,4 +1,4 @@
-use crate::product::NativeStaticHostCallback;
+use super::model::NativeStaticHostCallback;
 use crate::{NativeProductIdentity, PRODUCT_HOST_ABI_VERSION};
 
 /// Immutable compiler-generated descriptor for one loaded product host.
