@@ -756,7 +756,11 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
     for boundary in bundle.native_boundaries() {
         assert_eq!(boundary.links().len(), 1);
         assert_eq!(boundary.links()[0].name(), "c");
-        assert_eq!(boundary.links()[0].kind(), bray_symbols::NativeLinkKind::Dynamic);
+
+        assert_eq!(
+            boundary.links()[0].kind(),
+            bray_symbols::NativeLinkKind::Dynamic
+        );
     }
 
     assert!(

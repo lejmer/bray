@@ -1720,7 +1720,6 @@ mod tests {
                 .units(),
             [location(1)]
         );
-
     }
 
     #[test]

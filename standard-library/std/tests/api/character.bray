@@ -56,3 +56,58 @@ func character_boundaries()
 
     std.testing.assert_absent<char>(invalid);
 }
+
+@test
+func unicode_classification_properties()
+{
+    assert('A'.is_alphabetic());
+    assert('z'.is_alphabetic());
+    assert('\u{345}'.is_alphabetic());
+    assert('\u{10400}'.is_alphabetic());
+    assert('\u{11db0}'.is_alphabetic());
+    assert('\u{31350}'.is_alphabetic());
+    assert(!'@'.is_alphabetic());
+    assert(!'['.is_alphabetic());
+    assert(!'\u{344}'.is_alphabetic());
+    assert(!'\u{10ffff}'.is_alphabetic());
+
+    assert('0'.is_numeric());
+    assert('9'.is_numeric());
+    assert('²'.is_numeric());
+    assert('⅓'.is_numeric());
+    assert('四'.is_numeric());
+    assert('\u{1d7ce}'.is_numeric());
+    assert('\u{11de0}'.is_numeric());
+    assert(!'/'.is_numeric());
+    assert(!':'.is_numeric());
+    assert(!'A'.is_numeric());
+
+    assert('\u{9}'.is_whitespace());
+    assert('\u{d}'.is_whitespace());
+    assert('\u{85}'.is_whitespace());
+    assert('\u{a0}'.is_whitespace());
+    assert('\u{200a}'.is_whitespace());
+    assert('\u{3000}'.is_whitespace());
+    assert(!'\u{8}'.is_whitespace());
+    assert(!'\u{e}'.is_whitespace());
+    assert(!'\u{200b}'.is_whitespace());
+    assert(!'\u{feff}'.is_whitespace());
+}
+
+@test
+func scalar_conversion_rejects_surrogates_and_out_of_range_values()
+{
+    std.testing.assert_absent<char>(char.from_code_point(0xd800));
+    std.testing.assert_absent<char>(char.from_code_point(0xdfff));
+    std.testing.assert_absent<char>(char.from_code_point(0x110000));
+    std.testing.assert_absent<char>(char.from_code_point(0xffffffff));
+
+    let before: char = std.testing.assert_present<char>(char.from_code_point(0xd7ff));
+    let after: char = std.testing.assert_present<char>(char.from_code_point(0xe000));
+    let last: char = std.testing.assert_present<char>(char.from_code_point(0x10ffff));
+
+    assert(before.code_point() == 0xd7ff);
+    assert(after.code_point() == 0xe000);
+    assert(last.code_point() == 0x10ffff);
+    assert(!last.is_alphabetic() && !last.is_numeric() && !last.is_whitespace());
+}

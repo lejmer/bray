@@ -1328,7 +1328,8 @@ directive-argument-sequence =
     directive-argument { "," directive-argument } ;
 
 directive-argument =
-    [ identifier "=" ] constant-expression ;
+      [ identifier "=" ] constant-expression
+    | identifier "=" "static" ;
 
 function-declaration =
     function-directives function-modifiers "func" identifier

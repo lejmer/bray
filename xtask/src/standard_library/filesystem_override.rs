@@ -161,7 +161,10 @@ fn runtime_with_provider(
     let summary = scan_object_unit_summary(&object_bytes)
         .map_err(|error| BuildError::conformance(CHECK, format!("provider object: {error}")))?;
 
-    let unit = NativeUnit::new(digest, NativeUnitKind::Object, summary, []);
+    let links = super::native_links(&target.identity())
+        .map_err(|error| BuildError::conformance(CHECK, error))?;
+
+    let unit = NativeUnit::new(digest, NativeUnitKind::Object, summary, links);
 
     let mut revised = NativeArtifactIndex::try_new(
         target,

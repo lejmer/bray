@@ -217,6 +217,7 @@ const OUTCOME_CASES: &[OutcomeCase] = &[
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TestPart {
+    Unicode,
     ProviderRetention,
     Interoperability,
     Api,
@@ -226,6 +227,7 @@ pub(super) enum TestPart {
 impl TestPart {
     pub(super) fn parse(value: &str) -> Option<Self> {
         match value {
+            "unicode" => Some(Self::Unicode),
             "provider-retention" => Some(Self::ProviderRetention),
             "interoperability" => Some(Self::Interoperability),
             "api" => Some(Self::Api),
@@ -297,6 +299,12 @@ fn test_in(
         crate::native_toolchain::assemble(root, target, &runtime, &toolchain)
     })
     .map_err(|error| BuildError::conformance("native toolchain", error))?;
+
+    if selected(parts, TestPart::Unicode) {
+        crate::progress::run("Auditing Unicode classification", || {
+            super::unicode::audit(root, directory, &toolchain, &runtime, target)
+        })?;
+    }
 
     if selected(parts, TestPart::ProviderRetention) {
         crate::progress::run("Auditing native provider retention", || {
