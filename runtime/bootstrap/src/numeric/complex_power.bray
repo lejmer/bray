@@ -1,0 +1,302 @@
+trusted internal module bray.runtime.bootstrap.numeric.power;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.math;
+
+trusted internal func multiply_guarded(
+    pos left: &[bray.runtime.bootstrap.numeric.number.Number; 2],
+    pos right: &[bray.runtime.bootstrap.numeric.number.Number; 2],
+    pos precision: usize
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    let ac = trusted bray.runtime.bootstrap.numeric.number.product(&left[0], &right[0], precision);
+    let bd = trusted bray.runtime.bootstrap.numeric.number.product(&left[1], &right[1], precision);
+    let ad = trusted bray.runtime.bootstrap.numeric.number.product(&left[0], &right[1], precision);
+    let bc = trusted bray.runtime.bootstrap.numeric.number.product(&left[1], &right[0], precision);
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.number.difference(&ac, &bd, precision),
+        trusted bray.runtime.bootstrap.numeric.number.sum(&ad, &bc, precision)
+    ];
+}
+
+trusted internal func reciprocal(
+    pos value: &[bray.runtime.bootstrap.numeric.number.Number; 2],
+    pos precision: usize
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    let aa = trusted bray.runtime.bootstrap.numeric.number.product(&value[0], &value[0], 0);
+    let bb = trusted bray.runtime.bootstrap.numeric.number.product(&value[1], &value[1], 0);
+    let divisor = trusted bray.runtime.bootstrap.numeric.number.sum(&aa, &bb, 0);
+    let negative = trusted bray.runtime.bootstrap.numeric.number.negate(&value[1]);
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.number.divide(&value[0], &divisor, precision),
+        trusted bray.runtime.bootstrap.numeric.number.divide(&negative, &divisor, precision)
+    ];
+}
+
+trusted internal func evaluate(
+    pos base: &[bray.runtime.bootstrap.numeric.number.Number; 2],
+    pos exponent: &[bray.runtime.bootstrap.numeric.number.Number; 2],
+    pos precision: usize,
+    pos growth: i64
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, -1);
+    let zero = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(&exponent[1]) &&
+        trusted bray.runtime.bootstrap.numeric.number.order(&exponent[0], &half) == 0
+    {
+        return trusted complex_square_root(&base[0], &base[1], precision);
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(&base[1]) && trusted bray.runtime.bootstrap.numeric.number.order(
+        &base[0],
+        &zero
+    ) > 0 && bray.runtime.bootstrap.numeric.number.is_zero(&exponent[1])
+    {
+        let result = trusted magnitude_power(&base[0], &exponent[0], precision);
+        let imaginary = trusted bray.runtime.bootstrap.numeric.number.zero(base[1].negative != exponent[0].negative);
+
+        return[result, imaginary];
+    }
+
+    if exponent[0].kind == 1 || exponent[1].kind == 1
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.special(2, false),
+            trusted bray.runtime.bootstrap.numeric.number.special(2, false)
+        ];
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(&exponent[1])
+    {
+        match consume trusted axis_power(&base[0], &base[1], &exponent[0], precision)
+        {
+            case ?value { return value; }
+            case none {}
+        }
+    }
+
+    let zero_base: bool = bray.runtime.bootstrap.numeric.number.is_zero(&base[0]) &&
+        bray.runtime.bootstrap.numeric.number.is_zero(&base[1]);
+
+    let infinite_base: bool = base[0].kind == 1 || base[1].kind == 1;
+
+    if !zero_base && !infinite_base && bray.runtime.bootstrap.numeric.number.is_zero(&exponent[1])
+    {
+        let mut a: i64 = if bray.runtime.bootstrap.numeric.number.is_zero(&base[0])
+        {
+            yield 0;
+        }
+        else
+        {
+            yield trusted bray.runtime.bootstrap.numeric.number.exponent(&base[0]);
+        };
+
+        let mut b: i64 = if bray.runtime.bootstrap.numeric.number.is_zero(&base[1])
+        {
+            yield 0;
+        }
+        else
+        {
+            yield trusted bray.runtime.bootstrap.numeric.number.exponent(&base[1]);
+        };
+
+        if a < 0
+        {
+            a = -a;
+        }
+
+        if b < 0
+        {
+            b = -b;
+        }
+
+        if b > a
+        {
+            a = b;
+        }
+
+        let mut count: u64 = trusted bounded_exponent(&exponent[0], a);
+
+        if count != 0
+        {
+            let mut result: [bray.runtime.bootstrap.numeric.number.Number; 2] = [
+                trusted bray.runtime.bootstrap.numeric.number.integer(1),
+                trusted bray.runtime.bootstrap.numeric.number.zero(false)
+            ];
+
+            let mut factor: [bray.runtime.bootstrap.numeric.number.Number; 2] = [
+                trusted bray.runtime.bootstrap.numeric.number.duplicate(&base[0]),
+                trusted bray.runtime.bootstrap.numeric.number.duplicate(&base[1])
+            ];
+
+            while count != 0
+            {
+                if (count & 1) != 0
+                {
+                    result = trusted multiply_guarded(&result, &factor, precision);
+                }
+
+                count >>= 1;
+
+                if count != 0
+                {
+                    factor = trusted multiply_guarded(&factor, &factor, precision);
+                }
+            }
+
+            if exponent[0].negative
+            {
+                return trusted reciprocal(&result, precision);
+            }
+
+            return result;
+        }
+    }
+
+    // Keep enough pi bits for reduction after multiplying by a large exponent.
+    // Integer powers, exact axes and square roots never construct these constants.
+    let extra: usize = if growth > 0
+    {
+        yield std.numeric.truncate_to<usize>(growth);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let pi = trusted bray.runtime.bootstrap.numeric.math.pi(precision + extra + 320);
+    let phase = trusted argument(&base[0], &base[1], precision, &pi);
+
+    if zero_base || infinite_base
+    {
+        if !bray.runtime.bootstrap.numeric.number.is_zero(&exponent[1])
+        {
+            return[
+                trusted bray.runtime.bootstrap.numeric.number.special(2, false),
+                trusted bray.runtime.bootstrap.numeric.number.special(2, false)
+            ];
+        }
+
+        let grows: bool = trusted bray.runtime.bootstrap.numeric.number.order(&exponent[0], &zero) > 0;
+
+        let scale = trusted bray.runtime.bootstrap.numeric.number.special(
+            if grows == infinite_base
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            },
+            false
+        );
+
+        let angle = trusted bray.runtime.bootstrap.numeric.number.product(&phase, &exponent[0], precision);
+
+        return trusted polar(&scale, &angle, precision, &pi);
+    }
+
+    let ln2 = trusted bray.runtime.bootstrap.numeric.math.ln2(precision + 192, &pi);
+    let aa = trusted bray.runtime.bootstrap.numeric.number.product(&base[0], &base[0], 0);
+    let bb = trusted bray.runtime.bootstrap.numeric.number.product(&base[1], &base[1], 0);
+    let squared = trusted bray.runtime.bootstrap.numeric.number.sum(&aa, &bb, 0);
+    let radius_logarithm = trusted bray.runtime.bootstrap.numeric.math.logarithm(&squared, precision, &ln2, &pi);
+    let logarithm = trusted bray.runtime.bootstrap.numeric.number.product(&radius_logarithm, &half, precision);
+    let c_log = trusted bray.runtime.bootstrap.numeric.number.product(&exponent[0], &logarithm, precision);
+    let d_phase = trusted bray.runtime.bootstrap.numeric.number.product(&exponent[1], &phase, precision);
+    let magnitude_exponent = trusted bray.runtime.bootstrap.numeric.number.difference(&c_log, &d_phase, precision);
+    let magnitude = trusted bray.runtime.bootstrap.numeric.math.exponential(&magnitude_exponent, precision, &ln2, &pi);
+    let d_log = trusted bray.runtime.bootstrap.numeric.number.product(&exponent[1], &logarithm, precision);
+    let c_phase = trusted bray.runtime.bootstrap.numeric.number.product(&exponent[0], &phase, precision);
+    let angle = trusted bray.runtime.bootstrap.numeric.number.sum(&d_log, &c_phase, precision);
+
+    return trusted polar(&magnitude, &angle, precision, &pi);
+}
+
+trusted internal func complex_power(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos base: [u128; 2],
+    pos exponent: [u128; 2]
+) -> [u128; 2]
+{
+    if (bray.runtime.bootstrap.numeric.format.is_zero(format, exponent[0]) &&
+        bray.runtime.bootstrap.numeric.format.is_zero(format, exponent[1])) || (base[0] == format.one &&
+        bray.runtime.bootstrap.numeric.format.is_zero(format, base[1]))
+    {
+        return[format.one, 0];
+    }
+
+    if exponent[0] == format.one && bray.runtime.bootstrap.numeric.format.is_zero(format, exponent[1])
+    {
+        return[
+            if bray.runtime.bootstrap.numeric.format.is_nan(format, base[0])
+            {
+                yield format.nan;
+            }
+            else
+            {
+                yield base[0];
+            },
+            if bray.runtime.bootstrap.numeric.format.is_nan(format, base[1])
+            {
+                yield format.nan;
+            }
+            else
+            {
+                yield base[1];
+            }
+        ];
+    }
+
+    if bray.runtime.bootstrap.numeric.format.is_nan(format, base[0]) || bray.runtime.bootstrap.numeric.format.is_nan(
+        format,
+        base[1]
+    ) || bray.runtime.bootstrap.numeric.format.is_nan(format, exponent[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_nan(format, exponent[1])
+    {
+        return[format.nan; 2];
+    }
+
+    let a: [bray.runtime.bootstrap.numeric.number.Number; 2] = [
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, base[0]),
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, base[1])
+    ];
+
+    let b: [bray.runtime.bootstrap.numeric.number.Number; 2] = [
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, exponent[0]),
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, exponent[1])
+    ];
+
+    let mut growth: i64 = 0;
+
+    if b[0].kind == 0 && !bray.runtime.bootstrap.numeric.number.is_zero(&b[0])
+    {
+        growth = trusted bray.runtime.bootstrap.numeric.number.exponent(&b[0]);
+    }
+
+    if b[1].kind == 0 && !bray.runtime.bootstrap.numeric.number.is_zero(&b[1])
+    {
+        let extra: i64 = trusted bray.runtime.bootstrap.numeric.number.exponent(&b[1]);
+
+        if extra > growth
+        {
+            growth = extra;
+        }
+    }
+
+    let precision: usize = working_precision(format, growth);
+    let result = trusted evaluate(&a, &b, precision, growth);
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &result[0]),
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &result[1])
+    ];
+}

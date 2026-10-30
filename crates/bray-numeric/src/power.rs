@@ -106,9 +106,22 @@ pub(crate) fn magnitude_power(
 
     // Generic adaptive pow can stall on exact dyadic results. Explicit guarded
     // composition matches the complex power policy without that convergence loop.
-    base.ln(precision, ROUND, constants)
-        .mul(exponent, precision, ROUND)
-        .exp(precision, ROUND, constants)
+    let logarithm = base.ln(precision, ROUND, constants);
+    let exponent = logarithm.mul(exponent, precision, ROUND);
+
+    positive_exponential(&exponent, precision, constants)
+}
+
+fn positive_exponential(value: &BigFloat, precision: usize, constants: &mut Consts) -> BigFloat {
+    let mut result = value.exp(precision, ROUND, constants);
+
+    // The underlying library can carry the negative argument's overflow sign
+    // into an underflowed zero. Exponential magnitudes are always nonnegative.
+    if result.is_zero() {
+        result.set_sign(Sign::Pos);
+    }
+
+    result
 }
 
 fn evaluate(
@@ -210,14 +223,17 @@ fn evaluate(
         .ln(precision, ROUND, constants)
         .mul(&half, precision, ROUND);
 
-    let magnitude = c
-        .mul(&logarithm, precision, ROUND)
-        .sub(&d.mul(&phase, precision, ROUND), precision, ROUND)
-        .exp(precision, ROUND, constants);
+    let magnitude_exponent =
+        c.mul(&logarithm, precision, ROUND)
+            .sub(&d.mul(&phase, precision, ROUND), precision, ROUND);
 
-    let angle =
-        d.mul(&logarithm, precision, ROUND)
-            .add(&c.mul(&phase, precision, ROUND), precision, ROUND);
+    let magnitude = positive_exponential(&magnitude_exponent, precision, constants);
+
+    let angle = rounded_sum(
+        &d.mul(&logarithm, precision, ROUND),
+        &c.mul(&phase, precision, ROUND),
+        precision,
+    );
 
     polar(&magnitude, &angle, precision, constants)
 }
@@ -505,6 +521,23 @@ mod tests {
     use super::power;
     use crate::BinaryFormat;
     use astro_float_num::BigFloat;
+
+    #[test]
+    fn opposite_zero_angle_terms_round_to_positive_zero() {
+        for format in [
+            BinaryFormat::Binary16,
+            BinaryFormat::Binary32,
+            BinaryFormat::Binary64,
+            BinaryFormat::Binary128,
+        ] {
+            let one = format.encode(&BigFloat::from_u8(1, 128));
+            let negative = format.sign_mask();
+            let result = power(format, [negative, one | negative], [0, one]);
+
+            assert_eq!(result[1], 0);
+            assert!(result[0] > one && result[0] < format.infinity());
+        }
+    }
 
     #[test]
     fn powers_preserve_exact_integer_and_square_root_results_in_every_format() {

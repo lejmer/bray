@@ -1,0 +1,236 @@
+trusted internal module bray.runtime.bootstrap.numeric.format;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.integer;
+using internal bray.runtime.bootstrap.numeric.number;
+
+internal struct Format
+{
+    fraction_bits: usize;
+    exponent_bits: usize;
+    bias: i64;
+    sign: u128;
+    infinity: u128;
+    nan: u128;
+    one: u128;
+}
+
+internal func format(pos width: u32) -> Format
+{
+    let mut fraction: usize = 112;
+    let mut exponent: usize = 15;
+
+    if width == 16
+    {
+        fraction = 10;
+        exponent = 5;
+    }
+
+    if width == 32
+    {
+        fraction = 23;
+        exponent = 8;
+    }
+
+    if width == 64
+    {
+        fraction = 52;
+        exponent = 11;
+    }
+
+    let one: u128 = 1;
+    let bias: u128 = (one << std.numeric.truncate_to<u128>(exponent - 1)) - 1;
+
+    let infinity: u128 = ((one << std.numeric.truncate_to<u128>(exponent)) - 1) << std.numeric.truncate_to<u128>(
+        fraction
+    );
+
+    return
+    {
+        fraction_bits = fraction,
+        exponent_bits = exponent,
+        bias = std.numeric.truncate_to<i64>(bias),
+        sign = one << std.numeric.truncate_to<u128>(fraction + exponent),
+        infinity = infinity,
+        nan = infinity | (one << std.numeric.truncate_to<u128>(fraction - 1)),
+        one = bias << std.numeric.truncate_to<u128>(fraction)
+    };
+}
+
+internal func is_nan(pos format: &Format, pos bits: u128) -> bool
+{
+    return (bits & ~format.sign) > format.infinity;
+}
+
+internal func is_infinite(pos format: &Format, pos bits: u128) -> bool
+{
+    return (bits & ~format.sign) == format.infinity;
+}
+
+internal func is_zero(pos format: &Format, pos bits: u128) -> bool
+{
+    return (bits & ~format.sign) == 0;
+}
+
+trusted internal func decode(pos format: &Format, pos bits: u128) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let negative: bool = (bits & format.sign) != 0;
+    let magnitude: u128 = bits & ~format.sign;
+
+    if magnitude > format.infinity
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(2, false);
+    }
+
+    if magnitude == format.infinity
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(1, negative);
+    }
+
+    let (significand, scale) = finite_parts(format, bits);
+
+    return
+    {
+        negative = negative,
+        kind = 0,
+        mantissa = trusted bray.runtime.bootstrap.numeric.integer.from_bits(significand),
+        scale = scale
+    };
+}
+
+internal func finite_parts(pos format: &Format, pos bits: u128) -> (u128, i64)
+{
+    let magnitude: u128 = bits & ~format.sign;
+
+    let shift: u128 = std.numeric.truncate_to<u128>(format.fraction_bits);
+    let one: u128 = 1;
+    let mut field: u128 = magnitude >> shift;
+    let mut significand: u128 = magnitude & ((one << shift) - 1);
+
+    if field != 0
+    {
+        significand |= one << shift;
+    }
+    else
+    {
+        field = 1;
+    }
+
+    return (
+        significand,
+        std.numeric.truncate_to<i64>(field) - format.bias - std.numeric.truncate_to<i64>(format.fraction_bits)
+    );
+}
+
+trusted internal func encode(pos format: &Format, pos value: &bray.runtime.bootstrap.numeric.number.Number) -> u128
+{
+    if value.kind == 2
+    {
+        return format.nan;
+    }
+
+    let sign: u128 = if value.negative
+    {
+        yield format.sign;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    if value.kind == 1
+    {
+        return sign | format.infinity;
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return sign;
+    }
+
+    let words = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+
+    return encode_finite(format, value.negative, words, value.scale);
+}
+
+internal func encode_finite(pos format: &Format, pos negative: bool, pos words: &[u64], pos scale: i64) -> u128
+{
+    let bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(words);
+
+    let sign: u128 = if negative
+    {
+        yield format.sign;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    if bits == 0
+    {
+        return sign;
+    }
+
+    let field: i64 = std.numeric.truncate_to<i64>(bits) + scale - 1 + format.bias;
+    let mut retained: i64 = std.numeric.truncate_to<i64>(format.fraction_bits + 1);
+
+    if field <= 0
+    {
+        retained += field - 1;
+    }
+
+    if retained < 0
+    {
+        return sign;
+    }
+
+    if field >= (format.bias + 1) * 2 - 1
+    {
+        return sign | format.infinity;
+    }
+
+    let count: usize = std.numeric.truncate_to<usize>(retained);
+    let mut significand: u128 = 0;
+
+    if bits > count
+    {
+        let shift: usize = bits - count;
+        let whole: usize = shift / 64;
+        let remainder: u64 = std.numeric.truncate_to<u64>(shift % 64);
+        let mut low: u64 = bray.runtime.bootstrap.numeric.integer.slice_word(words, whole) >> remainder;
+        let mut high: u64 = bray.runtime.bootstrap.numeric.integer.slice_word(words, whole + 1) >> remainder;
+
+        if remainder != 0
+        {
+            low |= bray.runtime.bootstrap.numeric.integer.slice_word(words, whole + 1) << (64 - remainder);
+            high |= bray.runtime.bootstrap.numeric.integer.slice_word(words, whole + 2) << (64 - remainder);
+        }
+
+        significand = (low as u128) | ((high as u128) << 64);
+
+        let guard_index: usize = shift - 1;
+
+        let guard: bool = (bray.runtime.bootstrap.numeric.integer.slice_word(words, guard_index / 64) & (1 <<
+            std.numeric.truncate_to<u64>(guard_index % 64))) != 0;
+
+        if guard && ((significand & 1) != 0 || bray.runtime.bootstrap.numeric.integer.words_below(words, guard_index))
+        {
+            significand += 1;
+        }
+    }
+    else
+    {
+        significand = (bray.runtime.bootstrap.numeric.integer.slice_word(words, 0) as u128) |
+            ((bray.runtime.bootstrap.numeric.integer.slice_word(words, 1) as u128) << 64);
+
+        significand <<= std.numeric.truncate_to<u128>(count - bits);
+    }
+
+    if field <= 0
+    {
+        return sign | significand;
+    }
+
+    return sign | ((std.numeric.truncate_to<u128>(field - 1) << std.numeric.truncate_to<u128>(format.fraction_bits)) +
+        significand);
+}

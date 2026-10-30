@@ -31,6 +31,7 @@ static atomic_bool reenter_deallocation;
 static unsigned deallocation_reentries;
 static unsigned deallocation_reentry_status;
 static void reenter_pool_on_release(void);
+static int check_numeric_runtime(void);
 static atomic_uint recursive_attachment_status;
 static atomic_uint recursive_attachment_leave_status;
 extern uint32_t bray_runtime_thread_attachment_enter(void);
@@ -3052,6 +3053,11 @@ int main(void)
 
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
         return 1;
+
+    int numeric_status = check_numeric_runtime();
+
+    if (numeric_status != 0)
+        return numeric_status;
 
     int stream_status = stream_without_allocation();
 

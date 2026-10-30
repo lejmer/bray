@@ -1,0 +1,551 @@
+trusted internal module bray.runtime.bootstrap.numeric.number;
+
+using std.numeric;
+using std.memory;
+using internal bray.runtime.bootstrap.numeric.integer;
+
+// Finite values are an unsigned integer times a power of two. Classification
+// and zero sign remain explicit, so no host floating-point conversion occurs.
+internal struct Number
+{
+    mut negative: bool;
+    mut kind: u8;
+    mut mantissa: bray.runtime.bootstrap.numeric.integer.Natural;
+    mut scale: i64;
+}
+
+trusted internal func zero(pos negative: bool) -> Number
+{
+    return
+    {
+        negative = negative,
+        kind = 0,
+        mantissa = trusted bray.runtime.bootstrap.numeric.integer.zeroed(0),
+        scale = 0
+    };
+}
+
+trusted internal func special(pos kind: u8, pos negative: bool) -> Number
+{
+    let mut result = trusted zero(negative);
+
+    result.kind = kind;
+    return result;
+}
+
+trusted internal func integer(pos value: u64) -> Number
+{
+    return
+    {
+        negative = false,
+        kind = 0,
+        mantissa = trusted bray.runtime.bootstrap.numeric.integer.from_bits(value as u128),
+        scale = 0
+    };
+}
+
+internal func is_zero(pos value: &Number) -> bool
+{
+    return value.kind == 0 && bray.runtime.bootstrap.numeric.integer.word_count(&value.mantissa) == 0;
+}
+
+trusted internal func exponent(pos value: &Number) -> i64
+{
+    return (std.numeric.truncate_to<i64>(trusted bray.runtime.bootstrap.numeric.integer.bit_length(&value.mantissa))) +
+        value.scale;
+}
+
+trusted internal func duplicate(pos value: &Number) -> Number
+{
+    return
+    {
+        negative = value.negative,
+        kind = value.kind,
+        mantissa = trusted bray.runtime.bootstrap.numeric.integer.duplicate(&value.mantissa),
+        scale = value.scale
+    };
+}
+
+trusted internal func negate(pos value: &Number) -> Number
+{
+    let mut result = trusted duplicate(value);
+
+    result.negative = !result.negative;
+    return result;
+}
+
+trusted internal func absolute(pos value: &Number) -> Number
+{
+    let mut result = trusted duplicate(value);
+
+    result.negative = false;
+    return result;
+}
+
+trusted internal func scale_by(pos value: &Number, pos amount: i64) -> Number
+{
+    let mut result = trusted duplicate(value);
+
+    result.scale += amount;
+    return result;
+}
+
+trusted internal func round(pos mut value: Number, pos precision: usize) -> Number
+{
+    if value.kind != 0 || precision == 0
+    {
+        return value;
+    }
+
+    let bits: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&value.mantissa);
+
+    if bits > precision
+    {
+        let shift: usize = bits - precision;
+        let guard: bool = trusted bray.runtime.bootstrap.numeric.integer.bit(&value.mantissa, shift - 1);
+        let sticky: bool = trusted bray.runtime.bootstrap.numeric.integer.has_low_bits(&value.mantissa, shift - 1);
+        let mut rounded = trusted bray.runtime.bootstrap.numeric.integer.shift_right(&value.mantissa, shift);
+
+        if guard && (sticky || trusted bray.runtime.bootstrap.numeric.integer.bit(&rounded, 0))
+        {
+            trusted bray.runtime.bootstrap.numeric.integer.increment(&mut rounded);
+        }
+
+        value.mantissa = rounded;
+        value.scale += std.numeric.truncate_to<i64>(shift);
+    }
+
+    return value;
+}
+
+trusted internal func magnitude_order(pos left: &Number, pos right: &Number) -> i64
+{
+    if left.kind == 1
+    {
+        return if right.kind == 1
+        {
+            yield 0;
+        }
+        else
+        {
+            yield 1;
+        };
+    }
+
+    if right.kind == 1
+    {
+        return -1;
+    }
+
+    if is_zero(left)
+    {
+        return if is_zero(right)
+        {
+            yield 0;
+        }
+        else
+        {
+            yield -1;
+        };
+    }
+
+    if is_zero(right)
+    {
+        return 1;
+    }
+
+    let a: i64 = trusted exponent(left);
+    let b: i64 = trusted exponent(right);
+
+    if a < b
+    {
+        return -1;
+    }
+
+    if a > b
+    {
+        return 1;
+    }
+
+    if left.scale >= right.scale
+    {
+        return -(trusted bray.runtime.bootstrap.numeric.integer.compare_shifted(
+            &right.mantissa,
+            &left.mantissa,
+            std.numeric.truncate_to<usize>(left.scale - right.scale),
+            false
+        ));
+    }
+
+    return trusted bray.runtime.bootstrap.numeric.integer.compare_shifted(
+        &left.mantissa,
+        &right.mantissa,
+        std.numeric.truncate_to<usize>(right.scale - left.scale),
+        false
+    );
+}
+
+trusted internal func order(pos left: &Number, pos right: &Number) -> i64
+{
+    if is_zero(left) && is_zero(right)
+    {
+        return 0;
+    }
+
+    if left.negative != right.negative
+    {
+        return if left.negative
+        {
+            yield -1;
+        }
+        else
+        {
+            yield 1;
+        };
+    }
+
+    let result: i64 = trusted magnitude_order(left, right);
+
+    return if left.negative
+    {
+        yield -result;
+    }
+    else
+    {
+        yield result;
+    };
+}
+
+trusted internal func product(pos left: &Number, pos right: &Number, pos precision: usize) -> Number
+{
+    let negative: bool = left.negative != right.negative;
+
+    if left.kind == 2 || right.kind == 2 || (left.kind == 1 && is_zero(right)) || (right.kind == 1 && is_zero(left))
+    {
+        return trusted special(2, false);
+    }
+
+    if left.kind == 1 || right.kind == 1
+    {
+        return trusted special(1, negative);
+    }
+
+    if is_zero(left) || is_zero(right)
+    {
+        return trusted zero(negative);
+    }
+
+    let value: Number =
+    {
+        negative = negative,
+        kind = 0,
+        mantissa = trusted bray.runtime.bootstrap.numeric.integer.multiply(&left.mantissa, &right.mantissa),
+        scale = left.scale + right.scale
+    };
+
+    return trusted round(value, precision);
+}
+
+// Align far-separated rounded operands with a sticky low bit instead of
+// allocating storage proportional to their exponent gap.
+trusted internal func aligned(pos value: &Number, pos scale: i64) -> bray.runtime.bootstrap.numeric.integer.Natural
+{
+    if value.scale >= scale
+    {
+        return trusted bray.runtime.bootstrap.numeric.integer.shift_left(
+            &value.mantissa,
+            std.numeric.truncate_to<usize>(value.scale - scale)
+        );
+    }
+
+    let shift: usize = std.numeric.truncate_to<usize>(scale - value.scale);
+    let mut result = trusted bray.runtime.bootstrap.numeric.integer.shift_right(&value.mantissa, shift);
+
+    if trusted bray.runtime.bootstrap.numeric.integer.has_low_bits(&value.mantissa, shift)
+    {
+        if bray.runtime.bootstrap.numeric.integer.word_count(&result) == 0
+        {
+            return trusted bray.runtime.bootstrap.numeric.integer.from_bits(1);
+        }
+
+        let low: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&result, 0);
+
+        trusted bray.runtime.bootstrap.numeric.integer.put(&mut result, 0, low | 1);
+    }
+
+    return result;
+}
+
+trusted internal func sum(pos left: &Number, pos right: &Number, pos precision: usize) -> Number
+{
+    if left.kind == 2 || right.kind == 2 || (left.kind == 1 && right.kind == 1 && left.negative != right.negative)
+    {
+        return trusted special(2, false);
+    }
+
+    if left.kind == 1
+    {
+        return trusted duplicate(left);
+    }
+
+    if right.kind == 1
+    {
+        return trusted duplicate(right);
+    }
+
+    if is_zero(left) && is_zero(right)
+    {
+        return trusted zero(left.negative && right.negative);
+    }
+
+    if is_zero(left)
+    {
+        return trusted round(trusted duplicate(right), precision);
+    }
+
+    if is_zero(right)
+    {
+        return trusted round(trusted duplicate(left), precision);
+    }
+
+    let mut scale: i64 = left.scale;
+
+    if right.scale < scale
+    {
+        scale = right.scale;
+    }
+
+    if precision != 0
+    {
+        let a: i64 = trusted exponent(left);
+        let b: i64 = trusted exponent(right);
+
+        let gap: i64 = if a > b
+        {
+            yield a - b;
+        }
+        else
+        {
+            yield b - a;
+        };
+
+        if gap > (std.numeric.truncate_to<i64>(precision)) + 4
+        {
+            scale = if a > b
+            {
+                yield a;
+            }
+            else
+            {
+                yield b;
+            }
+            - (std.numeric.truncate_to<i64>(precision)) - 4;
+        }
+    }
+
+    let a = trusted aligned(left, scale);
+    let b = trusted aligned(right, scale);
+    let mut negative: bool = left.negative;
+    let mut magnitude = trusted bray.runtime.bootstrap.numeric.integer.zeroed(0);
+
+    if left.negative == right.negative
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.integer.add(&a, &b);
+    }
+    else if trusted bray.runtime.bootstrap.numeric.integer.compare_shifted(&a, &b, 0, false) >= 0
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.integer.subtract(&a, &b);
+    }
+    else
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.integer.subtract(&b, &a);
+        negative = right.negative;
+    }
+
+    if bray.runtime.bootstrap.numeric.integer.word_count(&magnitude) == 0
+    {
+        negative = false;
+    }
+
+    return trusted round(
+        {
+            negative = negative,
+            kind = 0,
+            mantissa = magnitude,
+            scale = scale
+        },
+        precision
+    );
+}
+
+trusted internal func difference(pos left: &Number, pos right: &Number, pos precision: usize) -> Number
+{
+    let opposite = trusted negate(right);
+
+    return trusted sum(left, &opposite, precision);
+}
+
+// Keep extra quotient bits and jam the exact remainder into the lowest bit.
+// Callers can round directly to IEEE, including at a subnormal midpoint.
+trusted internal func quotient(pos left: &Number, pos right: &Number, pos precision: usize) -> Number
+{
+    let negative: bool = left.negative != right.negative;
+
+    if left.kind == 2 || right.kind == 2 || (left.kind == 1 && right.kind == 1) || (is_zero(left) && is_zero(right))
+    {
+        return trusted special(2, false);
+    }
+
+    if left.kind == 1 || is_zero(right)
+    {
+        return trusted special(1, negative);
+    }
+
+    if right.kind == 1 || is_zero(left)
+    {
+        return trusted zero(negative);
+    }
+
+    let a: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&left.mantissa);
+    let b: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&right.mantissa);
+
+    let shift: i64 = (std.numeric.truncate_to<i64>(precision)) + 4 + (std.numeric.truncate_to<i64>(b)) -
+        (std.numeric.truncate_to<i64>(a));
+
+    let numerator = trusted bray.runtime.bootstrap.numeric.integer.shift_left(
+        &left.mantissa,
+        if shift > 0
+        {
+            yield std.numeric.truncate_to<usize>(shift);
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    let denominator = trusted bray.runtime.bootstrap.numeric.integer.shift_left(
+        &right.mantissa,
+        if shift < 0
+        {
+            yield std.numeric.truncate_to<usize>(-shift);
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    let (mut magnitude, inexact) = trusted bray.runtime.bootstrap.numeric.integer.divide(&numerator, &denominator);
+
+    if inexact
+    {
+        let low: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&magnitude, 0);
+
+        trusted bray.runtime.bootstrap.numeric.integer.put(&mut magnitude, 0, low | 1);
+    }
+
+    return
+    {
+        negative = negative,
+        kind = 0,
+        mantissa = magnitude,
+        scale = left.scale - right.scale - shift
+    };
+}
+
+trusted internal func divide(pos left: &Number, pos right: &Number, pos precision: usize) -> Number
+{
+    return trusted round(trusted quotient(left, right, precision), precision);
+}
+
+trusted internal func divide_small(pos value: &Number, pos divisor: u64, pos precision: usize) -> Number
+{
+    if value.kind != 0 || is_zero(value)
+    {
+        return trusted duplicate(value);
+    }
+
+    let bits: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&value.mantissa);
+    let desired: usize = precision + 4 + bray.runtime.bootstrap.numeric.integer.significant_bits(divisor);
+
+    let shift: usize = if desired > bits
+    {
+        yield desired - bits;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let numerator = trusted bray.runtime.bootstrap.numeric.integer.shift_left(&value.mantissa, shift);
+    let (mut magnitude, inexact) = trusted bray.runtime.bootstrap.numeric.integer.divide_small(&numerator, divisor);
+
+    if inexact
+    {
+        let low: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&magnitude, 0);
+
+        trusted bray.runtime.bootstrap.numeric.integer.put(&mut magnitude, 0, low | 1);
+    }
+
+    return trusted round(
+        {
+            negative = value.negative,
+            kind = 0,
+            mantissa = magnitude,
+            scale = value.scale - std.numeric.truncate_to<i64>(shift)
+        },
+        precision
+    );
+}
+
+trusted internal func square_root(pos value: &Number, pos precision: usize) -> Number
+{
+    if is_zero(value)
+    {
+        return trusted zero(value.negative);
+    }
+
+    if value.kind == 2 || value.negative
+    {
+        return trusted special(2, false);
+    }
+
+    if value.kind == 1
+    {
+        return trusted special(1, false);
+    }
+
+    let bits: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&value.mantissa);
+    let mut shift: usize = 0;
+
+    if bits < (precision + 4) * 2
+    {
+        shift = (precision + 4) * 2 - bits;
+    }
+
+    if (value.scale - (std.numeric.truncate_to<i64>(shift))) % 2 != 0
+    {
+        shift += 1;
+    }
+
+    let expanded = trusted bray.runtime.bootstrap.numeric.integer.shift_left(&value.mantissa, shift);
+    let (mut root, inexact) = trusted bray.runtime.bootstrap.numeric.integer.square_root(&expanded);
+
+    if inexact
+    {
+        let low: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&root, 0);
+
+        trusted bray.runtime.bootstrap.numeric.integer.put(&mut root, 0, low | 1);
+    }
+
+    return trusted round(
+        {
+            negative = false,
+            kind = 0,
+            mantissa = root,
+            scale = (value.scale - (std.numeric.truncate_to<i64>(shift))) / 2
+        },
+        precision
+    );
+}

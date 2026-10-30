@@ -28,7 +28,7 @@ cargo xtask runtime-artifact smoke-test
 
 This builds the host runtime, checks deterministic partitioning and exact component symbol boundaries, and exercises
 native adapters and ordinary emitted products. Synchronous executable cases cover direct entry, output, panic, returned
-errors, product and thread statics, and cleanup with allocation denied through process shutdown. Development and release
+errors, product and thread statics, numeric arithmetic at all four IEEE widths, and cleanup with allocation denied through process shutdown. Development and release
 cases exercise source and native standard-library reuse.
 
 The synchronous product audit checks the ordinary emitter's selected runtime units and their inclusion reasons against
@@ -47,9 +47,9 @@ host shutdown.
 
 Generic cancellation observation and cleanup shielding use the scoped entry provider. An ordinary synchronous entry has
 no selected execution provider. Async and test providers retain and restore their control callbacks with the existing
-exact-thread entry scope. The remaining Rust archives serve unfinished execution and test consumers, and
-selected-precision real/complex arithmetic tracked by [BRA-659](https://linear.app/bray-lang/issue/BRA-659). These
-consumers stay outside the proved synchronous host closure. Native thread operations that retain task-event or
+exact-thread entry scope. The remaining Rust archives serve unfinished execution and test consumers, which stay outside the proved synchronous
+host closure. Selected-precision real and complex arithmetic uses [Bray numeric runtime kernels](numeric-runtime.md)
+and shares the synchronous provenance audit. Native thread operations that retain task-event or
 atomic-wait services also retain their execution requirements; an ordinary synchronous entry does not remove reachable
 service demand.
 

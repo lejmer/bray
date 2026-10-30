@@ -1,0 +1,176 @@
+trusted internal module bray.runtime.bootstrap.numeric.math;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.integer;
+using internal bray.runtime.bootstrap.numeric.number;
+
+// Floors of pi * 2^1022 and ln(2) * 2^1024, least significant word first.
+// Keep a full guard word beyond the lookup range; higher precisions use AGM.
+internal const PI_WORDS: [u64; 16] = [
+    0x98da48361c55d39a,
+    0xc2007cb8a163bf05,
+    0x49286651ece45b3d,
+    0xae9f24117c4b1fe6,
+    0xee386bfb5a899fa5,
+    0x0bff5cb6f406b7ed,
+    0xf44c42e9a637ed6b,
+    0xe485b576625e7ec6,
+    0x4fe1356d6d51c245,
+    0x302b0a6df25f1437,
+    0xef9519b3cd3a431b,
+    0x514a08798e3404dd,
+    0x020bbea63b139b22,
+    0x29024e088a67cc74,
+    0xc4c6628b80dc1cd1,
+    0xc90fdaa22168c234
+];
+
+internal const LN2_WORDS: [u64; 16] = [
+    0xda2d97c50f3fd5c6,
+    0x655fa1872f20e3a2,
+    0xf5dfa6bd38303248,
+    0x72ce87b19d6548ca,
+    0x256fa0ec7657f74b,
+    0xb9ea9bc3b136603b,
+    0x1acbda11317c387e,
+    0x3e96ca16224ae8c5,
+    0x27573b291169b825,
+    0xed2eae35c1382144,
+    0x559552fb4afa1b10,
+    0xe7b876206debac98,
+    0x8a0d175b8baafa2b,
+    0x40f343267298b62d,
+    0xc9e3b39803f2f6af,
+    0xb17217f7d1cf79ab
+];
+
+trusted internal func table_constant(
+    pos words: &[u64; 16],
+    pos scale: i64,
+    pos precision: usize
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let mut magnitude = trusted bray.runtime.bootstrap.numeric.integer.zeroed(16);
+    let destination = trusted bray.runtime.bootstrap.numeric.integer.write_words(&mut magnitude);
+    let mut index: usize = 0;
+
+    while index < 16
+    {
+        destination[index] = words[index];
+        index += 1;
+    }
+
+    return trusted bray.runtime.bootstrap.numeric.number.round(
+        {
+            negative = false,
+            kind = 0,
+            mantissa = magnitude,
+            scale = scale
+        },
+        precision
+    );
+}
+
+trusted internal func arithmetic_geometric_mean(
+    pos left: &bray.runtime.bootstrap.numeric.number.Number,
+    pos right: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let mut a = trusted bray.runtime.bootstrap.numeric.number.duplicate(left);
+    let mut b = trusted bray.runtime.bootstrap.numeric.number.duplicate(right);
+
+    while trusted bray.runtime.bootstrap.numeric.number.magnitude_order(&a, &b) != 0
+    {
+        let total = trusted bray.runtime.bootstrap.numeric.number.sum(&a, &b, precision);
+        let mean = trusted bray.runtime.bootstrap.numeric.number.scale_by(&total, -1);
+        let product = trusted bray.runtime.bootstrap.numeric.number.product(&a, &b, precision);
+        let root = trusted bray.runtime.bootstrap.numeric.number.square_root(&product, precision);
+        let gap = trusted bray.runtime.bootstrap.numeric.number.difference(&mean, &root, precision);
+
+        a = mean;
+        b = root;
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&gap) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&gap) <
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&a) - std.numeric.truncate_to<i64>(precision) + 4
+        {
+            break;
+        }
+    }
+
+    let total = trusted bray.runtime.bootstrap.numeric.number.sum(&a, &b, precision);
+
+    return trusted bray.runtime.bootstrap.numeric.number.scale_by(&total, -1);
+}
+
+trusted internal func pi(pos precision: usize) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if precision <= 960
+    {
+        return trusted table_constant(&PI_WORDS, -1022, precision);
+    }
+
+    // Gauss-Legendre doubles the number of correct bits at each iteration.
+    let work: usize = precision + 64;
+
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, -1);
+    let mut a = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut b = trusted bray.runtime.bootstrap.numeric.number.square_root(&half, work);
+    let mut t = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, -2);
+    let mut iteration: i64 = 0;
+
+    while true
+    {
+        let total = trusted bray.runtime.bootstrap.numeric.number.sum(&a, &b, work);
+        let mean = trusted bray.runtime.bootstrap.numeric.number.scale_by(&total, -1);
+        let product = trusted bray.runtime.bootstrap.numeric.number.product(&a, &b, work);
+        let root = trusted bray.runtime.bootstrap.numeric.number.square_root(&product, work);
+        let delta = trusted bray.runtime.bootstrap.numeric.number.difference(&a, &mean, work);
+        let squared = trusted bray.runtime.bootstrap.numeric.number.product(&delta, &delta, work);
+        let correction = trusted bray.runtime.bootstrap.numeric.number.scale_by(&squared, iteration);
+
+        t = trusted bray.runtime.bootstrap.numeric.number.difference(&t, &correction, work);
+        a = mean;
+        b = root;
+        iteration += 1;
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&delta) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&delta) < -std.numeric.truncate_to<i64>(work / 2) - 8
+        {
+            break;
+        }
+    }
+
+    let total = trusted bray.runtime.bootstrap.numeric.number.sum(&a, &b, work);
+    let squared = trusted bray.runtime.bootstrap.numeric.number.product(&total, &total, work);
+    let divisor = trusted bray.runtime.bootstrap.numeric.number.scale_by(&t, 2);
+    let result = trusted bray.runtime.bootstrap.numeric.number.divide(&squared, &divisor, work);
+
+    return trusted bray.runtime.bootstrap.numeric.number.round(result, precision);
+}
+
+trusted internal func ln2(
+    pos precision: usize,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if precision <= 960
+    {
+        return trusted table_constant(&LN2_WORDS, -1024, precision);
+    }
+
+    // ln(2^m) = pi / (2 AGM(1, 4 / 2^m)) with error O(m / 2^(2m)).
+    let work: usize = precision + 64;
+
+    let m: usize = work / 2 + 32;
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let small = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, 2 - std.numeric.truncate_to<i64>(m));
+    let mean = trusted arithmetic_geometric_mean(&one, &small, work);
+    let factor = trusted bray.runtime.bootstrap.numeric.number.integer(std.numeric.truncate_to<u64>(m * 2));
+    let divisor = trusted bray.runtime.bootstrap.numeric.number.product(&mean, &factor, work);
+    let result = trusted bray.runtime.bootstrap.numeric.number.divide(pi, &divisor, work);
+
+    return trusted bray.runtime.bootstrap.numeric.number.round(result, precision);
+}

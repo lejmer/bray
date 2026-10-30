@@ -1,0 +1,131 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using std.numeric;
+
+// Scratch buffers keep their initialized extent while arithmetic changes their significant words.
+trusted internal func shift_in_place(pos value: &mut Natural, pos count: u128)
+{
+    let mut carry: u128 = 0;
+    let mut index: usize = 0;
+
+    while index < word_count(&value)
+    {
+        let combined: u128 = ((trusted word(&value, index) as u128) << count) | carry;
+
+        trusted put(value, index, std.numeric.truncate_to<u64>(combined));
+        carry = combined >> 64;
+        index += 1;
+    }
+
+    assert(carry == 0);
+}
+
+trusted internal func shifted_word(pos value: &Natural, pos index: usize, pos shift: usize, pos low_one: bool) -> u64
+{
+    let whole: usize = shift / 64;
+    let remainder: u128 = std.numeric.truncate_to<u128>(shift % 64);
+    let mut combined: u128 = 0;
+
+    if index >= whole
+    {
+        combined = (trusted word(value, index - whole) as u128) << remainder;
+
+        if remainder != 0 && index > whole
+        {
+            combined |= (trusted word(value, index - whole - 1) as u128) >> (64 - remainder);
+        }
+    }
+
+    if low_one && index == 0
+    {
+        combined |= 1;
+    }
+
+    return std.numeric.truncate_to<u64>(combined);
+}
+
+trusted internal func compare_shifted(
+    pos left: &Natural,
+    pos right: &Natural,
+    pos shift: usize,
+    pos low_one: bool,
+) -> i64
+{
+    let left_bits: usize = trusted bit_length(left);
+    let right_bits: usize = trusted bit_length(right);
+    let mut shifted_bits: usize = right_bits + shift;
+
+    if right_bits == 0
+    {
+        shifted_bits = if low_one
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        };
+    }
+
+    if left_bits < shifted_bits
+    {
+        return -1;
+    }
+
+    if left_bits > shifted_bits
+    {
+        return 1;
+    }
+
+    let mut index: usize = (left_bits + 63) / 64;
+
+    while index != 0
+    {
+        index -= 1;
+
+        let a: u64 = trusted word(left, index);
+        let b: u64 = trusted shifted_word(right, index, shift, low_one);
+
+        if a < b
+        {
+            return -1;
+        }
+
+        if a > b
+        {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+trusted internal func subtract_shifted(pos left: &mut Natural, pos right: &Natural, pos shift: usize, pos low_one: bool)
+{
+    let base: u128 = 18446744073709551616;
+    let mut borrow: u128 = 0;
+    let mut index: usize = 0;
+
+    while index < word_count(&left)
+    {
+        let a: u128 = trusted word(&left, index) as u128;
+        let b: u128 = (trusted shifted_word(right, index, shift, low_one) as u128) + borrow;
+        let mut difference: u128 = 0;
+
+        if a >= b
+        {
+            difference = a - b;
+            borrow = 0;
+        }
+        else
+        {
+            difference = base + a - b;
+            borrow = 1;
+        }
+
+        trusted put(left, index, std.numeric.truncate_to<u64>(difference));
+        index += 1;
+    }
+
+    assert(borrow == 0);
+}

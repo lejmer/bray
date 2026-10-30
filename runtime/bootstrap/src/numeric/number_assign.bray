@@ -1,0 +1,362 @@
+trusted internal module bray.runtime.bootstrap.numeric.number;
+
+using std.numeric;
+using std.memory;
+using internal bray.runtime.bootstrap.numeric.integer;
+
+// Reuse initialized mantissa storage in iterative arithmetic. Common guarded
+// precisions need no owned temporary or cleanup transition for each series term.
+trusted internal func copy_from(pos value: &mut Number, pos source: &Number)
+{
+    let words = trusted bray.runtime.bootstrap.numeric.integer.read_words(&source.mantissa);
+
+    trusted bray.runtime.bootstrap.numeric.integer.write_from(&mut value.mantissa, words);
+    value.negative = source.negative;
+    value.kind = source.kind;
+    value.scale = source.scale;
+}
+
+trusted internal func set_integer(pos value: &mut Number, pos integer: u64)
+{
+    let words: [u64; 1] = [integer];
+
+    let count: usize = if integer == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    trusted bray.runtime.bootstrap.numeric.integer.write_from(&mut value.mantissa, &words[0..count]);
+    value.negative = false;
+    value.kind = 0;
+    value.scale = 0;
+}
+
+trusted internal func round_assign(pos value: &mut Number, pos precision: usize)
+{
+    let mut scratch: [u64; 32] = [0; 32];
+
+    {
+        let source = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+        let mut index: usize = 0;
+
+        while index < source.length()
+        {
+            scratch[index] = source[index];
+            index += 1;
+        }
+    }
+
+    let negative: bool = value.negative;
+    let scale: i64 = value.scale;
+
+    trusted store_rounded(value, &mut scratch[..], scale, negative, precision);
+}
+
+trusted internal func store_rounded(
+    pos value: &mut Number,
+    pos words: &mut [u64],
+    pos scale: i64,
+    pos negative: bool,
+    pos precision: usize
+)
+{
+    let bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(&words);
+    let mut result_scale: i64 = scale;
+    let mut count: usize = (bits + 63) / 64;
+
+    if bits > precision
+    {
+        let shift: usize = bits - precision;
+        let index: usize = shift - 1;
+
+        let guard: bool = (bray.runtime.bootstrap.numeric.integer.slice_word(&words, index / 64) & (1 <<
+            std.numeric.truncate_to<u64>(index % 64))) != 0;
+
+        let sticky: bool = bray.runtime.bootstrap.numeric.integer.words_below(&words, index);
+        let mut ordinal: usize = 0;
+
+        count = (precision + 63) / 64;
+
+        while ordinal < count
+        {
+            let replacement: u64 = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(
+                &words,
+                ordinal,
+                -std.numeric.truncate_to<i64>(shift)
+            );
+
+            words[ordinal] = replacement;
+            ordinal += 1;
+        }
+
+        if guard && (sticky || (words[0] & 1) != 0)
+        {
+            let mut carry: u128 = 1;
+
+            ordinal = 0;
+
+            while ordinal < count && carry != 0
+            {
+                let combined: u128 = (words[ordinal] as u128) + carry;
+
+                words[ordinal] = std.numeric.truncate_to<u64>(combined);
+                carry = combined >> 64;
+                ordinal += 1;
+            }
+
+            if carry != 0
+            {
+                words[count] = 1;
+                count += 1;
+            }
+        }
+
+        result_scale += std.numeric.truncate_to<i64>(shift);
+    }
+
+    trusted bray.runtime.bootstrap.numeric.integer.write_from(&mut value.mantissa, &words[0..count]);
+    value.scale = result_scale;
+    value.negative = negative;
+    value.kind = 0;
+}
+
+trusted internal func product_assign(pos value: &mut Number, pos factor: &Number, pos precision: usize)
+{
+    if value.kind != 0 || factor.kind != 0 || precision == 0 || precision > 960 ||
+        bray.runtime.bootstrap.numeric.integer.word_count(&value.mantissa) > 16 ||
+        bray.runtime.bootstrap.numeric.integer.word_count(&factor.mantissa) > 16
+    {
+        let replacement = trusted product(&value, factor, precision);
+
+        _ = trusted std.memory.replace_value<Number>(value, replacement);
+
+        return;
+    }
+
+    let mut scratch: [u64; 32] = [0; 32];
+    let negative: bool = value.negative != factor.negative;
+    let scale: i64 = value.scale + factor.scale;
+
+    {
+        let left = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+        let right = trusted bray.runtime.bootstrap.numeric.integer.read_words(&factor.mantissa);
+
+        bray.runtime.bootstrap.numeric.integer.multiply_to(left, right, &mut scratch[..]);
+    }
+
+    trusted store_rounded(value, &mut scratch[..], scale, negative, precision);
+}
+
+trusted internal func square_assign(pos value: &mut Number, pos precision: usize)
+{
+    if value.kind != 0 || precision == 0 || precision > 960 || bray.runtime.bootstrap.numeric.integer.word_count(
+        &value.mantissa
+    ) > 16
+    {
+        let replacement = trusted product(&value, &value, precision);
+
+        _ = trusted std.memory.replace_value<Number>(value, replacement);
+
+        return;
+    }
+
+    let mut scratch: [u64; 32] = [0; 32];
+    let scale: i64 = value.scale * 2;
+
+    {
+        let source = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+
+        bray.runtime.bootstrap.numeric.integer.multiply_to(source, source, &mut scratch[..]);
+    }
+
+    trusted store_rounded(value, &mut scratch[..], scale, false, precision);
+}
+
+trusted internal func divide_small_assign(pos value: &mut Number, pos divisor: u64, pos precision: usize)
+{
+    if value.kind != 0 || precision == 0 || precision > 960 || bray.runtime.bootstrap.numeric.integer.word_count(
+        &value.mantissa
+    ) > 16
+    {
+        let replacement = trusted divide_small(&value, divisor, precision);
+
+        _ = trusted std.memory.replace_value<Number>(value, replacement);
+
+        return;
+    }
+
+    if is_zero(&value)
+    {
+        return;
+    }
+
+    let bits: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&value.mantissa);
+    let desired: usize = precision + 4 + bray.runtime.bootstrap.numeric.integer.significant_bits(divisor);
+
+    let shift: usize = if desired > bits
+    {
+        yield desired - bits;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let count: usize = (bits + shift + 63) / 64;
+    let mut scratch: [u64; 32] = [0; 32];
+    let mut inexact: bool = false;
+
+    {
+        let source = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+
+        inexact = bray.runtime.bootstrap.numeric.integer.divide_word_slice(
+            source,
+            shift,
+            divisor,
+            &mut scratch[0..count]
+        );
+    }
+
+    if inexact
+    {
+        scratch[0] |= 1;
+    }
+
+    let scale: i64 = value.scale - std.numeric.truncate_to<i64>(shift);
+    let negative: bool = value.negative;
+
+    trusted store_rounded(value, &mut scratch[..], scale, negative, precision);
+}
+
+trusted internal func combine_assign(
+    pos value: &mut Number,
+    pos right: &Number,
+    pos subtract: bool,
+    pos precision: usize
+)
+{
+    if value.kind != 0 || right.kind != 0 || precision == 0 || precision > 960 ||
+        bray.runtime.bootstrap.numeric.integer.word_count(&value.mantissa) > 16 ||
+        bray.runtime.bootstrap.numeric.integer.word_count(&right.mantissa) > 16
+    {
+        let replacement = if subtract
+        {
+            yield trusted difference(&value, right, precision);
+        }
+        else
+        {
+            yield trusted sum(&value, right, precision);
+        };
+
+        _ = trusted std.memory.replace_value<Number>(value, replacement);
+
+        return;
+    }
+
+    let right_negative: bool = right.negative != subtract;
+
+    if is_zero(&value) && is_zero(right)
+    {
+        value.negative = value.negative && right_negative;
+        return;
+    }
+
+    if is_zero(right)
+    {
+        trusted round_assign(value, precision);
+        return;
+    }
+
+    if is_zero(&value)
+    {
+        trusted copy_from(value, right);
+        value.negative = right_negative;
+        trusted round_assign(value, precision);
+        return;
+    }
+
+    let a_top: i64 = trusted exponent(&value);
+    let b_top: i64 = trusted exponent(right);
+
+    let top: i64 = if a_top > b_top
+    {
+        yield a_top;
+    }
+    else
+    {
+        yield b_top;
+    };
+
+    let gap: i64 = if a_top > b_top
+    {
+        yield a_top - b_top;
+    }
+    else
+    {
+        yield b_top - a_top;
+    };
+
+    let mut scale: i64 = if value.scale < right.scale
+    {
+        yield value.scale;
+    }
+    else
+    {
+        yield right.scale;
+    };
+
+    if gap > std.numeric.truncate_to<i64>(precision) + 4
+    {
+        scale = top - std.numeric.truncate_to<i64>(precision) - 4;
+    }
+
+    let count: usize = std.numeric.truncate_to<usize>(top - scale + 64) / 64;
+    let mut a: [u64; 32] = [0; 32];
+    let mut b: [u64; 32] = [0; 32];
+    let mut scratch: [u64; 32] = [0; 32];
+    let mut index: usize = 0;
+
+    {
+        let left_words = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+        let right_words = trusted bray.runtime.bootstrap.numeric.integer.read_words(&right.mantissa);
+        let left_shift: i64 = value.scale - scale;
+        let right_shift: i64 = right.scale - scale;
+
+        while index < count
+        {
+            a[index] = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(left_words, index, left_shift);
+            b[index] = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(right_words, index, right_shift);
+            index += 1;
+        }
+
+        if left_shift < 0 && bray.runtime.bootstrap.numeric.integer.words_below(
+            left_words,
+            std.numeric.truncate_to<usize>(-left_shift)
+        )
+        {
+            a[0] |= 1;
+        }
+
+        if right_shift < 0 && bray.runtime.bootstrap.numeric.integer.words_below(
+            right_words,
+            std.numeric.truncate_to<usize>(-right_shift)
+        )
+        {
+            b[0] |= 1;
+        }
+    }
+
+    let negative: bool = bray.runtime.bootstrap.numeric.integer.combine_words(
+        &a[0..count],
+        value.negative,
+        &b[0..count],
+        right_negative,
+        &mut scratch[0..count]
+    );
+
+    trusted store_rounded(value, &mut scratch[..], scale, negative, precision);
+}

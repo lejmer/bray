@@ -1,0 +1,305 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using core.target;
+using std.collection;
+using std.numeric;
+using std.memory;
+
+// Sixteen machine words cover ordinary guarded arithmetic, including its double-width products.
+// Larger precisions retain the same initialized-word contract in owned heap storage.
+internal union WordStorage
+{
+    Inline(pos mut values: [u64; 16]);
+    Heap(pos mut values: std.collection.List<u64>);
+}
+
+internal struct Natural
+{
+    mut storage: WordStorage;
+    mut count: usize;
+}
+
+trusted internal func zeroed(pos count: usize) -> Natural
+    uses(intrinsic)
+{
+    if count <= 16
+    {
+        return
+        {
+            storage = WordStorage.Inline([0; 16]),
+            count = count
+        };
+    }
+
+    match trusted std.collection.List<u64>(capacity = count)
+    {
+        case Ok(value)
+        {
+            let mut values = value;
+            let mut index: usize = 0;
+
+            while index < count
+            {
+                match trusted std.collection.push<u64>(&mut values, 0)
+                {
+                    case Ok(_) {}
+                    case Error(_) { trusted core.target.abort(); }
+                }
+
+                index += 1;
+            }
+
+            return
+            {
+                storage = WordStorage.Heap(values),
+                count = count
+            };
+        }
+        case Error(_) { trusted core.target.abort(); }
+    }
+}
+
+internal func word_count(pos value: &Natural) -> usize
+{
+    return value.count;
+}
+
+internal func capacity(pos value: &Natural) -> usize
+{
+    match value.storage
+    {
+        case Inline(_) { return 16; }
+        case Heap(values) { return std.collection.length<u64>(&values); }
+    }
+}
+
+trusted internal func read_words(pos value: &Natural) -> &[u64]
+{
+    let count: usize = value.count;
+
+    match value.storage
+    {
+        case Inline(values) { return &values[0..count]; }
+        case Heap(values)
+        {
+            let storage = trusted values.as_slice();
+
+            return &storage[0..count];
+        }
+    }
+}
+
+trusted internal func write_words(pos value: &mut Natural) -> &mut [u64]
+{
+    let count: usize = value.count;
+
+    match value.storage
+    {
+        case Inline(values) { return &mut values[0..count]; }
+        case Heap(values)
+        {
+            let borrowed: &mut std.collection.List<u64> = &mut values;
+            let storage = trusted borrowed.as_slice_mut();
+
+            return &mut storage[0..count];
+        }
+    }
+}
+
+trusted internal func word(pos value: &Natural, pos index: usize) -> u64
+{
+    if index >= value.count
+    {
+        return 0;
+    }
+
+    let values = trusted read_words(value);
+
+    return values[index];
+}
+
+trusted internal func put(pos value: &mut Natural, pos index: usize, pos replacement: u64)
+{
+    let values = trusted write_words(value);
+
+    values[index] = replacement;
+}
+
+trusted internal func trim(pos mut value: Natural) -> Natural
+{
+    while value.count != 0 && trusted word(&value, value.count - 1) == 0
+    {
+        value.count -= 1;
+    }
+
+    if value.count <= 16 && value.storage matches Heap(_)
+    {
+        let mut values: [u64; 16] = [0; 16];
+        let mut index: usize = 0;
+
+        while index < value.count
+        {
+            values[index] = trusted word(&value, index);
+            index += 1;
+        }
+
+        value.storage = WordStorage.Inline(values);
+    }
+
+    return value;
+}
+
+trusted internal func from_bits(pos value: u128) -> Natural
+{
+    let mut result = trusted zeroed(2);
+
+    trusted put(&mut result, 0, std.numeric.truncate_to<u64>(value));
+    trusted put(&mut result, 1, std.numeric.truncate_to<u64>(value >> 64));
+    return trusted trim(result);
+}
+
+trusted internal func duplicate(pos value: &Natural) -> Natural
+{
+    let mut result = trusted zeroed(value.count);
+    let source = trusted read_words(value);
+    let destination = trusted write_words(&mut result);
+    let mut index: usize = 0;
+
+    while index < source.length()
+    {
+        destination[index] = source[index];
+        index += 1;
+    }
+
+    return result;
+}
+
+trusted internal func write_from(pos value: &mut Natural, pos source: &[u64])
+{
+    if source.length() <= capacity(&value)
+    {
+        value.count = source.length();
+
+        let destination = trusted write_words(value);
+        let mut index: usize = 0;
+
+        while index < source.length()
+        {
+            destination[index] = source[index];
+            index += 1;
+        }
+
+        return;
+    }
+
+    trusted grow_from(value, source);
+}
+
+trusted internal func grow_from(pos value: &mut Natural, pos source: &[u64])
+{
+    let mut replacement = trusted zeroed(source.length());
+    let destination = trusted write_words(&mut replacement);
+    let mut index: usize = 0;
+
+    while index < source.length()
+    {
+        destination[index] = source[index];
+        index += 1;
+    }
+
+    _ = trusted std.memory.replace_value<Natural>(value, replacement);
+}
+
+// A fixed-depth search keeps normalization independent of the highest set bit's position.
+internal func significant_bits(pos value: u64) -> usize
+{
+    let mut high: u64 = value;
+    let mut bits: usize = 1;
+
+    if high >> 32 != 0
+    {
+        high >>= 32;
+        bits += 32;
+    }
+
+    if high >> 16 != 0
+    {
+        high >>= 16;
+        bits += 16;
+    }
+
+    if high >> 8 != 0
+    {
+        high >>= 8;
+        bits += 8;
+    }
+
+    if high >> 4 != 0
+    {
+        high >>= 4;
+        bits += 4;
+    }
+
+    if high >> 2 != 0
+    {
+        high >>= 2;
+        bits += 2;
+    }
+
+    if high >> 1 != 0
+    {
+        bits += 1;
+    }
+
+    return bits;
+}
+
+trusted internal func bit_length(pos value: &Natural) -> usize
+{
+    let values = trusted read_words(value);
+    let mut count: usize = values.length();
+
+    while count != 0
+    {
+        let high: u64 = values[count - 1];
+
+        if high != 0
+        {
+            return (count - 1) * 64 + significant_bits(high);
+        }
+
+        count -= 1;
+    }
+
+    return 0;
+}
+
+trusted internal func bit(pos value: &Natural, pos index: usize) -> bool
+{
+    let one: u64 = 1;
+    let shift: u64 = std.numeric.truncate_to<u64>(index % 64);
+
+    return (trusted word(value, index / 64) & (one << shift)) != 0;
+}
+
+trusted internal func has_low_bits(pos value: &Natural, pos count: usize) -> bool
+{
+    let values = trusted read_words(value);
+    let whole: usize = count / 64;
+    let mut index: usize = 0;
+
+    while index < whole && index < values.length()
+    {
+        if values[index] != 0
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    let remainder: u64 = std.numeric.truncate_to<u64>(count % 64);
+    let one: u64 = 1;
+
+    return remainder != 0 && (trusted word(value, whole) & ((one << remainder) - 1)) != 0;
+}

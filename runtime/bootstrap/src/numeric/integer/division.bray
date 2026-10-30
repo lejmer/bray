@@ -1,0 +1,295 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using std.numeric;
+
+// A normalized 128/64 division uses two base-2^32 quotient digits. All scalar
+// divisions have 64-bit operands; double-width products keep correction exact.
+internal func divide_word(pos high: u64, pos low: u64, pos divisor: u64) -> (u64, u64)
+{
+    assert(divisor >> 63 != 0 && high < divisor);
+
+    let base: u64 = 4294967296;
+    let upper: u64 = divisor >> 32;
+    let lower: u64 = divisor & 0xffffffff;
+    let next: u64 = low >> 32;
+    let last: u64 = low & 0xffffffff;
+    let mut first: u64 = high / upper;
+    let mut remainder: u64 = high % upper;
+
+    while first >= base || (first as u128) * (lower as u128) > (remainder as u128) * (base as u128) + (next as u128)
+    {
+        first -= 1;
+        remainder += upper;
+
+        if remainder >= base
+        {
+            break;
+        }
+    }
+
+    let middle: u64 = std.numeric.truncate_to<u64>(
+        (high as u128) * (base as u128) + (next as u128) - (first as u128) * (divisor as u128)
+    );
+
+    let mut second: u64 = middle / upper;
+
+    remainder = middle % upper;
+
+    while second >= base || (second as u128) * (lower as u128) > (remainder as u128) * (base as u128) + (last as u128)
+    {
+        second -= 1;
+        remainder += upper;
+
+        if remainder >= base
+        {
+            break;
+        }
+    }
+
+    let rest: u64 = std.numeric.truncate_to<u64>(
+        (middle as u128) * (base as u128) + (last as u128) - (second as u128) * (divisor as u128)
+    );
+
+    return ((first << 32) | second, rest);
+}
+
+// Once per divisor: floor((2^128 - 1) / divisor) - 2^64.
+internal func reciprocal_word(pos divisor: u64) -> u64
+{
+    let (inverse, _) = divide_word(~divisor, 0xffffffffffffffff, divisor);
+
+    return inverse;
+}
+
+// Granlund/Montgomery preinversion: two multiplies replace repeated hardware
+// division. The two bounded corrections also produce the exact remainder.
+internal func divide_preinverted(pos high: u64, pos low: u64, pos divisor: u64, pos inverse: u64) -> (u64, u64)
+{
+    let base: u128 = 18446744073709551616;
+    let product: u128 = (high as u128) * (inverse as u128);
+    let sum: u128 = (std.numeric.truncate_to<u64>(product) as u128) + (low as u128);
+    let mut quotient: u64 = std.numeric.truncate_to<u64>((product >> 64) + (high as u128) + 1 + (sum >> 64));
+
+    let mut remainder: u64 = std.numeric.truncate_to<u64>(
+        (low as u128) + base - (std.numeric.truncate_to<u64>((quotient as u128) * (divisor as u128)) as u128)
+    );
+
+    if remainder > std.numeric.truncate_to<u64>(sum)
+    {
+        quotient = std.numeric.truncate_to<u64>((quotient as u128) + base - 1);
+        remainder = std.numeric.truncate_to<u64>((remainder as u128) + (divisor as u128));
+    }
+
+    if remainder >= divisor
+    {
+        remainder -= divisor;
+        quotient = std.numeric.truncate_to<u64>((quotient as u128) + 1);
+    }
+
+    return (quotient, remainder);
+}
+
+trusted internal func divide_small(pos value: &Natural, pos divisor: u64) -> (Natural, bool)
+{
+    assert(divisor != 0);
+
+    let source = trusted read_words(value);
+    let mut result = trusted zeroed(source.length());
+    let destination = trusted write_words(&mut result);
+    let inexact: bool = divide_word_slice(source, 0, divisor, destination);
+
+    return (trusted trim(result), inexact);
+}
+
+internal func divide_word_slice(
+    pos source: &[u64],
+    pos source_shift: usize,
+    pos divisor: u64,
+    pos destination: &mut [u64]
+) -> bool
+{
+    let shift: u64 = std.numeric.truncate_to<u64>(64 - significant_bits(divisor));
+    let normalized: u64 = divisor << shift;
+    let inverse: u64 = reciprocal_word(normalized);
+    let mut count: usize = destination.length();
+    let mut remainder: u64 = 0;
+
+    while count != 0
+    {
+        count -= 1;
+
+        let digit: u64 = shifted_slice_word(source, count, std.numeric.truncate_to<i64>(source_shift));
+        let combined: u128 = (((remainder as u128) << 64) | (digit as u128)) << (shift as u128);
+
+        let (quotient, rest) = divide_preinverted(
+            std.numeric.truncate_to<u64>(combined >> 64),
+            std.numeric.truncate_to<u64>(combined),
+            normalized,
+            inverse
+        );
+
+        destination[count] = quotient;
+        remainder = rest >> shift;
+    }
+
+    return remainder != 0;
+}
+
+trusted internal func divide(pos numerator: &Natural, pos denominator: &Natural) -> (Natural, bool)
+{
+    let a_count: usize = word_count(numerator);
+    let b_count: usize = word_count(denominator);
+
+    assert(b_count != 0);
+
+    if trusted compare_shifted(numerator, denominator, 0, false) < 0
+    {
+        return (trusted zeroed(0), a_count != 0);
+    }
+
+    if b_count == 1
+    {
+        return trusted divide_small(numerator, trusted word(denominator, 0));
+    }
+
+    let shift: usize = 64 - significant_bits(trusted word(denominator, b_count - 1));
+    let normalized = trusted shift_left(denominator, shift);
+    let mut remaining = trusted zeroed(a_count + 1);
+    let shifted = trusted shift_left(numerator, shift);
+    let source = trusted read_words(&shifted);
+    let u = trusted write_words(&mut remaining);
+    let v = trusted read_words(&normalized);
+    let mut index: usize = 0;
+
+    while index < source.length()
+    {
+        u[index] = source[index];
+        index += 1;
+    }
+
+    let mut result = trusted zeroed(a_count - b_count + 1);
+    let q = trusted write_words(&mut result);
+    let inexact: bool = divide_normalized(u, v, q);
+
+    return (trusted trim(result), inexact);
+}
+
+// u has one extra high word, v is normalized and q has u.length - v.length
+// words. All three ranges are initialized and mutually disjoint.
+internal func divide_normalized(pos u: &mut [u64], pos v: &[u64], pos q: &mut [u64]) -> bool
+{
+    let b_count: usize = v.length();
+
+    let high: u64 = v[b_count - 1];
+    let inverse: u64 = reciprocal_word(high);
+
+    if b_count == 1
+    {
+        let mut position: usize = q.length();
+
+        while position != 0
+        {
+            position -= 1;
+
+            let (digit, remainder) = divide_preinverted(u[position + 1], u[position], high, inverse);
+
+            q[position] = digit;
+            u[position] = remainder;
+        }
+
+        return u[0] != 0;
+    }
+
+    let base: u128 = 18446744073709551616;
+    let mut position: usize = q.length();
+    let mut index: usize = 0;
+
+    while position != 0
+    {
+        position -= 1;
+
+        let top: u64 = u[position + b_count];
+        let next: u64 = u[position + b_count - 1];
+        let mut estimate: u64 = 0xffffffffffffffff;
+        let mut rest: u128 = (next as u128) + (high as u128);
+
+        if top < high
+        {
+            let (digit, remainder) = divide_preinverted(top, next, high, inverse);
+
+            estimate = digit;
+            rest = remainder as u128;
+        }
+
+        while (rest < base) && ((estimate as u128) * (v[b_count - 2] as u128) > (rest << 64) + (u[
+            position + b_count - 2
+        ] as u128))
+        {
+            estimate -= 1;
+            rest += high as u128;
+        }
+
+        let mut borrow: u128 = 0;
+
+        index = 0;
+
+        while index < b_count
+        {
+            let product: u128 = (estimate as u128) * (v[index] as u128) + borrow;
+            let low: u64 = std.numeric.truncate_to<u64>(product);
+            let current: u64 = u[position + index];
+
+            u[position + index] = std.numeric.truncate_to<u64>((current as u128) + base - (low as u128));
+            borrow = product >> 64;
+
+            if current < low
+            {
+                borrow += 1;
+            }
+
+            index += 1;
+        }
+
+        let current: u128 = u[position + b_count] as u128;
+
+        u[position + b_count] = std.numeric.truncate_to<u64>(current + base - borrow);
+
+        if current < borrow
+        {
+            estimate -= 1;
+
+            let mut carry: u128 = 0;
+
+            index = 0;
+
+            while index < b_count
+            {
+                let sum: u128 = (u[position + index] as u128) + (v[index] as u128) + carry;
+
+                u[position + index] = std.numeric.truncate_to<u64>(sum);
+                carry = sum >> 64;
+                index += 1;
+            }
+
+            u[position + b_count] = std.numeric.truncate_to<u64>((u[position + b_count] as u128) + carry);
+        }
+
+        q[position] = estimate;
+    }
+
+    let mut inexact: bool = false;
+
+    index = 0;
+
+    while index < b_count
+    {
+        if u[index] != 0
+        {
+            inexact = true;
+        }
+
+        index += 1;
+    }
+
+    return inexact;
+}

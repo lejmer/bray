@@ -9,6 +9,8 @@ mod known;
 mod lifecycle;
 mod names;
 mod native_statics;
+#[cfg(test)]
+mod numeric_tests;
 mod operations;
 mod optimization;
 mod outgoing;

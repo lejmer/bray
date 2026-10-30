@@ -1,0 +1,360 @@
+trusted internal module bray.runtime.bootstrap.numeric.power;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.integer;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.math;
+
+trusted internal func integer_modulo_four(pos value: &bray.runtime.bootstrap.numeric.number.Number) -> i64
+{
+    if value.kind != 0
+    {
+        return -1;
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return 0;
+    }
+
+    let mut quadrant: u64 = 0;
+
+    if value.scale >= 2
+    {
+        return 0;
+    }
+
+    if value.scale >= 0
+    {
+        quadrant = (trusted bray.runtime.bootstrap.numeric.integer.word(&value.mantissa, 0) << std.numeric.truncate_to<
+            u64
+        >(value.scale)) & 3;
+    }
+    else
+    {
+        let shift: usize = std.numeric.truncate_to<usize>(-value.scale);
+
+        if trusted bray.runtime.bootstrap.numeric.integer.has_low_bits(&value.mantissa, shift)
+        {
+            return -1;
+        }
+
+        if trusted bray.runtime.bootstrap.numeric.integer.bit(&value.mantissa, shift)
+        {
+            quadrant |= 1;
+        }
+
+        if trusted bray.runtime.bootstrap.numeric.integer.bit(&value.mantissa, shift + 1)
+        {
+            quadrant |= 2;
+        }
+    }
+
+    if value.negative
+    {
+        quadrant = (4 - quadrant) % 4;
+    }
+
+    return std.numeric.truncate_to<i64>(quadrant);
+}
+
+trusted internal func bounded_exponent(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos factor_exponent: i64
+) -> u64
+{
+    let top: i64 = trusted bray.runtime.bootstrap.numeric.number.exponent(value);
+
+    if value.kind != 0 || top < 1 || top > 64 || trusted integer_modulo_four(value) < 0
+    {
+        return 0;
+    }
+
+    let mut integer = trusted bray.runtime.bootstrap.numeric.integer.zeroed(0);
+
+    if value.scale >= 0
+    {
+        integer = trusted bray.runtime.bootstrap.numeric.integer.shift_left(
+            &value.mantissa,
+            std.numeric.truncate_to<usize>(value.scale)
+        );
+    }
+    else
+    {
+        integer = trusted bray.runtime.bootstrap.numeric.integer.shift_right(
+            &value.mantissa,
+            std.numeric.truncate_to<usize>(-value.scale)
+        );
+    }
+
+    let count: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&integer, 0);
+
+    let mut magnitude: i64 = if factor_exponent < 0
+    {
+        yield -factor_exponent;
+    }
+    else
+    {
+        yield factor_exponent;
+    };
+
+    if magnitude < 1
+    {
+        magnitude = 1;
+    }
+
+    if count > 536870911 / std.numeric.truncate_to<u64>(magnitude)
+    {
+        return 0;
+    }
+
+    return count;
+}
+
+internal func working_precision(pos format: &bray.runtime.bootstrap.numeric.format.Format, pos growth: i64) -> usize
+{
+    let extra: usize = if growth > 0
+    {
+        yield std.numeric.truncate_to<usize>(growth);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let mut precision: usize = format.fraction_bits + 1 + 128 + extra;
+
+    if precision < 256
+    {
+        precision = 256;
+    }
+
+    return (precision + 63) / 64 * 64;
+}
+
+trusted internal func integer_power(
+    pos base: &bray.runtime.bootstrap.numeric.number.Number,
+    pos exponent: &bray.runtime.bootstrap.numeric.number.Number,
+    pos count: u64,
+    pos precision: usize
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let mut remaining: u64 = count;
+    let mut factor = trusted bray.runtime.bootstrap.numeric.number.duplicate(base);
+    let mut result = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+
+    while remaining != 0
+    {
+        if (remaining & 1) != 0
+        {
+            result = trusted bray.runtime.bootstrap.numeric.number.product(&result, &factor, precision);
+        }
+
+        remaining >>= 1;
+
+        if remaining != 0
+        {
+            factor = trusted bray.runtime.bootstrap.numeric.number.product(&factor, &factor, precision);
+        }
+    }
+
+    if exponent.negative
+    {
+        let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+
+        return trusted bray.runtime.bootstrap.numeric.number.divide(&one, &result, precision);
+    }
+
+    return result;
+}
+
+trusted internal func magnitude_power(
+    pos base: &bray.runtime.bootstrap.numeric.number.Number,
+    pos exponent: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(exponent) || trusted bray.runtime.bootstrap.numeric.number.order(
+        base,
+        &one
+    ) == 0
+    {
+        return one;
+    }
+
+    if exponent.kind == 1
+    {
+        let grows: bool = (trusted bray.runtime.bootstrap.numeric.number.order(base, &one) > 0) != exponent.negative;
+
+        return trusted bray.runtime.bootstrap.numeric.number.special(
+            if grows
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            },
+            false
+        );
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(base) || base.kind == 1
+    {
+        let grows: bool = (!exponent.negative) == (base.kind == 1);
+
+        return trusted bray.runtime.bootstrap.numeric.number.special(
+            if grows
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            },
+            false
+        );
+    }
+
+    let count: u64 = trusted bounded_exponent(exponent, trusted bray.runtime.bootstrap.numeric.number.exponent(base));
+
+    if count != 0
+    {
+        return trusted integer_power(base, exponent, count, precision);
+    }
+
+    let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, -1);
+
+    if trusted bray.runtime.bootstrap.numeric.number.order(exponent, &half) == 0
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.square_root(base, precision);
+    }
+
+    let mut pi = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if precision + 192 > 960
+    {
+        pi = trusted bray.runtime.bootstrap.numeric.math.pi(precision + 320);
+    }
+
+    let ln2 = trusted bray.runtime.bootstrap.numeric.math.ln2(precision + 192, &pi);
+    let logarithm = trusted bray.runtime.bootstrap.numeric.math.logarithm(base, precision, &ln2, &pi);
+    let product = trusted bray.runtime.bootstrap.numeric.number.product(&logarithm, exponent, precision);
+
+    return trusted bray.runtime.bootstrap.numeric.math.exponential(&product, precision, &ln2, &pi);
+}
+
+trusted internal func real_power(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos base: u128,
+    pos exponent: u128
+) -> u128
+{
+    if bray.runtime.bootstrap.numeric.format.is_zero(format, exponent) || base == format.one
+    {
+        return format.one;
+    }
+
+    if bray.runtime.bootstrap.numeric.format.is_nan(format, base) || bray.runtime.bootstrap.numeric.format.is_nan(
+        format,
+        exponent
+    )
+    {
+        return format.nan;
+    }
+
+    if exponent == format.one
+    {
+        return base;
+    }
+
+    let magnitude: u128 = base & ~format.sign;
+    let negative_exponent: bool = (exponent & format.sign) != 0;
+
+    if bray.runtime.bootstrap.numeric.format.is_infinite(format, exponent)
+    {
+        if magnitude == format.one
+        {
+            return format.one;
+        }
+
+        if (magnitude > format.one) != negative_exponent
+        {
+            return format.infinity;
+        }
+
+        return 0;
+    }
+
+    let exponent_value = trusted bray.runtime.bootstrap.numeric.format.decode(format, exponent);
+    let integer: i64 = trusted integer_modulo_four(&exponent_value);
+
+    let sign: u128 = if (base & format.sign) != 0 && integer >= 0 && (integer & 1) != 0
+    {
+        yield format.sign;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    if bray.runtime.bootstrap.numeric.format.is_zero(format, base)
+    {
+        return sign | if negative_exponent
+        {
+            yield format.infinity;
+        }
+        else
+        {
+            yield 0;
+        };
+    }
+
+    if bray.runtime.bootstrap.numeric.format.is_infinite(format, base)
+    {
+        return sign | if negative_exponent
+        {
+            yield 0;
+        }
+        else
+        {
+            yield format.infinity;
+        };
+    }
+
+    if (base & format.sign) != 0 && integer < 0
+    {
+        return format.nan;
+    }
+
+    if magnitude == format.one
+    {
+        return format.one | sign;
+    }
+
+    let growth: i64 = trusted bray.runtime.bootstrap.numeric.number.exponent(&exponent_value);
+
+    // A finite IEEE base other than one has |ln(base)| > 2^(-fraction-2).
+    // Here the product exceeds 2^15, beyond every supported format's finite
+    // and subnormal logarithmic range. Its sign determines the rounded result.
+    if growth >= std.numeric.truncate_to<i64>(format.fraction_bits) + 18
+    {
+        return sign | if (magnitude > format.one) != negative_exponent
+        {
+            yield format.infinity;
+        }
+        else
+        {
+            yield 0;
+        };
+    }
+
+    let precision: usize = working_precision(format, growth);
+    let base_value = trusted bray.runtime.bootstrap.numeric.format.decode(format, magnitude);
+    let result = trusted magnitude_power(&base_value, &exponent_value, precision);
+
+    return (trusted bray.runtime.bootstrap.numeric.format.encode(format, &result)) | sign;
+}

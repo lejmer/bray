@@ -1,0 +1,180 @@
+trusted internal module bray.runtime.bootstrap.numeric.complex;
+
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.fixed;
+
+trusted internal func decode(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos bits: [u128; 2],
+    pos recover: bool,
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    let infinite: bool = bray.runtime.bootstrap.numeric.format.is_infinite(format, bits[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, bits[1]);
+
+    let mut values: [u128; 2] = bits;
+    let mut index: usize = 0;
+
+    while index < 2
+    {
+        if recover && infinite
+        {
+            values[index] = if bray.runtime.bootstrap.numeric.format.is_infinite(format, bits[index])
+            {
+                yield format.one;
+            }
+            else
+            {
+                yield 0;
+            };
+        }
+        else if recover && bray.runtime.bootstrap.numeric.format.is_nan(format, bits[index])
+        {
+            values[index] = 0;
+        }
+        else
+        {
+            values[index] &= ~format.sign;
+        }
+
+        values[index] |= bits[index] & format.sign;
+        index += 1;
+    }
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, values[0]),
+        trusted bray.runtime.bootstrap.numeric.format.decode(format, values[1])
+    ];
+}
+
+trusted internal func encode_scaled(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos real: &bray.runtime.bootstrap.numeric.number.Number,
+    pos imaginary: &bray.runtime.bootstrap.numeric.number.Number,
+    pos scale: &bray.runtime.bootstrap.numeric.number.Number,
+) -> [u128; 2]
+{
+    let a = trusted bray.runtime.bootstrap.numeric.number.product(real, scale, 0);
+    let b = trusted bray.runtime.bootstrap.numeric.number.product(imaginary, scale, 0);
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &a),
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &b)
+    ];
+}
+
+trusted internal func multiply(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos left: [u128; 2],
+    pos right: [u128; 2],
+) -> [u128; 2]
+{
+    if ((left[0] & ~format.sign) < format.infinity) && ((left[1] & ~format.sign) < format.infinity) && ((right[0] &
+        ~format.sign) < format.infinity) && ((right[1] & ~format.sign) < format.infinity)
+    {
+        return bray.runtime.bootstrap.numeric.fixed.multiply(format, left, right);
+    }
+
+    let infinite: bool = bray.runtime.bootstrap.numeric.format.is_infinite(format, left[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, left[1]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, right[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, right[1]);
+
+    let a = trusted decode(format, left, infinite);
+    let b = trusted decode(format, right, infinite);
+    let ac = trusted bray.runtime.bootstrap.numeric.number.product(&a[0], &b[0], 0);
+    let bd = trusted bray.runtime.bootstrap.numeric.number.product(&a[1], &b[1], 0);
+    let ad = trusted bray.runtime.bootstrap.numeric.number.product(&a[0], &b[1], 0);
+    let bc = trusted bray.runtime.bootstrap.numeric.number.product(&a[1], &b[0], 0);
+    let real = trusted bray.runtime.bootstrap.numeric.number.difference(&ac, &bd, 0);
+    let imaginary = trusted bray.runtime.bootstrap.numeric.number.sum(&ad, &bc, 0);
+
+    if infinite
+    {
+        let scale = trusted bray.runtime.bootstrap.numeric.number.special(1, false);
+
+        return trusted encode_scaled(format, &real, &imaginary, &scale);
+    }
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &real),
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &imaginary)
+    ];
+}
+
+trusted internal func divide(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos left: [u128; 2],
+    pos right: [u128; 2],
+) -> [u128; 2]
+{
+    let left_infinite: bool = bray.runtime.bootstrap.numeric.format.is_infinite(format, left[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, left[1]);
+
+    let right_infinite: bool = bray.runtime.bootstrap.numeric.format.is_infinite(format, right[0]) ||
+        bray.runtime.bootstrap.numeric.format.is_infinite(format, right[1]);
+
+    if bray.runtime.bootstrap.numeric.format.is_zero(format, right[0]) && bray.runtime.bootstrap.numeric.format.is_zero(
+        format,
+        right[1]
+    )
+    {
+        let scale = trusted bray.runtime.bootstrap.numeric.number.special(1, (right[0] & format.sign) != 0);
+        let values = trusted decode(format, left, false);
+
+        return trusted encode_scaled(format, &values[0], &values[1], &scale);
+    }
+
+    if left_infinite && right_infinite
+    {
+        return[format.nan; 2];
+    }
+
+    if ((left[0] & ~format.sign) < format.infinity) && ((left[1] & ~format.sign) < format.infinity) && ((right[0] &
+        ~format.sign) < format.infinity) && ((right[1] & ~format.sign) < format.infinity)
+    {
+        match consume bray.runtime.bootstrap.numeric.fixed.divide(format, left, right)
+        {
+            case ?value { return value; }
+            case none {}
+        }
+    }
+
+    let a = trusted decode(format, left, left_infinite);
+    let b = trusted decode(format, right, right_infinite);
+    let ac = trusted bray.runtime.bootstrap.numeric.number.product(&a[0], &b[0], 0);
+    let bd = trusted bray.runtime.bootstrap.numeric.number.product(&a[1], &b[1], 0);
+    let bc = trusted bray.runtime.bootstrap.numeric.number.product(&a[1], &b[0], 0);
+    let ad = trusted bray.runtime.bootstrap.numeric.number.product(&a[0], &b[1], 0);
+    let real = trusted bray.runtime.bootstrap.numeric.number.sum(&ac, &bd, 0);
+    let imaginary = trusted bray.runtime.bootstrap.numeric.number.difference(&bc, &ad, 0);
+
+    if left_infinite || right_infinite
+    {
+        let scale = trusted bray.runtime.bootstrap.numeric.number.special(
+            if left_infinite
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            },
+            false
+        );
+
+        return trusted encode_scaled(format, &real, &imaginary, &scale);
+    }
+
+    let cc = trusted bray.runtime.bootstrap.numeric.number.product(&b[0], &b[0], 0);
+    let dd = trusted bray.runtime.bootstrap.numeric.number.product(&b[1], &b[1], 0);
+    let divisor = trusted bray.runtime.bootstrap.numeric.number.sum(&cc, &dd, 0);
+    let x = trusted bray.runtime.bootstrap.numeric.number.quotient(&real, &divisor, format.fraction_bits + 4);
+    let y = trusted bray.runtime.bootstrap.numeric.number.quotient(&imaginary, &divisor, format.fraction_bits + 4);
+
+    return[
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &x),
+        trusted bray.runtime.bootstrap.numeric.format.encode(format, &y)
+    ];
+}

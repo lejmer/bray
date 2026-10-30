@@ -19,6 +19,7 @@ const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-allocation-probe.c"),
     include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
     include_str!("../../fixtures/runtime-product-smoke.c"),
+    include_str!("../../fixtures/runtime-numeric-smoke.c"),
 );
 
 pub(super) fn smoke_test(
@@ -188,6 +189,7 @@ fn smoke_test_bootstrap(
     let archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
 
     let map = directory.join("runtime-bootstrap-smoke.map");
+    let numeric_vectors = super::numeric::vectors(directory)?;
 
     let executable = compile_c_smoke(
         BOOTSTRAP_SMOKE_SOURCE,
@@ -200,7 +202,7 @@ fn smoke_test_bootstrap(
     )?;
 
     let output = crate::validation_process::success(
-        Exec::cmd(&executable),
+        Exec::cmd(&executable).env("BRAY_NUMERIC_VECTORS", numeric_vectors),
         crate::validation_process::TIMEOUT,
     )
     .map_err(|error| CommandError::SmokeExecution {

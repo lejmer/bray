@@ -14,7 +14,6 @@ bundled-bootstrap = ["dep:bray-target", "dep:xtask"]
 test-output = ["bray-platform/test-output"]
 
 [dependencies]
-bray-numeric = { path = "../bray-numeric" }
 bray-platform = {
     path = "../bray-platform",
     default-features = false,

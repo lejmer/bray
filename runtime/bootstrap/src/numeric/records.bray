@@ -1,0 +1,107 @@
+trusted internal module bray.runtime.bootstrap.numeric;
+
+using core.memory;
+using std.memory;
+
+// The compiler-bound numeric caller supplies initialized operand records and
+// an exclusive result destination for one supported IEEE component width.
+trusted internal predicate native_entry();
+
+@copy
+@layout(c)
+internal struct RealBits
+{
+    words: [u64; 2];
+}
+
+@copy
+@layout(c)
+internal struct ComplexBits
+{
+    real: RealBits;
+    imaginary: RealBits;
+}
+
+trusted internal func read_real(pos pointer: DataPointer<RealBits>) -> RealBits
+    requires(trusted native_entry())
+    uses(raw_memory)
+{
+    let readable = trusted lambda(pos value: DataPointer<RealBits>) -> DataPointer<RealBits>
+        requires(trusted native_entry())
+        ensures(
+            trusted core.memory.valid_read<RealBits>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<RealBits>(pointer = result),
+            trusted core.memory.initialized_as<RealBits>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return value;
+    };
+
+    return trusted std.memory.read<RealBits>(trusted readable(pointer));
+}
+
+trusted internal func write_real(pos pointer: DataPointer<RealBits>, pos value: RealBits)
+    requires(trusted native_entry())
+    uses(raw_memory, unchecked_init)
+{
+    let writable = trusted lambda(pos destination: DataPointer<RealBits>) -> DataPointer<RealBits>
+        requires(trusted native_entry())
+        ensures(
+            trusted core.memory.valid_write<RealBits>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<RealBits>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return destination;
+    };
+
+    trusted std.memory.write<RealBits>(trusted writable(pointer), value);
+}
+
+trusted internal func read_complex(pos pointer: DataPointer<ComplexBits>) -> ComplexBits
+    requires(trusted native_entry())
+    uses(raw_memory)
+{
+    let readable = trusted lambda(pos value: DataPointer<ComplexBits>) -> DataPointer<ComplexBits>
+        requires(trusted native_entry())
+        ensures(
+            trusted core.memory.valid_read<ComplexBits>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<ComplexBits>(pointer = result),
+            trusted core.memory.initialized_as<ComplexBits>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return value;
+    };
+
+    return trusted std.memory.read<ComplexBits>(trusted readable(pointer));
+}
+
+trusted internal func write_complex(pos pointer: DataPointer<ComplexBits>, pos value: ComplexBits)
+    requires(trusted native_entry())
+    uses(raw_memory, unchecked_init)
+{
+    let writable = trusted lambda(pos destination: DataPointer<ComplexBits>) -> DataPointer<ComplexBits>
+        requires(trusted native_entry())
+        ensures(
+            trusted core.memory.valid_write<ComplexBits>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<ComplexBits>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return destination;
+    };
+
+    trusted std.memory.write<ComplexBits>(trusted writable(pointer), value);
+}
+
+internal func real_bits(pos value: RealBits) -> u128
+{
+    return (value.words[0] as u128) | ((value.words[1] as u128) << 64);
+}
+
+internal func complex_bits(pos value: ComplexBits) -> [u128; 2]
+{
+    return[real_bits(value.real), real_bits(value.imaginary)];
+}

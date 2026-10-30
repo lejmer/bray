@@ -1,0 +1,241 @@
+trusted internal module bray.runtime.bootstrap.numeric.power;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.math;
+
+trusted internal func complex_square_root(
+    pos real: &bray.runtime.bootstrap.numeric.number.Number,
+    pos imaginary: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    if imaginary.kind == 1
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.special(1, false),
+            trusted bray.runtime.bootstrap.numeric.number.special(1, imaginary.negative)
+        ];
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(real) && bray.runtime.bootstrap.numeric.number.is_zero(imaginary)
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.zero(false),
+            trusted bray.runtime.bootstrap.numeric.number.zero(imaginary.negative)
+        ];
+    }
+
+    let aa = trusted bray.runtime.bootstrap.numeric.number.product(real, real, 0);
+    let bb = trusted bray.runtime.bootstrap.numeric.number.product(imaginary, imaginary, 0);
+    let squared = trusted bray.runtime.bootstrap.numeric.number.sum(&aa, &bb, 0);
+    let radius = trusted bray.runtime.bootstrap.numeric.number.square_root(&squared, precision);
+
+    let large_squared = if real.negative
+    {
+        yield trusted bray.runtime.bootstrap.numeric.number.difference(&radius, real, precision);
+    }
+    else
+    {
+        yield trusted bray.runtime.bootstrap.numeric.number.sum(&radius, real, precision);
+    };
+
+    let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(&large_squared, -1);
+    let mut large = trusted bray.runtime.bootstrap.numeric.number.square_root(&half, precision);
+    let mut small = trusted bray.runtime.bootstrap.numeric.number.zero(imaginary.negative);
+
+    if large.kind != 1
+    {
+        let divisor = trusted bray.runtime.bootstrap.numeric.number.scale_by(&large, 1);
+
+        small = trusted bray.runtime.bootstrap.numeric.number.divide(imaginary, &divisor, precision);
+        small.negative = imaginary.negative;
+    }
+
+    if real.negative
+    {
+        small.negative = false;
+        large.negative = imaginary.negative;
+        return[small, large];
+    }
+
+    return[large, small];
+}
+
+trusted internal func axis_power(
+    pos real: &bray.runtime.bootstrap.numeric.number.Number,
+    pos imaginary: &bray.runtime.bootstrap.numeric.number.Number,
+    pos exponent: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]?
+{
+    let mut magnitude = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+    let mut turns = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(imaginary)
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.number.absolute(real);
+
+        if real.negative
+        {
+            turns = trusted bray.runtime.bootstrap.numeric.number.scale_by(exponent, 1);
+        }
+    }
+    else if bray.runtime.bootstrap.numeric.number.is_zero(real)
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.number.absolute(imaginary);
+        turns = trusted bray.runtime.bootstrap.numeric.number.duplicate(exponent);
+    }
+    else if trusted bray.runtime.bootstrap.numeric.number.magnitude_order(real, imaginary) == 0
+    {
+        let aa = trusted bray.runtime.bootstrap.numeric.number.product(real, real, 0);
+        let bb = trusted bray.runtime.bootstrap.numeric.number.product(imaginary, imaginary, 0);
+        let total = trusted bray.runtime.bootstrap.numeric.number.sum(&aa, &bb, 0);
+
+        let factor = trusted bray.runtime.bootstrap.numeric.number.integer(
+            if real.negative
+            {
+                yield 3;
+            }
+            else
+            {
+                yield 1;
+            }
+        );
+
+        let product = trusted bray.runtime.bootstrap.numeric.number.product(exponent, &factor, precision);
+
+        magnitude = trusted bray.runtime.bootstrap.numeric.number.square_root(&total, precision);
+        turns = trusted bray.runtime.bootstrap.numeric.number.scale_by(&product, -1);
+    }
+    else
+    {
+        return none;
+    }
+
+    let mut quadrant: i64 = trusted integer_modulo_four(&turns);
+
+    if quadrant < 0
+    {
+        return none;
+    }
+
+    if imaginary.negative
+    {
+        quadrant = (4 - quadrant) % 4;
+    }
+
+    let mut scale = trusted magnitude_power(&magnitude, exponent, precision);
+    let zero = trusted bray.runtime.bootstrap.numeric.number.zero(imaginary.negative != exponent.negative);
+
+    if quadrant == 0
+    {
+        return[scale, zero];
+    }
+
+    if quadrant == 1
+    {
+        return[trusted bray.runtime.bootstrap.numeric.number.zero(false), scale];
+    }
+
+    scale.negative = true;
+
+    if quadrant == 2
+    {
+        return[scale, zero];
+    }
+
+    return[trusted bray.runtime.bootstrap.numeric.number.zero(false), scale];
+}
+
+trusted internal func argument(
+    pos real: &bray.runtime.bootstrap.numeric.number.Number,
+    pos imaginary: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let rounded_pi = trusted bray.runtime.bootstrap.numeric.number.round(
+        trusted bray.runtime.bootstrap.numeric.number.duplicate(pi),
+        precision
+    );
+
+    let mut angle = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(imaginary)
+    {
+        if real.negative
+        {
+            angle = trusted bray.runtime.bootstrap.numeric.number.duplicate(&rounded_pi);
+        }
+    }
+    else if real.kind == 1 && imaginary.kind == 1
+    {
+        let quarter = trusted bray.runtime.bootstrap.numeric.number.scale_by(&rounded_pi, -2);
+
+        angle = if real.negative
+        {
+            yield trusted bray.runtime.bootstrap.numeric.number.difference(&rounded_pi, &quarter, precision);
+        }
+        else
+        {
+            yield quarter;
+        };
+    }
+    else if bray.runtime.bootstrap.numeric.number.is_zero(real) || imaginary.kind == 1
+    {
+        angle = trusted bray.runtime.bootstrap.numeric.number.scale_by(&rounded_pi, -1);
+    }
+    else
+    {
+        let a = trusted bray.runtime.bootstrap.numeric.number.absolute(real);
+        let b = trusted bray.runtime.bootstrap.numeric.number.absolute(imaginary);
+        let ratio = trusted bray.runtime.bootstrap.numeric.number.divide(&b, &a, precision);
+        let acute = trusted bray.runtime.bootstrap.numeric.math.arctangent(&ratio, precision, pi);
+
+        angle = if real.negative
+        {
+            yield trusted bray.runtime.bootstrap.numeric.number.difference(&rounded_pi, &acute, precision);
+        }
+        else
+        {
+            yield acute;
+        };
+    }
+
+    angle.negative = imaginary.negative;
+    return angle;
+}
+
+trusted internal func polar(
+    pos scale: &bray.runtime.bootstrap.numeric.number.Number,
+    pos angle: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    let components = trusted bray.runtime.bootstrap.numeric.math.sine_cosine(angle, precision, pi);
+    let mut real = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+    let mut imaginary = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if scale.kind == 1 && bray.runtime.bootstrap.numeric.number.is_zero(&components[0])
+    {
+        real = trusted bray.runtime.bootstrap.numeric.number.duplicate(&components[0]);
+    }
+    else
+    {
+        real = trusted bray.runtime.bootstrap.numeric.number.product(scale, &components[0], precision);
+    }
+
+    if scale.kind == 1 && bray.runtime.bootstrap.numeric.number.is_zero(&components[1])
+    {
+        imaginary = trusted bray.runtime.bootstrap.numeric.number.duplicate(&components[1]);
+    }
+    else
+    {
+        imaginary = trusted bray.runtime.bootstrap.numeric.number.product(scale, &components[1], precision);
+    }
+
+    return[real, imaginary];
+}
