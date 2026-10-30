@@ -175,6 +175,18 @@ mod tests {
     }
 
     #[test]
+    fn enormous_finite_exponents_preserve_positive_underflow_magnitudes() {
+        for format in FORMATS {
+            let largest = format.infinity() - 1;
+            let one = integer(format, 1);
+
+            assert_eq!(power(format, 1, largest), 0);
+            assert_eq!(power(format, one | 1, largest | format.sign_mask()), 0);
+            assert_eq!(crate::complex_power(format, [1, 0], [largest, 0]), [0, 0]);
+        }
+    }
+
+    #[test]
     fn exponent_parity_preserves_every_selected_significand_bit() {
         for format in FORMATS {
             let one = integer(format, 1);

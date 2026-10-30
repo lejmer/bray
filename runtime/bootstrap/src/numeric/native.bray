@@ -1,0 +1,91 @@
+trusted internal module bray.runtime.bootstrap.numeric;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.complex;
+using internal bray.runtime.bootstrap.numeric.power;
+
+internal func real_record(pos bits: u128) -> RealBits
+{
+    return
+    {
+        words = [std.numeric.truncate_to<u64>(bits), std.numeric.truncate_to<u64>(bits >> 64)]
+    };
+}
+
+internal func complex_record(pos bits: [u128; 2]) -> ComplexBits
+{
+    return
+    {
+        real = real_record(bits[0]),
+        imaginary = real_record(bits[1])
+    };
+}
+
+@abi(c)
+trusted internal func real_power(
+    pos width: u32,
+    pos left: DataPointer<RealBits>,
+    pos right: DataPointer<RealBits>,
+    pos output: DataPointer<RealBits>
+)
+    requires(trusted native_entry())
+{
+    let a = trusted read_real(left);
+    let b = trusted read_real(right);
+    let format = bray.runtime.bootstrap.numeric.format.format(width);
+    let result = trusted bray.runtime.bootstrap.numeric.power.real_power(&format, real_bits(a), real_bits(b));
+
+    trusted write_real(output, real_record(result));
+}
+
+@abi(c)
+trusted internal func complex_multiply(
+    pos width: u32,
+    pos left: DataPointer<ComplexBits>,
+    pos right: DataPointer<ComplexBits>,
+    pos output: DataPointer<ComplexBits>
+)
+    requires(trusted native_entry())
+{
+    let a = trusted read_complex(left);
+    let b = trusted read_complex(right);
+    let format = bray.runtime.bootstrap.numeric.format.format(width);
+    let result = trusted bray.runtime.bootstrap.numeric.complex.multiply(&format, complex_bits(a), complex_bits(b));
+
+    trusted write_complex(output, complex_record(result));
+}
+
+@abi(c)
+trusted internal func complex_divide(
+    pos width: u32,
+    pos left: DataPointer<ComplexBits>,
+    pos right: DataPointer<ComplexBits>,
+    pos output: DataPointer<ComplexBits>
+)
+    requires(trusted native_entry())
+{
+    let a = trusted read_complex(left);
+    let b = trusted read_complex(right);
+    let format = bray.runtime.bootstrap.numeric.format.format(width);
+    let result = trusted bray.runtime.bootstrap.numeric.complex.divide(&format, complex_bits(a), complex_bits(b));
+
+    trusted write_complex(output, complex_record(result));
+}
+
+@abi(c)
+trusted internal func complex_power(
+    pos width: u32,
+    pos left: DataPointer<ComplexBits>,
+    pos right: DataPointer<ComplexBits>,
+    pos output: DataPointer<ComplexBits>
+)
+    requires(trusted native_entry())
+{
+    let a = trusted read_complex(left);
+    let b = trusted read_complex(right);
+    let format = bray.runtime.bootstrap.numeric.format.format(width);
+    let result = trusted bray.runtime.bootstrap.numeric.power.complex_power(&format, complex_bits(a), complex_bits(b));
+
+    trusted write_complex(output, complex_record(result));
+}

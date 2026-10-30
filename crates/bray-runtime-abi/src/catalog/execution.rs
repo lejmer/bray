@@ -35,7 +35,7 @@ macro_rules! runtime_role_catalog {
                 native: (REAL_POWER_SYMBOL = "bray_runtime_real_power", [U32, Pointer, Pointer, Pointer] -> Void),
                 call_hook: (),
                 compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("numeric.real_power"), host_control: false,
                 capabilities: [],
                 effects: []
             }
@@ -44,7 +44,7 @@ macro_rules! runtime_role_catalog {
                 native: (COMPLEX_MULTIPLY_SYMBOL = "bray_runtime_complex_multiply", [U32, Pointer, Pointer, Pointer] -> Void),
                 call_hook: (),
                 compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("numeric.complex_multiply"), host_control: false,
                 capabilities: [],
                 effects: []
             }
@@ -53,7 +53,7 @@ macro_rules! runtime_role_catalog {
                 native: (COMPLEX_DIVIDE_SYMBOL = "bray_runtime_complex_divide", [U32, Pointer, Pointer, Pointer] -> Void),
                 call_hook: (),
                 compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("numeric.complex_divide"), host_control: false,
                 capabilities: [],
                 effects: []
             }
@@ -62,7 +62,7 @@ macro_rules! runtime_role_catalog {
                 native: (COMPLEX_POWER_SYMBOL = "bray_runtime_complex_power", [U32, Pointer, Pointer, Pointer] -> Void),
                 call_hook: (),
                 compiler: C [U32, Pointer, Pointer, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("numeric.complex_power"), host_control: false,
                 capabilities: [],
                 effects: []
             }

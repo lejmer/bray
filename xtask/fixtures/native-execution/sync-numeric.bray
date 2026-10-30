@@ -1,0 +1,73 @@
+module app;
+
+// Native language profiles expose r32/r64 and c64/c128. The C ABI differential
+// fixture also covers the binary16 and binary128 component formats.
+
+func power_r32(pos base: r32, pos exponent: r32) -> r32
+{
+    return base ** exponent;
+}
+
+func arithmetic_c64(pos operation: u32, pos left: c64, pos right: c64) -> c64
+{
+    if operation == 0
+    {
+        return left * right;
+    }
+
+    if operation == 1
+    {
+        return left / right;
+    }
+
+    return left ** right;
+}
+
+const REAL_R32: r32 = 1.0625 ** 0.78125;
+
+const COMPLEX_C64: c64 = (1.0625 - 0.78125i) ** (0.8125 + 1.1875i);
+
+func power_r64(pos base: r64, pos exponent: r64) -> r64
+{
+    return base ** exponent;
+}
+
+func arithmetic_c128(pos operation: u32, pos left: c128, pos right: c128) -> c128
+{
+    if operation == 0
+    {
+        return left * right;
+    }
+
+    if operation == 1
+    {
+        return left / right;
+    }
+
+    return left ** right;
+}
+
+const REAL_R64: r64 = 1.0625 ** 0.78125;
+
+const COMPLEX_C128: c128 = (1.0625 - 0.78125i) ** (0.8125 + 1.1875i);
+
+func main() -> i32
+{
+    assert(power_r32(9.0, 0.5) == 3.0);
+    assert(power_r32(-2.0, 3.0) == -8.0);
+    assert(power_r32(1.0625, 0.78125) == REAL_R32);
+    assert(arithmetic_c64(0, 3.0 + 4.0i, 3.0 - 4.0i) == (25.0 + 0.0i));
+    assert(arithmetic_c64(1, 3.0 + 4.0i, 3.0 + 4.0i) == (1.0 + 0.0i));
+    assert(arithmetic_c64(2, -4.0 - 0.0i, 0.5 + 0.0i) == (0.0 - 2.0i));
+    assert(arithmetic_c64(2, 1.0625 - 0.78125i, 0.8125 + 1.1875i) == COMPLEX_C64);
+
+    assert(power_r64(9.0, 0.5) == 3.0);
+    assert(power_r64(-2.0, 3.0) == -8.0);
+    assert(power_r64(1.0625, 0.78125) == REAL_R64);
+    assert(arithmetic_c128(0, 3.0 + 4.0i, 3.0 - 4.0i) == (25.0 + 0.0i));
+    assert(arithmetic_c128(1, 3.0 + 4.0i, 3.0 + 4.0i) == (1.0 + 0.0i));
+    assert(arithmetic_c128(2, -4.0 - 0.0i, 0.5 + 0.0i) == (0.0 - 2.0i));
+    assert(arithmetic_c128(2, 1.0625 - 0.78125i, 0.8125 + 1.1875i) == COMPLEX_C128);
+
+    return 0;
+}

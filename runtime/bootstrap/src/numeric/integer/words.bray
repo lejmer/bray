@@ -1,0 +1,175 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using std.numeric;
+
+internal func slice_word(pos words: &[u64], pos index: usize) -> u64
+{
+    return if index < words.length()
+    {
+        yield words[index];
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+internal func words_bits(pos words: &[u64]) -> usize
+{
+    let mut count: usize = words.length();
+
+    while count != 0
+    {
+        let high: u64 = words[count - 1];
+
+        if high != 0
+        {
+            return (count - 1) * 64 + significant_bits(high);
+        }
+
+        count -= 1;
+    }
+
+    return 0;
+}
+
+internal func words_below(pos words: &[u64], pos bits: usize) -> bool
+{
+    let whole: usize = bits / 64;
+    let mut index: usize = 0;
+
+    while index < whole && index < words.length()
+    {
+        if words[index] != 0
+        {
+            return true;
+        }
+
+        index += 1;
+    }
+
+    let remainder: u64 = std.numeric.truncate_to<u64>(bits % 64);
+    let one: u64 = 1;
+
+    return remainder != 0 && (slice_word(words, whole) & ((one << remainder) - 1)) != 0;
+}
+
+internal func shifted_slice_word(pos words: &[u64], pos index: usize, pos shift: i64) -> u64
+{
+    if shift >= 0
+    {
+        let count: usize = std.numeric.truncate_to<usize>(shift);
+        let whole: usize = count / 64;
+        let remainder: u64 = std.numeric.truncate_to<u64>(count % 64);
+
+        if index < whole
+        {
+            return 0;
+        }
+
+        let mut result: u64 = slice_word(words, index - whole) << remainder;
+
+        if remainder != 0 && index > whole
+        {
+            result |= slice_word(words, index - whole - 1) >> (64 - remainder);
+        }
+
+        return result;
+    }
+
+    let count: usize = std.numeric.truncate_to<usize>(-shift);
+    let whole: usize = count / 64;
+    let remainder: u64 = std.numeric.truncate_to<u64>(count % 64);
+    let mut result: u64 = slice_word(words, index + whole) >> remainder;
+
+    if remainder != 0
+    {
+        result |= slice_word(words, index + whole + 1) << (64 - remainder);
+    }
+
+    return result;
+}
+
+// Operands and destination are disjoint initialized ranges. The destination
+// includes a carry word; absent source words are zero.
+internal func combine_words(
+    pos left: &[u64],
+    pos left_negative: bool,
+    pos right: &[u64],
+    pos right_negative: bool,
+    pos destination: &mut [u64],
+) -> bool
+{
+    let mut comparison: i32 = 0;
+    let mut index: usize = destination.length();
+
+    if left_negative != right_negative
+    {
+        while index != 0
+        {
+            index -= 1;
+
+            let a: u64 = slice_word(left, index);
+            let b: u64 = slice_word(right, index);
+
+            if a < b
+            {
+                comparison = -1;
+                break;
+            }
+
+            if a > b
+            {
+                comparison = 1;
+                break;
+            }
+        }
+    }
+
+    let mut carry: i128 = 0;
+
+    index = 0;
+
+    while index < destination.length()
+    {
+        let a: i128 = slice_word(left, index) as i128;
+        let b: i128 = slice_word(right, index) as i128;
+        let mut combined: i128 = 0;
+
+        if left_negative == right_negative
+        {
+            combined = a + b + carry;
+        }
+        else if comparison >= 0
+        {
+            combined = a - b + carry;
+        }
+        else
+        {
+            combined = b - a + carry;
+        }
+
+        destination[index] = std.numeric.truncate_to<u64>(combined);
+        carry = combined >> 64;
+        index += 1;
+    }
+
+    if left_negative == right_negative
+    {
+        return left_negative;
+    }
+
+    if comparison == 0
+    {
+        return false;
+    }
+
+    return if comparison > 0
+    {
+        yield left_negative;
+    }
+    else
+    {
+        yield right_negative;
+    };
+}

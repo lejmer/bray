@@ -1,0 +1,297 @@
+internal module bray.runtime.bootstrap.numeric.fixed;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.format;
+using internal bray.runtime.bootstrap.numeric.integer;
+
+@copy
+internal struct Product
+{
+    words: [u64; 4];
+    scale: i64;
+    negative: bool;
+}
+
+@copy
+internal struct Sum
+{
+    words: [u64; 9];
+    scale: i64;
+    negative: bool;
+    exact: bool;
+}
+
+internal func product(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos left: u128,
+    pos right: u128,
+    pos subtract: bool
+) -> Product
+{
+    let (a, a_scale) = bray.runtime.bootstrap.numeric.format.finite_parts(format, left);
+    let (b, b_scale) = bray.runtime.bootstrap.numeric.format.finite_parts(format, right);
+    let factors: [u64; 2] = [std.numeric.truncate_to<u64>(a), std.numeric.truncate_to<u64>(a >> 64)];
+    let multipliers: [u64; 2] = [std.numeric.truncate_to<u64>(b), std.numeric.truncate_to<u64>(b >> 64)];
+    let mut result: [u64; 4] = [0; 4];
+    let mut row: usize = 0;
+
+    while row < 2
+    {
+        let mut carry: u128 = 0;
+        let mut column: usize = 0;
+
+        while column < 2
+        {
+            let index: usize = row + column;
+
+            let combined: u128 = (factors[row] as u128) * (multipliers[column] as u128) + (result[index] as u128) +
+                carry;
+
+            result[index] = std.numeric.truncate_to<u64>(combined);
+            carry = combined >> 64;
+            column += 1;
+        }
+
+        result[row + 2] = std.numeric.truncate_to<u64>(carry);
+        row += 1;
+    }
+
+    return
+    {
+        words = result,
+        scale = a_scale + b_scale,
+        negative = (((left ^ right) & format.sign) != 0) != subtract
+    };
+}
+
+internal func aligned(pos value: &Product, pos scale: i64) -> ([u64; 9], bool)
+{
+    let mut result: [u64; 9] = [0; 9];
+    let shift: i64 = value.scale - scale;
+    let mut index: usize = 0;
+
+    while index < 9
+    {
+        result[index] = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(&value.words[..], index, shift);
+        index += 1;
+    }
+
+    let mut exact: bool = true;
+
+    if shift < 0 && bray.runtime.bootstrap.numeric.integer.words_below(
+        &value.words[..],
+        std.numeric.truncate_to<usize>(-shift)
+    )
+    {
+        result[0] |= 1;
+        exact = false;
+    }
+
+    return (result, exact);
+}
+
+internal func sum(pos left: &Product, pos right: &Product) -> Sum
+{
+    let a_bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(&left.words[..]);
+    let b_bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(&right.words[..]);
+    let a_top: i64 = std.numeric.truncate_to<i64>(a_bits) + left.scale;
+    let b_top: i64 = std.numeric.truncate_to<i64>(b_bits) + right.scale;
+    let mut scale: i64 = left.scale;
+    let mut top: i64 = a_top;
+
+    if right.scale < scale
+    {
+        scale = right.scale;
+    }
+
+    if b_top > top
+    {
+        top = b_top;
+    }
+
+    if a_bits == 0
+    {
+        scale = right.scale;
+        top = b_top;
+    }
+
+    if b_bits == 0
+    {
+        scale = left.scale;
+        top = a_top;
+    }
+
+    if top - scale > 512
+    {
+        scale = top - 512;
+    }
+
+    // Each product has at most 226 significant bits. Any discarded term is
+    // separated by at least 286 bits, so it cannot cancel the larger product.
+    // Its sticky bit preserves the direction at a final IEEE rounding tie.
+    let (a, a_exact) = aligned(left, scale);
+
+    let (b, b_exact) = aligned(right, scale);
+    let mut words: [u64; 9] = [0; 9];
+
+    let negative: bool = bray.runtime.bootstrap.numeric.integer.combine_words(
+        &a[..],
+        left.negative,
+        &b[..],
+        right.negative,
+        &mut words[..]
+    );
+
+    return
+    {
+        words = words,
+        scale = scale,
+        negative = negative,
+        exact = a_exact && b_exact
+    };
+}
+
+internal func multiply(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos left: [u128; 2],
+    pos right: [u128; 2]
+) -> [u128; 2]
+{
+    let ac = product(format, left[0], right[0], false);
+    let bd = product(format, left[1], right[1], true);
+    let ad = product(format, left[0], right[1], false);
+    let bc = product(format, left[1], right[0], false);
+    let real = sum(&ac, &bd);
+    let imaginary = sum(&ad, &bc);
+
+    return[
+        bray.runtime.bootstrap.numeric.format.encode_finite(format, real.negative, &real.words[..], real.scale),
+        bray.runtime.bootstrap.numeric.format.encode_finite(
+            format,
+            imaginary.negative,
+            &imaginary.words[..],
+            imaginary.scale
+        )
+    ];
+}
+
+internal func divide_component(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos numerator: &Sum,
+    pos denominator: &Sum
+) -> u128
+{
+    let a_bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(&numerator.words[..]);
+    let b_bits: usize = bray.runtime.bootstrap.numeric.integer.words_bits(&denominator.words[..]);
+
+    if a_bits == 0
+    {
+        return if numerator.negative
+        {
+            yield format.sign;
+        }
+        else
+        {
+            yield 0;
+        };
+    }
+
+    let desired: usize = format.fraction_bits + 8;
+    let shift: i64 = std.numeric.truncate_to<i64>(desired + b_bits) - std.numeric.truncate_to<i64>(a_bits);
+
+    let a_shift: usize = if shift > 0
+    {
+        yield std.numeric.truncate_to<usize>(shift);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let b_shift: usize = if shift < 0
+    {
+        yield std.numeric.truncate_to<usize>(-shift);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let a_count: usize = (a_bits + a_shift + 63) / 64;
+    let b_count: usize = (b_bits + b_shift + 63) / 64;
+    let normalization: usize = (64 - ((b_bits + b_shift) % 64)) % 64;
+    let mut u: [u64; 12] = [0; 12];
+    let mut v: [u64; 12] = [0; 12];
+    let mut q: [u64; 12] = [0; 12];
+    let mut index: usize = 0;
+
+    while index < a_count + 1
+    {
+        u[index] = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(
+            &numerator.words[..],
+            index,
+            std.numeric.truncate_to<i64>(a_shift + normalization)
+        );
+
+        index += 1;
+    }
+
+    index = 0;
+
+    while index < b_count
+    {
+        v[index] = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(
+            &denominator.words[..],
+            index,
+            std.numeric.truncate_to<i64>(b_shift + normalization)
+        );
+
+        index += 1;
+    }
+
+    let q_count: usize = a_count - b_count + 1;
+
+    let inexact: bool = bray.runtime.bootstrap.numeric.integer.divide_normalized(
+        &mut u[0..(a_count + 1)],
+        &v[0..b_count],
+        &mut q[0..q_count]
+    );
+
+    if inexact
+    {
+        q[0] |= 1;
+    }
+
+    return bray.runtime.bootstrap.numeric.format.encode_finite(
+        format,
+        numerator.negative,
+        &q[0..q_count],
+        numerator.scale - denominator.scale - shift
+    );
+}
+
+internal func divide(
+    pos format: &bray.runtime.bootstrap.numeric.format.Format,
+    pos left: [u128; 2],
+    pos right: [u128; 2]
+) -> [u128; 2]?
+{
+    let ac = product(format, left[0], right[0], false);
+    let bd = product(format, left[1], right[1], false);
+    let bc = product(format, left[1], right[0], false);
+    let ad = product(format, left[0], right[1], true);
+    let cc = product(format, right[0], right[0], false);
+    let dd = product(format, right[1], right[1], false);
+    let real = sum(&ac, &bd);
+    let imaginary = sum(&bc, &ad);
+    let divisor = sum(&cc, &dd);
+
+    // Rational midpoint separation can depend on widely separated terms. Only
+    // use fixed division when all three dyadic sums are exact in this storage.
+    if !real.exact || !imaginary.exact || !divisor.exact
+    {
+        return none;
+    }
+
+    return[divide_component(format, &real, &divisor), divide_component(format, &imaginary, &divisor)];
+}

@@ -21,7 +21,3 @@ pub use super::export::{
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
-pub use super::numeric::{
-    bray_runtime_complex_divide, bray_runtime_complex_multiply, bray_runtime_complex_power,
-    bray_runtime_real_power,
-};

@@ -8,6 +8,7 @@ mod entry_smoke;
 mod execution;
 mod native_index;
 mod native_link;
+mod numeric;
 mod observation_smoke;
 mod partition;
 mod reuse;

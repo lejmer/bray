@@ -1,0 +1,93 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+trusted internal func square_root(pos value: &Natural) -> (Natural, bool)
+{
+    let bits: usize = trusted bit_length(value);
+
+    if bits <= 128
+    {
+        return trusted square_root_base(value);
+    }
+
+    // Refine a half-precision root. The upper seed differs from sqrt(value)
+    // by at most 2^shift, so one full-width Newton step is at most one integer
+    // above the floor. Work grows geometrically instead of repeating full-width
+    // division for every Newton iteration.
+    let shift: usize = ((bits + 1) / 2) / 2;
+
+    let leading = trusted shift_right(value, shift * 2);
+    let (mut high_root, _) = trusted square_root(&leading);
+
+    trusted increment(&mut high_root);
+
+    let seed = trusted shift_left(&high_root, shift);
+    let (quotient, _) = trusted divide(value, &seed);
+    let total = trusted add(&seed, &quotient);
+    let mut root = trusted shift_right(&total, 1);
+    let mut square = trusted multiply(&root, &root);
+
+    if trusted compare_shifted(&square, value, 0, false) > 0
+    {
+        let one = trusted from_bits(1);
+
+        root = trusted subtract(&root, &one);
+
+        let mut correction = trusted shift_left(&root, 1);
+
+        trusted increment(&mut correction);
+        square = trusted subtract(&square, &correction);
+    }
+
+    let inexact: bool = trusted compare_shifted(&square, value, 0, false) != 0;
+
+    return (root, inexact);
+}
+
+trusted internal func square_root_base(pos value: &Natural) -> (Natural, bool)
+{
+    let bits: usize = trusted bit_length(value);
+
+    if bits == 0
+    {
+        return (trusted zeroed(0), false);
+    }
+
+    let mut pairs: usize = (bits + 1) / 2;
+    let count: usize = (pairs + 63) / 64 + 1;
+    let mut root = trusted zeroed(count);
+    let mut remainder = trusted zeroed(count + 1);
+
+    while pairs != 0
+    {
+        pairs -= 1;
+        trusted shift_in_place(&mut root, 1);
+        trusted shift_in_place(&mut remainder, 2);
+
+        let mut low: u64 = trusted word(&remainder, 0);
+
+        if trusted bit(value, pairs * 2)
+        {
+            low |= 1;
+        }
+
+        if trusted bit(value, pairs * 2 + 1)
+        {
+            low |= 2;
+        }
+
+        trusted put(&mut remainder, 0, low);
+
+        if trusted compare_shifted(&remainder, &root, 1, true) >= 0
+        {
+            trusted subtract_shifted(&mut remainder, &root, 1, true);
+
+            let previous: u64 = trusted word(&root, 0);
+
+            trusted put(&mut root, 0, previous | 1);
+        }
+    }
+
+    let inexact: bool = trusted bit_length(&remainder) != 0;
+
+    return (trusted trim(root), inexact);
+}

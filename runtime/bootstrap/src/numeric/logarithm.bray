@@ -1,0 +1,354 @@
+trusted internal module bray.runtime.bootstrap.numeric.math;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.integer;
+
+trusted internal func atanh_series(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.duplicate(value);
+    }
+
+    let step = trusted bray.runtime.bootstrap.numeric.number.product(value, value, precision);
+    let mut power = trusted bray.runtime.bootstrap.numeric.number.duplicate(value);
+    let mut total = trusted bray.runtime.bootstrap.numeric.number.duplicate(value);
+    let mut index: u64 = 1;
+    let mut term = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    while true
+    {
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut power, &step, precision);
+        trusted bray.runtime.bootstrap.numeric.number.copy_from(&mut term, &power);
+        trusted bray.runtime.bootstrap.numeric.number.divide_small_assign(&mut term, index * 2 + 1, precision);
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&term) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&term) <
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&total) - std.numeric.truncate_to<i64>(precision) - 8
+        {
+            break;
+        }
+
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut total, &term, false, precision);
+        index += 1;
+    }
+
+    return total;
+}
+
+trusted internal func logarithm(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos ln2: &bray.runtime.bootstrap.numeric.number.Number,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number,
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if value.kind == 2 || value.negative
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(2, false);
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(1, true);
+    }
+
+    if value.kind == 1
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(1, false);
+    }
+
+    let work: usize = precision + 64;
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(&one, -1);
+    let two = trusted bray.runtime.bootstrap.numeric.number.integer(2);
+    let mut normalized = trusted bray.runtime.bootstrap.numeric.number.duplicate(value);
+    let mut binary_exponent: i64 = 0;
+
+    // Work directly near one, including an exact 1 + tiny term. This avoids
+    // cancellation between a normalized logarithm and the ln(2) correction.
+    if trusted bray.runtime.bootstrap.numeric.number.order(value, &half) < 0 ||
+        trusted bray.runtime.bootstrap.numeric.number.order(value, &two) > 0
+    {
+        binary_exponent = trusted bray.runtime.bootstrap.numeric.number.exponent(value) - 1;
+        normalized.scale -= binary_exponent;
+    }
+
+    if trusted bray.runtime.bootstrap.numeric.number.magnitude_order(&normalized, &one) == 0
+    {
+        let mut factor = trusted bray.runtime.bootstrap.numeric.number.integer(
+            std.numeric.truncate_to<u64>(
+                if binary_exponent < 0
+                {
+                    yield -binary_exponent;
+                }
+                else
+                {
+                    yield binary_exponent;
+                }
+            )
+        );
+
+        factor.negative = binary_exponent < 0;
+        return trusted bray.runtime.bootstrap.numeric.number.product(&factor, ln2, precision);
+    }
+
+    let mut local = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if precision <= 896
+    {
+        let index: usize = trusted anchor_index(&normalized);
+        let mut rational = trusted bray.runtime.bootstrap.numeric.number.integer(std.numeric.truncate_to<u64>(index));
+
+        rational.scale -= 4;
+
+        let delta = trusted bray.runtime.bootstrap.numeric.number.difference(&normalized, &rational, 0);
+        let denominator = trusted bray.runtime.bootstrap.numeric.number.sum(&normalized, &rational, work);
+        let ratio = trusted bray.runtime.bootstrap.numeric.number.divide(&delta, &denominator, work);
+        let series = trusted atanh_series(&ratio, work);
+        let anchor = trusted logarithm_anchor(index, work, ln2);
+
+        local = trusted bray.runtime.bootstrap.numeric.number.scale_by(&series, 1);
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut local, &anchor, false, work);
+    }
+    else
+    {
+        let difference = trusted bray.runtime.bootstrap.numeric.number.difference(&normalized, &one, 0);
+
+        if precision > 1024 && trusted bray.runtime.bootstrap.numeric.number.exponent(&difference) > -8
+        {
+            // Brent's AGM logarithm converges quadratically. Scaling makes the
+            // omitted elliptic-integral tail smaller than the working ulp.
+            let m: i64 = std.numeric.truncate_to<i64>(work / 2 + 32);
+
+            let large = trusted bray.runtime.bootstrap.numeric.number.scale_by(&normalized, m);
+            let four = trusted bray.runtime.bootstrap.numeric.number.integer(4);
+            let small = trusted bray.runtime.bootstrap.numeric.number.divide(&four, &large, work);
+            let mean = trusted arithmetic_geometric_mean(&one, &small, work);
+            let divisor = trusted bray.runtime.bootstrap.numeric.number.scale_by(&mean, 1);
+            let logarithm_scaled = trusted bray.runtime.bootstrap.numeric.number.divide(pi, &divisor, work);
+            let factor = trusted bray.runtime.bootstrap.numeric.number.integer(std.numeric.truncate_to<u64>(m));
+            let correction = trusted bray.runtime.bootstrap.numeric.number.product(&factor, ln2, work);
+
+            local = trusted bray.runtime.bootstrap.numeric.number.difference(&logarithm_scaled, &correction, work);
+        }
+        else
+        {
+            let denominator = trusted bray.runtime.bootstrap.numeric.number.sum(&normalized, &one, work);
+            let ratio = trusted bray.runtime.bootstrap.numeric.number.divide(&difference, &denominator, work);
+            let series = trusted atanh_series(&ratio, work);
+
+            local = trusted bray.runtime.bootstrap.numeric.number.scale_by(&series, 1);
+        }
+    }
+
+    if binary_exponent != 0
+    {
+        let mut factor = trusted bray.runtime.bootstrap.numeric.number.integer(
+            std.numeric.truncate_to<u64>(
+                if binary_exponent < 0
+                {
+                    yield -binary_exponent;
+                }
+                else
+                {
+                    yield binary_exponent;
+                }
+            )
+        );
+
+        factor.negative = binary_exponent < 0;
+
+        let correction = trusted bray.runtime.bootstrap.numeric.number.product(&factor, ln2, work);
+
+        local = trusted bray.runtime.bootstrap.numeric.number.sum(&local, &correction, work);
+    }
+
+    return trusted bray.runtime.bootstrap.numeric.number.round(local, precision);
+}
+
+trusted internal func integer_part(pos value: &bray.runtime.bootstrap.numeric.number.Number) -> i64
+{
+    let mut magnitude = trusted bray.runtime.bootstrap.numeric.integer.zeroed(0);
+
+    if value.scale >= 0
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.integer.shift_left(
+            &value.mantissa,
+            std.numeric.truncate_to<usize>(value.scale)
+        );
+    }
+    else
+    {
+        magnitude = trusted bray.runtime.bootstrap.numeric.integer.shift_right(
+            &value.mantissa,
+            std.numeric.truncate_to<usize>(-value.scale)
+        );
+    }
+
+    let result: i64 = std.numeric.truncate_to<i64>(trusted bray.runtime.bootstrap.numeric.integer.word(&magnitude, 0));
+
+    return if value.negative
+    {
+        yield -result;
+    }
+    else
+    {
+        yield result;
+    };
+}
+
+trusted internal func exponential_series(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    let mut reductions: usize = 4;
+
+    while (reductions + 1) * (reductions + 1) < precision / 2
+    {
+        reductions += 1;
+    }
+
+    let reduced = trusted bray.runtime.bootstrap.numeric.number.scale_by(
+        value,
+        -std.numeric.truncate_to<i64>(reductions)
+    );
+
+    let mut total = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut term = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut index: u64 = 1;
+
+    while true
+    {
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut term, &reduced, precision);
+        trusted bray.runtime.bootstrap.numeric.number.divide_small_assign(&mut term, index, precision);
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&term) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&term) < -std.numeric.truncate_to<i64>(precision) - 8
+        {
+            break;
+        }
+
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut total, &term, false, precision);
+        index += 1;
+    }
+
+    while reductions != 0
+    {
+        trusted bray.runtime.bootstrap.numeric.number.square_assign(&mut total, precision);
+        reductions -= 1;
+    }
+
+    return total;
+}
+
+trusted internal func exponential(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos ln2: &bray.runtime.bootstrap.numeric.number.Number,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number,
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if value.kind == 2
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(2, false);
+    }
+
+    if value.kind == 1 || (!bray.runtime.bootstrap.numeric.number.is_zero(value) &&
+        trusted bray.runtime.bootstrap.numeric.number.exponent(value) > 32)
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(
+            if value.negative
+            {
+                yield 0;
+            }
+            else
+            {
+                yield 1;
+            },
+            false
+        );
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    }
+
+    let work: usize = precision + 64;
+    let ratio = trusted bray.runtime.bootstrap.numeric.number.divide(value, ln2, work);
+    let binary_exponent: i64 = trusted integer_part(&ratio);
+
+    if binary_exponent > 2147483646
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(1, false);
+    }
+
+    if binary_exponent < -2147483646
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.zero(false);
+    }
+
+    let mut factor = trusted bray.runtime.bootstrap.numeric.number.integer(
+        std.numeric.truncate_to<u64>(
+            if binary_exponent < 0
+            {
+                yield -binary_exponent;
+            }
+            else
+            {
+                yield binary_exponent;
+            }
+        )
+    );
+
+    factor.negative = binary_exponent < 0;
+
+    let offset = trusted bray.runtime.bootstrap.numeric.number.product(&factor, ln2, work);
+    let reduced = trusted bray.runtime.bootstrap.numeric.number.difference(value, &offset, work);
+    let mut result = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+
+    if work <= 2048
+    {
+        result = trusted exponential_series(&reduced, work);
+    }
+    else
+    {
+        // Newton refinement doubles precision instead of evaluating a long
+        // full-precision exponential series at large working precisions.
+        let mut bits: usize = 128;
+
+        result = trusted exponential_series(&reduced, bits + 64);
+
+        while bits < work
+        {
+            bits *= 2;
+
+            if bits > work
+            {
+                bits = work;
+            }
+
+            let logarithm_value = trusted logarithm(&result, bits + 32, ln2, pi);
+
+            let residual = trusted bray.runtime.bootstrap.numeric.number.difference(
+                &reduced,
+                &logarithm_value,
+                bits + 32
+            );
+
+            let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+            let correction = trusted bray.runtime.bootstrap.numeric.number.sum(&one, &residual, bits + 32);
+
+            result = trusted bray.runtime.bootstrap.numeric.number.product(&result, &correction, bits + 32);
+        }
+    }
+
+    result.scale += binary_exponent;
+    return trusted bray.runtime.bootstrap.numeric.number.round(result, precision);
+}

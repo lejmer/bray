@@ -1,0 +1,218 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using std.numeric;
+
+// All recursive ranges share one initialized workspace. Inputs, output and
+// scratch are disjoint; recursion reuses scratch after each child finishes.
+internal func multiply_words(
+    pos storage: &mut [u64],
+    pos left: usize,
+    pos right: usize,
+    pos output: usize,
+    pos count: usize,
+    pos scratch: usize,
+)
+{
+    let mut index: usize = 0;
+
+    while index < count * 2
+    {
+        storage[output + index] = 0;
+        index += 1;
+    }
+
+    if count <= 32
+    {
+        let mut row: usize = 0;
+
+        while row < count
+        {
+            let factor: u128 = storage[left + row] as u128;
+            let mut carry: u128 = 0;
+
+            index = 0;
+
+            while index < count
+            {
+                let slot: usize = output + row + index;
+                let combined: u128 = factor * (storage[right + index] as u128) + (storage[slot] as u128) + carry;
+
+                storage[slot] = std.numeric.truncate_to<u64>(combined);
+                carry = combined >> 64;
+                index += 1;
+            }
+
+            storage[output + row + count] = std.numeric.truncate_to<u64>(carry);
+            row += 1;
+        }
+
+        return;
+    }
+
+    let half: usize = count / 2;
+
+    multiply_words(storage, left, right, output, half, scratch);
+    multiply_words(storage, left + half, right + half, output + count, half, scratch);
+
+    // Difference-form Karatsuba keeps recursive operands exactly half-sized.
+    let mut left_order: i32 = 0;
+
+    let mut right_order: i32 = 0;
+
+    index = half;
+
+    while index != 0
+    {
+        index -= 1;
+
+        if left_order == 0 && storage[left + index] != storage[left + half + index]
+        {
+            left_order = if storage[left + index] > storage[left + half + index]
+            {
+                yield 1;
+            }
+            else
+            {
+                yield -1;
+            };
+        }
+
+        if right_order == 0 && storage[right + index] != storage[right + half + index]
+        {
+            right_order = if storage[right + index] > storage[right + half + index]
+            {
+                yield 1;
+            }
+            else
+            {
+                yield -1;
+            };
+        }
+    }
+
+    let mut left_borrow: i128 = 0;
+    let mut right_borrow: i128 = 0;
+
+    index = 0;
+
+    while index < half
+    {
+        let mut left_delta: i128 = (storage[left + index] as i128) - (storage[left + half + index] as i128);
+        let mut right_delta: i128 = (storage[right + index] as i128) - (storage[right + half + index] as i128);
+
+        if left_order < 0
+        {
+            left_delta = -left_delta;
+        }
+
+        if right_order < 0
+        {
+            right_delta = -right_delta;
+        }
+
+        left_delta += left_borrow;
+        right_delta += right_borrow;
+        storage[scratch + index] = std.numeric.truncate_to<u64>(left_delta);
+        storage[scratch + half + index] = std.numeric.truncate_to<u64>(right_delta);
+        left_borrow = left_delta >> 64;
+        right_borrow = right_delta >> 64;
+        index += 1;
+    }
+
+    let cross: usize = scratch + count;
+
+    multiply_words(storage, scratch, scratch + half, cross, half, scratch + count * 2 + 1);
+
+    let mut carry: i128 = 0;
+
+    index = 0;
+
+    while index < count
+    {
+        let mut middle: i128 = (storage[output + index] as i128) + (storage[output + count + index] as i128) + carry;
+
+        if (left_order < 0) != (right_order < 0)
+        {
+            middle += storage[cross + index] as i128;
+        }
+        else
+        {
+            middle -= storage[cross + index] as i128;
+        }
+
+        storage[cross + index] = std.numeric.truncate_to<u64>(middle);
+        carry = middle >> 64;
+        index += 1;
+    }
+
+    storage[cross + count] = std.numeric.truncate_to<u64>(carry);
+
+    let mut addition: u128 = 0;
+
+    index = 0;
+
+    while index <= count
+    {
+        let slot: usize = output + half + index;
+        let sum: u128 = (storage[slot] as u128) + (storage[cross + index] as u128) + addition;
+
+        storage[slot] = std.numeric.truncate_to<u64>(sum);
+        addition = sum >> 64;
+        index += 1;
+    }
+
+    while addition != 0
+    {
+        let slot: usize = output + half + index;
+        let sum: u128 = (storage[slot] as u128) + addition;
+
+        storage[slot] = std.numeric.truncate_to<u64>(sum);
+        addition = sum >> 64;
+        index += 1;
+    }
+}
+
+trusted internal func multiply_large(pos left: &Natural, pos right: &Natural) -> Natural
+{
+    let a = trusted read_words(left);
+    let b = trusted read_words(right);
+    let mut count: usize = 1;
+
+    while count < a.length() || count < b.length()
+    {
+        count *= 2;
+    }
+
+    let mut workspace = trusted zeroed(count * 8 + 32);
+    let storage = trusted write_words(&mut workspace);
+    let mut index: usize = 0;
+
+    while index < a.length()
+    {
+        storage[index] = a[index];
+        index += 1;
+    }
+
+    index = 0;
+
+    while index < b.length()
+    {
+        storage[count + index] = b[index];
+        index += 1;
+    }
+
+    multiply_words(storage, 0, count, count * 2, count, count * 4);
+
+    let mut result = trusted zeroed(a.length() + b.length());
+    let destination = trusted write_words(&mut result);
+
+    index = 0;
+
+    while index < destination.length()
+    {
+        destination[index] = storage[count * 2 + index];
+        index += 1;
+    }
+
+    return trusted trim(result);
+}

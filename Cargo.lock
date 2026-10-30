@@ -598,7 +598,6 @@ dependencies = [
 name = "bray-runtime"
 version = "0.0.0"
 dependencies = [
- "bray-numeric",
  "bray-platform",
  "bray-runtime-abi",
  "bray-runtime-model",
@@ -2233,6 +2232,7 @@ dependencies = [
  "bray-linker",
  "bray-llvm-toolchain",
  "bray-native-artifact",
+ "bray-numeric",
  "bray-package-interface",
  "bray-profile",
  "bray-project",

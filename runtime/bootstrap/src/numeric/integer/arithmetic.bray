@@ -1,0 +1,192 @@
+trusted internal module bray.runtime.bootstrap.numeric.integer;
+
+using std.numeric;
+using std.memory;
+
+trusted internal func shift_left(pos value: &Natural, pos count: usize) -> Natural
+{
+    let source = trusted read_words(value);
+
+    if source.length() == 0
+    {
+        return trusted zeroed(0);
+    }
+
+    let whole: usize = count / 64;
+    let remainder: u128 = std.numeric.truncate_to<u128>(count % 64);
+    let mut result = trusted zeroed(source.length() + whole + 1);
+    let destination = trusted write_words(&mut result);
+    let mut carry: u128 = 0;
+    let mut index: usize = 0;
+
+    while index < source.length()
+    {
+        let combined: u128 = ((source[index] as u128) << remainder) | carry;
+
+        destination[index + whole] = std.numeric.truncate_to<u64>(combined);
+        carry = combined >> 64;
+        index += 1;
+    }
+
+    destination[source.length() + whole] = std.numeric.truncate_to<u64>(carry);
+    return trusted trim(result);
+}
+
+trusted internal func shift_right(pos value: &Natural, pos count: usize) -> Natural
+{
+    let whole: usize = count / 64;
+    let source = trusted read_words(value);
+
+    if whole >= source.length()
+    {
+        return trusted zeroed(0);
+    }
+
+    let remainder: u64 = std.numeric.truncate_to<u64>(count % 64);
+    let mut result = trusted zeroed(source.length() - whole);
+    let destination = trusted write_words(&mut result);
+    let mut index: usize = 0;
+
+    while index < destination.length()
+    {
+        let mut combined: u64 = source[index + whole] >> remainder;
+
+        if remainder != 0 && index + whole + 1 < source.length()
+        {
+            combined |= source[index + whole + 1] << (64 - remainder);
+        }
+
+        destination[index] = combined;
+        index += 1;
+    }
+
+    return trusted trim(result);
+}
+
+trusted internal func add(pos left: &Natural, pos right: &Natural) -> Natural
+{
+    let a = trusted read_words(left);
+    let b = trusted read_words(right);
+    let mut count: usize = a.length();
+
+    if b.length() > count
+    {
+        count = b.length();
+    }
+
+    let mut result = trusted zeroed(count + 1);
+    let destination = trusted write_words(&mut result);
+    let mut carry: u128 = 0;
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let mut combined: u128 = carry;
+
+        if index < a.length()
+        {
+            combined += a[index] as u128;
+        }
+
+        if index < b.length()
+        {
+            combined += b[index] as u128;
+        }
+
+        destination[index] = std.numeric.truncate_to<u64>(combined);
+        carry = combined >> 64;
+        index += 1;
+    }
+
+    destination[count] = std.numeric.truncate_to<u64>(carry);
+    return trusted trim(result);
+}
+
+trusted internal func increment(pos value: &mut Natural)
+{
+    let mut index: usize = 0;
+
+    while index < value.count
+    {
+        let combined: u128 = (trusted word(&value, index) as u128) + 1;
+
+        trusted put(value, index, std.numeric.truncate_to<u64>(combined));
+
+        if combined >> 64 == 0
+        {
+            return;
+        }
+
+        index += 1;
+    }
+
+    let previous: usize = value.count;
+
+    if previous < capacity(&value)
+    {
+        value.count += 1;
+        trusted put(value, previous, 1);
+        return;
+    }
+
+    let mut replacement = trusted zeroed(previous + 1);
+
+    trusted put(&mut replacement, previous, 1);
+
+    _ = trusted std.memory.replace_value<Natural>(value, replacement);
+}
+
+trusted internal func subtract(pos left: &Natural, pos right: &Natural) -> Natural
+{
+    let mut result = trusted duplicate(left);
+
+    trusted subtract_shifted(&mut result, right, 0, false);
+    return trusted trim(result);
+}
+
+trusted internal func multiply(pos left: &Natural, pos right: &Natural) -> Natural
+{
+    let a = trusted read_words(left);
+    let b = trusted read_words(right);
+
+    if a.length() == 0 || b.length() == 0
+    {
+        return trusted zeroed(0);
+    }
+
+    if a.length() > 64 && b.length() > 64 && a.length() <= b.length() * 2 && b.length() <= a.length() * 2
+    {
+        return trusted multiply_large(left, right);
+    }
+
+    let mut result = trusted zeroed(a.length() + b.length());
+    let destination = trusted write_words(&mut result);
+
+    multiply_to(a, b, destination);
+    return trusted trim(result);
+}
+
+internal func multiply_to(pos left: &[u64], pos right: &[u64], pos destination: &mut [u64])
+{
+    let mut left_index: usize = 0;
+
+    while left_index < left.length()
+    {
+        let factor: u128 = left[left_index] as u128;
+        let mut carry: u128 = 0;
+        let mut right_index: usize = 0;
+
+        while right_index < right.length()
+        {
+            let slot: usize = left_index + right_index;
+            let combined: u128 = factor * (right[right_index] as u128) + (destination[slot] as u128) + carry;
+
+            destination[slot] = std.numeric.truncate_to<u64>(combined);
+            carry = combined >> 64;
+            right_index += 1;
+        }
+
+        destination[left_index + right.length()] = std.numeric.truncate_to<u64>(carry);
+        left_index += 1;
+    }
+}

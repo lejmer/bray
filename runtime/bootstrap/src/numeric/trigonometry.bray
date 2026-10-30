@@ -1,0 +1,372 @@
+trusted internal module bray.runtime.bootstrap.numeric.math;
+
+using std.numeric;
+using internal bray.runtime.bootstrap.numeric.number;
+using internal bray.runtime.bootstrap.numeric.integer;
+
+// Round 16*x to an integer without constructing a floating accumulator.
+trusted internal func anchor_index(pos value: &bray.runtime.bootstrap.numeric.number.Number) -> usize
+{
+    let source = trusted bray.runtime.bootstrap.numeric.integer.read_words(&value.mantissa);
+    let shift: i64 = value.scale + 4;
+    let mut index: u64 = bray.runtime.bootstrap.numeric.integer.shifted_slice_word(source, 0, shift);
+
+    if shift < 0
+    {
+        let guard_index: usize = std.numeric.truncate_to<usize>(-shift - 1);
+
+        let guard: bool = (bray.runtime.bootstrap.numeric.integer.slice_word(source, guard_index / 64) & (1 <<
+            std.numeric.truncate_to<u64>(guard_index % 64))) != 0;
+
+        if guard && ((index & 1) != 0 || bray.runtime.bootstrap.numeric.integer.words_below(source, guard_index))
+        {
+            index += 1;
+        }
+    }
+
+    return std.numeric.truncate_to<usize>(index);
+}
+
+trusted internal func nearest_integer(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if value.scale >= 0
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.duplicate(value);
+    }
+
+    let shift: usize = std.numeric.truncate_to<usize>(-value.scale);
+    let mut magnitude = trusted bray.runtime.bootstrap.numeric.integer.shift_right(&value.mantissa, shift);
+
+    if trusted bray.runtime.bootstrap.numeric.integer.bit(&value.mantissa, shift - 1) &&
+        (trusted bray.runtime.bootstrap.numeric.integer.has_low_bits(&value.mantissa, shift - 1) ||
+        trusted bray.runtime.bootstrap.numeric.integer.bit(&magnitude, 0))
+    {
+        trusted bray.runtime.bootstrap.numeric.integer.increment(&mut magnitude);
+    }
+
+    return
+    {
+        negative = value.negative,
+        kind = 0,
+        mantissa = magnitude,
+        scale = 0
+    };
+}
+
+trusted internal func arctangent(
+    pos value: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number
+) -> bray.runtime.bootstrap.numeric.number.Number
+{
+    if value.kind == 2
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.special(2, false);
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(value)
+    {
+        return trusted bray.runtime.bootstrap.numeric.number.zero(value.negative);
+    }
+
+    let work: usize = precision + 64;
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut x = trusted bray.runtime.bootstrap.numeric.number.absolute(value);
+    let mut reciprocal: bool = false;
+
+    if value.kind == 1
+    {
+        let mut half = trusted bray.runtime.bootstrap.numeric.number.scale_by(pi, -1);
+
+        half.negative = value.negative;
+        return trusted bray.runtime.bootstrap.numeric.number.round(half, precision);
+    }
+
+    if trusted bray.runtime.bootstrap.numeric.number.magnitude_order(&x, &one) == 0
+    {
+        let mut quarter = trusted bray.runtime.bootstrap.numeric.number.scale_by(pi, -2);
+
+        quarter.negative = value.negative;
+        return trusted bray.runtime.bootstrap.numeric.number.round(quarter, precision);
+    }
+
+    if trusted bray.runtime.bootstrap.numeric.number.magnitude_order(&x, &one) > 0
+    {
+        x = trusted bray.runtime.bootstrap.numeric.number.divide(&one, &x, work);
+        reciprocal = true;
+    }
+
+    let mut reductions: usize = 0;
+    let mut desired: usize = 3;
+    let mut anchor = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    if precision <= 896
+    {
+        let index: usize = trusted anchor_index(&x);
+        let mut rational = trusted bray.runtime.bootstrap.numeric.number.integer(std.numeric.truncate_to<u64>(index));
+
+        rational.scale -= 4;
+
+        let difference = trusted bray.runtime.bootstrap.numeric.number.difference(&x, &rational, work);
+        let product = trusted bray.runtime.bootstrap.numeric.number.product(&x, &rational, work);
+        let divisor = trusted bray.runtime.bootstrap.numeric.number.sum(&one, &product, work);
+
+        x = trusted bray.runtime.bootstrap.numeric.number.divide(&difference, &divisor, work);
+        anchor = trusted arctangent_anchor(index, work, pi);
+        desired = 0;
+    }
+
+    if precision > 896
+    {
+        while (desired + 1) * (desired + 1) < precision / 32
+        {
+            desired += 1;
+        }
+    }
+
+    while (reductions < desired) && (trusted bray.runtime.bootstrap.numeric.number.exponent(&x) > -8)
+    {
+        let squared = trusted bray.runtime.bootstrap.numeric.number.product(&x, &x, work);
+        let radicand = trusted bray.runtime.bootstrap.numeric.number.sum(&one, &squared, work);
+        let root = trusted bray.runtime.bootstrap.numeric.number.square_root(&radicand, work);
+        let divisor = trusted bray.runtime.bootstrap.numeric.number.sum(&one, &root, work);
+
+        x = trusted bray.runtime.bootstrap.numeric.number.divide(&x, &divisor, work);
+        reductions += 1;
+    }
+
+    let step = trusted bray.runtime.bootstrap.numeric.number.product(&x, &x, work);
+    let mut power = trusted bray.runtime.bootstrap.numeric.number.duplicate(&x);
+    let mut result = trusted bray.runtime.bootstrap.numeric.number.duplicate(&x);
+    let mut index: u64 = 1;
+    let mut term = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    while true
+    {
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut power, &step, work);
+        trusted bray.runtime.bootstrap.numeric.number.copy_from(&mut term, &power);
+        trusted bray.runtime.bootstrap.numeric.number.divide_small_assign(&mut term, index * 2 + 1, work);
+
+        term.negative = x.negative != ((index & 1) != 0);
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&term) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&term) <
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&result) - std.numeric.truncate_to<i64>(work) - 8
+        {
+            break;
+        }
+
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut result, &term, false, work);
+        index += 1;
+    }
+
+    result.scale += std.numeric.truncate_to<i64>(reductions);
+    trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut result, &anchor, false, work);
+
+    if reciprocal
+    {
+        let half = trusted bray.runtime.bootstrap.numeric.number.scale_by(pi, -1);
+
+        result = trusted bray.runtime.bootstrap.numeric.number.difference(&half, &result, work);
+    }
+
+    result.negative = value.negative;
+    return trusted bray.runtime.bootstrap.numeric.number.round(result, precision);
+}
+
+trusted internal func sine_cosine(
+    pos angle: &bray.runtime.bootstrap.numeric.number.Number,
+    pos precision: usize,
+    pos pi: &bray.runtime.bootstrap.numeric.number.Number
+) -> [bray.runtime.bootstrap.numeric.number.Number; 2]
+{
+    if angle.kind != 0
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.special(2, false),
+            trusted bray.runtime.bootstrap.numeric.number.special(2, false)
+        ];
+    }
+
+    if bray.runtime.bootstrap.numeric.number.is_zero(angle)
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.integer(1),
+            trusted bray.runtime.bootstrap.numeric.number.zero(angle.negative)
+        ];
+    }
+
+    let work: usize = precision + 64;
+    let top: i64 = trusted bray.runtime.bootstrap.numeric.number.exponent(angle);
+
+    let growth: usize = if top > 0
+    {
+        yield std.numeric.truncate_to<usize>(top);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    let reduction_precision: usize = work + growth + 32;
+    let mut half_pi = trusted bray.runtime.bootstrap.numeric.number.scale_by(pi, -1);
+    let turns = trusted bray.runtime.bootstrap.numeric.number.divide(angle, &half_pi, reduction_precision);
+    let nearest = trusted nearest_integer(&turns);
+    let mut offset = trusted bray.runtime.bootstrap.numeric.number.product(&nearest, &half_pi, 0);
+    let mut remainder = trusted bray.runtime.bootstrap.numeric.number.difference(angle, &offset, 0);
+    let mut available: usize = trusted bray.runtime.bootstrap.numeric.integer.bit_length(&pi.mantissa);
+
+    // Near a multiple of half pi, cancellation determines the required constant
+    // precision. Preserve the exact product and refine pi until the remainder
+    // has a complete working significand, rather than losing its small tail.
+    while !bray.runtime.bootstrap.numeric.number.is_zero(&nearest)
+    {
+        let top_remainder: i64 = trusted bray.runtime.bootstrap.numeric.number.exponent(&remainder);
+        let mut required: usize = work + growth + 16;
+
+        if bray.runtime.bootstrap.numeric.number.is_zero(&remainder) || top_remainder < std.numeric.truncate_to<i64>(
+            growth
+        ) + 7 - std.numeric.truncate_to<i64>(available)
+        {
+            required = available * 2;
+        }
+        else if top_remainder < 0
+        {
+            required += std.numeric.truncate_to<usize>(-top_remainder);
+        }
+
+        if available >= required
+        {
+            break;
+        }
+
+        let refined = trusted bray.runtime.bootstrap.numeric.math.pi(required + 64);
+
+        half_pi = trusted bray.runtime.bootstrap.numeric.number.scale_by(&refined, -1);
+        offset = trusted bray.runtime.bootstrap.numeric.number.product(&nearest, &half_pi, 0);
+        remainder = trusted bray.runtime.bootstrap.numeric.number.difference(angle, &offset, 0);
+        available = required + 64;
+    }
+
+    let mut quadrant: u64 = trusted bray.runtime.bootstrap.numeric.integer.word(&nearest.mantissa, 0) & 3;
+
+    if nearest.scale > 0
+    {
+        if nearest.scale >= 2
+        {
+            quadrant = 0;
+        }
+        else
+        {
+            quadrant = (quadrant << 1) & 3;
+        }
+    }
+
+    if nearest.negative
+    {
+        quadrant = (4 - quadrant) % 4;
+    }
+
+    let mut reductions: usize = 4;
+
+    while (reductions + 1) * (reductions + 1) < precision / 4
+    {
+        reductions += 1;
+    }
+
+    let reduced = trusted bray.runtime.bootstrap.numeric.number.scale_by(
+        &remainder,
+        -std.numeric.truncate_to<i64>(reductions)
+    );
+
+    let step = trusted bray.runtime.bootstrap.numeric.number.product(&reduced, &reduced, work);
+    let one = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+
+    let mut sine = trusted bray.runtime.bootstrap.numeric.number.round(
+        trusted bray.runtime.bootstrap.numeric.number.duplicate(&reduced),
+        work
+    );
+
+    let mut cosine = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut sine_term = trusted bray.runtime.bootstrap.numeric.number.duplicate(&sine);
+    let mut cosine_term = trusted bray.runtime.bootstrap.numeric.number.integer(1);
+    let mut index: u64 = 1;
+
+    while true
+    {
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut sine_term, &step, work);
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut cosine_term, &step, work);
+
+        trusted bray.runtime.bootstrap.numeric.number.divide_small_assign(
+            &mut sine_term,
+            index * 2 * (index * 2 + 1),
+            work
+        );
+
+        trusted bray.runtime.bootstrap.numeric.number.divide_small_assign(
+            &mut cosine_term,
+            index * 2 * (index * 2 - 1),
+            work
+        );
+
+        sine_term.negative = (index & 1) != 0 && !reduced.negative || (index & 1) == 0 && reduced.negative;
+        cosine_term.negative = (index & 1) != 0;
+
+        let sine_small: bool = bray.runtime.bootstrap.numeric.number.is_zero(&sine_term) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&sine_term) <
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&sine) - std.numeric.truncate_to<i64>(work) - 8;
+
+        let cosine_small: bool = bray.runtime.bootstrap.numeric.number.is_zero(&cosine_term) ||
+            trusted bray.runtime.bootstrap.numeric.number.exponent(&cosine_term) < -std.numeric.truncate_to<i64>(work) -
+            8;
+
+        if sine_small && cosine_small
+        {
+            break;
+        }
+
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut sine, &sine_term, false, work);
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut cosine, &cosine_term, false, work);
+        index += 1;
+    }
+
+    let mut next_sine = trusted bray.runtime.bootstrap.numeric.number.zero(false);
+
+    while reductions != 0
+    {
+        trusted bray.runtime.bootstrap.numeric.number.copy_from(&mut next_sine, &sine);
+        trusted bray.runtime.bootstrap.numeric.number.product_assign(&mut next_sine, &cosine, work);
+        next_sine.scale += 1;
+        trusted bray.runtime.bootstrap.numeric.number.square_assign(&mut sine, work);
+        sine.scale += 1;
+        trusted bray.runtime.bootstrap.numeric.number.set_integer(&mut cosine, 1);
+        trusted bray.runtime.bootstrap.numeric.number.combine_assign(&mut cosine, &sine, true, work);
+        trusted bray.runtime.bootstrap.numeric.number.copy_from(&mut sine, &next_sine);
+        reductions -= 1;
+    }
+
+    let c = trusted bray.runtime.bootstrap.numeric.number.round(cosine, precision);
+    let s = trusted bray.runtime.bootstrap.numeric.number.round(sine, precision);
+
+    if quadrant == 1
+    {
+        return[trusted bray.runtime.bootstrap.numeric.number.negate(&s), c];
+    }
+
+    if quadrant == 2
+    {
+        return[
+            trusted bray.runtime.bootstrap.numeric.number.negate(&c),
+            trusted bray.runtime.bootstrap.numeric.number.negate(&s)
+        ];
+    }
+
+    if quadrant == 3
+    {
+        return[s, trusted bray.runtime.bootstrap.numeric.number.negate(&c)];
+    }
+
+    return[c, s];
+}

@@ -156,6 +156,10 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation
+            | RuntimeAbiRole::RealPower
+            | RuntimeAbiRole::ComplexMultiply
+            | RuntimeAbiRole::ComplexDivide
+            | RuntimeAbiRole::ComplexPower
             | RuntimeAbiRole::ThreadStorageExit
             | RuntimeAbiRole::ControlStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
