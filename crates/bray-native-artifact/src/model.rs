@@ -152,6 +152,14 @@ pub enum NativeUnitSummary {
         /// Known references outside this physical payload. This inventory may be incomplete.
         references: Arc<[NativeSymbolContract]>,
     },
+    /// A lazy static archive with a complete export inventory and conservative member closure.
+    /// Selecting an export retains the physical archive; unused exports impose no demand.
+    LazyArchive {
+        /// Every externally selectable symbol in the physical archive.
+        provided: Arc<[NativeSymbolIdentity]>,
+        /// Conservative references outside the physical archive.
+        references: Arc<[NativeSymbolContract]>,
+    },
 }
 
 impl NativeUnitSummary {
@@ -175,7 +183,9 @@ impl NativeUnitSummary {
     pub fn defined_symbols(&self) -> impl Iterator<Item = &NativeSymbolIdentity> {
         let (exact, opaque) = match self {
             Self::Exact { definitions, .. } => (definitions.as_ref(), &[][..]),
-            Self::Opaque { provided, .. } => (&[][..], provided.as_ref()),
+            Self::Opaque { provided, .. } | Self::LazyArchive { provided, .. } => {
+                (&[][..], provided.as_ref())
+            }
         };
 
         exact
@@ -202,10 +212,31 @@ impl NativeUnitSummary {
         Self::opaque_with_providers(provided.iter().cloned(), references)
     }
 
+    /// Creates a lazy archive after the producer establishes its complete export inventory.
+    pub fn lazy_archive(
+        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+        references: impl IntoIterator<Item = NativeSymbolContract>,
+    ) -> Self {
+        let provided = provided
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let references = references
+            .into_iter()
+            .filter(|reference| !provided.contains(reference.identity()));
+
+        Self::LazyArchive {
+            references: sorted_unique_shared_slice(references),
+            provided: provided.into_iter().collect::<Vec<_>>().into(),
+        }
+    }
+
     /// Returns native references known to leave this physical payload.
     pub fn references(&self) -> &[NativeSymbolContract] {
         match self {
-            Self::Exact { references, .. } | Self::Opaque { references, .. } => references,
+            Self::Exact { references, .. }
+            | Self::Opaque { references, .. }
+            | Self::LazyArchive { references, .. } => references,
         }
     }
 }
@@ -263,6 +294,13 @@ impl NativeUnit {
                 provided,
                 references,
             } => NativeUnitSummary::Opaque {
+                provided: sorted(provided),
+                references: sorted(references),
+            },
+            NativeUnitSummary::LazyArchive {
+                provided,
+                references,
+            } => NativeUnitSummary::LazyArchive {
                 provided: sorted(provided),
                 references: sorted(references),
             },

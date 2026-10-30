@@ -7,7 +7,7 @@ use super::support::runtime::runtime_artifact;
 use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 use bray_ir::{MirHostOperation, MirOperationKind, MirUnitKind};
-use bray_runtime_interface::{RootExecution, RuntimeCapability};
+use bray_runtime_interface::{RootExecution, RuntimeAbiRole, RuntimeCapability};
 use bray_symbols::ProductKind;
 use bray_testing::TemporaryFile;
 
@@ -76,6 +76,12 @@ fn native_test_products_emit_every_entry_in_catalog_order() {
         .unwrap_or_else(|| panic!("native test plan must retain their host"));
 
     assert_eq!(host.entries().len(), catalog.entries().len());
+
+    assert!(
+        host.requirements()
+            .requires_role(RuntimeAbiRole::ExecutionShutdown)
+    );
+
     assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
     assert_eq!(host.entries()[1].root(), RootExecution::Synchronous);
 

@@ -36,3 +36,19 @@ trusted internal func report(pos callback: bray.runtime.bootstrap.entry.bridge.O
 
     return 0;
 }
+
+trusted internal func control(pos callback: bray.runtime.bootstrap.entry.bridge.Control?) -> usize
+    executes(total)
+    uses(layout_reinterpret, intrinsic)
+{
+    if let ?selected = callback
+    {
+        return trusted core.target.expose_address<u8>(
+            trusted std.memory.function.to_data<bray.runtime.bootstrap.entry.bridge.Control>(
+                trusted std.memory.function_address<bray.runtime.bootstrap.entry.bridge.Control>(selected)
+            )
+        );
+    }
+
+    return 0;
+}

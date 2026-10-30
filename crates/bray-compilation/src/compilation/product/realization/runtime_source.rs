@@ -79,6 +79,7 @@ macro_rules! define_runtime_source_fields {
     (@field PanicReportPointer) => { AbiField::NativePointer };
     (@field PanicReport) => { PANIC_REPORT };
     (@result Void) => { None };
+    (@result Never) => { None };
     (@result $kind:ident) => { Some(define_runtime_source_fields!(@field $kind)) };
 }
 
@@ -156,6 +157,7 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation
             | RuntimeAbiRole::ThreadStorageExit
+            | RuntimeAbiRole::ControlStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentMarkMain
@@ -291,15 +293,17 @@ pub(super) fn runtime_role_abi(
     role: RuntimeAbiRole,
     declared: CallableAbi,
 ) -> CallableAbi {
-    if role == RuntimeAbiRole::ThreadStorageExit
-        && compilation
-            .selected_target()
-            .target()
-            .profile()
-            .properties()
-            .identity()
-            .system()
-            == "windows"
+    if matches!(
+        role,
+        RuntimeAbiRole::ThreadStorageExit | RuntimeAbiRole::ControlStorageExit
+    ) && compilation
+        .selected_target()
+        .target()
+        .profile()
+        .properties()
+        .identity()
+        .system()
+        == "windows"
     {
         return CallableAbi::System;
     }
@@ -368,6 +372,7 @@ mod tests {
                 "thread_attachment_mark_main",
             ),
             (RuntimeAbiRole::ThreadStorageExit, "thread_storage_exit"),
+            (RuntimeAbiRole::ControlStorageExit, "control_storage_exit"),
             (
                 RuntimeAbiRole::ThreadAttachmentLeave,
                 "thread_attachment_leave",
@@ -694,6 +699,11 @@ mod tests {
                 "thread_attachment_leave",
                 "thread_storage_exit",
                 "attachment_destructor_address",
+                "control_storage_exit",
+                "control_destructor_address",
+                "load_control",
+                "store_control",
+                "invoke_control",
                 "finish_native_attachment",
                 "consume_report",
                 "consume_primary",
@@ -860,18 +870,23 @@ mod tests {
                 )
                 .with_panic_report_context();
 
-                assert_eq!(
-                    runtime_source_signature_matches(
-                        &compilation,
-                        RuntimeAbiRole::ThreadStorageExit,
-                        &signature,
-                        &CancellationToken::new(),
-                        &mut bray_diagnostics::DiagnosticBag::new(),
-                    )
-                    .expect("fixture runtime signature must be checked"),
-                    Some(abi == expected),
-                    "{target:?}, {abi:?}",
-                );
+                for role in [
+                    RuntimeAbiRole::ThreadStorageExit,
+                    RuntimeAbiRole::ControlStorageExit,
+                ] {
+                    assert_eq!(
+                        runtime_source_signature_matches(
+                            &compilation,
+                            role,
+                            &signature,
+                            &CancellationToken::new(),
+                            &mut bray_diagnostics::DiagnosticBag::new(),
+                        )
+                        .expect("fixture runtime signature must be checked"),
+                        Some(abi == expected),
+                        "{target:?}, {abi:?}, {role:?}",
+                    );
+                }
             }
         }
     }

@@ -219,6 +219,10 @@ pub fn lower_executable_host(
         entry,
         source.clone(),
         MirOperationKind::Host(MirHostOperation::StructuredShutdown {
+            execution: contract
+                .requirements()
+                .requires_role(RuntimeAbiRole::ExecutionShutdown)
+                .then(|| runtime_reference(RuntimeAbiRole::ExecutionShutdown, runtime_abi)),
             runtime: runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
         }),
         None,
@@ -440,6 +444,7 @@ mod tests {
                 ),
             },
             MirHostOperation::StructuredShutdown {
+                execution: None,
                 runtime: super::runtime_reference(RuntimeAbiRole::StructuredShutdown, runtime_abi),
             },
         ] {

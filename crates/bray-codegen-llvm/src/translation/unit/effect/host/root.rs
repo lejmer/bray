@@ -226,7 +226,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let (function, signature) = self.root_entry(root, RootExecution::Synchronous)?;
 
         let performance_loop = self.begin_performance_interval(self.function)?;
-        let result = self.invoke_function(function, signature, &[], "root")?;
+
+        // The closed direct-product demand set has no operation that can publish
+        // abnormal completion. Its ordinary Bray ABI still receives an outcome slot.
+        let context = if signature.has_panic_report_context() {
+            Some(self.allocate_panic_report_context()?)
+        } else {
+            None
+        };
+
+        let result = self.invoke_function_with_panic_report_context(
+            function,
+            signature,
+            &[],
+            "root",
+            context,
+        )?;
 
         if matches!(
             self.request.options().runtime_observations(),

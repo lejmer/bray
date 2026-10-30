@@ -273,6 +273,10 @@ enum SummaryWire {
         provided: Vec<IdentityWire>,
         references: Vec<SymbolWire>,
     },
+    LazyArchive {
+        provided: Vec<IdentityWire>,
+        references: Vec<SymbolWire>,
+    },
 }
 
 impl SummaryWire {
@@ -294,6 +298,13 @@ impl SummaryWire {
                 provided,
                 references,
             } => Self::Opaque {
+                provided: provided.iter().map(IdentityWire::from_identity).collect(),
+                references: references.iter().map(SymbolWire::from_symbol).collect(),
+            },
+            NativeUnitSummary::LazyArchive {
+                provided,
+                references,
+            } => Self::LazyArchive {
                 provided: provided.iter().map(IdentityWire::from_identity).collect(),
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
             },
@@ -327,6 +338,21 @@ impl SummaryWire {
                 provided,
                 references,
             } => Ok(NativeUnitSummary::Opaque {
+                provided: provided
+                    .into_iter()
+                    .map(IdentityWire::into_identity)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
+                references: references
+                    .into_iter()
+                    .map(SymbolWire::into_symbol)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
+            }),
+            Self::LazyArchive {
+                provided,
+                references,
+            } => Ok(NativeUnitSummary::LazyArchive {
                 provided: provided
                     .into_iter()
                     .map(IdentityWire::into_identity)

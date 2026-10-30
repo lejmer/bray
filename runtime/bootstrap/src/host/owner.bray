@@ -39,14 +39,16 @@ internal struct HostStorage
 {
     key: u64;
     mut cleanup_key: u64;
+    mut control_key: u64;
     mut released: bool;
     mut cleanup_released: bool;
+    mut control_released: bool;
     mut attachments: std.memory.RawBuffer<Attachment>;
     mut active: usize;
 }
 
 // The owner retains every created key until release succeeds. An incomplete key
-// pair remains closed to attachment admission and retained for shutdown retry.
+// set remains closed to attachment admission and retained for shutdown retry.
 trusted internal predicate prepared_host_storage(owner: &(HostStorage?));
 
 // Resident storage owns the key and every initialized attachment epoch. TLS contains
@@ -84,8 +86,9 @@ trusted internal func initialize_host() -> u32
 
         if let ?storage = host.storage
         {
-            if storage.released || storage.cleanup_released || storage.key == std.numeric.U64_MAX ||
-                storage.cleanup_key == std.numeric.U64_MAX
+            if storage.released || storage.cleanup_released || storage.control_released || storage.key ==
+                std.numeric.U64_MAX || storage.cleanup_key == std.numeric.U64_MAX || storage.control_key ==
+                std.numeric.U64_MAX
             {
                 return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
             }
@@ -129,8 +132,10 @@ trusted internal func initialize_host() -> u32
         {
             key = key,
             cleanup_key = 0,
+            control_key = 0,
             released = false,
             cleanup_released = true,
+            control_released = true,
             attachments = buffer,
             active = 0
         };
@@ -151,6 +156,24 @@ trusted internal func initialize_host() -> u32
         {
             storage.cleanup_key = cleanup_key;
             storage.cleanup_released = false;
+        }
+
+        if storage.cleanup_released || cleanup_key == std.numeric.U64_MAX
+        {
+            return storage;
+        }
+
+        let mut control_key: u64 = 0;
+
+        let control_status = trusted internal std.thread.platform_thread_storage_create(
+            trusted internal bray.runtime.bootstrap.thread.destruction.control_destructor_address(),
+            std.memory.address_of_mut<u64>(&mut control_key)
+        );
+
+        if control_status.category == 0
+        {
+            storage.control_key = control_key;
+            storage.control_released = false;
         }
 
         return storage;
@@ -195,9 +218,10 @@ trusted internal func initialize_host() -> u32
             {
                 let key: u64 = storage.key;
                 let cleanup_key: u64 = storage.cleanup_key;
+                let control_key: u64 = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && key != std.numeric.U64_MAX &&
-                    cleanup_key != std.numeric.U64_MAX;
+                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
+                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, prepared);
 
@@ -208,6 +232,7 @@ trusted internal func initialize_host() -> u32
 
                 core.atomic.store<u64, 2>(&synchronization.key, key + 1);
                 core.atomic.store<u64, 2>(&synchronization.cleanup_key, cleanup_key + 1);
+                core.atomic.store<u64, 2>(&synchronization.control_key, control_key + 1);
                 return bray.runtime.bootstrap.STATUS_SUCCESS;
             }
 
@@ -533,6 +558,17 @@ trusted internal func shutdown_host() -> u32
                     return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
                 }
 
+                // Unattached control lookups borrow the key without taking this lock.
+                // Unpublish before observing readers; retirement never waits for them.
+                let control_key = core.atomic.exchange<u64, 4>(&synchronization.control_key, 0);
+
+                if core.atomic.load<u64, 4>(&synchronization.control_readers) != 0
+                {
+                    core.atomic.store<u64, 2>(&synchronization.control_key, control_key);
+
+                    return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+                }
+
                 host.transitioning = true;
                 core.atomic.store<u64, 2>(&synchronization.key, 0);
                 core.atomic.store<u64, 2>(&synchronization.cleanup_key, 0);
@@ -567,6 +603,13 @@ trusted internal func shutdown_host() -> u32
         {
             if let ?storage = retired
             {
+                if !storage.control_released
+                {
+                    let status = trusted internal std.thread.platform_thread_storage_destroy(storage.control_key);
+
+                    storage.control_released = status.category == 0;
+                }
+
                 if !storage.cleanup_released
                 {
                     let status = trusted internal std.thread.platform_thread_storage_destroy(storage.cleanup_key);
@@ -619,13 +662,14 @@ trusted internal func shutdown_host() -> u32
 
         if let ?storage = retired
         {
-            if !storage.released || !storage.cleanup_released
+            if !storage.released || !storage.cleanup_released || !storage.control_released
             {
                 let key = storage.key;
                 let cleanup_key = storage.cleanup_key;
+                let control_key = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && key != std.numeric.U64_MAX &&
-                    cleanup_key != std.numeric.U64_MAX;
+                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
+                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
 
@@ -633,6 +677,7 @@ trusted internal func shutdown_host() -> u32
                 {
                     core.atomic.store<u64, 2>(&synchronization.key, key + 1);
                     core.atomic.store<u64, 2>(&synchronization.cleanup_key, cleanup_key + 1);
+                    core.atomic.store<u64, 2>(&synchronization.control_key, control_key + 1);
                 }
 
                 host.transitioning = false;

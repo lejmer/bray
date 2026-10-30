@@ -56,6 +56,7 @@ pub(crate) fn emit_executable(
         map_output,
         BuildConfiguration::Release,
     )
+    .map(|_| ())
 }
 
 #[expect(
@@ -71,7 +72,7 @@ pub(crate) fn emit_executable_with_configuration(
     additional_search_paths: impl IntoIterator<Item = LinkSearchPath>,
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
     configuration: BuildConfiguration,
-) -> Result<(), String> {
+) -> Result<bray_compilation::NativeProductPlan, String> {
     emit_with_configuration(
         compilation,
         product,
@@ -103,6 +104,7 @@ pub(crate) fn emit_library(
         BuildConfiguration::Release,
         ProductKind::Library,
     )
+    .map(|_| ())
 }
 
 #[expect(
@@ -119,7 +121,7 @@ fn emit_with_configuration(
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
     configuration: BuildConfiguration,
     kind: ProductKind,
-) -> Result<(), String> {
+) -> Result<bray_compilation::NativeProductPlan, String> {
     let (linked, artifact, output_kind) = match kind {
         ProductKind::Library => (
             bray_linker::LinkedProductKind::StaticLibrary,
@@ -218,7 +220,7 @@ fn emit_with_configuration(
     })?;
 
     if matches!(outcome.status(), EmissionStatus::Complete) {
-        return Ok(());
+        return Ok(native);
     }
 
     Err(crate::diagnostic_output::failure_detail(

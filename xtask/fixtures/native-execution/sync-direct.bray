@@ -1,0 +1,6 @@
+module sync_direct;
+
+func main() -> i32
+{
+    return 0;
+}

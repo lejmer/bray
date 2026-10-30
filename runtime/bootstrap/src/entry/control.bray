@@ -1,0 +1,35 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry.control;
+
+using internal bray.runtime.bootstrap.entry.bridge;
+using internal bray.runtime.bootstrap.pool;
+
+// No provider is selected for an ordinary synchronous entry. Async and native
+// providers install their scoped control callback with the existing entry bridge.
+@abi(c)
+trusted internal func observe() -> u8
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    return if trusted bray.runtime.bootstrap.entry.bridge.invoke_control(0) != 0
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+@abi(c)
+trusted internal func enter_cleanup()
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    _ = trusted bray.runtime.bootstrap.entry.bridge.invoke_control(1);
+}
+
+@abi(c)
+trusted internal func leave_cleanup()
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    _ = trusted bray.runtime.bootstrap.entry.bridge.invoke_control(2);
+}

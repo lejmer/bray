@@ -147,7 +147,7 @@ pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<
 /// Returns runtime roles required by a mapped callable symbol.
 pub fn mapped_symbol_runtime_roles(
     native_entry: Option<bray_runtime_interface::NativeEntryKind>,
-    panic_report_context: bool,
+    native_outcome_boundary: bool,
 ) -> impl Iterator<Item = RuntimeAbiRole> {
     FOREIGN_CALLBACK_RUNTIME_ROLES
         .into_iter()
@@ -169,7 +169,8 @@ pub fn mapped_symbol_runtime_roles(
             }),
         )
         .chain(
-            std::iter::once(RuntimeAbiRole::PanicPropagation).filter(move |_| panic_report_context),
+            std::iter::once(RuntimeAbiRole::PanicPropagation)
+                .filter(move |_| native_outcome_boundary),
         )
 }
 
@@ -195,15 +196,22 @@ pub fn mapped_runtime_references(
         .flatten()
     });
 
-    let panic_report_context = symbols
-        .iter()
-        .any(|symbol| symbol.signature().has_panic_report_context());
+    let native_outcome_boundary = symbols.iter().any(|symbol| {
+        matches!(symbol.key(), CodegenSymbolKey::Instance(instance)
+        if unit.instances().iter().any(|member| {
+            member.key() == instance
+                && (symbol.signature().abi() != bray_symbols::CallableAbi::Bray
+                    || member.protected_frame_identity().is_some()
+                    || (matches!(member.key().template(), bray_ir::MirUnitKey::GeneratedLifecycle(_))
+                        && !symbol.signature().has_panic_report_context()))
+        }))
+    });
 
     references.extend(
         native_entries
             .map(Some)
             .chain([None])
-            .flat_map(|entry| mapped_symbol_runtime_roles(entry, panic_report_context))
+            .flat_map(|entry| mapped_symbol_runtime_roles(entry, native_outcome_boundary))
             .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
     );
 
@@ -291,14 +299,6 @@ fn operation_runtime_references(
             initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
             ..
         }) => [Some(*runtime), None, None],
-        MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
-            Some(*runtime),
-            Some(MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-                runtime.abi_version(),
-            )),
-            None,
-        ],
         MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
             completion,
             panic,
@@ -313,11 +313,14 @@ fn operation_runtime_references(
         )
         | MirOperationKind::Host(
             MirHostOperation::InitializeRuntime { runtime }
+            | MirHostOperation::ExecuteRoot { runtime, .. }
             | MirHostOperation::SelectTestEntry { runtime, .. }
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
-            | MirHostOperation::ReportCleanupIncidents { runtime }
-            | MirHostOperation::StructuredShutdown { runtime },
+            | MirHostOperation::ReportCleanupIncidents { runtime },
         ) => [Some(*runtime), None, None],
+        MirOperationKind::Host(MirHostOperation::StructuredShutdown { execution, runtime }) => {
+            [Some(*runtime), *execution, None]
+        }
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
@@ -502,7 +505,14 @@ mod tests {
     }
 
     #[test]
-    fn hidden_outcome_context_demands_the_terminal_report_consumer() {
+    fn fixed_native_outcome_boundaries_demand_terminal_propagation() {
+        let roles: BTreeSet<_> = super::mapped_symbol_runtime_roles(None, true).collect();
+
+        assert_eq!(roles, BTreeSet::from([RuntimeAbiRole::PanicPropagation]));
+    }
+
+    #[test]
+    fn hidden_outcome_context_alone_does_not_demand_terminal_reporting() {
         let fixture = codegen_request();
         let request = fixture.request();
 
@@ -522,7 +532,7 @@ mod tests {
         let references = mapped_runtime_references(request.unit(), &[direct], &[]);
 
         assert!(
-            references
+            !references
                 .iter()
                 .any(|reference| reference.role() == RuntimeAbiRole::PanicPropagation)
         );

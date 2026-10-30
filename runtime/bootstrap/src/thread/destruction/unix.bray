@@ -26,3 +26,23 @@ trusted internal func attachment_destructor_address() -> FunctionPointer<std.os.
         trusted std.memory.function_address(callback)
     );
 }
+
+internal callable ControlExitCallback = @abi(c) trusted func(pos value: DataPointer<u8>)
+    requires(trusted native_control_exit())
+    executes(total);
+
+@abi(c)
+trusted internal func control_storage_exit(pos value: DataPointer<u8>)
+    requires(trusted native_control_exit())
+    executes(total) {}
+
+trusted internal func control_destructor_address() -> FunctionPointer<std.os.unix.ThreadStorageDestructor>
+    uses(layout_reinterpret)
+    ensures(trusted core.memory.callable_address_valid<std.os.unix.ThreadStorageDestructor>(pointer = result))
+{
+    let callback: ControlExitCallback = control_storage_exit;
+
+    return trusted std.memory.function.reinterpret<std.os.unix.ThreadStorageDestructor, ControlExitCallback>(
+        trusted std.memory.function_address(callback)
+    );
+}

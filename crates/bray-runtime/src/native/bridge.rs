@@ -20,6 +20,7 @@ unsafe extern "C" {
 pub(crate) struct Callbacks {
     pub(crate) context: usize,
     pub(crate) report: usize,
+    pub(crate) control: usize,
 }
 
 impl Callbacks {
@@ -27,7 +28,25 @@ impl Callbacks {
         Self {
             context: invoke as *const u8 as usize,
             report: observe as *const u8 as usize,
+            control: control as *const u8 as usize,
         }
+    }
+}
+
+extern "C" fn control(operation: u32) -> u32 {
+    match operation {
+        0 => u32::from(crate::current_run_cancellation_requested()),
+        1 => {
+            crate::context::enter_current_run_cleanup_shield();
+
+            0
+        }
+        2 => {
+            crate::context::leave_current_run_cleanup_shield();
+
+            0
+        }
+        _ => panic!("unknown execution control operation {operation}"),
     }
 }
 

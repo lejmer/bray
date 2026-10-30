@@ -8,13 +8,21 @@
 #ifdef _WIN32
 #define FlsAlloc SystemFlsAlloc
 #define FlsFree SystemFlsFree
+#define FlsGetValue SystemFlsGetValue
 #include <windows.h>
 #undef FlsAlloc
 #undef FlsFree
+#undef FlsGetValue
 #else
 #include <dlfcn.h>
 #include <errno.h>
+#if defined(__linux__)
+#define pthread_getspecific SystemPthreadGetSpecific
+#endif
 #include <pthread.h>
+#if defined(__linux__)
+#undef pthread_getspecific
+#endif
 #include <sched.h>
 #endif
 
@@ -27,6 +35,7 @@ static atomic_uint recursive_attachment_status;
 static atomic_uint recursive_attachment_leave_status;
 extern uint32_t bray_runtime_thread_attachment_enter(void);
 extern uint32_t bray_runtime_thread_attachment_leave(void);
+extern uint32_t bray_runtime_structured_shutdown(void);
 
 #if defined(_WIN32) || defined(__linux__)
 static atomic_bool reject_key_creation;
@@ -37,6 +46,20 @@ static atomic_uint key_destruction_attempts;
 static atomic_uint live_keys;
 static atomic_bool reenter_key_creation;
 static atomic_uint recursive_key_status;
+static atomic_bool retire_control_on_load;
+static uint32_t control_retirement_status;
+static unsigned control_retirement_keys;
+
+static int before_control_load(void)
+{
+    if (!atomic_exchange(&retire_control_on_load, 0))
+        return 1;
+
+    control_retirement_status = bray_runtime_structured_shutdown();
+    control_retirement_keys = atomic_load(&live_keys);
+
+    return control_retirement_keys != 0;
+}
 
 #ifdef _WIN32
 DWORD WINAPI FlsAlloc(PFLS_CALLBACK_FUNCTION callback)
@@ -86,7 +109,36 @@ BOOL WINAPI FlsFree(DWORD key)
 
 DWORD (WINAPI *__imp_FlsAlloc)(PFLS_CALLBACK_FUNCTION) = FlsAlloc;
 BOOL (WINAPI *__imp_FlsFree)(DWORD) = FlsFree;
+
+PVOID WINAPI FlsGetValue(DWORD key)
+{
+    if (!before_control_load())
+    {
+        SetLastError(ERROR_SUCCESS);
+        return NULL;
+    }
+
+    PVOID (WINAPI *load)(DWORD) =
+        (PVOID (WINAPI *)(DWORD))GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "FlsGetValue");
+
+    return load(key);
+}
+
+PVOID (WINAPI *__imp_FlsGetValue)(DWORD) = FlsGetValue;
 #else
+void* pthread_getspecific(pthread_key_t key)
+{
+    if (!before_control_load())
+        return NULL;
+
+    void* (*load)(pthread_key_t) = (void* (*)(pthread_key_t))dlsym(RTLD_NEXT, "pthread_getspecific");
+
+    if (load == NULL)
+        abort();
+
+    return load(key);
+}
+
 int pthread_key_create(pthread_key_t* key, void (*destructor)(void*))
 {
     unsigned attempt = atomic_fetch_add(&key_creation_attempts, 1) + 1;
@@ -218,16 +270,34 @@ extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t
 static uint32_t substrate_initialized;
 static atomic_uint cleanup_shield_balance;
 
-// The isolated bootstrap host has no cancellation delivery. Check that cleanup shields balance.
-void bray_runtime_cleanup_shield_enter(void)
-{
-    atomic_fetch_add_explicit(&cleanup_shield_balance, 1, memory_order_relaxed);
-}
+extern void bray_runtime_cleanup_shield_enter(void);
+extern void bray_runtime_cleanup_shield_leave(void);
+extern uint8_t bray_runtime_current_run_cancellation_observation(void);
 
-void bray_runtime_cleanup_shield_leave(void)
+typedef struct
 {
-    if (atomic_fetch_sub_explicit(&cleanup_shield_balance, 1, memory_order_relaxed) == 0)
+    void* context;
+    void* report;
+    uint32_t (*control)(uint32_t);
+} EntryCallbacks;
+
+extern uint32_t bray_runtime_entry_context_registration(const EntryCallbacks*, EntryCallbacks*);
+
+static uint32_t execution_control(uint32_t operation)
+{
+    if (operation == 0)
+        return atomic_load(&cleanup_shield_balance) == 0;
+
+    if (operation == 1)
+    {
+        atomic_fetch_add(&cleanup_shield_balance, 1);
+        return 0;
+    }
+
+    if (operation != 2 || atomic_fetch_sub(&cleanup_shield_balance, 1) == 0)
         abort();
+
+    return 0;
 }
 
 uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity)
@@ -243,7 +313,7 @@ uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintpt
     return 0;
 }
 
-uint32_t bray_runtime_substrate_shutdown(void)
+uint32_t bray_runtime_execution_shutdown(void)
 {
     if (substrate_initialized == 0)
         return 1;
@@ -271,7 +341,18 @@ extern PanicReport bray_runtime_panic_report_construction(
     uintptr_t message_length
 );
 
-extern uint32_t bray_runtime_structured_shutdown(void);
+static uint32_t shutdown_product(void)
+{
+    uint32_t execution = bray_runtime_execution_shutdown();
+
+    if (execution != 0 && execution != 1)
+        return execution;
+
+    uint32_t host = bray_runtime_structured_shutdown();
+
+    return host == 0 ? execution : host;
+}
+
 typedef struct
 {
     uintptr_t records;
@@ -349,13 +430,6 @@ static PanicReport panic_report(void)
         message,
         sizeof(message) - 1
     );
-}
-
-void bray_runtime_panic_propagation(PanicReport* report)
-{
-    (void)report;
-
-    abort();
 }
 
 static unsigned streamed_releases;
@@ -625,31 +699,31 @@ static void* attached_native_thread(void* context)
 }
 
 #if defined(_WIN32) || defined(__linux__)
-static int check_partial_host_formation(void)
+static int check_partial_host_formation(unsigned failure_ordinal)
 {
     unsigned creation_before = atomic_load(&key_creation_attempts);
     unsigned destruction_before = atomic_load(&key_destruction_attempts);
 
-    atomic_store(&reject_key_creation_at, creation_before + 2);
+    atomic_store(&reject_key_creation_at, creation_before + failure_ordinal);
     atomic_store(&reject_key_destruction, 1);
 
     if (
         bray_runtime_thread_attachment_enter() != 4 ||
         bray_runtime_current_native_thread_identity() != 0 ||
-        atomic_load(&live_keys) != 1 ||
-        atomic_load(&key_creation_attempts) != creation_before + 2
+        atomic_load(&live_keys) != failure_ordinal - 1 ||
+        atomic_load(&key_creation_attempts) != creation_before + failure_ordinal
     )
     {
         return 33;
     }
 
-    // A partial host retains the first key and rejects new attachment admission.
+    // A partial host retains every accepted key and rejects new attachment admission.
     if (
         bray_runtime_thread_attachment_enter() != 4 ||
-        atomic_load(&key_creation_attempts) != creation_before + 2 ||
-        bray_runtime_structured_shutdown() != 4 ||
-        atomic_load(&key_destruction_attempts) != destruction_before + 1 ||
-        atomic_load(&live_keys) != 1
+        atomic_load(&key_creation_attempts) != creation_before + failure_ordinal ||
+        shutdown_product() != 4 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + failure_ordinal - 1 ||
+        atomic_load(&live_keys) != failure_ordinal - 1
     )
     {
         return 33;
@@ -659,8 +733,8 @@ static int check_partial_host_formation(void)
     atomic_store(&reject_key_creation_at, 0);
 
     if (
-        bray_runtime_structured_shutdown() != 1 ||
-        atomic_load(&key_destruction_attempts) != destruction_before + 2 ||
+        shutdown_product() != 1 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 2 * (failure_ordinal - 1) ||
         atomic_load(&live_keys) != 0
     )
     {
@@ -670,6 +744,63 @@ static int check_partial_host_formation(void)
     return 0;
 }
 #endif
+
+static int check_execution_control_bridge(void)
+{
+    EntryCallbacks selected = { .control = execution_control };
+    EntryCallbacks previous = {0};
+    EntryCallbacks replaced = {0};
+
+    if (
+        bray_runtime_thread_attachment_enter() != 0 ||
+        bray_runtime_entry_context_registration(&selected, &previous) != 0 ||
+        previous.context != NULL || previous.report != NULL || previous.control != NULL ||
+        bray_runtime_current_run_cancellation_observation() != 1
+    )
+        return 78;
+
+    bray_runtime_cleanup_shield_enter();
+    bray_runtime_cleanup_shield_enter();
+
+    if (bray_runtime_current_run_cancellation_observation() != 0)
+        return 78;
+
+    bray_runtime_cleanup_shield_leave();
+    bray_runtime_cleanup_shield_leave();
+
+    if (
+        bray_runtime_current_run_cancellation_observation() != 1 ||
+        bray_runtime_entry_context_registration(&previous, &replaced) != 0 ||
+        replaced.control != execution_control ||
+        bray_runtime_current_run_cancellation_observation() != 0 ||
+        bray_runtime_thread_attachment_leave() != 0
+    )
+        return 78;
+
+    return 0;
+}
+
+static int check_control_storage_retirement(void)
+{
+#if defined(_WIN32) || defined(__linux__)
+    unsigned destructions = atomic_load(&key_destruction_attempts);
+
+    if (bray_runtime_current_native_thread_identity() != 0 || atomic_load(&live_keys) != 3)
+        return 79;
+
+    atomic_store(&retire_control_on_load, 1);
+    bray_runtime_cleanup_shield_enter();
+
+    if (
+        control_retirement_status != 4 || control_retirement_keys != 3 ||
+        atomic_load(&live_keys) != 3 ||
+        atomic_load(&key_destruction_attempts) != destructions
+    )
+        return 79;
+#endif
+
+    return 0;
+}
 
 static int check_primitive_attachment(void)
 {
@@ -692,7 +823,7 @@ static int check_primitive_attachment(void)
     atomic_store(&reenter_deallocation, 1);
 
     if (
-        bray_runtime_structured_shutdown() != 1 ||
+        shutdown_product() != 1 ||
         atomic_load(&allocation_attempts) != rollback_allocations ||
         atomic_load(&live_allocations) != initial_live_allocations ||
         deallocation_reentries != 1 || deallocation_reentry_status != 0
@@ -703,12 +834,20 @@ static int check_primitive_attachment(void)
 
     atomic_store(&reject_key_creation, 0);
 
-    int partial_status = check_partial_host_formation();
+    int partial_status = check_partial_host_formation(2);
 
     if (partial_status != 0)
     {
         return partial_status;
     }
+
+    partial_status = check_partial_host_formation(3);
+
+    if (partial_status != 0)
+    {
+        return partial_status;
+    }
+
 #endif
 
     atomic_store(&reject_allocations, 1);
@@ -936,7 +1075,7 @@ static int check_concurrent_attachments(void)
 #endif
     }
 
-    int status = bray_runtime_structured_shutdown() == 4 ? 0 : 37;
+    int status = shutdown_product() == 4 ? 0 : 37;
 
     for (unsigned index = 0; index < concurrent_threads; ++index)
     {
@@ -994,13 +1133,13 @@ static int check_pool_retirement(void)
 
     atomic_store(&reject_allocations, 1);
 
-    if (bray_runtime_structured_shutdown() != 4)
+    if (shutdown_product() != 4)
         return 44;
 
     bray_runtime_outgoing_retirement(record, NULL, &outcome);
     bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 
-    uint32_t shutdown_status = bray_runtime_structured_shutdown();
+    uint32_t shutdown_status = shutdown_product();
     unsigned after = atomic_load(&allocation_attempts);
     unsigned live = atomic_load(&live_allocations);
 
@@ -1026,7 +1165,7 @@ static int check_pool_retirement(void)
     bray_runtime_outgoing_retirement(record, NULL, &outcome);
     bray_runtime_outgoing_discharge(&(CleanupBundle){ 1, NULL, 0 });
 
-    if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
+    if (shutdown_product() != 0 || atomic_load(&live_allocations) != 0)
         return 48;
 
     return 0;
@@ -2871,6 +3010,16 @@ int main(void)
     if (attachment_status != 0)
         return attachment_status;
 
+    int control_status = check_execution_control_bridge();
+
+    if (control_status != 0)
+        return control_status;
+
+    int control_retirement = check_control_storage_retirement();
+
+    if (control_retirement != 0)
+        return control_retirement;
+
     int concurrent_status = check_concurrent_attachments();
 
     if (concurrent_status != 0)
@@ -2882,9 +3031,9 @@ int main(void)
     atomic_store(&reject_key_destruction, 1);
 
     if (
-        bray_runtime_structured_shutdown() != 4 ||
-        atomic_load(&key_destruction_attempts) != destruction_before + 2 ||
-        atomic_load(&live_keys) != 2 ||
+        shutdown_product() != 4 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 3 ||
+        atomic_load(&live_keys) != 3 ||
         bray_runtime_thread_attachment_enter() != 0 ||
         bray_runtime_current_native_thread_identity() == 0 ||
         bray_runtime_thread_attachment_leave() != 0
@@ -2894,8 +3043,8 @@ int main(void)
     atomic_store(&reject_key_destruction, 0);
 
     if (
-        bray_runtime_structured_shutdown() != 1 ||
-        atomic_load(&key_destruction_attempts) != destruction_before + 4 ||
+        shutdown_product() != 1 ||
+        atomic_load(&key_destruction_attempts) != destruction_before + 6 ||
         atomic_load(&live_keys) != 0
     )
         return 35;
@@ -2916,7 +3065,7 @@ int main(void)
 
     PanicReport pending = panic_report();
 
-    if (bray_runtime_structured_shutdown() != 4)
+    if (shutdown_product() != 4)
         return 2;
 
     if (bray_runtime_panic_reporting(&pending) != 0)
@@ -2927,10 +3076,10 @@ int main(void)
     if (bray_runtime_panic_report_destruction(&handled) != 0)
         return 4;
 
-    if (bray_runtime_structured_shutdown() != 1 || bray_runtime_structured_shutdown() != 1)
+    if (shutdown_product() != 1 || shutdown_product() != 1)
         return 5;
 
-    if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_structured_shutdown() != 0)
+    if (bray_runtime_initialization(1, 1) != 0 || shutdown_product() != 0)
         return 6;
 
     int retirement_status = check_pool_retirement();
@@ -3001,7 +3150,7 @@ int main(void)
     check_product_teardown();
     check_thread_product_teardown();
 
-    if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0)
+    if (shutdown_product() != 0 || atomic_load(&live_allocations) != 0)
         return 77;
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)

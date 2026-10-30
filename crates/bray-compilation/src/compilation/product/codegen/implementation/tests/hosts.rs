@@ -72,6 +72,7 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
         RuntimeAbiRole::PanicReporting,
         RuntimeAbiRole::EntryFailureReporting,
         RuntimeAbiRole::StructuredShutdown,
+        RuntimeAbiRole::ExecutionShutdown,
     ] {
         assert_eq!(
             host.role_binding(role)
@@ -449,7 +450,9 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
         "extern trusted func native_status() -> i32 uses(foreign_call);\n",
         "trusted func main() -> i32 uses(foreign_call)\n",
         "{\n",
-        "    return trusted native_status();\n",
+        "    let status: i32 = trusted native_status();\n",
+        "    if status < 0 { panic(\"negative native status\"); }\n",
+        "    return status;\n",
         "}\n",
     );
 

@@ -565,6 +565,7 @@ mod tests {
         let other = Callbacks {
             context: other_provider as *const u8 as usize,
             report: 0,
+            control: 0,
         };
 
         assert_eq!(

@@ -78,19 +78,11 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 
 @abi(c)
 trusted internal func structured_shutdown() -> u32
-    uses(foreign_call)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    let status: u32 = trusted substrate_shutdown();
-
     if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
     {
         return STATUS_RUNTIME_FAILURE;
-    }
-
-    if status != STATUS_SUCCESS && status != STATUS_NOT_INITIALIZED
-    {
-        return status;
     }
 
     let shutdown: u32 = trusted bray.runtime.bootstrap.host.shutdown_host();
@@ -105,17 +97,11 @@ trusted internal func structured_shutdown() -> u32
         return STATUS_RUNTIME_FAILURE;
     }
 
-    return status;
+    return STATUS_SUCCESS;
 }
 
 @link(name = "bray_runtime_host", kind = system)
 @symbol(name = "bray_runtime_substrate_initialization")
 @abi(c)
 extern trusted internal func substrate_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
-    uses(foreign_call);
-
-@link(name = "bray_runtime_host", kind = system)
-@symbol(name = "bray_runtime_substrate_shutdown")
-@abi(c)
-extern trusted internal func substrate_shutdown() -> u32
     uses(foreign_call);

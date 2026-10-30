@@ -159,7 +159,7 @@ pub(super) fn smoke_test(
     Ok(())
 }
 
-fn allocation_probe(
+pub(super) fn allocation_probe(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<NativeLinkRequirement, CommandError> {

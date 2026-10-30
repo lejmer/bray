@@ -456,7 +456,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         if cleanup.symbol().is_some() {
             llvm(self.builder.build_store(outcome, outcome_type.const_zero()))?;
-            self.invoke_helper_with_panic_report_context(cleanup, &[error.into()], outcome)?;
+
+            let slots = crate::mapping::cleanup::begin_collection(
+                self.module,
+                &self.builder,
+                outcome,
+                self.types,
+            )?;
+
+            self.invoke_helper(cleanup, &[error.into(), slots[0].into(), slots[1].into()])?;
+
+            crate::mapping::cleanup::publish_collection(
+                self.module,
+                &self.builder,
+                slots[0],
+                self.types,
+            )?;
 
             let result = llvm(self.builder.build_load(
                 outcome_type,

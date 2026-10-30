@@ -190,8 +190,6 @@ fn module_summary(
                 }
             }
         } else {
-            exact &= !weak;
-
             NativeDefinitionSelection::Ordinary
         };
 
@@ -559,9 +557,38 @@ mod tests {
     }
 
     #[test]
-    fn unmapped_selection_retention_and_assembly_are_opaque() {
+    fn ordinary_weak_definitions_preserve_exact_selection() {
         for ir in [
             "define weak i32 @entry() { ret i32 0 }",
+            "@storage = weak global i32 0",
+        ] {
+            let observed = summary(ir, NativeTarget::X86_64LinuxGnu);
+
+            let NativeUnitSummary::Exact {
+                definitions,
+                references,
+                roots,
+            } = observed
+            else {
+                panic!("ordinary weak definitions must retain their native binding");
+            };
+
+            assert_eq!(definitions.len(), 1);
+            assert_eq!(definitions[0].symbol().binding(), NativeSymbolBinding::Weak);
+
+            assert_eq!(
+                definitions[0].selection(),
+                &NativeDefinitionSelection::Ordinary
+            );
+
+            assert!(references.is_empty());
+            assert!(roots.is_empty());
+        }
+    }
+
+    #[test]
+    fn unmapped_selection_retention_and_assembly_are_opaque() {
+        for ir in [
             "define dllexport i32 @entry() { ret i32 0 }",
             "declare dllimport i32 @entry()",
             "define linkonce i32 @entry() { ret i32 0 }",

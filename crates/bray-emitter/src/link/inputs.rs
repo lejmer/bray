@@ -19,6 +19,11 @@ pub struct ProductLinkInputs {
 }
 
 impl ProductLinkInputs {
+    /// Returns runtime units selected by native demand resolution.
+    pub const fn runtime(&self) -> Option<&RuntimeArtifactSelection> {
+        self.runtime.as_ref()
+    }
+
     /// Creates product link inputs from the selected target and platform policy.
     pub fn new(target: LinkTarget, policy: LinkPolicy) -> Self {
         Self {

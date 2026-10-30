@@ -27,10 +27,7 @@ pub(super) fn smoke_test(
         package,
         &[
             RuntimeArchiveKind::Bootstrap,
-            RuntimeArchiveKind::Host,
-            RuntimeArchiveKind::Callback,
-            RuntimeArchiveKind::Scheduler,
-            RuntimeArchiveKind::Cancellation,
+            RuntimeArchiveKind::Observation,
         ],
     )?;
 
@@ -64,6 +61,16 @@ pub(super) fn smoke_test(
             String::from_utf8_lossy(&output.stderr),
         )));
     }
+
+    let contents =
+        std::fs::read_to_string(&map).map_err(|error| CommandError::read(&map, error))?;
+
+    super::smoke::audit_link_symbols(
+        &contents,
+        &[],
+        &["__rust_alloc", "__rust_dealloc", "rust_eh_personality"],
+    )
+    .map_err(CommandError::EntrySmoke)?;
 
     report_measurement(&output.stdout)
 }

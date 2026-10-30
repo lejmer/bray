@@ -117,6 +117,7 @@ pub(super) fn smoke_test(
     super::observation_smoke::smoke_test(package, target, directory)?;
     super::entry_smoke::smoke_test(package, target, directory)?;
     super::execution::smoke_test(package, target, directory)?;
+    super::synchronous::smoke_test(package, target, directory)?;
 
     Ok(())
 }
@@ -157,7 +158,17 @@ pub(super) fn add_package_dependencies(
     )
     .map_err(CommandError::Bootstrap)?;
 
-    package.native_links = links;
+    let bundled = package
+        .components
+        .iter()
+        .filter_map(|component| component.kind)
+        .map(RuntimeArchiveKind::archive_stem)
+        .collect::<std::collections::BTreeSet<_>>();
+
+    package.native_links = links
+        .into_iter()
+        .filter(|link| !bundled.contains(link.name()))
+        .collect();
 
     package
         .components

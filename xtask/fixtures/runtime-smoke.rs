@@ -241,6 +241,7 @@ unsafe extern "C" {
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(task: TaskHandle, frame: InactiveFrame) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
+    safe fn bray_runtime_execution_shutdown() -> Status;
     safe fn bray_runtime_structured_shutdown() -> Status;
 }
 
@@ -495,6 +496,7 @@ fn main() {
     assert!(outcome.state == RunState::COMPLETED);
     assert!(RESUMES.load(Ordering::Relaxed) == 2);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let descriptor = protected_frame(8, suspend, cancel_frame, ignore_action);
@@ -508,6 +510,7 @@ fn main() {
     assert!(outcome.state == RunState::CANCELLED);
     assert!(CANCELLATIONS.load(Ordering::Relaxed) == 1);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let descriptor = protected_frame(9, panic_frame, cancel_frame, ignore_action);
@@ -520,6 +523,7 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_panic_reporting(&mut outcome.report) == Status::SUCCESS);
     assert!(bray_runtime_panic_report_destruction(&mut panic_report()) == Status::SUCCESS);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let mut descriptor =
@@ -539,6 +543,7 @@ fn main() {
     assert!(FAILURE_CLEANUP.load(Ordering::Relaxed) == 2);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(FAILURE_CLEANUP.load(Ordering::Relaxed) == 3);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let descriptor = protected_frame(10, resume_frame, cancel_frame, fail_action);
@@ -549,6 +554,7 @@ fn main() {
     assert!(outcome.state == RunState::COMPLETED);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_cleanup_incident_reporting() == Status::SUCCESS);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let failure = 42_i32;
@@ -608,6 +614,7 @@ fn main() {
     assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
     assert!(bray_runtime_task_destruction(task) == Status::SUCCESS);
     assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
+    assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
     assert!(FRAMES.lock().expect("fixture mutex must not be poisoned").is_empty());
 }

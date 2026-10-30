@@ -74,7 +74,9 @@ impl NativeEntryKind {
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
             RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
-            RuntimeAbiRole::ThreadStorageExit => Some(Self::ThreadStorageExit),
+            RuntimeAbiRole::ThreadStorageExit | RuntimeAbiRole::ControlStorageExit => {
+                Some(Self::ThreadStorageExit)
+            }
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),

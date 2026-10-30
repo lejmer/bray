@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenLinkage, CodegenOptions, CodegenTarget, demanded_runtime_references_for_mir,
     mapped_symbol_runtime_roles,
@@ -33,6 +34,80 @@ pub(in crate::compilation) struct NativeLibraries {
 }
 
 impl Compilation {
+    pub(super) fn native_product_link_requirements(
+        &self,
+        reachability: Option<&ConcreteCodegenReachability>,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Vec<(bray_symbols::NativeLinkRequirement, bray_linker::LinkInputProvenance)>,
+        NativeProductPlanningError,
+    > {
+        let mut links = self
+            .native_link_inputs()
+            .iter()
+            .cloned()
+            .map(|link| (link, bray_linker::LinkInputProvenance::HostConfiguration))
+            .collect::<Vec<_>>();
+
+        let Some(reachability) = reachability else {
+            return Ok(links);
+        };
+
+        let mut seen = links.iter().map(|(link, _)| link.clone()).collect::<BTreeSet<_>>();
+
+        let graph = reachability.graph();
+
+        let symbols = graph
+            .external_instances()
+            .iter()
+            .filter_map(|key| match key.template() {
+                bray_ir::MirUnitKey::ExternalCallable(definition) => Some(definition.symbol()),
+                _ => None,
+            })
+            .chain(graph.instances().iter().flat_map(|instance| {
+                instance.mir().storages().iter().filter_map(|storage| match storage.kind() {
+                    bray_ir::MirStorageKind::NativeStatic(reference) => {
+                        Some(reference.template().declaration().into())
+                    }
+                    _ => None,
+                })
+            }))
+            .collect::<BTreeSet<_>>();
+
+        for symbol in symbols {
+            let Some(boundary) =
+                self.imported_native_boundary_with_cancellation(symbol, cancellation)?
+            else {
+                continue;
+            };
+
+            if boundary.direction() != bray_symbols::ForeignCallableDirection::Import
+                || boundary.links().is_empty()
+            {
+                continue;
+            }
+
+            let binding_context = self.binding_context(cancellation)?;
+
+            let key = binding_context
+                .symbol_key(symbol)
+                .map_err(crate::compilation::binder::binding_query_error)?
+                .expect("imported native declaration must retain its symbol key");
+
+            let package = key
+                .package_identity()
+                .expect("imported native declaration must retain its package identity");
+
+            for link in boundary.links() {
+                if seen.insert(link.clone()) {
+                    links.push((link.clone(), bray_linker::LinkInputProvenance::Package(package.clone())));
+                }
+            }
+        }
+
+        Ok(links)
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "runtime demands join concrete reachability, codegen options, runtime plan, native route, and target"
@@ -121,16 +196,23 @@ impl Compilation {
                 },
             };
 
-            let panic_report_context = self
-                .codegen_instance_signature(realization, cancellation)?
-                .has_panic_report_context();
+            let signature = self.codegen_instance_signature(realization, cancellation)?;
+
+            let native_outcome_boundary = graph.instance(key).is_some_and(|instance| {
+                signature.abi() != bray_symbols::CallableAbi::Bray
+                    || instance.protected_frame_identity().is_some()
+                    || (matches!(
+                        instance.key().template(),
+                        bray_ir::MirUnitKey::GeneratedLifecycle(_)
+                    ) && !signature.has_panic_report_context())
+            });
 
             demands.extend(
                 mapped_symbol_runtime_roles(
                     native_entry
                         .as_ref()
                         .map(bray_codegen::CodegenNativeEntryMapping::kind),
-                    panic_report_context,
+                    native_outcome_boundary,
                 )
                 .map(|role| NativeDemand::runtime_role(key.clone(), role)),
             );
@@ -220,6 +302,12 @@ impl Compilation {
 
         let libraries = self.native_libraries(options, allow_bitcode)?;
 
+        let native_links = self
+            .native_product_link_requirements(Some(reachability), cancellation)?
+            .into_iter()
+            .map(|(link, _)| link)
+            .collect::<Vec<_>>();
+
         let provided = RuntimeAbiRole::ALL
             .into_iter()
             .filter(|_| runtime.is_none())
@@ -253,21 +341,12 @@ impl Compilation {
             provided,
             [],
             runtime,
-            self.native_link_inputs(),
+            &native_links,
         )?;
-
-        let package_count = libraries.resolver.artifacts().len();
-
-        let package_units = selected
-            .units()
-            .iter()
-            .copied()
-            .filter(|location| location.artifact < package_count)
-            .collect::<Vec<_>>();
 
         demands.extend(
             libraries
-                .runtime_roles(&package_units)
+                .runtime_roles(&selected)
                 .into_iter()
                 .map(NativeDemand::native_runtime_role),
         );
@@ -536,28 +615,49 @@ impl NativeLibraries {
                 .flat_map(|runtime| runtime.native_demands().iter().cloned()),
         );
 
-        let provided = provided.into_iter().chain(runtime.into_iter().flat_map(|runtime| {
-            super::link::runtime_platform_services(Some(runtime)).filter_map(|role| {
-                let symbol = runtime.native_index().target().object_symbol_name(role.native_symbol());
+        let provided = provided
+            .into_iter()
+            .chain(runtime.into_iter().flat_map(|runtime| {
+                super::link::runtime_platform_services(Some(runtime)).filter_map(|role| {
+                    let symbol = runtime
+                        .native_index()
+                        .target()
+                        .object_symbol_name(role.native_symbol());
 
-                if runtime.native_index().units().iter().any(|unit| {
-                    matches!(unit.summary(), bray_native_artifact::NativeUnitSummary::Exact { definitions, .. }
-                        if definitions.iter().any(|definition| definition.symbol().identity().name() == Some(symbol.as_ref())))
-                }) {
-                    return None;
-                }
+                    if runtime
+                        .native_index()
+                        .units()
+                        .iter()
+                        .any(|unit| match unit.summary() {
+                            bray_native_artifact::NativeUnitSummary::Exact {
+                                definitions, ..
+                            } => definitions.iter().any(|definition| {
+                                definition.symbol().identity().name() == Some(symbol.as_ref())
+                            }),
+                            bray_native_artifact::NativeUnitSummary::LazyArchive {
+                                provided,
+                                ..
+                            } => provided
+                                .iter()
+                                .any(|identity| identity.name() == Some(symbol.as_ref())),
+                            bray_native_artifact::NativeUnitSummary::Opaque { .. } => false,
+                        })
+                    {
+                        return None;
+                    }
 
-                // The selected foreign archive supplies this declared ABI override. Its opaque
-                // summary cannot index it, so prevent weak fallbacks from satisfying the reference.
-                Some((
-                    bray_symbols::NativeSymbolIdentity::Name(
-                        bray_base::NonEmptySharedStr::try_new(symbol.as_ref())
-                            .expect("runtime platform catalog must publish nonempty native names"),
-                    ),
-                    bray_symbols::NativeSymbolBinding::Strong,
-                ))
-            })
-        }));
+                    // The selected foreign archive supplies this declared ABI override. Its opaque
+                    // summary cannot index it, so prevent weak fallbacks from satisfying the reference.
+                    Some((
+                        bray_symbols::NativeSymbolIdentity::Name(
+                            bray_base::NonEmptySharedStr::try_new(symbol.as_ref()).expect(
+                                "runtime platform catalog must publish nonempty native names",
+                            ),
+                        ),
+                        bray_symbols::NativeSymbolBinding::Strong,
+                    ))
+                })
+            }));
 
         resolver
             .select_with_provided(demands, provided, static_demands, native_links)
@@ -587,11 +687,11 @@ impl NativeLibraries {
 
     pub(super) fn runtime_roles(
         &self,
-        units: &[NativeUnitLocation],
+        selection: &bray_native_artifact::NativeUnitSelection,
     ) -> BTreeSet<bray_runtime_interface::RuntimeAbiRole> {
         let mut roles = BTreeSet::new();
 
-        for &location in units {
+        for &location in selection.units().iter().filter(|unit| unit.artifact < self.artifacts.len()) {
             for reference in self.unit(location).summary().references() {
                 roles.extend(
                     bray_runtime_interface::RuntimeAbiRole::ALL
@@ -612,6 +712,7 @@ impl NativeLibraries {
             if matches!(
                 self.unit(location).summary(),
                 bray_native_artifact::NativeUnitSummary::Opaque { .. }
+                    | bray_native_artifact::NativeUnitSummary::LazyArchive { .. }
             ) {
                 roles.extend(
                     self.artifacts[location.artifact]

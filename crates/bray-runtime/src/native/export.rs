@@ -9,8 +9,6 @@ use bray_runtime_abi::{
     NativeWakeCallback,
 };
 
-use crate::current_run_cancellation_requested;
-
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
 native_export! {
@@ -102,15 +100,6 @@ native_export! {
             with_runtime(|runtime| runtime.resolve_root_completion(root))
                 .unwrap_or_else(|status| status)
         })
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
-        report.consume(true);
-        std::process::abort()
     }
 }
 
@@ -317,30 +306,6 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_current_run_cancellation_observation() -> u8 {
-        catch_unwind(AssertUnwindSafe(current_run_cancellation_requested))
-            .map(u8::from)
-            .unwrap_or(0)
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_cleanup_shield_enter() {
-        crate::context::enter_current_run_cleanup_shield();
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_cleanup_shield_leave() {
-        crate::context::leave_current_run_cleanup_shield();
-    }
-}
-
-native_export! {
     pub extern "C" fn bray_runtime_join_registration(
         task: NativeTaskHandle,
         callback: NativeWakeCallback,
@@ -381,28 +346,22 @@ native_export! {
     }
 }
 
-pub(crate) extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStatus {
-    contain_status(|| {
-        let runtime_status = shutdown();
-        let selected_host = super::host::active();
-
-        if super::host::finish().is_err() {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        if selected_host && runtime_status == NativeRuntimeStatus::NOT_INITIALIZED {
-            NativeRuntimeStatus::SUCCESS
-        } else {
-            runtime_status
-        }
-    })
-}
-
 native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_substrate_shutdown() -> NativeRuntimeStatus {
-        bray_runtime_structured_shutdown()
+    pub extern "C" fn bray_runtime_execution_shutdown() -> NativeRuntimeStatus {
+        contain_status(|| {
+            let runtime_status = shutdown();
+            let selected_host = super::host::active();
+
+            if super::host::finish().is_err() {
+                return NativeRuntimeStatus::RUNTIME_FAILURE;
+            }
+
+            if selected_host && runtime_status == NativeRuntimeStatus::NOT_INITIALIZED {
+                NativeRuntimeStatus::SUCCESS
+            } else {
+                runtime_status
+            }
+        })
     }
 }
 
@@ -495,10 +454,10 @@ mod tests {
     };
 
     use super::{
-        bray_runtime_join_registration, bray_runtime_main_thread_lane_drive,
-        bray_runtime_main_thread_lane_startup, bray_runtime_root_completion_resolution,
-        bray_runtime_root_execution, bray_runtime_root_terminal_observation,
-        bray_runtime_structured_shutdown, bray_runtime_suspension_registration,
+        bray_runtime_execution_shutdown, bray_runtime_join_registration,
+        bray_runtime_main_thread_lane_drive, bray_runtime_main_thread_lane_startup,
+        bray_runtime_root_completion_resolution, bray_runtime_root_execution,
+        bray_runtime_root_terminal_observation, bray_runtime_suspension_registration,
         bray_runtime_task_allocation, bray_runtime_task_destruction,
         bray_runtime_task_event_creation, bray_runtime_task_event_destruction,
         bray_runtime_task_event_signal, bray_runtime_task_start, bray_runtime_wake,
@@ -585,7 +544,7 @@ mod tests {
             );
 
             assert_eq!(
-                bray_runtime_structured_shutdown(),
+                bray_runtime_execution_shutdown(),
                 NativeRuntimeStatus::SUCCESS
             );
         }
@@ -638,7 +597,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -705,7 +664,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -770,7 +729,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -841,7 +800,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -945,7 +904,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1040,7 +999,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1079,7 +1038,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1134,7 +1093,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1209,7 +1168,7 @@ mod tests {
             );
 
             assert!(report.consume(false).is_success());
-            assert!(bray_runtime_structured_shutdown().is_success());
+            assert!(bray_runtime_execution_shutdown().is_success());
             drop(denied);
         }
     }
@@ -1341,7 +1300,7 @@ mod tests {
             assert_eq!(FRAME_BRIDGE_RELEASES.load(Ordering::Relaxed), 11);
 
             assert_eq!(
-                bray_runtime_structured_shutdown(),
+                bray_runtime_execution_shutdown(),
                 NativeRuntimeStatus::SUCCESS
             );
         }
@@ -1402,7 +1361,7 @@ mod tests {
         assert_eq!(FAILURE_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1446,7 +1405,7 @@ mod tests {
         assert!(bray_runtime_task_destruction(task).is_success());
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -1456,7 +1415,7 @@ mod tests {
     #[test]
     fn native_runtime_boundary_validates_state_and_capacities() {
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::NOT_INITIALIZED
         );
 
@@ -1481,7 +1440,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -1551,7 +1510,7 @@ mod tests {
 
         assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -1640,7 +1599,7 @@ mod tests {
             "the release provider must observe an unlocked task table"
         );
 
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -1700,7 +1659,7 @@ mod tests {
 
         assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 1);
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -1740,7 +1699,7 @@ mod tests {
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
         assert!(bray_runtime_root_completion_resolution(root).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -1791,7 +1750,7 @@ mod tests {
 
         assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -1835,7 +1794,7 @@ mod tests {
         );
 
         assert!(bray_runtime_task_destruction(task).is_success());
-        assert!(bray_runtime_structured_shutdown().is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -2003,7 +1962,7 @@ mod tests {
         assert_eq!(report.consume(false), NativeRuntimeStatus::SUCCESS);
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -2137,7 +2096,7 @@ mod tests {
             );
 
             assert_eq!(
-                bray_runtime_structured_shutdown(),
+                bray_runtime_execution_shutdown(),
                 NativeRuntimeStatus::SUCCESS
             );
         }
@@ -2192,7 +2151,7 @@ mod tests {
         assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -2230,7 +2189,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }
@@ -2263,7 +2222,7 @@ mod tests {
             );
 
             assert_eq!(
-                bray_runtime_structured_shutdown(),
+                bray_runtime_execution_shutdown(),
                 NativeRuntimeStatus::SUCCESS
             );
 
@@ -2443,7 +2402,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_structured_shutdown(),
+            bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
     }

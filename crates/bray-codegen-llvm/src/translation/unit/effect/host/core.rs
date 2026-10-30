@@ -89,19 +89,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     self.invoke_runtime(*runtime, &[])
                 }
             }
-            MirHostOperation::StructuredShutdown { runtime } => {
-                let status = self
-                    .host_status
-                    .take()
-                    .unwrap_or_else(|| self.module.get_context().i64_type().const_zero());
-
-                if self.host_role_implementation(*runtime)
-                    != RuntimeRoleImplementation::CompilerLowering
-                {
-                    self.invoke_runtime(*runtime, &[])?;
-                }
-
-                self.translate_compiler_shutdown(status)
+            MirHostOperation::StructuredShutdown { execution, runtime } => {
+                self.structured_shutdown(*execution, *runtime)
             }
         }
     }
@@ -613,33 +602,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.frame_progress = Some(progress);
 
         Ok(())
-    }
-
-    fn translate_compiler_shutdown(
-        &mut self,
-        status: inkwell::values::IntValue<'context>,
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let context = self.module.get_context();
-        let exit_status = context.i32_type();
-        let function_type = context.void_type().fn_type(&[exit_status.into()], false);
-
-        let function = self
-            .module
-            .get_function("exit")
-            .unwrap_or_else(|| self.module.add_function("exit", function_type, None));
-
-        let status = llvm(self.builder.build_int_truncate(
-            status,
-            exit_status,
-            "process.exit.status",
-        ))?;
-
-        llvm(
-            self.builder
-                .build_call(function, &[status.into()], "process.exit"),
-        )?;
-
-        Ok(None)
     }
 
     pub(in crate::translation::unit::effect) fn host_role_implementation(

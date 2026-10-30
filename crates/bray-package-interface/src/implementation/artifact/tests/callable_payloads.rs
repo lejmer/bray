@@ -4,7 +4,7 @@ use std::sync::Arc;
 use bray_base::NonEmptySharedStr;
 use bray_symbols::{
     ExternalSymbolKey, ForeignCallableDirection, ImportedInterfaceId, InterfaceSymbolId,
-    NativeSymbolContract, PackageIdentity, SemanticValueStore, SymbolId,
+    NativeLinkKind, NativeLinkRequirement, NativeSymbolContract, PackageIdentity, SemanticValueStore, SymbolId,
 };
 
 use crate::implementation::hash::{compute_artifact_hash, compute_payload_hash};
@@ -228,7 +228,15 @@ fn artifacts_load_native_boundaries_by_declaration_owner() {
         ForeignCallableDirection::Import,
         crate::InterfaceNativeBoundaryKind::Callable,
         NativeSymbolContract::required_name(symbol),
-    );
+    ).with_links([
+        NativeLinkKind::System,
+        NativeLinkKind::Static,
+        NativeLinkKind::Dynamic,
+        NativeLinkKind::Framework,
+    ].map(|kind| NativeLinkRequirement::new(
+        NonEmptySharedStr::try_new("native_dependency").expect("native link name must be valid"),
+        kind,
+    )));
 
     let artifact = PackageImplementationArtifact::try_new(
         &fixture.interface,

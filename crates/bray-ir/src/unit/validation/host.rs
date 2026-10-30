@@ -97,7 +97,19 @@ pub(super) fn validate_host_operation(
         MirHostOperation::ReportCleanupIncidents { runtime } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentReporting)
         }
-        MirHostOperation::StructuredShutdown { runtime } => {
+        MirHostOperation::StructuredShutdown { execution, runtime } => {
+            if execution.is_some()
+                != host
+                    .requirements()
+                    .requires_role(RuntimeAbiRole::ExecutionShutdown)
+            {
+                return None;
+            }
+
+            if let Some(execution) = execution {
+                validate_runtime_role(unit, *execution, RuntimeAbiRole::ExecutionShutdown)?;
+            }
+
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::StructuredShutdown)
         }
     }

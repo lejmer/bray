@@ -752,8 +752,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(6);
                 self.runtime_reference(*runtime);
             }
-            MirHostOperation::StructuredShutdown { runtime } => {
+            MirHostOperation::StructuredShutdown { execution, runtime } => {
                 self.wire.write_u32(7);
+                self.wire.write_u32(u32::from(execution.is_some()));
+
+                if let Some(execution) = execution {
+                    self.runtime_reference(*execution);
+                }
+
                 self.runtime_reference(*runtime);
             }
         }

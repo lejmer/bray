@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    ForeignCallableDirection, InterfaceSymbolId, NativeSymbolContract, StaticStorageDuration,
+    ForeignCallableDirection, InterfaceSymbolId, NativeLinkRequirement, NativeSymbolContract, StaticStorageDuration,
 };
 
 use crate::{InterfaceCheckedTemplate, InterfaceValidationError};
@@ -102,6 +102,7 @@ pub struct InterfaceNativeBoundary {
     direction: ForeignCallableDirection,
     kind: InterfaceNativeBoundaryKind,
     symbol: NativeSymbolContract,
+    links: Arc<[NativeLinkRequirement]>,
 }
 
 /// The declaration category represented by one native boundary.
@@ -120,7 +121,7 @@ pub enum InterfaceNativeBoundaryKind {
 
 impl InterfaceNativeBoundary {
     /// Creates the native boundary of one interface declaration.
-    pub const fn new(
+    pub fn new(
         owner: InterfaceSymbolId,
         direction: ForeignCallableDirection,
         kind: InterfaceNativeBoundaryKind,
@@ -131,7 +132,20 @@ impl InterfaceNativeBoundary {
             direction,
             kind,
             symbol,
+            links: Arc::from([]),
         }
+    }
+
+    /// Retains the foreign declaration's native libraries in source order.
+    pub fn with_links(mut self, links: impl IntoIterator<Item = NativeLinkRequirement>) -> Self {
+        self.links = links.into_iter().collect::<Vec<_>>().into();
+
+        self
+    }
+
+    /// Returns the libraries required when this declaration is imported through MIR.
+    pub fn links(&self) -> &[NativeLinkRequirement] {
+        &self.links
     }
 
     /// Returns the declaration that owns this boundary.
