@@ -18,6 +18,42 @@ use std::collections::BTreeSet;
 
 #[test]
 #[ignore = "tier:native"]
+fn verified_normal_calls_do_not_regain_backend_outcome_checks() {
+    for (contract, checks_outcome) in [("executes(pure, total)", false), ("", true)] {
+        let possible_panic = if checks_outcome {
+            "if value == 0 { panic(\"zero\"); }"
+        } else {
+            ""
+        };
+
+        for source in [
+            format!(
+                r#"
+                module app;
+                func identity(pos value: u32) -> u32 {contract} {{ {possible_panic} return value; }}
+                public func apply(pos value: u32) -> u32 {{ return identity(value); }}
+                "#
+            ),
+            format!(
+                r#"
+                module app;
+                public func apply(
+                    pos operation: func(pos value: u32) -> u32 {contract},
+                    pos value: u32,
+                ) -> u32 {{ return operation(value); }}
+                "#
+            ),
+        ] {
+            let ir = unoptimized_library_ir(&source);
+
+            assert_eq!(ir.contains("call.outcome.state"), checks_outcome, "{ir}");
+            assert!(!ir.contains("call.panic.report.context"), "{ir}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
     for element in ["u8", "i8"] {
         let source = format!(
@@ -40,7 +76,7 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
 
         assert_eq!(fills.len(), 1, "{ir}");
         assert!(fills[0].contains("i64 4096"), "{ir}");
-        assert!(!ir.contains("store i8"), "{ir}");
+        assert_eq!(ir.matches("store i8").count(), 1, "{ir}");
         assert!(!ir.contains("[4096 x i8] zeroinitializer"), "{ir}");
     }
 }

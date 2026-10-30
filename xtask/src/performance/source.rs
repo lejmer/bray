@@ -205,6 +205,7 @@ using internal std.io.StandardInputReader;
 using std.path;
 using std.process;
 using internal std.process.ChildInputWriter;
+using std.testing;
 
 func main() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
@@ -315,23 +316,28 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance child must be started"); }
     };
 
-    let mut input: std.process.ChildInput = match consume child.take_standard_input()
     {
-        case ?stream { yield stream; }
-        case none { panic("performance child input must be piped"); }
-    };
+        let mut input: std.process.ChildInput = match consume child.take_standard_input()
+        {
+            case ?stream { yield stream; }
+            case none { panic("performance child input must be piped"); }
+        };
 
-    let bytes: [u8; 4096] = [120; 4096];
+        let bytes: [u8; 4096] = [120; 4096];
 
-    try input.write_all(&bytes[..]);
-    try input(std.io.Writer).flush();
-    try input.close();
+        std.testing.assert_ok<unit, std.io.IoError>(input.write_all(&bytes[..]));
+        std.testing.assert_ok<unit, std.io.IoError>(input(std.io.Writer).flush());
+        std.testing.assert_ok<unit, std.io.IoError>(input.close());
+        assert(input.is_complete());
+    }
 
     let status: std.process.ExitStatus = match consume child.wait()
     {
         case Ok(value) { yield value; }
         case Error(_) { panic("performance child must be joined"); }
     };
+
+    assert(child.is_complete());
 
     match status
     {

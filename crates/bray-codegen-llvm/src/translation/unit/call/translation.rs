@@ -112,6 +112,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 if checks_call_panic {
                     self.invoke_checked_function(function, &signature, semantic_arguments, "call")
+                } else if call.has_non_unwinding_invocation() {
+                    let context = signature
+                        .has_panic_report_context()
+                        .then(|| self.checked_call_panic_report_context())
+                        .transpose()?;
+
+                    self.invoke_function_with_panic_report_context(
+                        function,
+                        &signature,
+                        semantic_arguments,
+                        "call",
+                        context,
+                    )
                 } else {
                     self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
@@ -169,6 +182,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         &signature,
                         semantic_arguments,
                         "call.indirect",
+                    )
+                } else if call.has_non_unwinding_invocation() {
+                    let context = signature
+                        .has_panic_report_context()
+                        .then(|| self.checked_call_panic_report_context())
+                        .transpose()?;
+
+                    self.invoke_indirect_with_panic_report_context(
+                        function_type,
+                        pointer,
+                        &signature,
+                        semantic_arguments,
+                        "call.indirect",
+                        context,
                     )
                 } else {
                     self.invoke_indirect(

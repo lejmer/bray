@@ -31,7 +31,7 @@ fn protected_static_contents_preserve_relocations_without_implicit_cleanup() {
 
         struct Resource
         {
-            pointer: DataPointer<i32>;
+            pointer: &i32;
 
             finalize() -> Result<unit, i32>
             {
@@ -41,7 +41,7 @@ fn protected_static_contents_preserve_relocations_without_implicit_cleanup() {
 
         static VALUE: i32 = 73;
         static PROTECTED: Uninit<Resource> = core.memory.uninit_from<Resource>(
-            { pointer = core.memory.address_of<i32>(&VALUE) }
+            Resource { pointer = &VALUE }
         );
 
         func main()
@@ -935,6 +935,11 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
             .iter()
             .map(|artifact| String::from_utf8_lossy(artifact))
             .collect::<String>();
+
+        assert!(
+            !ir.contains("@bray_runtime_provider_reference_release"),
+            "{ir}"
+        );
 
         let callback = ir
             .split("\ndefine ")

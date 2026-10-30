@@ -19,6 +19,18 @@ trait Reader
             let remaining: &mut [u8] = &mut destination[read..length];
             let result: Result<usize, IoError> = self.read(remaining);
 
+            match result
+            {
+                case Ok(transferred)
+                {
+                    if transferred == length - read
+                    {
+                        return Ok(unit);
+                    }
+                }
+                case Error(_) {}
+            }
+
             match consume advance_transfer(
                 result = result,
                 completed = read,
