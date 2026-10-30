@@ -128,8 +128,10 @@ func output_path() -> std.path.Path
 
 pub(super) const CAPTURED_OUTPUT: &str = r#"module captured_output;
 
+using core.target;
 using std.bytes;
 using std.io;
+using std.memory;
 
 struct CapturedOutput
 {
@@ -171,10 +173,27 @@ func main() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
+    trusted retain_bytes(&bytes[..]);
     try output.write_all(&bytes[..]);
+    trusted retain_bytes(output.bytes.as_slice());
     assert(std.bytes.length(&output.bytes) == 4096);
 
     return Ok(unit);
+}
+
+trusted func retain_bytes(pos bytes: &[u8])
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    let pointer: DataPointer<u8> = std.memory.address_of<u8>(&bytes[0]);
+
+    trusted core.target.assembly<(DataPointer<u8>, usize), unit>(
+        template = "",
+        constraints = "reg,reg",
+        clobbers = "memory",
+        features = "",
+        options = 0,
+        inputs = (pointer, bytes.length()),
+    );
 }
 "#;
 

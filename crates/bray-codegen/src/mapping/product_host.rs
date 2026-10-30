@@ -184,6 +184,11 @@ impl CodegenProductHostMapping {
         self.final_image
     }
 
+    /// Returns whether entry and closure must resolve static or provider ownership.
+    pub fn requires_control(&self) -> bool {
+        !self.final_image || self.independent || !self.statics.is_empty()
+    }
+
     /// Returns the code generation unit that defines the descriptor and control surface.
     pub const fn owner(&self) -> &CodegenUnitKey {
         &self.owner

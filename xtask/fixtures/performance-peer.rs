@@ -651,7 +651,12 @@ fn workload() -> bool {
     let mut output = Vec::with_capacity(4_096);
     let bytes = [120_u8; 4_096];
 
-    output.write_all(&bytes).is_ok() && output.len() == bytes.len()
+    let valid = output.write_all(std::hint::black_box(&bytes)).is_ok()
+        && output.len() == bytes.len();
+
+    std::hint::black_box(output.as_slice());
+
+    valid
 }
 
 #[cfg(peer_workload = "process_pipe_transfer")]

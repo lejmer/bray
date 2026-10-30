@@ -7,6 +7,7 @@ use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
     MirConstruction, MirHelperReference, MirOperation, SelectedConversion,
 };
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -26,6 +27,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             );
 
         let mapped = self.types.map(result)?;
+
+        if aggregate.kind() == MirAggregateKind::RepeatedArray
+            && self.types.is_address_value(result)?
+            && let CodegenTypeKind::Array { element, length } = &kind
+            && let BasicTypeEnum::IntType(byte) = self.types.map(*element)?
+            && byte.get_bit_width() == 8
+        {
+            let [element] = aggregate.operands() else {
+                panic!("a checked repeated array has exactly one element operand");
+            };
+
+            let element = self.operand(element)?.into_int_value();
+            let storage = self.allocate_temporary(mapped, "aggregate.bytes")?;
+            let count = self.pointer_integer_type().const_int(*length, false);
+
+            llvm(self.builder.build_memset(storage, 1, element, count))?;
+
+            return Ok(storage.into());
+        }
+
         let mut value = self.initialize_value(mapped.const_zero(), result, "aggregate.value")?;
 
         match aggregate.kind() {

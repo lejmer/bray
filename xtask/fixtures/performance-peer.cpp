@@ -1,6 +1,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#if BRAY_WORKLOAD == 15
+#include <algorithm>
+#endif
+
 #if !defined(BRAY_INNER_ITERATIONS)
 #define BRAY_INNER_ITERATIONS 1
 #endif
@@ -100,7 +104,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 25)
+    || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 15 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 25)
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -860,8 +864,11 @@ bool workload()
     std::vector<std::uint8_t> output;
     output.reserve(4096);
 
-    std::uint8_t bytes[4096] = {};
+    std::uint8_t bytes[4096];
+    std::fill_n(bytes, 4096, std::uint8_t{120});
+    retain_work(bytes);
     output.insert(output.end(), bytes, bytes + 4096);
+    retain_work(output);
 
     return output.size() == 4096;
 }

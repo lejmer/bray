@@ -1,3 +1,4 @@
+use super::support::artifacts::unoptimized_library_ir;
 use super::support::compilation::{
     codegen_compilation, source_request_with_runtime, test_product_identity,
 };
@@ -14,6 +15,35 @@ use bray_codegen::{
 use bray_ir::{MirBinaryOperator, MirOperationKind};
 use bray_symbols::{ConstantTermData, ConstantValueKind, GenericArgument, ProductKind};
 use std::collections::BTreeSet;
+
+#[test]
+#[ignore = "tier:native"]
+fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
+    for element in ["u8", "i8"] {
+        let source = format!(
+            r#"
+            module application;
+
+            public func repeated(pos value: {element}) -> [{element}; 4096]
+            {{
+                return [value; 4096];
+            }}
+            "#
+        );
+
+        let ir = unoptimized_library_ir(&source);
+
+        let fills = ir
+            .lines()
+            .filter(|line| line.contains("call void @llvm.memset"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(fills.len(), 1, "{ir}");
+        assert!(fills[0].contains("i64 4096"), "{ir}");
+        assert!(!ir.contains("store i8"), "{ir}");
+        assert!(!ir.contains("[4096 x i8] zeroinitializer"), "{ir}");
+    }
+}
 
 #[test]
 #[ignore = "tier:native"]

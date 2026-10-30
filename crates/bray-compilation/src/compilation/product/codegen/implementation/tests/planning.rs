@@ -4,7 +4,7 @@ use super::support::compilation::{
 };
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
 use super::support::linker::{test_linked_product, test_linker};
-use super::support::runtime::runtime_artifact;
+use super::support::runtime::{runtime_artifact, runtime_native_plan};
 use super::support::specialization::CONCRETE_GENERIC_SOURCE;
 use crate::{
     CancellationToken, CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
@@ -18,6 +18,36 @@ use bray_testing::TemporaryFile;
 use std::collections::BTreeSet;
 
 use std::sync::Arc;
+
+#[test]
+#[ignore = "tier:native"]
+fn resident_executables_without_hosted_statics_omit_product_control() {
+    for source in [
+        r#"
+        module application;
+
+        func main() -> i32
+        {
+            return 0;
+        }
+        "#,
+        r#"
+        module application;
+
+        func main()
+        {
+            panic("resident report");
+        }
+        "#,
+    ] {
+        let (_, plan) = runtime_native_plan(source);
+
+        assert!(
+            plan.product_host()
+                .is_none_or(|host| !host.requires_control())
+        );
+    }
+}
 
 #[test]
 #[ignore = "tier:native"]

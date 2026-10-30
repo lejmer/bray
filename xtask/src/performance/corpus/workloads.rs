@@ -529,7 +529,7 @@ func main()
         category: WorkloadCategory::Streaming,
         scale: 4096,
         units: "captured bytes",
-        batching: BatchingPolicy::SingleExecution,
+        batching: BatchingPolicy::Calibrated,
         source: crate::performance::source::CAPTURED_OUTPUT,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
