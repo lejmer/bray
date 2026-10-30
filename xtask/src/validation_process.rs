@@ -454,11 +454,9 @@ mod tests {
     fn excessive_output_is_drained_and_explicitly_truncated_after_reaping() {
         let mut observed = Vec::new();
 
-        let failure = output_observed(
-            fixture("excessive"),
-            Duration::from_secs(5),
-            &mut |bytes| observed.extend_from_slice(bytes),
-        )
+        let failure = output_observed(fixture("excessive"), Duration::from_secs(5), &mut |bytes| {
+            observed.extend_from_slice(bytes)
+        })
         .expect_err("incomplete capture must never satisfy an output oracle");
 
         assert!(matches!(failure.cause, Cause::CaptureLimit));

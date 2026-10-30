@@ -1,7 +1,10 @@
 use super::support::artifacts::generated_artifacts;
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::linker::test_linker;
 use super::support::runtime::runtime_artifact;
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 use bray_ir::{MirHostOperation, MirOperationKind, MirUnitKind};
 use bray_runtime_interface::{RootExecution, RuntimeCapability};
@@ -30,7 +33,14 @@ fn native_test_products_emit_every_entry_in_catalog_order() {
         "}\n",
     );
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Test);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Test,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = runtime_artifact(&compilation, archive.path());
@@ -104,8 +114,14 @@ fn native_test_products_emit_every_entry_in_catalog_order() {
 #[test]
 #[ignore = "tier:native"]
 fn empty_native_test_products_emit_a_successful_host() {
-    let (backend, compilation) =
-        codegen_compilation_for_product("module app.tests;\n", ProductKind::Test);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &["module app.tests;\n"],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Test,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(

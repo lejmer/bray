@@ -2,11 +2,12 @@ use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts,
     generated_artifacts_of_kind_with_options,
 };
+use super::support::compilation::{codegen_compilation, source_request_with_runtime};
 use super::support::runtime::{
     runtime_native_plan, runtime_native_plan_for_product,
     runtime_native_plan_for_sources_target_with_platform_overrides,
 };
-use crate::SelectedTarget;
+use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 use bray_codegen::{BackendArtifactKind, OptimizationLevel};
 use bray_ir::{MirOperationKind, MirTerminatorKind, MirUnitKey};
@@ -1044,8 +1045,14 @@ fn inactive_generic_captures_retain_synchronous_disposal_in_source_and_imports()
         }
     "#;
 
-    let source =
-        super::support::compilation::codegen_compilation_for_product(SOURCE, ProductKind::Library);
+    let source = codegen_compilation(source_request_with_runtime(
+        &[SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let dependency = super::support::dependencies::generic_dependency_from_fixture(
         true,

@@ -1,9 +1,11 @@
 use super::support::artifacts::generated_artifacts;
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::specialization::{CONCRETE_GENERIC_SOURCE, concrete_generic_specializations};
-use crate::CancellationToken;
 use crate::compilation::product::codegen::{ConcreteCodegenRoot, NativeDemandReason};
 use crate::compilation::product::specialization::ConcreteCodegenInstance;
+use crate::{CancellationToken, CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_codegen::{
     CodegenGenericArgument, CodegenLinkage, CodegenOptions, CodegenPartitionPolicy,
     CodegenResultMapping, CodegenSpecialization, partition_codegen_units,
@@ -358,7 +360,14 @@ fn trait_owned_default_bodies_specialize_with_the_selected_implementation() {
         "}\n",
     );
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let cancellation = CancellationToken::new();
 
@@ -436,7 +445,14 @@ fn constrained_trait_owned_default_bodies_dispatch_required_members() {
         "}\n",
     );
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     assert!(
         compilation.check_diagnostics().is_empty(),

@@ -1,41 +1,50 @@
-use super::support::compilation::{codegen_compilation, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::dependencies::{
     GenericDependencyFixture, generic_consumer_for_target_with_source,
     generic_dependency_from_fixture,
 };
 use super::support::mappings::realize_codegen_mappings;
 use crate::compilation::product::specialization::ConcreteCodegenReachability;
-use crate::{CancellationToken, SelectedTarget};
+use crate::{CancellationToken, CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_codegen::{
     CodegenOptions, CodegenPartitionPolicy, CodegenSpecialization, partition_codegen_units,
 };
 use bray_ir::{MirBinaryOperator, MirOperationKind};
-use bray_symbols::{ConstantTermData, ConstantValueKind, GenericArgument};
+use bray_symbols::{ConstantTermData, ConstantValueKind, GenericArgument, ProductKind};
 use std::collections::BTreeSet;
 
 #[test]
 #[ignore = "tier:native"]
 fn scalar_and_nullable_branches_prune_native_demand_only_when_enabled() {
-    let (_, compilation) = codegen_compilation(concat!(
-        "module app;\n",
-        "\n",
-        "func unused()\n",
-        "{\n",
-        "}\n",
-        "\n",
-        "func main()\n",
-        "{\n",
-        "    let enabled: bool = false;\n",
-        "    if enabled\n",
-        "    {\n",
-        "        unused();\n",
-        "    }\n",
-        "    let absent: i32? = none;\n",
-        "    if absent.is_present()\n",
-        "    {\n",
-        "        unused();\n",
-        "    }\n",
-        "}\n",
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
+            "module app;\n",
+            "\n",
+            "func unused()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let enabled: bool = false;\n",
+            "    if enabled\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "    let absent: i32? = none;\n",
+            "    if absent.is_present()\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     let cancellation = CancellationToken::new();
@@ -138,18 +147,25 @@ fn scalar_and_nullable_branches_prune_native_demand_only_when_enabled() {
 #[test]
 #[ignore = "tier:native"]
 fn numeric_constant_branch_removes_its_native_dependency() {
-    let (_, compilation) = codegen_compilation(concat!(
-        "module app;\n",
-        "func unused() {}\n",
-        "func main()\n",
-        "{\n",
-        "    let seed: i32 = 6;\n",
-        "    let value: i32 = seed * 7;\n",
-        "    if value != 42\n",
-        "    {\n",
-        "        unused();\n",
-        "    }\n",
-        "}\n",
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
+            "module app;\n",
+            "func unused() {}\n",
+            "func main()\n",
+            "{\n",
+            "    let seed: i32 = 6;\n",
+            "    let value: i32 = seed * 7;\n",
+            "    if value != 42\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     assert!(compilation.check_diagnostics().is_empty());
@@ -219,12 +235,19 @@ fn numeric_constant_branch_removes_its_native_dependency() {
 #[test]
 #[ignore = "tier:native"]
 fn repeated_scalar_expression_uses_one_dominating_result() {
-    let (_, compilation) = codegen_compilation(concat!(
-        "module app;\n",
-        "func main() -> i32\n",
-        "{\n",
-        "    return (6 * 7) + (6 * 7);\n",
-        "}\n",
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
+            "module app;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return (6 * 7) + (6 * 7);\n",
+            "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     assert!(compilation.check_diagnostics().is_empty());
@@ -307,7 +330,14 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
 
     source.push_str("return value255;\n}\n");
 
-    let (_, compilation) = codegen_compilation(&source);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[&source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     assert!(compilation.check_diagnostics().is_empty());
 
@@ -372,14 +402,21 @@ fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
 #[test]
 #[ignore = "tier:native"]
 fn runtime_division_by_zero_remains_in_optimized_mir() {
-    let (_, compilation) = codegen_compilation(concat!(
-        "module app;\n",
-        "func main() -> i32\n",
-        "{\n",
-        "    let numerator: i32 = 6;\n",
-        "    let denominator: i32 = 0;\n",
-        "    return numerator / denominator;\n",
-        "}\n",
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
+            "module app;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    let numerator: i32 = 6;\n",
+            "    let denominator: i32 = 0;\n",
+            "    return numerator / denominator;\n",
+            "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     assert!(compilation.check_diagnostics().is_empty());
@@ -428,26 +465,33 @@ fn runtime_division_by_zero_remains_in_optimized_mir() {
 #[test]
 #[ignore = "tier:native"]
 fn unknown_join_and_loop_values_keep_reachable_calls() {
-    let (_, compilation) = codegen_compilation(concat!(
-        "module app;\n",
-        "func used() {}\n",
-        "func gate(flag: bool)\n",
-        "{\n",
-        "    let mut selected: bool = false;\n",
-        "    if flag\n",
-        "    {\n",
-        "        selected = true;\n",
-        "    }\n",
-        "    while flag\n",
-        "    {\n",
-        "        selected = true;\n",
-        "    }\n",
-        "    if selected\n",
-        "    {\n",
-        "        used();\n",
-        "    }\n",
-        "}\n",
-        "func main() { gate(flag = false); }\n",
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
+            "module app;\n",
+            "func used() {}\n",
+            "func gate(flag: bool)\n",
+            "{\n",
+            "    let mut selected: bool = false;\n",
+            "    if flag\n",
+            "    {\n",
+            "        selected = true;\n",
+            "    }\n",
+            "    while flag\n",
+            "    {\n",
+            "        selected = true;\n",
+            "    }\n",
+            "    if selected\n",
+            "    {\n",
+            "        used();\n",
+            "    }\n",
+            "}\n",
+            "func main() { gate(flag = false); }\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
     ));
 
     assert!(compilation.check_diagnostics().is_empty());
@@ -510,7 +554,14 @@ fn generic_scalar_branches_follow_each_concrete_substitution() {
         "}\n",
     );
 
-    let (_, compilation) = codegen_compilation(source);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let cancellation = CancellationToken::new();
 

@@ -2,7 +2,9 @@ use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts, generated_artifacts_of_kind,
     generated_artifacts_of_kind_with_options, unoptimized_library_ir,
 };
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
 use super::support::linker::test_linker;
 use super::support::runtime::{runtime_artifact, runtime_native_plan};
@@ -167,8 +169,8 @@ fn synchronous_i32_executable_hosts_emit_native_units() {
 #[test]
 #[ignore = "tier:native"]
 fn borrowed_literal_identity_remains_reachable_for_every_representation() {
-    let (_, compilation) = codegen_compilation_for_product(
-        concat!(
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
             "module app;\n",
             "\n",
             "public func owned() -> string\n",
@@ -180,9 +182,13 @@ fn borrowed_literal_identity_remains_reachable_for_every_representation() {
             "{\n",
             "    return &\"shared literal\";\n",
             "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
         ),
-        ProductKind::Library,
-    );
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -426,7 +432,14 @@ fn aggregate_static_relocation_preserves_native_export_names() {
             }
         "#;
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -559,10 +572,14 @@ fn weakened_callable_execution_contract_emits_native_units() {
 #[test]
 #[ignore = "tier:native"]
 fn explicit_generic_tuple_expectations_reach_direct_callable_elements() {
-    let _ = codegen_compilation_for_product(
-        DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE,
-        ProductKind::Library,
-    );
+    let _ = codegen_compilation(source_request_with_runtime(
+        &[DIRECT_CALLABLE_TUPLE_INFERENCE_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 }
 
 #[test]
@@ -618,7 +635,14 @@ fn compile_only_emission_preserves_specialized_cleanup_mir() {
             }
         "#;
 
-    let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Executable);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = runtime_artifact(&compilation, archive.path());
@@ -700,17 +724,21 @@ fn compile_only_emission_preserves_specialized_cleanup_mir() {
 #[test]
 #[ignore = "tier:native"]
 fn tuple_destructuring_projects_each_initializer_field_once() {
-    let (_, compilation) = codegen_compilation_for_product(
-        concat!(
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[concat!(
             "module app;\n",
             "public func sum(pos value: (u64, u64)) -> u64\n",
             "{\n",
             "    let(first, second) = value;\n",
             "    return first + second;\n",
             "}\n",
+        )],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
         ),
-        ProductKind::Library,
-    );
+    ));
 
     let lowered = compilation
         .lowered_unit(crate::test_support::source_function_body_key(
@@ -749,8 +777,8 @@ fn tuple_destructuring_projects_each_initializer_field_once() {
 #[test]
 #[ignore = "tier:native"]
 fn returned_padded_tuple_destructuring_preserves_the_aggregate_payload() {
-    let (backend, compilation) = codegen_compilation_for_product(
-        r#"
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[r#"
 module app;
 
 @copy
@@ -774,9 +802,13 @@ public func update(pos records: Records) -> Records
     assert(status == 7);
     return updated;
 }
-"#,
-        ProductKind::Library,
-    );
+"#],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(

@@ -1,5 +1,5 @@
-use super::support::compilation::codegen_compilation_for_product;
 use super::support::compilation::test_product_identity;
+use super::support::compilation::{codegen_compilation, source_request_with_runtime};
 use super::support::dependencies::{
     GenericDependencyFixture, dependency_from_fixture_with_native, native_fixture_compilation,
 };
@@ -27,8 +27,8 @@ use std::sync::Arc;
 #[test]
 #[ignore = "tier:native"]
 fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_statics() {
-    let (_, compilation) = codegen_compilation_for_product(
-        r#"
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[r#"
             module application;
 
             struct Resource {
@@ -38,9 +38,13 @@ fn static_cleanup_retains_runtime_providers_without_ordering_co_emitted_trivial_
 
             static VALUE: Resource = { state = 42 };
             func main() -> i32 { return VALUE.state; }
-        "#,
-        ProductKind::Executable,
-    );
+        "#],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = bray_testing::TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let original = runtime_artifact(&compilation, archive.path());

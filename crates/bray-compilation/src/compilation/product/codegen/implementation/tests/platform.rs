@@ -1,7 +1,9 @@
 use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts, generated_artifacts_of_kind,
 };
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::mappings::assert_native_callback_entry;
 use super::support::runtime::{
     runtime_native_plan_for_sources_target,
@@ -278,8 +280,14 @@ trusted func device_roundtrip(pos pointer: DevicePointer<u8>, pos value: u8) -> 
 #[test]
 #[ignore = "tier:native"]
 fn target_fence_wrapper_emits_valid_native_units() {
-    let (backend, compilation) =
-        codegen_compilation_for_product(TARGET_FENCE_SOURCE, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[TARGET_FENCE_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -301,8 +309,14 @@ fn target_fence_wrapper_emits_valid_native_units() {
 #[test]
 #[ignore = "tier:native"]
 fn structural_assembly_emits_valid_native_units() {
-    let (backend, compilation) =
-        codegen_compilation_for_product(STRUCTURAL_ASSEMBLY_SOURCE, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[STRUCTURAL_ASSEMBLY_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let lowered = compilation
         .lowered_unit(crate::test_support::source_function_body_key(
@@ -402,8 +416,14 @@ fn structural_assembly_emits_valid_native_units() {
 #[test]
 #[ignore = "tier:native"]
 fn indirect_memory_assembly_emits_valid_native_units() {
-    let (backend, compilation) =
-        codegen_compilation_for_product(MEMORY_ASSEMBLY_SOURCE, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[MEMORY_ASSEMBLY_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -434,8 +454,14 @@ fn void_branching_assembly_emits_valid_native_units() {
 #[test]
 #[ignore = "tier:native"]
 fn impure_diverging_assembly_survives_optimized_native_codegen() {
-    let (backend, compilation) =
-        codegen_compilation_for_product(DIVERGING_ASSEMBLY_SOURCE, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[DIVERGING_ASSEMBLY_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -550,8 +576,14 @@ fn library_atomic_roots_exclude_open_generic_wrappers() {
 #[test]
 #[ignore = "tier:native"]
 fn atomic_fence_wrapper_emits_valid_native_units() {
-    let (backend, compilation) =
-        codegen_compilation_for_product(ATOMIC_FENCE_SOURCE, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[ATOMIC_FENCE_SOURCE],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(

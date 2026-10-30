@@ -1,5 +1,7 @@
 use super::support::artifacts::{generated_artifacts, generated_artifacts_of_kind};
-use super::support::compilation::{codegen_compilation_for_product, test_product_identity};
+use super::support::compilation::{
+    codegen_compilation, source_request_with_runtime, test_product_identity,
+};
 use super::support::dependencies::{
     GenericDependencyFixture, generic_consumer_for_target_with_source,
     generic_dependency_from_fixture,
@@ -9,7 +11,7 @@ use super::support::runtime::{
     runtime_artifact, runtime_native_plan, runtime_native_plan_for_target,
 };
 use crate::compilation::product::codegen::NativeProductPlanningError;
-use crate::{CancellationToken, SelectedTarget};
+use crate::{CancellationToken, CompilationOptions, SelectedTarget, WorkerBudget};
 use bray_codegen::CodegenLinkage;
 use bray_ir::MirUnitKey;
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeCapability};
@@ -32,7 +34,14 @@ fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
         "public static RESOURCE: Resource = Resource { state = 1 };\n",
     );
 
-    let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
@@ -136,7 +145,14 @@ fn shared_libraries_own_hosts_while_archives_contribute_storage() {
             public static VALUE: i32 = 42;
         "#;
 
-    let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = runtime_artifact(&compilation, archive.path());
@@ -199,7 +215,14 @@ fn shared_library_runtime_roles_do_not_require_static_storage() {
             }
         "#;
 
-    let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (_, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
     let runtime = runtime_artifact(&compilation, archive.path());
@@ -239,7 +262,14 @@ fn shared_library_tls_retains_only_demanded_worker_execution() {
     "#;
 
     for cooperative in [false, true] {
-        let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+        let (_, compilation) = codegen_compilation(source_request_with_runtime(
+            &[source],
+            CompilationOptions::new(
+                WorkerBudget::serial(),
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+            ),
+        ));
 
         let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
         let runtime = runtime_artifact(&compilation, archive.path());
@@ -275,7 +305,14 @@ fn public_library_static_contributes_a_linked_host_table_entry() {
         "public static EXPORTED_VALUE: i32 = 42;\n",
     );
 
-    let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
 
     let plan = compilation
         .native_product_plan(
