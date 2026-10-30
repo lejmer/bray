@@ -1,0 +1,411 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.domain;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.host.product;
+
+// The native resident host owns these existing storage objects and this immutable
+// view outside every unloadable image. A view is not an owning reference.
+@copy
+@layout(c)
+internal struct View
+{
+    host: DataPointer<Uninit<bray.runtime.bootstrap.host.HostOwner>>;
+    synchronization: DataPointer<Uninit<bray.runtime.bootstrap.host.Synchronization>>;
+    pool: DataPointer<Uninit<bray.runtime.bootstrap.pool.ReportDomain>>;
+    callbacks: DataPointer<bray.runtime.bootstrap.provider.Callbacks>;
+    consumer: usize;
+    control: bray.runtime.bootstrap.host.product.ProviderControl;
+    retire: bray.runtime.bootstrap.host.product.ProviderRetire;
+    notify: bray.runtime.bootstrap.host.product.ProviderNotify;
+}
+
+// Zero is unselected. one seals process-local storage. Every other value names
+// the resident host's immutable view. Publication precedes all storage access.
+internal struct Binding
+{
+    selection: core.atomic.Atomic<usize>;
+}
+
+// A successful native bind borrows the resident service for this binding's whole
+// lifetime. The native host must retain those owners until this image retires.
+internal static BINDING: Binding =
+{
+    selection = core.atomic.initialize<usize>(0)
+};
+
+trusted internal predicate native_binding(pointer: DataPointer<View>);
+
+internal struct Selection
+{
+    address: usize;
+}
+
+trusted internal predicate selected_binding(owner: &Selection);
+
+trusted internal predicate admitted_view(owner: &Selection, value: &View);
+
+trusted internal func selected() -> Selection
+    ensures(trusted selected_binding(owner = &result))
+{
+    let value = core.atomic.load<usize, 1>(&BINDING.selection);
+
+    if value != 0
+    {
+        return
+        {
+            address = value
+        };
+    }
+
+    let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(&BINDING.selection, expected = 0, desired = 1);
+
+    return
+    {
+        address = if acquired
+        {
+            yield 1;
+        }
+        else
+        {
+            yield previous;
+        }
+    };
+}
+
+trusted internal func read(pos selection: &Selection) -> View
+    requires(trusted selected_binding(owner = selection), selection.address > 1)
+    ensures(trusted admitted_view(owner = selection, value = &result))
+    executes(total)
+    uses(raw_memory)
+{
+    // The sole publisher is bind, whose native owner retains the exact view and
+    // storage. Numerical addresses supplied to ordinary callers grant no access.
+    let pointer = trusted lambda(pos selection: &Selection) -> DataPointer<View>
+        requires(trusted selected_binding(owner = selection))
+        ensures(
+            trusted core.memory.valid_read<View>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<View>(pointer = result),
+            trusted core.memory.aligned_for<View>(pointer = result)
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<View>(address = selection.address);
+    };
+
+    return trusted std.memory.read<View>(trusted pointer(selection));
+}
+
+@abi(c)
+trusted internal func bind(pos pointer: DataPointer<View>) -> u32
+    requires(trusted native_binding(pointer = pointer))
+    uses(raw_memory, intrinsic)
+{
+    let address = trusted core.target.expose_address<View>(pointer);
+
+    if address <= 1
+    {
+        return 3;
+    }
+
+    let authorize = trusted lambda(pos pointer: DataPointer<View>)
+        requires(trusted native_binding(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<View>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<View>(pointer = pointer),
+            trusted core.memory.aligned_for<View>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    let incoming = trusted std.memory.read<View>(pointer);
+
+    if core.memory.is_null<Uninit<bray.runtime.bootstrap.host.HostOwner>>(incoming.host) || core.memory.is_null<
+        Uninit<bray.runtime.bootstrap.host.Synchronization>
+    >(incoming.synchronization) || core.memory.is_null<Uninit<bray.runtime.bootstrap.pool.ReportDomain>>(
+        incoming.pool
+    ) || core.memory.is_null<bray.runtime.bootstrap.provider.Callbacks>(incoming.callbacks) || incoming.consumer == 0
+    {
+        return 3;
+    }
+
+    let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+        &BINDING.selection,
+        expected = 0,
+        desired = address
+    );
+
+    if acquired || previous == address
+    {
+        return 0;
+    }
+
+    if previous == 1
+    {
+        return 3;
+    }
+
+    let selection = trusted selected();
+    let established = trusted read(&selection);
+
+    let same_host = (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.host.HostOwner>>(
+        established.host
+    )) == (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.host.HostOwner>>(incoming.host));
+
+    let same_synchronization = (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.host.Synchronization>>(
+        established.synchronization
+    )) == (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.host.Synchronization>>(
+        incoming.synchronization
+    ));
+
+    let same_pool = (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.pool.ReportDomain>>(
+        established.pool
+    )) == (trusted core.target.expose_address<Uninit<bray.runtime.bootstrap.pool.ReportDomain>>(incoming.pool));
+
+    let same_callbacks = (trusted core.target.expose_address<bray.runtime.bootstrap.provider.Callbacks>(
+        established.callbacks
+    )) == (trusted core.target.expose_address<bray.runtime.bootstrap.provider.Callbacks>(incoming.callbacks));
+
+    return if same_host && same_synchronization && same_pool && same_callbacks && established.consumer ==
+        incoming.consumer
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 3;
+    };
+}
+
+trusted internal predicate native_export(pointer: DataPointer<View>);
+
+@abi(c)
+trusted internal func domain_access(pos output: DataPointer<View>) -> u32
+    requires(trusted native_export(pointer = output), trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(raw_memory, unchecked_init)
+{
+    let destination = trusted export_slot(output);
+    let selection = trusted selected();
+
+    if selection.address > 1
+    {
+        trusted std.memory.write<View>(trusted export_destination(&destination), trusted read(&selection));
+        return 0;
+    }
+
+    let callbacks = trusted bray.runtime.bootstrap.host.product.prepare_root_callbacks();
+
+    if core.memory.is_null<bray.runtime.bootstrap.provider.Callbacks>(callbacks)
+    {
+        return 5;
+    }
+
+    // Create the shared TLS keys here as well: their destructor addresses must
+    // belong to this resident service, never to the first image that binds it.
+    if trusted bray.runtime.bootstrap.host.initialize_host() != 0
+    {
+        return 5;
+    }
+
+    let current: View =
+    {
+        host = std.memory.address_of<Uninit<bray.runtime.bootstrap.host.HostOwner>>(trusted host_storage()),
+        synchronization = std.memory.address_of<Uninit<bray.runtime.bootstrap.host.Synchronization>>(
+            trusted synchronization_storage()
+        ),
+        pool = std.memory.address_of<Uninit<bray.runtime.bootstrap.pool.ReportDomain>>(trusted pool_storage()),
+        callbacks = callbacks,
+        consumer = trusted report_consumer_address(),
+        control = bray.runtime.bootstrap.host.product.control_provider,
+        retire = bray.runtime.bootstrap.host.product.retire_provider,
+        notify = bray.runtime.bootstrap.host.product.notify_provider
+    };
+
+    trusted std.memory.write<View>(trusted export_destination(&destination), current);
+
+    return 0;
+}
+
+trusted internal func report_consumer_address() -> usize
+{
+    let selection = trusted selected();
+
+    if selection.address <= 1
+    {
+        return trusted bray.runtime.bootstrap.local_consume_address();
+    }
+
+    let current = trusted read(&selection);
+
+    return current.consumer;
+}
+
+trusted internal func root_callbacks() -> DataPointer<bray.runtime.bootstrap.provider.Callbacks>
+{
+    let selection = trusted selected();
+
+    if selection.address == 1
+    {
+        return std.memory.uninit_pointer<bray.runtime.bootstrap.provider.Callbacks>(
+            &bray.runtime.bootstrap.host.product.ROOT_CALLBACKS
+        );
+    }
+
+    let current = trusted read(&selection);
+
+    return current.callbacks;
+}
+
+trusted internal predicate registered_storage<T>(binding: &Binding, pointer: DataPointer<Uninit<T>>);
+
+trusted internal func anchor<T>(pos binding: &Binding, pos pointer: DataPointer<Uninit<T>>) -> &Uninit<T>
+    requires(trusted registered_storage<T>(binding = binding, pointer = pointer))
+    uses(raw_memory, unchecked_alias)
+{
+    let authorize = trusted lambda(pos binding: &Binding, pos pointer: DataPointer<Uninit<T>>)
+        requires(trusted registered_storage<T>(binding = binding, pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Uninit<T>>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Uninit<T>>(pointer = pointer),
+            trusted core.memory.initialized_as<Uninit<T>>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Uninit<T>>(pointer = pointer),
+            trusted core.memory.epoch_current<Uninit<T>>(pointer = pointer),
+            trusted core.memory.synchronized_access<Uninit<T>>(pointer = pointer),
+            trusted core.memory.movement_stable<Uninit<T>>(pointer = pointer),
+            trusted core.memory.finalization_pending<Uninit<T>>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(binding, pointer);
+
+    return trusted std.memory.borrow_from<Uninit<T>, Binding>(binding, pointer);
+}
+
+trusted internal func host_storage() -> &Uninit<bray.runtime.bootstrap.host.HostOwner>
+{
+    let selection = trusted selected();
+
+    if selection.address == 1
+    {
+        return &bray.runtime.bootstrap.host.HOST_OWNER;
+    }
+
+    let current = trusted read(&selection);
+
+    // Only this exact slot from the admitted native view supplies this type's
+    // storage. A caller-provided pointer cannot establish this relationship.
+    let registered = trusted lambda(pos selection: &Selection, pos current: &View, pos binding: &Binding)
+        requires(trusted admitted_view(owner = selection, value = current))
+        ensures(
+            trusted registered_storage<bray.runtime.bootstrap.host.HostOwner>(binding = binding, pointer = current.host)
+        )
+        executes(pure, total) {};
+
+    trusted registered(&selection, &current, &BINDING);
+
+    return trusted anchor<bray.runtime.bootstrap.host.HostOwner>(&BINDING, current.host);
+}
+
+trusted internal func synchronization_storage() -> &Uninit<bray.runtime.bootstrap.host.Synchronization>
+{
+    let selection = trusted selected();
+
+    if selection.address == 1
+    {
+        return &bray.runtime.bootstrap.host.SYNCHRONIZATION;
+    }
+
+    let current = trusted read(&selection);
+
+    // Only this exact slot from the admitted native view supplies this type's
+    // storage. A caller-provided pointer cannot establish this relationship.
+    let registered = trusted lambda(pos selection: &Selection, pos current: &View, pos binding: &Binding)
+        requires(trusted admitted_view(owner = selection, value = current))
+        ensures(
+            trusted registered_storage<bray.runtime.bootstrap.host.Synchronization>(
+                binding = binding,
+                pointer = current.synchronization
+            )
+        )
+        executes(pure, total) {};
+
+    trusted registered(&selection, &current, &BINDING);
+
+    return trusted anchor<bray.runtime.bootstrap.host.Synchronization>(&BINDING, current.synchronization);
+}
+
+trusted internal func pool_storage() -> &Uninit<bray.runtime.bootstrap.pool.ReportDomain>
+{
+    let selection = trusted selected();
+
+    if selection.address == 1
+    {
+        return &bray.runtime.bootstrap.pool.STORAGE;
+    }
+
+    let current = trusted read(&selection);
+
+    // Only this exact slot from the admitted native view supplies this type's
+    // storage. A caller-provided pointer cannot establish this relationship.
+    let registered = trusted lambda(pos selection: &Selection, pos current: &View, pos binding: &Binding)
+        requires(trusted admitted_view(owner = selection, value = current))
+        ensures(
+            trusted registered_storage<bray.runtime.bootstrap.pool.ReportDomain>(
+                binding = binding,
+                pointer = current.pool
+            )
+        )
+        executes(pure, total) {};
+
+    trusted registered(&selection, &current, &BINDING);
+
+    return trusted anchor<bray.runtime.bootstrap.pool.ReportDomain>(&BINDING, current.pool);
+}
+
+// The native caller lends one exclusive destination through the whole export.
+// Its immutable acquisition remains live while resident setup mutates globals.
+internal struct ExportAcquisition
+{
+}
+
+internal struct ExportSlot
+{
+    acquisition: ExportAcquisition;
+    pointer: DataPointer<View>;
+}
+
+trusted internal predicate export_live(owner: &ExportAcquisition);
+
+trusted internal func export_slot(pos pointer: DataPointer<View>) -> ExportSlot
+    requires(trusted native_export(pointer = pointer))
+    ensures(trusted export_live(owner = &result.acquisition))
+    executes(pure, total)
+{
+    return
+    {
+        acquisition = ExportAcquisition
+        {
+        },
+        pointer = pointer
+    };
+}
+
+trusted internal func export_destination(pos slot: &ExportSlot) -> DataPointer<View>
+    requires(trusted export_live(owner = &slot.acquisition))
+    ensures(
+        trusted core.memory.valid_write<View>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<View>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return slot.pointer;
+}

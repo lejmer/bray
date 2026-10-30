@@ -5,6 +5,7 @@ using core.target;
 using core.memory;
 using std.memory;
 using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.provider;
 
 @copy
 @layout(c)
@@ -27,6 +28,8 @@ internal struct Record
     report: DataPointer<u8>;
     destroy: DataPointer<u8>;
     backing: bray.runtime.bootstrap.storage.Lease;
+    provider_context: usize;
+    provider_callbacks: usize;
 }
 
 // Only a published record owns a payload with callable disposal operations.
@@ -39,6 +42,7 @@ internal struct Incident
     report: Reporter;
     destroy: Destroyer;
     backing: bray.runtime.bootstrap.storage.Lease;
+    mut provider: bray.runtime.bootstrap.provider.Reference;
 }
 
 // The compiler-bound caller transfers the exclusive descriptor and retains its
@@ -303,6 +307,64 @@ trusted internal func dispose_value(
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted bray.runtime.bootstrap.retained_report_value(value = &value)
+    )
+{
+    // Detach the owning reference before payload disposal can clear its native
+    // header. Keep it through every callback and each callback's local cleanup.
+    let provider = trusted take_value_provider(&mut value);
+
+    let outcome = trusted dispose_value_body(&mut value, &provider, reporting);
+
+    trusted bray.runtime.bootstrap.provider.release_owned(provider);
+
+    return outcome;
+}
+
+trusted internal func take_value_provider(
+    pos value: &mut bray.runtime.bootstrap.ReportValue
+) -> bray.runtime.bootstrap.provider.Reference
+    requires(
+        trusted bray.runtime.bootstrap.retained_report_value(value = &value),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.retained_report_value(value = &value),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    match value
+    {
+        case Panic(primary)
+        {
+            return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
+                &mut primary.provider,
+                trusted bray.runtime.bootstrap.provider.resident_reference()
+            );
+        }
+        case Error(incident)
+        {
+            return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
+                &mut incident.provider,
+                trusted bray.runtime.bootstrap.provider.resident_reference()
+            );
+        }
+    };
+}
+
+trusted internal func dispose_value_body(
+    pos value: &mut bray.runtime.bootstrap.ReportValue,
+    pos provider: &bray.runtime.bootstrap.provider.Reference,
+    pos reporting: u32
+) -> (u32, bray.runtime.bootstrap.ReportRecords)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.retained_report_value(value = &value),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = provider)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = provider),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     uses(foreign_call)
 {

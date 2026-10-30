@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using core.atomic;
 using core.memory;
 using std.memory;
@@ -24,7 +25,7 @@ trusted internal func thread_attachment_mark_main() -> u32
     }
 
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        &SYNCHRONIZATION,
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
         trusted synchronization_pointer()
     );
 

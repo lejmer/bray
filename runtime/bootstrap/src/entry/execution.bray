@@ -109,7 +109,7 @@ trusted internal func invoke(
 
         trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
             destination,
-            trusted bray.runtime.bootstrap.allocation_failure()
+            trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())
         );
 
         return bray.runtime.bootstrap.STATUS_SUCCESS;

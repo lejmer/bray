@@ -12,8 +12,8 @@ use super::boundary::{mapped_instance_function, static_outcome};
 use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
-    StaticLifecycleCallbacks, declare_product_host, declare_static_host_entry,
-    declare_thread_static_registration,
+    StaticLifecycleCallbacks, declare_product_descriptor, declare_product_host,
+    declare_static_host_entry, declare_thread_static_registration,
 };
 
 pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
@@ -23,6 +23,10 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
     types: &mut LlvmTypeMappings<'context, 'mappings>,
 ) -> Result<(), CodegenFailure> {
     let product_host = mappings.product_host();
+
+    if let Some(product_host) = product_host {
+        declare_product_descriptor(module, product_host, types)?;
+    }
 
     for mapping in mappings.static_storages() {
         types.select_instance(mapping.owner());

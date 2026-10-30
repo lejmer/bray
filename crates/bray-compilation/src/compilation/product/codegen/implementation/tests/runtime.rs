@@ -988,6 +988,8 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             uintptr_t message_length;
             void* copy_message;
             void* release_message;
+            uintptr_t provider_context;
+            const void* provider_callbacks;
             uintptr_t head;
             uintptr_t tail;
             uintptr_t count;
@@ -1111,7 +1113,7 @@ fn foreign_callbacks_resolve_abnormal_outcomes_before_boundary_release() {
             uint64_t n2,
             uint64_t n3,
             const void* message,
-            uintptr_t length)
+            uintptr_t length, uintptr_t provider)
         {{
             Report report = {{0}};
             report.primary_present = 1;
@@ -1406,6 +1408,8 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             uintptr_t message_length;
             void* copy_message;
             void* release_message;
+            uintptr_t provider_context;
+            const void* provider_callbacks;
             uintptr_t head;
             uintptr_t tail;
             uintptr_t count;
@@ -1452,7 +1456,7 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
             uint64_t n2,
             uint64_t n3,
             const void* text,
-            uintptr_t length)
+            uintptr_t length, uintptr_t provider)
         {{
             Report result = {{0}};
             result.source[0] = 22;

@@ -11,6 +11,26 @@ use bray_runtime_abi::{
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
+// Explicitly bundled Rust hosts own a resident final image. Produced Bray images
+// select unbundled runtime components and publish their own generated descriptor.
+#[cfg(feature = "bundled-bootstrap")]
+#[expect(
+    unsafe_code,
+    reason = "the explicitly bundled native host publishes its resident descriptor"
+)]
+#[unsafe(no_mangle)]
+static bray_linked_product_host: bray_runtime_abi::NativeProductHostDescriptor =
+    bray_runtime_abi::NativeProductHostDescriptor::new(
+        bray_runtime_abi::NativeProductIdentity::new([0; 32]),
+        no_bundled_statics,
+        0,
+    );
+
+#[cfg(feature = "bundled-bootstrap")]
+extern "C" fn no_bundled_statics(_: usize) -> bray_runtime_abi::NativeStaticHostEntry {
+    panic!("the bundled native host has no compiler-generated statics")
+}
+
 native_export! {
     #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
     #[cfg_attr(test, unsafe(no_mangle))]

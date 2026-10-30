@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using std.numeric;
 using core.target;
 using core.atomic;
@@ -33,6 +34,7 @@ internal struct HostOwner
     mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?;
     mut next_identity: u64;
     mut transitioning: bool;
+    mut callbacks_ready: bool;
 }
 
 internal struct HostStorage
@@ -58,7 +60,8 @@ internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwne
         storage = none,
         products = none,
         next_identity = 1,
-        transitioning = false
+        transitioning = false,
+        callbacks_ready = false
     }
 );
 
@@ -374,7 +377,7 @@ trusted internal func main_native_thread_identity() -> u64
     uses(raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        &SYNCHRONIZATION,
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
         trusted synchronization_pointer()
     );
 
@@ -559,7 +562,7 @@ trusted internal func shutdown_host() -> u32
                 }
 
                 // Unattached control lookups borrow the key without taking this lock.
-                // Unpublish before observing readers; retirement never waits for them.
+                // Unpublish before observing readers. retirement never waits for them.
                 let control_key = core.atomic.exchange<u64, 4>(&synchronization.control_key, 0);
 
                 if core.atomic.load<u64, 4>(&synchronization.control_readers) != 0

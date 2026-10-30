@@ -79,6 +79,7 @@ pub struct CodegenProductHostMapping {
     statics: Arc<[CodegenProductHostStatic]>,
     execution: Option<CallableExecution>,
     final_image: bool,
+    independent: bool,
 }
 
 impl CodegenProductHostMapping {
@@ -143,6 +144,7 @@ impl CodegenProductHostMapping {
             statics: statics.into(),
             execution: None,
             final_image: false,
+            independent: false,
         })
     }
 
@@ -151,6 +153,18 @@ impl CodegenProductHostMapping {
         self.final_image = final_image;
 
         self
+    }
+
+    /// Selects separate activation ownership for a dynamically loaded final image.
+    pub const fn with_independent_load(mut self, independent: bool) -> Self {
+        self.independent = independent;
+
+        self
+    }
+
+    /// Returns whether this final image has its own provider activation.
+    pub const fn is_independent(&self) -> bool {
+        self.independent
     }
 
     /// Selects execution resources required by asynchronous or exact-thread consumers.

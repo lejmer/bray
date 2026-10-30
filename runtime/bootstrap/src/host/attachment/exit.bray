@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using core.target;
 using core.atomic;
 using core.memory;
@@ -136,7 +137,7 @@ internal struct AttachmentExit
             // Source TLS cleanup has completed. Clear both native callback slots before
             // the optional external callback, while its selected owner still retains context.
             let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                &SYNCHRONIZATION,
+                trusted bray.runtime.bootstrap.domain.synchronization_storage(),
                 trusted synchronization_pointer()
             );
 

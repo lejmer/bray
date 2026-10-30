@@ -238,6 +238,7 @@ pub struct NativePanicPrimary {
     cause: NativePanicCause,
     present: u32,
     message: NativePanicMessage,
+    provider: crate::NativeProviderOwner,
 }
 
 impl NativePanicPrimary {
@@ -252,6 +253,7 @@ impl NativePanicPrimary {
             source,
             present: 1,
             message,
+            provider: crate::NativeProviderOwner::resident(),
         }
     }
 
@@ -262,6 +264,7 @@ impl NativePanicPrimary {
             source: NativeSourceAnchor::unavailable(),
             present: 0,
             message: NativePanicMessage::empty(),
+            provider: crate::NativeProviderOwner::resident(),
         }
     }
 
@@ -294,6 +297,17 @@ impl NativePanicPrimary {
     /// Releases message backing and returns any failure contained by its provider.
     pub fn release_message(&mut self) -> crate::NativeRunOutcome {
         self.message.release()
+    }
+
+    /// Publishes the originating provider before this primary leaves its producer.
+    /// The provider covers the message, callbacks and product statics together.
+    pub fn retain_provider(&mut self, provider: crate::NativeProviderOwner) {
+        assert!(
+            !self.provider.reference().is_retained(),
+            "primary provider ownership publishes once"
+        );
+
+        self.provider = provider;
     }
 }
 
@@ -404,11 +418,19 @@ impl NativePanicReport {
 
     /// Consumes live ownership exactly once, reporting it when requested.
     pub fn consume(&mut self, report: bool) -> NativeRuntimeStatus {
+        // A native caller holds this guard outside the image callback and its local cleanup.
+        let _provider = self.primary.provider.retain();
+
         self.consume
             .take()
             .map_or(NativeRuntimeStatus::SUCCESS, |consume| {
                 consume(self, u32::from(report))
             })
+    }
+
+    /// Publishes the originating provider for a primary or a chain-only report.
+    pub fn retain_provider(&mut self, provider: crate::NativeProviderOwner) {
+        self.primary.retain_provider(provider);
     }
 }
 
@@ -440,12 +462,12 @@ mod tests {
             address: 0, length: 8, copy: 16, release: 24,
         });
 
-        assert_abi_layout!(NativePanicPrimary, size: 96, align: 8, fields: {
-            source: 0, cause: 56, present: 60, message: 64,
+        assert_abi_layout!(NativePanicPrimary, size: 112, align: 8, fields: {
+            source: 0, cause: 56, present: 60, message: 64, provider: 96,
         });
 
-        assert_abi_layout!(NativePanicReport, size: 136, align: 8, fields: {
-            primary: 0, head: 96, tail: 104, count: 112, reserved: 120, consume: 128,
+        assert_abi_layout!(NativePanicReport, size: 152, align: 8, fields: {
+            primary: 0, head: 112, tail: 120, count: 128, reserved: 136, consume: 144,
         });
     }
 

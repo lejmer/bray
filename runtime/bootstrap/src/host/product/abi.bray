@@ -2,8 +2,11 @@
 trusted internal module bray.runtime.bootstrap.host.product;
 
 using core.memory;
+using core.atomic;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.report.incident;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.domain;
 
 // The selected native host retains this activation's descriptor, callback providers
 // and storage until terminal release. Callback failures return initialized outcomes.
@@ -87,6 +90,83 @@ internal callable StaticEntry = @abi(c) trusted func(pos index: usize) -> Static
 
 @copy
 @layout(c)
+internal struct ProviderHandle
+{
+    key: usize;
+    epoch: u64;
+}
+
+@copy
+@layout(c)
+internal struct ProviderObservation
+{
+    observation: Observation;
+    handle: ProviderHandle;
+}
+
+@layout(c)
+internal struct ProviderRetirement
+{
+    mut observation: Observation;
+    mut provider: bray.runtime.bootstrap.provider.Reference;
+}
+
+internal callable ProviderControl = @abi(c) trusted func(
+    pos key: usize,
+    pos epoch: u64,
+    pos operation: u32,
+    pos output: DataPointer<ProviderObservation>
+) -> u32
+    requires(trusted native_host());
+
+internal callable ProviderRetire = @abi(c) trusted func(
+    pos key: usize,
+    pos epoch: u64,
+    pos output: DataPointer<ProviderRetirement>
+) -> u32
+    requires(trusted native_host());
+
+internal callable ProviderNotify = @abi(c) trusted func(
+    pos key: usize,
+    pos context: usize,
+    pos callbacks: DataPointer<bray.runtime.bootstrap.provider.Callbacks>
+) -> u32
+    requires(trusted native_host());
+
+@layout(c)
+internal struct ProviderBinding
+{
+    version: u32;
+    services: u32;
+    domain: DataPointer<bray.runtime.bootstrap.domain.View>;
+    provider: bray.runtime.bootstrap.provider.Reference;
+    dependencies: DataPointer<ProviderHandle>;
+    dependency_count: usize;
+}
+
+internal callable ProviderFormation = @abi(c) trusted func(
+    pos key: usize,
+    pos binding: DataPointer<ProviderBinding>,
+    pos output: DataPointer<ProviderObservation>
+) -> u32
+    requires(trusted native_host());
+
+internal callable ProviderRoot = @abi(c) trusted func(
+    pos key: usize,
+    pos output: DataPointer<bray.runtime.bootstrap.provider.Reference>
+) -> u32
+    requires(trusted native_host());
+
+@copy
+@layout(c)
+internal struct ProviderOperations
+{
+    formation: ProviderFormation;
+    root: ProviderRoot;
+}
+
+@copy
+@layout(c)
 internal struct Descriptor
 {
     version: u32;
@@ -95,4 +175,6 @@ internal struct Descriptor
     static_entry: StaticEntry;
     static_count: usize;
     execution: DataPointer<u8>;
+    activation: DataPointer<core.atomic.Atomic<usize>>;
+    provider: DataPointer<ProviderOperations>;
 }

@@ -42,6 +42,7 @@ internal union Progress
     Idle;
     Detach(pos resource: usize, pos callback: WorkerDetach);
     Cleanup;
+    ObserveProvider;
 }
 
 trusted internal func select_progress_locked(
@@ -70,6 +71,22 @@ trusted internal func select_progress_locked(
     {
         if let ?product = trusted find_product(&mut products, key)
         {
+            if product.state.phase matches Closing
+            {
+                if let ?provider = product.provider
+                {
+                    if trusted provider_roots(&provider) != 0 || provider.observing
+                    {
+                        return Progress.Idle;
+                    }
+
+                    if !trusted provider_ready(&provider)
+                    {
+                        return Progress.ObserveProvider;
+                    }
+                }
+            }
+
             let selected = product.state.select_cleanup();
 
             if let ?phase = selected
@@ -149,7 +166,10 @@ trusted internal func finish_progress_locked(
                         product.state.last_incident = cleanup.last_incident;
                     }
 
-                    product.descriptor = none;
+                    if product.provider matches none
+                    {
+                        product.descriptor = none;
+                    }
 
                     product.state.phase = if product.failure matches ?_
                     {
@@ -309,6 +329,15 @@ trusted internal func progress(pos key: usize, pos mut observation: Observation,
         match consume selected
         {
             case Idle { return observation; }
+            case ObserveProvider
+            {
+                if !trusted observe_provider(key, true)
+                {
+                    return observation;
+                }
+
+                continue;
+            }
             case Detach(resource, callback)
             {
                 trusted callback(resource, key);
@@ -342,6 +371,16 @@ trusted internal func progress(pos key: usize, pos mut observation: Observation,
                     trusted clean_statics(&mut cleanup);
                 }
             }
+        }
+
+        if completed && !detached
+        {
+            // Complete all consumer destruction before releasing dependency
+            // roots. Keep their frozen handle metadata in the admitted binding.
+            cleanup.statics = none;
+
+            cleanup.execution = none;
+            trusted release_provider_dependencies(key);
         }
 
         observation =

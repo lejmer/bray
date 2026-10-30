@@ -7,6 +7,7 @@ using core.memory;
 using std.memory;
 using std.memory.function;
 using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.provider;
 
 @layout(c)
 internal struct ReportPrimary
@@ -26,6 +27,8 @@ internal struct ReportPrimary
     mut message_length: usize;
     mut copy_message: usize;
     mut release_message: usize;
+    mut provider_context: usize;
+    mut provider_callbacks: usize;
 }
 
 @copy
@@ -60,7 +63,7 @@ internal struct ReportRecord
 
 internal union ReportValue
 {
-    Panic(pos primary: StoredReportPrimary);
+    Panic(pos mut primary: StoredReportPrimary);
     Error(pos mut incident: bray.runtime.bootstrap.report.incident.Incident);
 }
 
@@ -92,10 +95,12 @@ internal struct StoredReportPrimary
     message_length: usize;
     copy_message: PanicMessageCopy?;
     release_message: PanicMessageRelease?;
+    mut provider: bray.runtime.bootstrap.provider.Reference;
 }
 
 trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReportPrimary
     requires(trusted native_primary_callbacks(primary = &primary))
+    uses(intrinsic)
 {
     let (copy, release) = trusted primary_callbacks(&primary);
 
@@ -116,6 +121,13 @@ trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReport
         message_length = primary.message_length,
         copy_message = copy,
         release_message = release,
+        provider =
+        {
+            context = primary.provider_context,
+            callbacks = trusted core.target.from_exposed_address<bray.runtime.bootstrap.provider.Callbacks>(
+                address = primary.provider_callbacks
+            )
+        },
     };
 }
 
@@ -184,6 +196,10 @@ trusted internal func serialized_primary(pos primary: &StoredReportPrimary) -> R
         message_length = primary.message_length,
         copy_message = copy,
         release_message = release,
+        provider_context = primary.provider.context,
+        provider_callbacks = trusted core.target.expose_address<bray.runtime.bootstrap.provider.Callbacks>(
+            primary.provider.callbacks
+        ),
     };
 }
 

@@ -1,0 +1,186 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.provider;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host.product;
+
+trusted internal predicate native_callback(context: usize);
+
+internal callable Retain = @abi(c) trusted func(pos context: usize)
+    requires(trusted native_callback(context = context))
+    uses(intrinsic);
+
+internal callable Release = @abi(c) trusted func(pos context: usize)
+    requires(trusted native_callback(context = context))
+    uses(intrinsic);
+
+internal callable References = @abi(c) trusted func(pos context: usize) -> usize
+    requires(trusted native_callback(context = context))
+    uses(intrinsic);
+
+// Native inputs carry these exact callable contracts. Their declared behavior is
+// not reconstructed from raw code-address bits.
+@copy
+@layout(c)
+internal struct Callbacks
+{
+    retain: Retain;
+    release: Release;
+    references: References;
+}
+
+// A borrowed native view acquires no ownership. The native supplier keeps its
+// immutable resident table and context alive through every acquisition.
+@layout(c)
+internal struct Reference
+{
+    context: usize;
+    callbacks: DataPointer<Callbacks>;
+
+    func valid() -> bool
+        executes(pure, total)
+    {
+        return !core.memory.is_null<Callbacks>(self.callbacks) || self.context == 0;
+    }
+}
+
+trusted internal predicate native_reference(reference: &Reference);
+
+trusted internal func resident_reference() -> Reference
+    ensures(trusted native_reference(reference = &result), trusted native_owned_reference(reference = &result))
+    executes(pure, total)
+{
+    return
+    {
+        context = 0,
+        callbacks = std.memory.null<Callbacks>()
+    };
+}
+
+trusted internal predicate native_owned_reference(reference: &Reference);
+
+// Native report/incident headers transfer an already admitted owning reference.
+// Their enclosing noncopyable record owns the disposal protocol and backing. it
+// must not construct a second independently admitted Lease during terminal work.
+trusted internal func release_owned(pos reference: Reference)
+    requires(trusted native_owned_reference(reference = &reference))
+    uses(foreign_call)
+{
+    if !core.memory.is_null<Callbacks>(reference.callbacks)
+    {
+        let permitted = trusted lambda(pos reference: &Reference)
+            requires(trusted native_owned_reference(reference = reference))
+            ensures(trusted native_reference(reference = reference))
+            executes(pure, total) {};
+
+        trusted permitted(&reference);
+
+        let operations = trusted callbacks(&reference);
+
+        trusted operations.release(reference.context);
+    }
+}
+
+trusted internal func callbacks(pos reference: &Reference) -> Callbacks
+    requires(trusted native_reference(reference = reference), !core.memory.is_null<Callbacks>(reference.callbacks))
+    ensures(trusted native_callback(context = reference.context))
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let address = trusted lambda(pos reference: &Reference) -> DataPointer<Callbacks>
+        requires(trusted native_reference(reference = reference))
+        ensures(
+            trusted core.memory.valid_read<Callbacks>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Callbacks>(pointer = result),
+            trusted core.memory.aligned_for<Callbacks>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return reference.callbacks;
+    };
+
+    return trusted std.memory.read<Callbacks>(trusted address(reference));
+}
+
+// The compiler passes the final consumer descriptor. Archive/MIR contributions
+// therefore acquire that consumer's root rather than inventing an image owner.
+@abi(c)
+trusted internal func acquire(pos key: usize, pos output: DataPointer<Reference>) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(raw_memory, foreign_call)
+{
+    if key != 0
+    {
+        let selected = trusted bray.runtime.bootstrap.host.product.descriptor(key);
+
+        if !core.memory.is_null<bray.runtime.bootstrap.host.product.ProviderOperations>(selected.provider)
+        {
+            let address = trusted lambda(pos descriptor: &bray.runtime.bootstrap.host.product.Descriptor) ->
+                DataPointer<bray.runtime.bootstrap.host.product.ProviderOperations>
+                requires(trusted bray.runtime.bootstrap.host.product.native_host())
+                ensures(
+                    trusted core.memory.valid_read<bray.runtime.bootstrap.host.product.ProviderOperations>(
+                        pointer = result,
+                        count = 1
+                    ),
+                    trusted core.memory.initialized_as<bray.runtime.bootstrap.host.product.ProviderOperations>(
+                        pointer = result
+                    ),
+                    trusted core.memory.aligned_for<bray.runtime.bootstrap.host.product.ProviderOperations>(
+                        pointer = result
+                    )
+                )
+                executes(pure, total)
+            {
+                return descriptor.provider;
+            };
+
+            let operations = trusted std.memory.read<bray.runtime.bootstrap.host.product.ProviderOperations>(
+                trusted address(&selected)
+            );
+
+            return trusted operations.root(key, output);
+        }
+    }
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, trusted resident_reference());
+
+    return 0;
+}
+
+// Generated native disposal transfers an owning wire slot, never a copied view.
+trusted internal predicate native_owned_wire(pointer: DataPointer<Reference>);
+
+@abi(c)
+trusted internal func release(pos pointer: DataPointer<Reference>)
+    requires(trusted native_owned_wire(pointer = pointer))
+{
+    trusted release_owned(trusted take_wire(pointer));
+}
+
+trusted internal func take_wire(pos pointer: DataPointer<Reference>) -> Reference
+    requires(trusted native_owned_wire(pointer = pointer))
+    ensures(trusted native_owned_reference(reference = &result))
+    uses(raw_memory, unchecked_init)
+{
+    let address = trusted lambda(pos pointer: DataPointer<Reference>) -> DataPointer<Reference>
+        requires(trusted native_owned_wire(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = result, count = 1),
+            trusted core.memory.valid_write<Reference>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Reference>(pointer = result),
+            trusted core.memory.aligned_for<Reference>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return pointer;
+    };
+
+    let slot = trusted address(pointer);
+    let reference = trusted std.memory.read<Reference>(slot);
+
+    trusted std.memory.write<Reference>(slot, trusted resident_reference());
+
+    return reference;
+}

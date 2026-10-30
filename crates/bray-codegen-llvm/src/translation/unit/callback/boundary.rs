@@ -203,7 +203,6 @@ pub(in crate::translation::unit) fn consume_owned_report<'context>(
 ) -> Result<(), CodegenFailure> {
     let owns_report = crate::translation::panic::report_has_ownership(context, builder, |index| {
         super::super::support::extract_value(builder, payload, index)
-            .map(BasicValueEnum::into_int_value)
     })?;
 
     let report = context.append_basic_block(function, "callback.report_incidents");

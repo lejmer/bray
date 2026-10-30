@@ -2120,6 +2120,73 @@ fn static_initializers_cannot_read_runtime_values_through_helpers() {
 }
 
 #[test]
+fn source_and_imported_static_callable_values_report_invalid_constant_expressions() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        callable Callback = func() -> i32;
+
+        func read() -> i32
+        {
+            return 42;
+        }
+
+        static STORED: Callback = read;
+
+        func observe() -> &Callback
+        {
+            return &STORED;
+        }
+        "#,
+    );
+
+    let consumer_source = r#"
+        module app;
+
+        using example.package.api;
+
+        func observe() -> &example.package.api.Callback
+        {
+            return &example.package.api.STORED;
+        }
+        "#;
+
+    let spelling = "example.package.api.STORED";
+
+    let reference = consumer_source
+        .find(spelling)
+        .expect("fixture references its static");
+
+    let reference = u32::try_from(reference).expect("fixture source fits its offset");
+
+    let span = bray_source::SourceSpan::new(
+        bray_source::SourceId::new(0),
+        bray_source::TextRange::new(
+            bray_source::TextSize::new(reference),
+            bray_source::TextSize::new(
+                reference + u32::try_from(spelling.len()).expect("fixture spelling fits"),
+            ),
+        ),
+    );
+
+    let dependency =
+        super::fixtures::implementation_dependency(export(&provider)).with_dependency_span(span);
+
+    let consumer =
+        crate::test_support::compilation_with_dependencies(consumer_source, [dependency]);
+
+    for checked in [&provider, &consumer] {
+        let evaluated = static_initializer_evaluation(checked, "observe");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            evaluated.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
+        );
+    }
+}
+
+#[test]
 fn source_and_imported_statics_evaluate_the_same_prepared_local_state() {
     let provider = compilation(
         r#"

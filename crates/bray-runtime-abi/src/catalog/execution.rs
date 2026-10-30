@@ -438,6 +438,116 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ControlProductHost]
             }
+            ProviderDomainAccess {
+                "Export the resident host storage and provider operations.", "provider_domain_access",
+                native: (PROVIDER_DOMAIN_ACCESS_SYMBOL = "bray_runtime_provider_domain_access", [Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("domain.domain_access"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductProviderFormation {
+                "Admit and form one independently loaded provider.", "product_provider_formation",
+                native: (PRODUCT_PROVIDER_FORMATION_SYMBOL = "bray_runtime_product_provider_formation", [Usize, Pointer, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.product.form_provider"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductProviderControl {
+                "Control one epoch-checked external provider activation.", "product_provider_control",
+                native: (PRODUCT_PROVIDER_CONTROL_SYMBOL = "bray_runtime_product_provider_control", [Usize, U64, U32, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, U64, U32, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.product.control_provider"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductProviderRetirement {
+                "Transfer a retired provider's final residency to its resident caller.", "product_provider_retirement",
+                native: (PRODUCT_PROVIDER_RETIREMENT_SYMBOL = "bray_runtime_product_provider_retirement", [Usize, U64, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, U64, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.product.retire_provider"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductProviderNotification {
+                "Resume admitted cleanup after native provider ownership changes.", "product_provider_notification",
+                native: (PRODUCT_PROVIDER_NOTIFICATION_SYMBOL = "bray_runtime_product_provider_notification", [Usize, Usize, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.product.notify_provider"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductProviderRoot {
+                "Acquire a root from an admitted image producer's activation slot.", "product_provider_root",
+                native: (PRODUCT_PROVIDER_ROOT_SYMBOL = "bray_runtime_product_provider_root", [Usize, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("host.product.acquire_provider_root"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProviderReferenceAcquire {
+                "Transfer the final consumer's provider root into a native value.", "provider_reference_acquire",
+                native: (PROVIDER_REFERENCE_ACQUIRE_SYMBOL = "bray_runtime_provider_reference_acquire", [Usize, Pointer] -> U32),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("provider.acquire"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProviderReferenceRelease {
+                "Consume an already admitted native provider reference.", "provider_reference_release",
+                native: (PROVIDER_REFERENCE_RELEASE_SYMBOL = "bray_runtime_provider_reference_release", [Pointer] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("provider.release"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProviderRootRetain {
+                "Duplicate an existing whole-product root without fresh entry admission.", "provider_root_retain",
+                native: (PROVIDER_ROOT_RETAIN_SYMBOL = "bray_runtime_provider_root_retain", [Usize] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.root_retain"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProviderRootRelease {
+                "Release a whole-product root after protected callbacks return.", "provider_root_release",
+                native: (PROVIDER_ROOT_RELEASE_SYMBOL = "bray_runtime_provider_root_release", [Usize] -> Void),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Host, availability: All, bootstrap: ("host.product.root_release"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProviderRootReferences {
+                "Observe root references while their enclosing owner remains live.", "provider_root_references",
+                native: (PROVIDER_ROOT_REFERENCES_SYMBOL = "bray_runtime_provider_root_references", [Usize] -> Usize),
+                service: Host,
+                call_hook: (),
+                compiler: C [Usize] -> Usize,
+                owner: Host, availability: All, bootstrap: ("host.product.root_references"), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
             ProductCleanupContinuation {
                 "Run Bray-owned terminal work borrowed by its synchronous execution context.", "product_cleanup_continuation",
                 native: (PRODUCT_CLEANUP_CONTINUATION_SYMBOL = "bray_runtime_product_cleanup_continuation", [Usize] -> U32),
@@ -877,7 +987,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportConstruction {
                 "Construct one owned panic report.", "panic_report_construction",
-                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, U64, U64, U64, U64, Pointer, Usize] -> PanicReport),
+                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, U64, U64, U64, U64, Pointer, Usize, Usize] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: ("panic_report_construction"), host_control: false,

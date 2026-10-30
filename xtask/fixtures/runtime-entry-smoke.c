@@ -63,6 +63,8 @@ typedef struct
     StaticEntry (*static_entry)(size_t);
     size_t static_count;
     uint32_t (*execution)(uint32_t, struct ProductExecution*);
+    void* activation;
+    const void* provider;
 } HostDescriptor;
 
 static StaticEntry no_statics(size_t ordinal)

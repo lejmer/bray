@@ -3,6 +3,7 @@ pub(crate) mod cleanup;
 mod debug;
 pub(crate) mod frame;
 pub(crate) mod incident;
+pub(crate) mod provider;
 mod static_storage;
 mod symbol;
 mod ty;

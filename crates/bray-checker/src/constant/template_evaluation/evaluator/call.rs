@@ -29,6 +29,14 @@ where
             return Ok(self.intern_value(ty, ConstantValueKind::union(variant, [])));
         }
 
+        if CallableDefinitionId::try_new(symbol).is_some()
+            || matches!(symbol, AnySymbolId::Static(_))
+        {
+            return Err(TemplateEvaluationFailure::invalid_expression(
+                bray_diagnostics::DiagnosticExpressionCategory::NameReference,
+            ));
+        }
+
         let Some(definition) = constant_definition(symbol) else {
             panic!("constant symbol {symbol:?} must have a constant definition");
         };

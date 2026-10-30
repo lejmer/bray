@@ -11,7 +11,7 @@ using internal bray.runtime.bootstrap.pool;
 
 internal struct ThreadDomain
 {
-    key: usize;
+    mut key: usize;
     mut identity: u64;
     mut depth: usize;
     mut closing: bool;
@@ -33,7 +33,7 @@ trusted internal func same_identity(pos left: Identity, pos right: Identity) -> 
     return byte == 32;
 }
 
-trusted internal func find_domain(
+trusted internal func find_domain_record(
     pos domains: &mut std.memory.RawBuffer<ThreadDomain>,
     pos key: usize
 ) -> (&mut ThreadDomain)?
@@ -45,12 +45,29 @@ trusted internal func find_domain(
 
     while index < rows.length()
     {
-        if rows[index].key == key && rows[index].identity != 0
+        if rows[index].key == key
         {
             return &mut rows[index];
         }
 
         index += 1;
+    }
+
+    return none;
+}
+
+trusted internal func find_domain(
+    pos domains: &mut std.memory.RawBuffer<ThreadDomain>,
+    pos key: usize
+) -> (&mut ThreadDomain)?
+    executes(total)
+{
+    if let ?domain = trusted find_domain_record(domains, key)
+    {
+        if domain.identity != 0
+        {
+            return domain;
+        }
     }
 
     return none;
@@ -74,6 +91,65 @@ trusted internal func domain_in_host(
     }
 
     return none;
+}
+
+trusted internal func closed_domain_in_host(
+    pos host: &mut bray.runtime.bootstrap.host.HostOwner,
+    pos identity: u64,
+    pos key: usize
+) -> bool
+{
+    if let ?storage = host.storage
+    {
+        if let ?attachment = trusted bray.runtime.bootstrap.host.find_attachment(&mut storage, identity, 0)
+        {
+            if let ?domains = attachment.domains
+            {
+                if let ?domain = trusted find_domain_record(&mut domains, key)
+                {
+                    return domain.identity == 0;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+// Preserve explicit detachment while the product is live. Retirement makes its
+// inactive rows reusable, bounding storage by concurrent memberships.
+trusted internal func retire_thread_domains(pos input: &mut(bray.runtime.bootstrap.host.HostStorage?), pos key: usize)
+    uses(raw_memory)
+{
+    if let ?storage = input
+    {
+        let attachments = trusted std.memory.initialized_slice_mut<bray.runtime.bootstrap.host.Attachment>(
+            &mut storage.attachments
+        );
+
+        let mut index: usize = 0;
+
+        while index < attachments.length()
+        {
+            if let ?domains = attachments[index].domains
+            {
+                let rows = trusted std.memory.initialized_slice_mut<ThreadDomain>(&mut domains);
+                let mut row: usize = 0;
+
+                while row < rows.length()
+                {
+                    if rows[row].identity == 0 && rows[row].key == key
+                    {
+                        rows[row].key = 0;
+                    }
+
+                    row += 1;
+                }
+            }
+
+            index += 1;
+        }
+    }
 }
 
 trusted internal func reserve_domain_locked(
@@ -181,7 +257,7 @@ trusted internal func reserve_domain_locked(
 
         while index < rows.length()
         {
-            if rows[index].identity == 0
+            if rows[index].identity == 0 && (rows[index].key == key || rows[index].key == 0)
             {
                 vacant = index;
                 break;
@@ -303,6 +379,13 @@ trusted internal func enter_domain(pos key: usize, pos depth: usize) -> u64
             domain.depth += depth;
 
             return domain.identity;
+        }
+
+        // Another product may keep the native attachment alive after this
+        // product explicitly detaches. Only explicit reentry reopens it.
+        if depth == 0 && trusted closed_domain_in_host(host, identity, key)
+        {
+            return 0;
         }
     }
 

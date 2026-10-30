@@ -249,6 +249,8 @@ struct PanicReport
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t*, uintptr_t);
     void (*release_message)(uintptr_t, uintptr_t, RunOutcome*);
+    uintptr_t provider_context;
+    const void* provider_callbacks;
     uintptr_t head;
     uintptr_t tail;
     uintptr_t count;
@@ -263,8 +265,8 @@ struct RunOutcome
     PanicReport report;
 };
 
-_Static_assert(sizeof(PanicReport) == 136, "native report layout");
-_Static_assert(sizeof(RunOutcome) == 152, "native outcome layout");
+_Static_assert(sizeof(PanicReport) == 152, "native report layout");
+_Static_assert(sizeof(RunOutcome) == 168, "native outcome layout");
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 
@@ -339,7 +341,8 @@ extern PanicReport bray_runtime_panic_report_construction(
     uint64_t source_namespace_word_2,
     uint64_t source_namespace_word_3,
     const uint8_t* message,
-    uintptr_t message_length
+    uintptr_t message_length,
+    uintptr_t provider
 );
 
 static uint32_t shutdown_product(void)
@@ -429,7 +432,8 @@ static PanicReport panic_report(void)
         0,
         0,
         message,
-        sizeof(message) - 1
+        sizeof(message) - 1,
+        0
     );
 }
 
@@ -2857,6 +2861,8 @@ struct CleanupIncident
     uint32_t (*report)(uintptr_t, RunOutcome*);
     void (*destroy)(CleanupIncident*, RunOutcome*, RunOutcome*);
     CleanupLease backing;
+    uintptr_t provider_context;
+    const void* provider_callbacks;
 };
 
 extern PanicReport bray_runtime_cleanup_incident_transfer(const CleanupIncident*, PanicReport);

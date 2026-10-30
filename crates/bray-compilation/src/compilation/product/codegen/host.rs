@@ -25,7 +25,7 @@ impl Compilation {
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
         native_statics: &[bray_native_artifact::NativeStatic],
-        worker_cleanup: bool,
+        execution: Option<bray_symbols::CallableExecution>,
         mut runtime_dependencies: BTreeMap<
             bray_runtime_abi::NativeStaticIdentity,
             Vec<bray_runtime_abi::NativeStaticIdentity>,
@@ -41,7 +41,18 @@ impl Compilation {
                 })
             });
 
-        if entries.is_empty() && native_statics.is_empty() && !foreign_entry {
+        let publishes_value = mappings
+            .iter()
+            .flat_map(CodegenMappings::symbols)
+            .any(|symbol| {
+                let bray_codegen::CodegenSymbolKey::Runtime(runtime) = symbol.key() else {
+                    return false;
+                };
+
+                publishes_native_report(runtime.role())
+            });
+
+        if entries.is_empty() && native_statics.is_empty() && !foreign_entry && !publishes_value {
             return Ok(None);
         }
 
@@ -191,11 +202,7 @@ impl Compilation {
                 statics,
             )
             .expect("ordered static host contributions must form a valid product mapping")
-            .with_execution(
-                product_execution(entries, native_statics).or_else(|| {
-                    worker_cleanup.then_some(bray_symbols::CallableExecution::Synchronous)
-                }),
-            ),
+            .with_execution(product_execution(entries, native_statics).or(execution)),
         ))
     }
 
@@ -514,6 +521,20 @@ impl Compilation {
     }
 }
 
+pub(super) fn publishes_native_report(role: RuntimeAbiRole) -> bool {
+    role.contract()
+        .effects()
+        .contains(&bray_runtime_interface::RuntimeRoleContractEffect::ConstructPanicReport)
+        || role.native_signature().is_some_and(|signature| {
+            matches!(
+                signature.result(),
+                bray_runtime_interface::RuntimeAbiType::PanicReport
+                    | bray_runtime_interface::RuntimeAbiType::RunOutcome
+                    | bray_runtime_interface::RuntimeAbiType::FrameProgress
+            )
+        })
+}
+
 pub(super) fn native_static_host_entries(
     kind: ProductKind,
     native_statics: &[bray_native_artifact::NativeStatic],
@@ -646,7 +667,11 @@ pub(super) fn native_host_runtime_roles(
         ]);
     }
 
-    if product_execution(statics, native_statics).is_some() {
+    if product_execution(statics, native_statics).is_some()
+        || roles
+            .iter()
+            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
+    {
         roles.insert(RuntimeAbiRole::ProductExecutionProvider);
     }
 

@@ -530,10 +530,19 @@ mod tests {
 
             let data = machine.target_data();
 
-            assert_eq!(data.get_store_size(&report), 136);
+            assert_eq!(data.get_store_size(&report), 152);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
-            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 60), (11, 64), (19, 128)] {
+            for (element, offset) in [
+                (5, 24),
+                (8, 48),
+                (9, 56),
+                (10, 60),
+                (11, 64),
+                (15, 96),
+                (16, 104),
+                (21, 144),
+            ] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
         }
@@ -822,7 +831,7 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 13);
+        assert_eq!(panic.count_param_types(), 14);
 
         assert_eq!(
             panic.get_param_types(),
@@ -839,6 +848,7 @@ mod tests {
                 context.i64_type().into(),
                 context.i64_type().into(),
                 context.ptr_type(inkwell::AddressSpace::default()).into(),
+                context.i64_type().into(),
                 context.i64_type().into(),
             ]
         );
@@ -872,7 +882,7 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 13);
+        assert_eq!(panic.count_param_types(), 14);
 
         assert_eq!(
             panic.get_param_types(),
@@ -889,6 +899,7 @@ mod tests {
                 context.i64_type().into(),
                 context.i64_type().into(),
                 context.ptr_type(inkwell::AddressSpace::default()).into(),
+                context.i64_type().into(),
                 context.i64_type().into(),
             ]
         );

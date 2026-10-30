@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using core.target;
 using core.atomic;
 using core.memory;
@@ -93,7 +94,7 @@ trusted internal func host_access() -> HostLease
     uses(intrinsic, raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        &SYNCHRONIZATION,
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
         trusted synchronization_pointer()
     );
 
@@ -106,8 +107,8 @@ trusted internal func host_access() -> HostLease
             acquisition = Acquisition
             {
             },
-            synchronization = &SYNCHRONIZATION,
-            owner = &HOST_OWNER,
+            synchronization = trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+            owner = trusted bray.runtime.bootstrap.domain.host_storage(),
             active = false
         };
     }
@@ -127,8 +128,8 @@ trusted internal func host_access() -> HostLease
                 acquisition = Acquisition
                 {
                 },
-                synchronization = &SYNCHRONIZATION,
-                owner = &HOST_OWNER,
+                synchronization = trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+                owner = trusted bray.runtime.bootstrap.domain.host_storage(),
                 active = true
             };
         }
@@ -142,8 +143,8 @@ trusted internal func host_access() -> HostLease
                 acquisition = Acquisition
                 {
                 },
-                synchronization = &SYNCHRONIZATION,
-                owner = &HOST_OWNER,
+                synchronization = trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+                owner = trusted bray.runtime.bootstrap.domain.host_storage(),
                 active = false
             };
         }

@@ -13,6 +13,8 @@ using internal bray.runtime.bootstrap.pool;
 using internal std.memory;
 using internal std.sync;
 using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.host.product;
 
 internal callable PanicMessageCopy = @abi(c) trusted func(
     pos address: usize,
@@ -53,6 +55,8 @@ trusted internal func empty_panic_report() -> PanicReportData
         message_length = 0,
         copy_message = 0,
         release_message = 0,
+        provider_context = 0,
+        provider_callbacks = 0,
         outgoing_head = 0,
         outgoing_tail = 0,
         outgoing_count = 0,
@@ -61,14 +65,14 @@ trusted internal func empty_panic_report() -> PanicReportData
     };
 }
 
-trusted internal func allocation_failure() -> ReportOutcome
+trusted internal func allocation_failure(pos consumer: usize) -> ReportOutcome
     executes(total)
 {
     let mut failure = empty_panic_report();
 
     failure.cause = PANIC_ALLOCATION_FAILURE;
     failure.primary_present = 1;
-    failure.consumer = trusted consume_address();
+    failure.consumer = consumer;
 
     return
     {
@@ -92,9 +96,11 @@ trusted internal func panic_report_construction(
     pos source_namespace_word_3: u64,
     pos message: DataPointer<u8>,
     pos message_length: usize,
+    pos provider_key: usize,
 ) -> PanicReportData
     ensures(trusted native_report_callbacks(report = &result))
     requires(
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
         trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
@@ -154,7 +160,23 @@ trusted internal func panic_report_construction(
 
     report.consumer = trusted consume_address();
 
-    _ = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
+    trusted bray.runtime.bootstrap.pool.report_constructed();
+
+    let mut provider = trusted bray.runtime.bootstrap.provider.resident_reference();
+
+    if trusted bray.runtime.bootstrap.provider.acquire(
+        provider_key,
+        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut provider)
+    ) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    report.provider_context = provider.context;
+
+    report.provider_callbacks = trusted core.target.expose_address<bray.runtime.bootstrap.provider.Callbacks>(
+        provider.callbacks
+    );
 
     return report;
 }
@@ -372,10 +394,10 @@ trusted internal func panic_message_release(pos address: usize, pos length: usiz
 
     if length != 0
     {
-        // Move the real buffer owner out before unlocking; destruction runs outside
+        // Move the real buffer owner out before unlocking. destruction runs outside
         // the pool lock and resolves its actual allocation exactly once.
         let storage: std.memory.RawBuffer<u8>? = trusted take_message_storage(address);
     }
 
-    _ = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
+    trusted bray.runtime.bootstrap.pool.report_consumed();
 }

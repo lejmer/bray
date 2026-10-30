@@ -200,7 +200,7 @@ impl Compilation {
             native_statics,
             native_main_thread,
             runtime_dependencies,
-            worker_cleanup,
+            execution,
         } = self.prepare_native_codegen(
             &product,
             semantic.value().kind(),
@@ -223,14 +223,19 @@ impl Compilation {
                     &mappings,
                     &host_statics,
                     &native_statics,
-                    worker_cleanup,
+                    execution,
                     runtime_dependencies,
                     &target,
                 )
             },
         )?;
 
-        let product_host = product_host.map(|host| host.with_final_image(final_image));
+        let product_host = product_host.map(|host| {
+            host.with_final_image(final_image).with_independent_load(
+                linker
+                    .is_some_and(|(_, kind)| kind == bray_linker::LinkedProductKind::SharedLibrary),
+            )
+        });
 
         // Each unit mapping independently retains the Arc-backed product-host contract.
         let mappings = mappings

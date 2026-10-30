@@ -1,0 +1,360 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.atomic;
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.pool;
+
+internal struct ProviderProbe
+{
+    callback: RootCallback;
+    revision: u64;
+    failed_formation: bool;
+}
+
+// Pin before borrowing the native provider. never invoke native observers under
+// the host lock. Reentrant control and root acquisition invalidate the revision.
+trusted internal func begin_provider_probe(pos key: usize, pos epoch: u64) -> ProviderProbe?
+    requires(trusted native_host())
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return none;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?provider = product.provider
+            {
+                if !provider.observing && trusted provider_roots(&provider) == 0 && product.state.phase matches
+                    Closing | Closed | Failed && (epoch == 0 || (trusted provider_residency(&provider)).epoch == epoch)
+                {
+                    provider.observing = true;
+                    provider.observed = none;
+
+                    let callback = trusted pin_provider(&provider);
+                    let cell = trusted provider_residency(&provider);
+                    let revision = core.atomic.load<u64, 1>(&cell.revision);
+
+                    return
+                    {
+                        callback = callback,
+                        revision = revision,
+                        failed_formation = product.failure matches ?_
+                    };
+                }
+            }
+        }
+    }
+
+    return none;
+}
+
+trusted internal func observe_provider(pos key: usize, pos rollback: bool = false, pos epoch: u64 = 0) -> bool
+    requires(trusted native_host())
+    uses(foreign_call)
+{
+    let probe = match consume trusted begin_provider_probe(key, epoch)
+    {
+        case ?probe { yield probe; }
+        case none { return false; }
+    };
+
+    let permitted = trusted lambda(pos probe: &ProviderProbe)
+        requires(trusted native_host())
+        ensures(trusted root_callback_live(owner = &probe.callback.acquisition))
+        executes(pure, total) {};
+
+    trusted permitted(&probe);
+
+    let pinned_cell = trusted callback_value(&probe.callback);
+
+    let reference: bray.runtime.bootstrap.provider.Reference =
+    {
+        context = pinned_cell.native_context,
+        callbacks = pinned_cell.native_callbacks
+    };
+
+    let borrowed = trusted lambda(
+        pos callback: &RootCallback,
+        pos reference: &bray.runtime.bootstrap.provider.Reference
+    )
+        requires(trusted root_callback_live(owner = &callback.acquisition))
+        ensures(trusted bray.runtime.bootstrap.provider.native_reference(reference = reference))
+        executes(pure, total) {};
+
+    trusted borrowed(&probe.callback, &reference);
+
+    let operations = trusted bray.runtime.bootstrap.provider.callbacks(&reference);
+
+    // Failed formation never publishes entry. Roll back its admitted statics
+    // while the native caller still holds the input. retain the binding itself.
+    let native_ready = if rollback && probe.failed_formation
+    {
+        yield true;
+    }
+    else
+    {
+        yield (trusted operations.references(reference.context)) == 1;
+    };
+
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return false;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if let ?products = host.products
+    {
+        if let ?product = trusted find_product(&mut products, key)
+        {
+            if let ?provider = product.provider
+            {
+                let cell = trusted provider_residency(&provider);
+
+                let ready = native_ready && trusted provider_roots(&provider) == 0 && core.atomic.load<u64, 1>(
+                    &cell.revision
+                ) == probe.revision;
+
+                provider.observing = false;
+
+                if ready
+                {
+                    provider.observed = probe.revision;
+                }
+
+                return ready;
+            }
+        }
+    }
+
+    return false;
+}
+
+trusted internal func provider_ready(pos provider: &LoadedProvider) -> bool
+    requires(trusted native_host())
+{
+    if let ?revision = provider.observed
+    {
+        let cell = trusted provider_residency(provider);
+
+        return !provider.observing && trusted provider_roots(provider) == 0 && core.atomic.load<u64, 1>(
+            &cell.revision
+        ) == revision;
+    }
+
+    return false;
+}
+
+@abi(c)
+trusted internal func retire_provider(
+    pos key: usize,
+    pos epoch: u64,
+    pos output: DataPointer<ProviderRetirement>
+) -> u32
+    requires(trusted native_host())
+{
+    trusted provider_entry();
+    trusted publish_provider<ProviderRetirement>(output, trusted retire_value(key, epoch));
+
+    return 0;
+}
+
+trusted internal func retire_value(pos key: usize, pos epoch: u64) -> ProviderRetirement
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result.provider))
+{
+    let mut result: ProviderRetirement =
+    {
+        observation = unavailable(3),
+        provider = trusted bray.runtime.bootstrap.provider.resident_reference()
+    };
+
+    // Check external identity before any observation of the old image.
+    let valid =
+    {
+        let pin = trusted pin_handle(key, epoch);
+
+        yield pin matches ?_;
+    };
+
+    if valid && trusted observe_provider(key, false, epoch)
+    {
+        let mut retired: LoadedProvider? = none;
+
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if lease.active
+            {
+                let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+                let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+                if let ?products = host.products
+                {
+                    if let ?product = trusted find_product(&mut products, key)
+                    {
+                        result.observation = product.state.observation(1);
+
+                        if let ?provider = product.provider
+                        {
+                            let cell = trusted provider_residency(&provider);
+
+                            if cell.epoch == epoch && trusted provider_ready(&provider) && core.atomic.load<usize, 1>(
+                                &cell.callbacks
+                            ) == 0 && product.callers == 0 && product.state.phase matches Closed | Failed &&
+                                product.state.active_entries == 0 && product.state.external_roots == 0 &&
+                                product.state.attachments == 0
+                            {
+                                // Publish invalidation before returning final residency.
+                                let selected = trusted descriptor(key);
+
+                                let slot = trusted activation_value(&selected);
+
+                                core.atomic.store<usize, 2>(slot, 1);
+                                trusted retire_thread_domains(&mut host.storage, key);
+
+                                result.observation = product.state.observation(0);
+                                product.key = 0;
+                                product.descriptor = none;
+                                retired = trusted std.memory.take_nullable<LoadedProvider>(&mut product.provider);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let ?provider = retired
+        {
+            result.provider = trusted take_native_provider(&mut provider);
+        }
+    }
+    else if valid
+    {
+        let current = trusted provider_observation(key, trusted transition(key, 6));
+
+        if current.handle.epoch == epoch
+        {
+            result.observation = current.observation;
+            result.observation.status = 1;
+        }
+    }
+
+    return result;
+}
+
+// This continuation is reachable only through the resident domain's callbacks.
+// Every image callback and every stable-cell pin has already left its scope.
+trusted internal func retire_resident(pos key: usize, pos epoch: u64)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let mut retirement = trusted retire_value(key, epoch);
+    let provider = trusted take_retirement_provider(&mut retirement);
+
+    trusted bray.runtime.bootstrap.provider.release_owned(provider);
+}
+
+trusted internal func take_retirement_provider(
+    pos retirement: &mut ProviderRetirement
+) -> bray.runtime.bootstrap.provider.Reference
+    requires(trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &retirement.provider))
+    ensures(trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result))
+{
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
+        &mut retirement.provider,
+        trusted bray.runtime.bootstrap.provider.resident_reference()
+    );
+}
+
+trusted internal func provider_dependency_count(pos key: usize) -> usize
+    requires(trusted native_host())
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if lease.active
+    {
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+        if let ?products = host.products
+        {
+            if let ?product = trusted find_product(&mut products, key)
+            {
+                if let ?provider = product.provider
+                {
+                    if let ?dependencies = provider.dependencies
+                    {
+                        return dependencies.initialized;
+                    }
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
+trusted internal func take_provider_dependency(
+    pos key: usize,
+    pos index: usize
+) -> bray.runtime.bootstrap.provider.Reference
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result))
+    uses(raw_memory)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if lease.active
+    {
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+        if let ?products = host.products
+        {
+            if let ?product = trusted find_product(&mut products, key)
+            {
+                if let ?provider = product.provider
+                {
+                    if let ?dependencies = provider.dependencies
+                    {
+                        let rows = trusted std.memory.initialized_slice_mut<ProviderDependency>(&mut dependencies);
+
+                        return trusted take_dependency_root(&mut rows[index]);
+                    }
+                }
+            }
+        }
+    }
+
+    return trusted bray.runtime.bootstrap.provider.resident_reference();
+}
+
+trusted internal func release_provider_dependencies(pos key: usize)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let count = trusted provider_dependency_count(key);
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let root = trusted take_provider_dependency(key, index);
+
+        trusted bray.runtime.bootstrap.provider.release_owned(root);
+        index += 1;
+    }
+}

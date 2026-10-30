@@ -1,4 +1,4 @@
-use crate::{NativeRuntimeStatus, NativeSourceAnchor};
+use crate::{NativeProductHostDescriptor, NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 2;
@@ -210,6 +210,7 @@ pub struct NativeCleanupIncident {
     report: Option<NativeCleanupIncidentReportCallback>,
     destroy: Option<NativeCleanupIncidentDestroyCallback>,
     backing: crate::NativeCleanupStorageLease,
+    provider: crate::NativeProviderReference,
 }
 
 impl NativeCleanupIncident {
@@ -222,6 +223,7 @@ impl NativeCleanupIncident {
             report: None,
             destroy: None,
             backing: crate::NativeCleanupStorageLease::empty(),
+            provider: crate::NativeProviderReference::resident(),
         }
     }
 
@@ -240,6 +242,7 @@ impl NativeCleanupIncident {
             report: Some(report),
             destroy: Some(destroy),
             backing: crate::NativeCleanupStorageLease::empty(),
+            provider: crate::NativeProviderReference::resident(),
         }
     }
 
@@ -265,12 +268,30 @@ impl NativeCleanupIncident {
         &mut self.backing
     }
 
+    /// Transfers provider ownership into this native payload's disposal protocol.
+    /// Copying the incident header does not duplicate this reference.
+    pub fn retain_provider(&mut self, provider: crate::NativeProviderOwner) {
+        assert!(
+            !self.provider.is_retained(),
+            "incident provider ownership publishes once"
+        );
+
+        self.provider = provider.into_reference();
+    }
+
+    /// Borrows residency while the enclosing native payload owner remains live.
+    /// Native callers retain a guard through callback return and local destruction.
+    pub const fn provider_reference(&self) -> crate::NativeProviderReference {
+        self.provider
+    }
+
     /// Returns whether every data field satisfies the native ownership contract.
     pub const fn is_valid(self) -> bool {
         self.payload != 0
             && self.source.is_valid()
             && self.report.is_some()
             && self.destroy.is_some()
+            && self.provider.is_valid()
     }
 
     /// Returns the owned payload address.
@@ -523,78 +544,6 @@ impl NativeStaticHostEntry {
     /// Returns the number of dependency identities.
     pub const fn dependency_count(self) -> usize {
         self.dependency_count
-    }
-}
-
-/// Immutable compiler-generated descriptor for one loaded product host.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct NativeProductHostDescriptor {
-    abi_version: u32,
-    asynchronous: u32,
-    identity: NativeProductIdentity,
-    static_entry: NativeStaticHostCallback,
-    static_count: usize,
-    execution: Option<crate::NativeProductExecutionFactory>,
-}
-
-impl NativeProductHostDescriptor {
-    /// Creates one immutable compiler-generated product-host descriptor.
-    pub const fn new(
-        identity: NativeProductIdentity,
-        static_entry: NativeStaticHostCallback,
-        static_count: usize,
-    ) -> Self {
-        Self {
-            abi_version: PRODUCT_HOST_ABI_VERSION,
-            asynchronous: 0,
-            identity,
-            static_entry,
-            static_count,
-            execution: None,
-        }
-    }
-
-    /// Selects the execution-resource provider required by async or exact-thread consumers.
-    pub const fn with_execution(
-        mut self,
-        factory: crate::NativeProductExecutionFactory,
-        asynchronous: bool,
-    ) -> Self {
-        self.execution = Some(factory);
-        self.asynchronous = asynchronous as u32;
-
-        self
-    }
-
-    /// Returns the demanded execution-resource factory, if the product requires one.
-    pub const fn execution(self) -> Option<crate::NativeProductExecutionFactory> {
-        self.execution
-    }
-
-    /// Returns whether formation must acquire a service capable of driving asynchronous cleanup.
-    pub const fn asynchronous(self) -> bool {
-        self.asynchronous != 0
-    }
-
-    /// Returns the record ABI version.
-    pub const fn abi_version(self) -> u32 {
-        self.abi_version
-    }
-
-    /// Returns the loaded product identity.
-    pub const fn identity(self) -> NativeProductIdentity {
-        self.identity
-    }
-
-    /// Returns the callback selecting one ordered static entry by ordinal.
-    pub const fn static_entry(self) -> NativeStaticHostCallback {
-        self.static_entry
-    }
-
-    /// Returns the number of static entries.
-    pub const fn static_count(self) -> usize {
-        self.static_count
     }
 }
 

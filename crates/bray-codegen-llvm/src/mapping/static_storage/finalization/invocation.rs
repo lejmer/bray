@@ -457,6 +457,7 @@ fn declare_static_finalizer_resolver<'context>(
     let source = crate::native::mir_source_anchor_value(context, namespace, finalization.source());
 
     let incident = crate::mapping::incident::record_value(
+        module,
         &builder,
         identity,
         source,

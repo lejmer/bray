@@ -1,0 +1,297 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.atomic;
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.pool;
+
+// The native entry lends the complete immutable binding and dependency array.
+// Reading them creates views. only an actual callback acquisition creates a root.
+trusted internal func binding_value(pos pointer: DataPointer<ProviderBinding>) -> ProviderBinding
+    requires(trusted native_host())
+    uses(raw_memory)
+{
+    let address = trusted lambda(pos pointer: DataPointer<ProviderBinding>) -> DataPointer<ProviderBinding>
+        requires(trusted native_host())
+        ensures(
+            trusted core.memory.valid_read<ProviderBinding>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<ProviderBinding>(pointer = result),
+            trusted core.memory.aligned_for<ProviderBinding>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return pointer;
+    };
+
+    return trusted std.memory.read<ProviderBinding>(trusted address(pointer));
+}
+
+trusted internal func dependency_value(pos binding: &ProviderBinding, pos index: usize) -> ProviderHandle
+    requires(trusted native_host(), index < binding.dependency_count)
+    uses(raw_memory)
+{
+    let address = trusted lambda(pos binding: &ProviderBinding, pos index: usize) -> DataPointer<ProviderHandle>
+        requires(trusted native_host(), index < binding.dependency_count)
+        ensures(
+            trusted core.memory.valid_read<ProviderHandle>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<ProviderHandle>(pointer = result),
+            trusted core.memory.aligned_for<ProviderHandle>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return std.memory.offset<ProviderHandle>(
+            binding.dependencies,
+            elements = std.numeric.truncate_to<isize, usize>(index)
+        );
+    };
+
+    return trusted std.memory.read<ProviderHandle>(trusted address(binding, index));
+}
+
+internal func dependency_less(pos left: ProviderHandle, pos right: ProviderHandle) -> bool
+    executes(pure, total)
+{
+    return left.key < right.key || (left.key == right.key && left.epoch < right.epoch);
+}
+
+// Canonicalize once at admission, in place, with bounded stack and O(n log n)
+// comparisons. Frozen binding comparison is linear and root release is O(1).
+trusted internal func sift_dependencies(pos rows: &mut [ProviderDependency], pos start: usize, pos end: usize)
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let mut root = start;
+
+    while root < end / 2
+    {
+        let mut child = root * 2 + 1;
+
+        if child + 1 < end && dependency_less(rows[child].handle, rows[child + 1].handle)
+        {
+            child += 1;
+        }
+
+        if !dependency_less(rows[root].handle, rows[child].handle)
+        {
+            return;
+        }
+
+        let temporary = rows[root].handle;
+
+        rows[root].handle = rows[child].handle;
+        rows[child].handle = temporary;
+        root = child;
+    }
+}
+
+trusted internal func sort_dependencies(pos rows: &mut [ProviderDependency])
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let count = rows.length();
+    let mut start = count / 2;
+
+    while start != 0
+    {
+        start -= 1;
+        trusted sift_dependencies(rows, start, count);
+    }
+
+    let mut end = rows.length();
+
+    while end > 1
+    {
+        end -= 1;
+
+        let temporary = rows[0].handle;
+
+        rows[0].handle = rows[end].handle;
+        rows[end].handle = temporary;
+        trusted sift_dependencies(rows, 0, end);
+    }
+}
+
+trusted internal func prepare_provider(
+    pos key: usize,
+    pos selected: Descriptor,
+    pos binding: &ProviderBinding
+) -> Result<LoadedProvider, u32>
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    let residency = match consume trusted bray.runtime.bootstrap.heap.try_buffer<Residency>(1)
+    {
+        case ?storage { yield storage; }
+        case none { return Error(5); }
+    };
+
+    // Admit this owner's destruction before installing any native reference.
+    let mut owner: LoadedProvider =
+    {
+        services = binding.services,
+        native = trusted bray.runtime.bootstrap.provider.resident_reference(),
+        activation = selected.activation,
+        residency = residency,
+        dependencies = none,
+        observing = false,
+        observed = none
+    };
+
+    trusted internal std.memory.raw_buffer_push<Residency>(
+        &mut owner.residency,
+        {
+            key = key,
+            epoch = 0,
+            roots = core.atomic.initialize<usize>(0),
+            callbacks = core.atomic.initialize<usize>(0),
+            revision = core.atomic.initialize<u64>(0),
+            native_context = binding.provider.context,
+            native_callbacks = binding.provider.callbacks
+        }
+    );
+
+    if binding.dependency_count != 0
+    {
+        owner.dependencies = trusted bray.runtime.bootstrap.heap.try_buffer<ProviderDependency>(
+            binding.dependency_count
+        );
+
+        if let ?dependencies = owner.dependencies
+        {
+            let mut index: usize = 0;
+
+            while index < binding.dependency_count
+            {
+                let dependency: ProviderDependency =
+                {
+                    handle = trusted dependency_value(binding, index),
+                    root = trusted bray.runtime.bootstrap.provider.resident_reference()
+                };
+
+                trusted internal std.memory.raw_buffer_push<ProviderDependency>(&mut dependencies, dependency);
+                index += 1;
+            }
+
+            let rows = trusted std.memory.initialized_slice_mut<ProviderDependency>(&mut dependencies);
+
+            trusted sort_dependencies(rows);
+
+            index = 0;
+
+            while index < rows.length()
+            {
+                if rows[index].handle.key == key || rows[index].handle.epoch == 0 || (index != 0 && rows[
+                    index - 1
+                ].handle.key == rows[index].handle.key)
+                {
+                    return Error(3);
+                }
+
+                index += 1;
+            }
+        }
+        else
+        {
+            return Error(5);
+        }
+    }
+
+    let permitted = trusted lambda(pos binding: &ProviderBinding)
+        requires(trusted native_host())
+        ensures(trusted bray.runtime.bootstrap.provider.native_reference(reference = &binding.provider))
+        executes(pure, total) {};
+
+    trusted permitted(binding);
+
+    let callbacks = trusted bray.runtime.bootstrap.provider.callbacks(&binding.provider);
+
+    trusted callbacks.retain(binding.provider.context);
+
+    owner.native =
+    {
+        context = binding.provider.context,
+        callbacks = binding.provider.callbacks
+    };
+
+    return Ok(owner);
+}
+
+trusted internal func matches_provider(pos product: &Product, pos incoming: &(LoadedProvider?)) -> bool
+    requires(trusted native_host())
+{
+    if let ?candidate = incoming
+    {
+        if let ?established = product.provider
+        {
+            return trusted same_provider(&established, &candidate);
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+// Only open, already published epochs can be dependencies of this new epoch.
+// Consequently every edge points to an older admission and cycles cannot form.
+trusted internal func bind_dependencies(
+    pos host: &mut bray.runtime.bootstrap.host.HostOwner,
+    pos incoming: &mut(LoadedProvider?)
+) -> u32
+    requires(trusted native_host())
+    uses(raw_memory)
+{
+    if let ?owner = incoming
+    {
+        if let ?dependencies = owner.dependencies
+        {
+            let rows = trusted std.memory.initialized_slice_mut<ProviderDependency>(&mut dependencies);
+            let mut index: usize = 0;
+
+            while index < rows.length()
+            {
+                if let ?products = host.products
+                {
+                    if let ?product = trusted find_product(&mut products, rows[index].handle.key)
+                    {
+                        if let ?provider = product.provider
+                        {
+                            let cell = trusted provider_residency(&provider);
+
+                            if product.state.phase matches Open && cell.epoch == rows[index].handle.epoch &&
+                                trusted provider_roots(&provider) < std.numeric.USIZE_MAX - 1
+                            {
+                                index += 1;
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                return 3;
+            }
+
+            index = 0;
+
+            while index < rows.length()
+            {
+                if let ?products = host.products
+                {
+                    if let ?product = trusted find_product(&mut products, rows[index].handle.key)
+                    {
+                        if let ?provider = product.provider
+                        {
+                            rows[index].root = trusted acquire_loaded_root(&provider);
+                        }
+                    }
+                }
+
+                index += 1;
+            }
+        }
+    }
+
+    return 0;
+}
