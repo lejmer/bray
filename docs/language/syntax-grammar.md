@@ -2175,10 +2175,13 @@ directive-argument-sequence =
     directive-argument { "," directive-argument } ;
 
 directive-argument =
-    [ identifier "=" ] constant-expression ;
+      [ identifier "=" ] constant-expression
+    | identifier "=" "static" ;
 ```
 
-Directive arguments use constant-expression syntax.
+Directive arguments use constant-expression syntax or a named reserved `static` selector atom. For example,
+`@link(name = "native", kind = static)` selects a declared static library input. `static` remains a keyword outside
+this directive-value position.
 
 Directive-specific argument names, required arguments, allowed positional entries, duplicate directives, and declaration
 contexts are semantic checks.

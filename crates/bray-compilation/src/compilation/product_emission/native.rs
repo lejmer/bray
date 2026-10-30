@@ -377,7 +377,9 @@ fn package_opaque_archive(
             digest,
             NativeUnitKind::OpaqueArchive,
             summary,
-            member_units.iter().flat_map(|unit| unit.native_links().iter().cloned()),
+            member_units
+                .iter()
+                .flat_map(|unit| unit.native_links().iter().cloned()),
         ),
         Arc::from(bytes),
     ))

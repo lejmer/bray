@@ -6,8 +6,9 @@ use bray_codegen::{
     RuntimeObservationMode, SizePreference,
 };
 use bray_symbols::{
-    ForeignCallableDirection, InterfaceSymbolId, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
-    NativeSymbolIdentity, NativeSymbolPresence, StaticStorageDuration,
+    ForeignCallableDirection, InterfaceSymbolId, NativeLinkKind, NativeLinkRequirement,
+    NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
+    StaticStorageDuration,
 };
 
 use crate::wire::{WireEncoder, WireReader};
@@ -291,7 +292,8 @@ pub(super) fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<
         NativeSymbolPresence::Optional => 1,
     });
 
-    encoder.write_u64(u64::try_from(boundary.links().len()).expect("native link count must fit u64"));
+    encoder
+        .write_u64(u64::try_from(boundary.links().len()).expect("native link count must fit u64"));
 
     for link in boundary.links() {
         write_string(&mut encoder, link.name());
@@ -410,7 +412,11 @@ pub(super) fn decode_native_boundary(
         .map_err(wire_error(InterfaceValidationField::RecordCount))?;
 
     limits.check(InterfaceLimit::RecordCount, count)?;
-    limits.check(InterfaceLimit::DecodedAllocation, count.saturating_mul(std::mem::size_of::<NativeLinkRequirement>() as u64))?;
+
+    limits.check(
+        InterfaceLimit::DecodedAllocation,
+        count.saturating_mul(std::mem::size_of::<NativeLinkRequirement>() as u64),
+    )?;
 
     let mut links = Vec::new();
 

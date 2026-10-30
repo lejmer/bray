@@ -359,7 +359,10 @@ impl Compilation {
             provided,
             static_demands,
             runtime.as_ref(),
-            &native_links.iter().map(|(link, _)| link.clone()).collect::<Vec<_>>(),
+            &native_links
+                .iter()
+                .map(|(link, _)| link.clone())
+                .collect::<Vec<_>>(),
         )?;
 
         let package_units = selection
@@ -444,9 +447,12 @@ impl Compilation {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let native_links = self.native_link_inputs().iter().cloned().map(|link| {
-            (link, LinkInputProvenance::HostConfiguration)
-        }).collect::<Vec<_>>();
+        let native_links = self
+            .native_link_inputs()
+            .iter()
+            .cloned()
+            .map(|link| (link, LinkInputProvenance::HostConfiguration))
+            .collect::<Vec<_>>();
 
         self.native_library_link_selection(
             &native_links,

@@ -1,8 +1,9 @@
 use bray_syntax::{
-    AbiDirectiveSyntax, CopyDirectiveSyntax, DirectiveArgumentListSyntax,
+    AbiDirectiveSyntax, AccessExpressionSyntax, CopyDirectiveSyntax, DirectiveArgumentListSyntax,
     DirectiveArgumentListSyntaxBuilder, DirectiveArgumentSyntax, EntrypointDirectiveSyntax,
-    LayoutDirectiveSyntax, LinkDirectiveSyntax, SymbolDirectiveSyntax, SyntaxKind, SyntaxToken,
-    TagDirectiveSyntax, TargetDirectiveSyntax, TestDirectiveSyntax, ThreadLocalDirectiveSyntax,
+    ExpressionSyntax, LayoutDirectiveSyntax, LinkDirectiveSyntax, PrimaryExpressionSyntax,
+    SymbolDirectiveSyntax, SyntaxKind, SyntaxToken, TagDirectiveSyntax, TargetDirectiveSyntax,
+    TestDirectiveSyntax, ThreadLocalDirectiveSyntax,
 };
 
 use super::expression::EXPRESSION_START_KINDS;
@@ -228,17 +229,36 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = DirectiveArgumentSyntax::builder(self.syntax_source(), start);
 
-        if self.at(SyntaxKind::IdentifierToken)
-            && self.lookahead(1).kind() == SyntaxKind::EqualsToken
-        {
+        let named = self.at(SyntaxKind::IdentifierToken)
+            && self.lookahead(1).kind() == SyntaxKind::EqualsToken;
+
+        if named {
             builder.push_name_token(self.parse_identifier());
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
         }
 
-        let mut at_boundary =
-            |parser: &mut Parser| parser.at_directive_argument_boundary(terminators);
+        if named && self.at_static_directive_selector() {
+            // Directive selectors use identifier-shaped syntax without changing lexical keyword rules.
+            let selector = self.consume().with_kind(SyntaxKind::IdentifierToken);
+            let value_start = selector.full_range().start();
+            let mut access = AccessExpressionSyntax::builder(self.syntax_source(), value_start);
 
-        builder.push_expression(self.parse_expression_until(&mut at_boundary));
+            access.push_identifier_token(selector);
+
+            let mut primary = PrimaryExpressionSyntax::builder(self.syntax_source(), value_start);
+
+            primary.push_access_expression(access.build());
+
+            let mut expression = ExpressionSyntax::builder(self.syntax_source(), value_start);
+
+            expression.push_primary_expression(primary.build());
+            builder.push_expression(expression.build());
+        } else {
+            let mut at_boundary =
+                |parser: &mut Parser| parser.at_directive_argument_boundary(terminators);
+
+            builder.push_expression(self.parse_expression_until(&mut at_boundary));
+        }
 
         builder.build()
     }
@@ -268,12 +288,51 @@ impl Parser {
             && self.token_text(&name_token) == Some(name)
     }
 
+    fn at_static_directive_selector(&mut self) -> bool {
+        if !self.at(SyntaxKind::StaticKeyword) {
+            return false;
+        }
+
+        match self.lookahead(1).kind() {
+            SyntaxKind::MutKeyword => false,
+            SyntaxKind::IdentifierToken => self.lookahead(2).kind() == SyntaxKind::EqualsToken,
+            _ => true,
+        }
+    }
+
+    fn scan_directive_arguments(&mut self, stop_kinds: &[SyntaxKind]) {
+        let mut depth = 0usize;
+        let mut previous = None;
+
+        loop {
+            let kind = self.peek().kind();
+
+            let selector =
+                previous == Some(SyntaxKind::EqualsToken) && self.at_static_directive_selector();
+
+            if kind == SyntaxKind::EndOfFileToken
+                || (depth == 0 && kind == SyntaxKind::CloseParenToken)
+                || (depth == 0 && stop_kinds.contains(&kind) && !selector)
+            {
+                return;
+            }
+
+            match kind {
+                SyntaxKind::OpenParenToken => depth += 1,
+                SyntaxKind::CloseParenToken => depth -= 1,
+                _ => {}
+            }
+
+            previous = Some(self.consume().kind());
+        }
+    }
+
     pub(super) fn consume_directive_argument_list_for_scan(&mut self, stop_kinds: &[SyntaxKind]) {
         if self.consume_if(SyntaxKind::OpenParenToken).is_none() {
             return;
         }
 
-        self.scan_until_balanced_close_paren(stop_kinds);
+        self.scan_directive_arguments(stop_kinds);
         self.consume_if(SyntaxKind::CloseParenToken);
     }
 
@@ -307,7 +366,7 @@ impl Parser {
 
     pub(super) fn skip_unknown_directive_for_scan(&mut self, stop_kinds: &[SyntaxKind]) {
         if self.consume_if(SyntaxKind::OpenParenToken).is_some() {
-            self.scan_until_balanced_close_paren(stop_kinds);
+            self.scan_directive_arguments(stop_kinds);
             self.consume_if(SyntaxKind::CloseParenToken);
 
             return;
@@ -348,6 +407,105 @@ mod tests {
 
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
+
+    #[test]
+    fn static_selectors_do_not_change_declaration_classification() {
+        for (text, functions, statics) in [
+            (
+                r#"
+                trusted module app;
+                @link(name = "native", kind = static)
+                @symbol(name = "read")
+                @abi(c)
+                extern trusted func read() -> u32 uses(foreign_call);
+            "#,
+                1,
+                0,
+            ),
+            (
+                r#"
+                @link(name = "native", kind = static)
+                trusted module app;
+                @symbol(name = "read")
+                @abi(c)
+                extern trusted func read() -> u32 uses(foreign_call);
+            "#,
+                1,
+                0,
+            ),
+            (
+                r#"
+                trusted module app;
+                @link(name = "native", kind = static)
+                @symbol(name = "value")
+                extern trusted static VALUE: u32;
+            "#,
+                0,
+                1,
+            ),
+        ] {
+            let sources = source_store([text]);
+            let result = crate::parser::parse_compilation_unit(&sources);
+            let unit = &result.syntax_tree().root().source_units()[0];
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{text}: {:?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(unit.function_declarations().count(), functions, "{text}");
+            assert_eq!(unit.static_declarations().count(), statics, "{text}");
+        }
+    }
+
+    #[test]
+    fn missing_selector_values_preserve_following_static_declarations() {
+        let sources = source_store([r#"
+            module app;
+            @link(name = "native", kind =
+            static VALUE: u32 = 1;
+            func next() {}
+        "#]);
+
+        let result = crate::parser::parse_compilation_unit(&sources);
+        let unit = &result.syntax_tree().root().source_units()[0];
+
+        assert!(result.diagnostics().has_errors());
+        assert_eq!(unit.static_declarations().count(), 1);
+        assert_eq!(unit.function_declarations().count(), 1);
+    }
+
+    #[test]
+    fn parser_preserves_named_static_directive_selectors() {
+        let sources = source_store([r#"(name = "native", kind = static)"#]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let list = parser.parse_directive_argument_list(&[SyntaxKind::EndOfFileToken]);
+        let diagnostics = parser.finish();
+        let arguments = list.directive_arguments().collect::<Vec<_>>();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(arguments.len(), 2);
+
+        assert_eq!(
+            arguments[1].name_token().expect("named argument").kind(),
+            SyntaxKind::IdentifierToken
+        );
+
+        assert_eq!(arguments[1].expression().full_text().trim(), "static");
+        assert_eq!(list.full_text(), r#"(name = "native", kind = static)"#);
+    }
+
+    #[test]
+    fn parser_rejects_positional_static_directive_keywords() {
+        let sources = source_store(["(static)"]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+
+        parser.parse_directive_argument_list(&[SyntaxKind::EndOfFileToken]);
+        assert!(!parser.finish().is_empty());
+    }
 
     #[test]
     fn parser_parses_directive_argument_lists() {

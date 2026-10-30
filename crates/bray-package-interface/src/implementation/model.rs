@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    ForeignCallableDirection, InterfaceSymbolId, NativeLinkRequirement, NativeSymbolContract, StaticStorageDuration,
+    ForeignCallableDirection, InterfaceSymbolId, NativeLinkRequirement, NativeSymbolContract,
+    StaticStorageDuration,
 };
 
 use crate::{InterfaceCheckedTemplate, InterfaceValidationError};

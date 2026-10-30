@@ -25,3 +25,4 @@ mod tests;
 
 pub(crate) use command::run;
 pub(in crate::performance) use command::validate_output;
+pub(crate) use observation::{time_empty_program, verify_no_memory_work};

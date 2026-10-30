@@ -165,17 +165,6 @@ impl ParserCursor {
         skipped_tokens.into_iter().next()
     }
 
-    pub(crate) fn skip_until_balanced_close_paren(
-        &mut self,
-        recovery_set: RecoverySet<'_>,
-    ) -> Vec<SyntaxToken> {
-        self.skip_until_balanced_close(
-            DelimiterPair::new(SyntaxKind::OpenParenToken, SyntaxKind::CloseParenToken),
-            recovery_set,
-            0,
-        )
-    }
-
     /// Consumes tokens until an unmatched close brace, recovery token, or EOF.
     ///
     /// The close brace or recovery token at depth zero is left unconsumed so

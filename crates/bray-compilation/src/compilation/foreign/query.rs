@@ -1019,6 +1019,50 @@ extern trusted func native_read() -> i32
     }
 
     #[test]
+    fn explicit_static_link_kind_matches_the_supplied_input() {
+        let compilation = compilation_with_link_kind(
+            r#"trusted module app;
+
+@link(name = "native", kind = static)
+@symbol(name = "native_read")
+@abi(c)
+extern trusted func native_read() -> i32
+    uses(foreign_call);
+"#,
+            "native",
+            NativeLinkKind::Static,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let function = source_function(&compilation, "native_read");
+
+        let result = compilation
+            .foreign_callable_contract(function)
+            .expect("foreign contract must publish");
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert_eq!(
+            result
+                .value()
+                .as_ref()
+                .expect("valid foreign import")
+                .links()[0]
+                .kind(),
+            NativeLinkKind::Static
+        );
+    }
+
+    #[test]
     fn omitted_link_kinds_use_the_supplied_input_kind() {
         let compilation = compilation_with_link_kind(
             r#"trusted module app;
