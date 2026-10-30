@@ -220,6 +220,7 @@ unsafe extern "C" {
         source_namespace_word_3: u64,
         message_data: *const u8,
         message_length: usize,
+        provider: usize,
     ) -> PanicReport;
     safe fn bray_runtime_outgoing_admission(bundle: &CleanupBundle, outcome: &mut RunOutcome);
     safe fn bray_runtime_outgoing_activation(descriptor: *const u8, lease: *mut u8) -> usize;
@@ -363,6 +364,7 @@ fn panic_report() -> PanicReport {
         0,
         MESSAGE.as_ptr(),
         MESSAGE.len(),
+        0,
     )
 }
 
@@ -457,7 +459,14 @@ fn admit(descriptor: &ActivationDescriptor) -> InactiveFrame {
 
     let token = InactiveFrame { lease, descriptor };
 
-    assert!(FRAMES.lock().expect("fixture mutex must not be poisoned").insert(address, lease).is_none());
+    assert!(
+        FRAMES
+            .lock()
+            .expect("fixture mutex must not be poisoned")
+            .insert(address, lease)
+            .is_none()
+    );
+
     bray_runtime_activation_initialization(&token, address, &mut records);
     assert_eq!(bray_runtime_activation_publication(&token), 0);
 
@@ -616,7 +625,13 @@ fn main() {
     assert_eq!(COMPLETION_MOVES.load(Ordering::Relaxed), moves + 1);
     assert!(bray_runtime_execution_shutdown() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
-    assert!(FRAMES.lock().expect("fixture mutex must not be poisoned").is_empty());
+
+    assert!(
+        FRAMES
+            .lock()
+            .expect("fixture mutex must not be poisoned")
+            .is_empty()
+    );
 }
 
 static REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);
@@ -674,8 +689,13 @@ fn admitted_reports_survive_failed_reservation() {
         outcome.report
     });
 
-    let mut primary = reports.next().expect("fixture iterator must provide its expected item");
-    let mut incident = reports.next().expect("fixture iterator must provide its expected item");
+    let mut primary = reports
+        .next()
+        .expect("fixture iterator must provide its expected item");
+
+    let mut incident = reports
+        .next()
+        .expect("fixture iterator must provide its expected item");
 
     bray_runtime_outgoing_discharge(&CleanupBundle {
         records: 2,

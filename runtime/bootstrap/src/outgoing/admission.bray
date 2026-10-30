@@ -32,7 +32,7 @@ trusted internal func admission(
 
     trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
         outcome,
-        trusted bray.runtime.bootstrap.allocation_failure()
+        trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())
     );
 }
 

@@ -332,6 +332,17 @@ mod tests {
             include_str!("../../../../../../runtime/bootstrap/src/host/product/abi.bray"),
             include_str!("../../../../../../runtime/bootstrap/src/host/product/state.bray"),
             r#"
+            trusted internal module bray.runtime.bootstrap.provider;
+
+            internal struct Reference {}
+            internal struct Callbacks {}
+            "#,
+            r#"
+            trusted internal module bray.runtime.bootstrap.domain;
+
+            internal struct View {}
+            "#,
+            r#"
             trusted internal module bray.runtime.bootstrap;
 
             internal struct ReportOutcome
@@ -721,6 +732,15 @@ mod tests {
                 "acquire_caller",
                 "clean_static",
                 "progress",
+                "domain_access",
+                "form_provider",
+                "control_provider",
+                "retire_provider",
+                "notify_provider",
+                "acquire_provider_root",
+                "root_retain",
+                "root_release",
+                "root_references",
             ] {
                 let checked = compilation
                     .lowered_unit(crate::test_support::source_function_body_key(

@@ -100,11 +100,13 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - If a function exceeds roughly 200 lines, add new behavior in a new helper or function unless there is a strong reason
   not to.
 - Do not use the legacy `mod.rs` module layout.
-- When a module needs to be split into smaller files, keep the parent module as a thin module root containing only
+- When a module is split into child namespaces, keep the parent module as a thin module root containing only
   submodule declarations, reexports, crate-local wiring, and minimal documentation.
+- A directory that only groups source files within the same logical namespace does not require an empty root file.
+  Bray split contributions keep their explicit module declarations in each implementation file.
 - Store split implementation in aptly named files under a same-named subdirectory, using the modern layout: `foo.rs`
   plus `foo/bar.rs`, `foo/baz.rs`, etc., not `foo/mod.rs`.
-- When splitting an existing large module, move implementation out of the old module file. The old file should become
+- When introducing child namespaces, move implementation out of the old module file. The old file should become
   the thin module root, not remain a mixed root-and-implementation file.
 - Avoid repeating the parent module name as a filename prefix.
 - If a module grows large enough that related code would require prefixed sibling files, split the module using the

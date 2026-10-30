@@ -115,6 +115,12 @@ trusted internal func observe(pos key: usize, pos operation: u32) -> Observation
         return formed;
     }
 
+    return trusted operate_formed(key, operation);
+}
+
+trusted internal func operate_formed(pos key: usize, pos operation: u32) -> Observation
+    requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
     if operation == 9 || operation == 10 || operation == 11 || operation == 14
     {
         return trusted invoke_thread_control(key, operation);

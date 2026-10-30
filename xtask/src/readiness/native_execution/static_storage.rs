@@ -76,6 +76,7 @@ pub(super) fn audit_static_storage(
         ),
     )?;
 
+    super::provider::audit(root, target, runtime)?;
     audit_library_host(root, target, runtime, None)?;
 
     audit_archive_host(root, target, runtime)
@@ -84,7 +85,15 @@ pub(super) fn audit_static_storage(
 fn audit_archive_host(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     let output = super::core::native_output("bray-native-static-archive-")?;
 
-    build_library(root, target, runtime, output.path(), "static-library", None)?;
+    build_library(
+        root,
+        target,
+        runtime,
+        output.path(),
+        "static-library",
+        None,
+        &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION],
+    )?;
 
     let report = inspect_objects(root, &object_files(output.path(), target)?)?;
 
@@ -111,6 +120,11 @@ fn audit_library_host(
         first.path(),
         "shared-library",
         dependency,
+        if dependency.is_some() {
+            &[STATIC_STORAGE_ARCHIVE_CONSUMER]
+        } else {
+            &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION]
+        },
     )?;
 
     build_library(
@@ -120,6 +134,11 @@ fn audit_library_host(
         second.path(),
         "shared-library",
         dependency,
+        if dependency.is_some() {
+            &[STATIC_STORAGE_ARCHIVE_CONSUMER]
+        } else {
+            &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION]
+        },
     )?;
 
     let first_library = shared_library_path(first.path(), target)?;
@@ -192,7 +211,14 @@ fn audit_library_host(
         },
     )?;
 
-    let harness = compile_host(root, target, loaded.path())?;
+    let harness = compile_fixture(
+        root,
+        target,
+        runtime,
+        loaded.path(),
+        STATIC_STORAGE_HOST,
+        TargetOutputKind::Executable,
+    )?;
 
     let command = subprocess::Exec::cmd(&harness)
         .args([&first_copy, &second_copy])
@@ -248,13 +274,14 @@ fn thread_static_identities(output: &Path, package: &str) -> Result<[String; 2],
     ])
 }
 
-fn build_library(
+pub(super) fn build_library(
     root: &Path,
     target: NativeTarget,
     runtime: &Path,
     output: &Path,
     artifact: &str,
     dependency: Option<&Path>,
+    sources: &[&str],
 ) -> Result<(), String> {
     let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
     let mut command = Command::new(compiler);
@@ -318,36 +345,118 @@ fn build_library(
                 .arg(argument)
                 .arg(published_library(dependency, ARCHIVE_PACKAGE, kind)?.path());
         }
-
-        command.arg(root.join(STATIC_STORAGE_ARCHIVE_CONSUMER));
-    } else {
-        command.arg(root.join(STATIC_STORAGE_FIXTURE));
-        command.arg(root.join(STATIC_STORAGE_CONTRIBUTION));
     }
+
+    command.args(sources.iter().map(|source| root.join(source)));
 
     crate::command::require_success(command, "building the native static-host library").map(|_| ())
 }
 
-fn compile_host(root: &Path, target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
+pub(super) fn compile_fixture(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+    source: &str,
+    kind: TargetOutputKind,
+) -> Result<PathBuf, String> {
     let compiler = llvm_tool(
         root,
         bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
     );
 
     let executable = output.join(
-        TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
-            .file_name("static_storage_host")
+        TargetOutputName::for_native(target.object_format(), kind)
+            .file_name(
+                Path::new(source)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .expect("native fixture source has its valid executable stem"),
+            )
             .ok_or_else(|| "native static-host executable name is invalid".to_owned())?,
     );
 
     let mut command = Command::new(compiler);
 
+    let runtime_directory = runtime
+        .parent()
+        .expect("published runtime metadata has its package directory");
+
+    let implementation_name = TargetOutputName::for_native(
+        target.object_format(),
+        TargetOutputKind::PackageImplementation,
+    )
+    .file_name("runtime")
+    .expect("bootstrap implementation has its target artifact name");
+
+    let implementation = bray_package_interface::PackageArtifactInput::file(
+        runtime_directory.join(implementation_name),
+        None,
+    )
+    .load_implementation()
+    .map_err(|error| format!("could not load resident bootstrap implementation: {error:?}"))?;
+
+    let standard_library = crate::workspace::cargo_target(root)
+        .join("runtime-bootstrap-standard-library")
+        .join(target.as_str());
+
+    let (inputs, links) = crate::native_package::standard_library_inputs(
+        &[implementation],
+        target,
+        &standard_library,
+        output,
+    )?;
+
+    let archive =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
+            .file_name("bray_runtime_bootstrap")
+            .expect("resident bootstrap archive has its target artifact name");
+
     command
         .arg(format!("--target={}", target.as_str()))
-        .arg("-std=c11")
-        .arg(root.join(STATIC_STORAGE_HOST))
+        .args(["-std=c11", "-O2", "-fuse-ld=lld"])
+        .arg(root.join(source))
+        .arg(runtime_directory.join(archive))
+        .args(inputs.iter().map(|(_, path)| path))
+        .arg("-L")
+        .arg(runtime_directory)
+        .arg("-L")
+        .arg(output)
         .arg("-o")
         .arg(&executable);
+
+    match kind {
+        TargetOutputKind::Executable => {
+            command
+                .arg(root.join("xtask/fixtures/native-execution/provider-host.c"))
+                .arg(root.join("xtask/fixtures/runtime-resident-host.c"))
+                .arg(root.join("xtask/fixtures/runtime-allocation-probe.c"));
+        }
+        TargetOutputKind::SharedLibrary => match target.object_format() {
+            bray_target::ObjectFormat::Elf => {
+                command.args(["-shared", "-fPIC", "-Wl,-Bsymbolic", "-Wl,-z,defs"]);
+            }
+            bray_target::ObjectFormat::MachO => {
+                command.args(["-dynamiclib", "-fPIC"]);
+            }
+            bray_target::ObjectFormat::Coff => {
+                command.arg("-shared");
+            }
+            _ => unreachable!("native fixture target has a supported object format"),
+        },
+        _ => unreachable!("native provider fixture is an executable or a shared image"),
+    }
+
+    for link in links {
+        match link.kind() {
+            bray_symbols::NativeLinkKind::Framework => {
+                command.arg("-framework").arg(link.name());
+            }
+            _ => {
+                command.arg(format!("-l{}", link.name()));
+            }
+        }
+    }
 
     if matches!(
         target,
@@ -366,7 +475,7 @@ fn compile_host(root: &Path, target: NativeTarget, output: &Path) -> Result<Path
     Ok(executable)
 }
 
-fn shared_library_path(
+pub(super) fn shared_library_path(
     output: &Path,
     target: NativeTarget,
 ) -> Result<bray_emitter::PublishedArtifact, String> {

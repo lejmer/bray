@@ -186,7 +186,10 @@ fn smoke_test_bootstrap(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
+    let resident = resident_host_object(target, directory)?;
+    let mut archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
+
+    archives.push(&resident);
 
     let map = directory.join("runtime-bootstrap-smoke.map");
     let numeric_vectors = super::numeric::vectors(directory)?;
@@ -230,6 +233,32 @@ fn smoke_test_bootstrap(
     print!("{}", String::from_utf8_lossy(&output.stdout));
 
     audit_bootstrap_link_map(&map)
+}
+
+pub(super) fn resident_host_object(target: NativeTarget, directory: &Path) -> Result<PathBuf, CommandError> {
+    let root = crate::workspace::root().map_err(CommandError::Workspace)?;
+    let object = directory.join("runtime-resident-host.o");
+
+    let compiler =
+        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
+            .map_err(CommandError::NativeCompilerToolUnavailable)?;
+
+    let mut command = Command::new(compiler);
+
+    command
+        .arg(format!("--target={}", target.as_str()))
+        .args(["-std=c11", "-O2", "-c"])
+        .arg(root.join("xtask/fixtures/runtime-resident-host.c"))
+        .arg("-o")
+        .arg(&object);
+
+    let status = command.status().map_err(CommandError::NativeCompiler)?;
+
+    if !status.success() {
+        return Err(CommandError::SmokeLinkFailed);
+    }
+
+    Ok(object)
 }
 
 pub(super) fn compile_c_smoke(
@@ -352,8 +381,13 @@ fn compile_smoke(
     fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
     let mut command = Command::new("rustc");
+    let resident = resident_host_object(target, directory)?;
 
     command.args(["--edition", "2024", "--target", target.as_str()]);
+
+    command
+        .arg("-C")
+        .arg(format!("link-arg={}", resident.display()));
 
     for archive in archives {
         let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;

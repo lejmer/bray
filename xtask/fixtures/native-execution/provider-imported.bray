@@ -1,0 +1,53 @@
+trusted module provider_imported;
+
+using fixture.storage.provider_lifetime;
+
+trusted predicate native_destination(pointer: DataPointer<PanicReport>);
+
+trusted func authorize(pos pointer: DataPointer<PanicReport>)
+    requires(trusted native_destination(pointer = pointer))
+    ensures(trusted fixture.storage.provider_lifetime.native_report_destination(pointer = pointer))
+    executes(pure, total) {}
+
+@abi(c)
+@symbol(name = "bray_imported_provider_report")
+trusted func produce(pos output: DataPointer<PanicReport>)
+    requires(trusted native_destination(pointer = output))
+{
+    trusted authorize(output);
+    trusted fixture.storage.provider_lifetime.produce_selected_report<19, false>(output);
+}
+
+@abi(c)
+@symbol(name = "bray_imported_provider_abnormal_report")
+trusted func produce_abnormal(pos output: DataPointer<PanicReport>)
+    requires(trusted native_destination(pointer = output))
+{
+    trusted authorize(output);
+    trusted fixture.storage.provider_lifetime.produce_selected_report<19, true>(output);
+}
+
+@abi(c)
+@symbol(name = "bray_imported_provider_state")
+func state_address() -> DataPointer<i32>
+{
+    return fixture.storage.provider_lifetime.state_address();
+}
+
+@abi(c)
+@symbol(name = "bray_archive_provider_report")
+trusted func produce_native(pos output: DataPointer<PanicReport>)
+    requires(trusted native_destination(pointer = output))
+{
+    trusted authorize(output);
+    trusted fixture.storage.provider_lifetime.produce_report(output);
+}
+
+@abi(c)
+@symbol(name = "bray_archive_provider_abnormal_report")
+trusted func produce_native_abnormal(pos output: DataPointer<PanicReport>)
+    requires(trusted native_destination(pointer = output))
+{
+    trusted authorize(output);
+    trusted fixture.storage.provider_lifetime.produce_abnormal_report(output);
+}

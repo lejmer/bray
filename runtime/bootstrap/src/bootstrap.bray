@@ -43,16 +43,14 @@ internal struct PanicReportData
     // Reconstructing a callable still requires the native producer witness.
     mut copy_message: usize;
     mut release_message: usize;
+    mut provider_context: usize;
+    mut provider_callbacks: usize;
     mut outgoing_head: usize;
     mut outgoing_tail: usize;
     mut outgoing_count: usize;
     mut reserved: usize;
     mut consumer: usize;
 }
-
-internal static CONSTRUCTED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
-
-internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
 
 @abi(c)
 trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
@@ -80,7 +78,7 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 trusted internal func structured_shutdown() -> u32
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
+    if !trusted bray.runtime.bootstrap.pool.reports_released()
     {
         return STATUS_RUNTIME_FAILURE;
     }

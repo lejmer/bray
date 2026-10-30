@@ -18,7 +18,7 @@ use bray_tooling::load_llvm_compilation;
 use super::command::{CommandError, Package, RuntimeArchiveKind};
 use super::smoke::{
     audit_link_symbols, command_output, compile_c_smoke, component_archives, native_links,
-    standard_library,
+    resident_host_object, standard_library,
 };
 
 const C_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-observation-smoke.c");
@@ -49,7 +49,9 @@ fn smoke_test_direct_hooks(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let archives = component_archives(
+    let resident = resident_host_object(target, directory)?;
+
+    let mut archives = component_archives(
         package,
         &[
             RuntimeArchiveKind::Observation,
@@ -59,6 +61,8 @@ fn smoke_test_direct_hooks(
             RuntimeArchiveKind::Cancellation,
         ],
     )?;
+
+    archives.push(&resident);
 
     let native_links = native_links(package).map_err(CommandError::ObservationSmoke)?;
 

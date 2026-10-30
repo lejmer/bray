@@ -8,6 +8,7 @@ using internal bray.runtime.bootstrap.report.output;
 using core.memory;
 using std.memory;
 using std.memory.function;
+using internal bray.runtime.bootstrap.domain;
 
 @layout(c)
 internal struct ReportOutcome
@@ -42,6 +43,11 @@ internal callable ReportConsumer = @abi(c) trusted func(
     );
 
 trusted internal func consume_address() -> usize
+{
+    return trusted bray.runtime.bootstrap.domain.report_consumer_address();
+}
+
+trusted internal func local_consume_address() -> usize
     executes(total)
     uses(intrinsic, layout_reinterpret)
 {
@@ -76,6 +82,8 @@ trusted internal func report_primary_value(pos report: PanicReportData) -> Repor
         message_length = report.message_length,
         copy_message = report.copy_message,
         release_message = report.release_message,
+        provider_context = report.provider_context,
+        provider_callbacks = report.provider_callbacks,
     };
 }
 
@@ -216,21 +224,12 @@ trusted internal func recycle_value(pos value: ReportValue)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access(), trusted retained_report_value(value = &value))
     uses(intrinsic)
 {
-    match value
-    {
-        case Panic(stored)
-        {
-            let callback = stored.release_message;
-            let primary = trusted serialized_primary(&stored);
-            let (state, _) = trusted release_primary(&primary, callback);
+    let (status, remaining) = trusted bray.runtime.bootstrap.report.incident.dispose_value(value, 0);
 
-            if state != RUN_COMPLETED
-            {
-                trusted core.target.abort();
-            }
-        }
-        case Error(_) { trusted core.target.abort(); }
-    };
+    if status != STATUS_SUCCESS || remaining.count != 0
+    {
+        trusted core.target.abort();
+    }
 }
 
 @abi(c)

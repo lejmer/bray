@@ -88,6 +88,11 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ThreadAttachmentCleanup
             | RuntimeAbiRole::ThreadStaticCleanupRegistration
             | RuntimeAbiRole::ProductHostControl
+            | RuntimeAbiRole::ProviderDomainAccess
+            | RuntimeAbiRole::ProductProviderFormation
+            | RuntimeAbiRole::ProductProviderControl
+            | RuntimeAbiRole::ProductProviderRetirement
+            | RuntimeAbiRole::ProductProviderNotification
             | RuntimeAbiRole::ProductCleanupContinuation
             | RuntimeAbiRole::StructuredShutdown => Some(Self::RuntimeStatus),
             _ => None,

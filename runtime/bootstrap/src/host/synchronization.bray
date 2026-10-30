@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using core.atomic;
 using core.memory;
 using std.memory;
@@ -39,14 +40,14 @@ trusted internal func synchronization_pointer() -> DataPointer<Synchronization>
         trusted core.memory.finalization_pending<Synchronization>(pointer = result)
     )
 {
-    return std.memory.uninit_pointer<Synchronization>(&SYNCHRONIZATION);
+    return std.memory.uninit_pointer<Synchronization>(trusted bray.runtime.bootstrap.domain.synchronization_storage());
 }
 
 trusted internal func initialized() -> bool
     uses(raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        &SYNCHRONIZATION,
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
         trusted synchronization_pointer()
     );
 

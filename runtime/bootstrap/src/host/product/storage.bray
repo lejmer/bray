@@ -3,6 +3,8 @@ trusted internal module bray.runtime.bootstrap.host.product;
 
 using core.target;
 using core.memory;
+using core.atomic;
+using std.numeric;
 using std.memory;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
@@ -17,6 +19,15 @@ internal struct Product
     mut failure: u32?;
     mut statics: std.memory.RawBuffer<StaticOwner>?;
     mut execution: Execution?;
+    mut provider: LoadedProvider?;
+}
+
+internal union ProductReservation
+{
+    Existing;
+    Reserved;
+    Grow(pos capacity: usize);
+    Failed(pos status: u32);
 }
 
 trusted internal func find_product(pos products: &mut std.memory.RawBuffer<Product>, pos key: usize) -> (&mut Product)?
@@ -45,8 +56,9 @@ trusted internal func reserve_product_locked(
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos key: usize,
     pos descriptor: Descriptor,
-    pos prepared: &mut(std.memory.RawBuffer<Product>?)
-) -> Result<bool, usize>
+    pos prepared: &mut(std.memory.RawBuffer<Product>?),
+    pos provider: &mut(LoadedProvider?)
+) -> ProductReservation
     requires(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
@@ -63,33 +75,86 @@ trusted internal func reserve_product_locked(
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
 
-    if let ?products = host.products
+    // Initialization released its lease before preparing this reservation.
+    // Common-host shutdown may have closed admission in the meantime.
+    let host_ready = if let ?storage = host.storage
     {
-        if trusted find_product(&mut products, key) matches ?_
-        {
-            return Ok(false);
-        }
+        yield storage.usable();
+    }
+    else
+    {
+        yield false;
+    };
+
+    if host.transitioning || !host_ready
+    {
+        return ProductReservation.Failed(5);
     }
 
     if let ?products = host.products
     {
-        let rows = trusted std.memory.initialized_slice_mut<Product>(&mut products);
-        let mut index: usize = 0;
-
-        while index < rows.length()
+        if let ?product = trusted find_product(&mut products, key)
         {
-            if rows[index].key == 0
+            return if trusted matches_provider(&product, &provider)
             {
-                // A retired row has released its static and execution owners.
-                let mut replacement = trusted fresh_product(key, descriptor);
-
-                trusted internal std.memory.swap_values<Product>(&mut rows[index], &mut replacement);
-
-                return Ok(true);
+                yield ProductReservation.Existing;
             }
-
-            index += 1;
+            else
+            {
+                yield ProductReservation.Failed(3);
+            };
         }
+    }
+
+    if provider matches ?_ && core.atomic.load<usize, 1>(trusted activation_value(&descriptor)) != 0
+    {
+        // A compiler-owned activation slot can belong to only one live row.
+        return ProductReservation.Failed(3);
+    }
+
+    let reusable: usize? = if let ?products = host.products
+    {
+        yield trusted vacant_product(&mut products);
+    }
+    else
+    {
+        yield none;
+    };
+
+    if let ?index = reusable
+    {
+        if provider matches ?_ && host.next_identity == std.numeric.U64_MAX
+        {
+            return ProductReservation.Failed(6);
+        }
+
+        let status = trusted bind_dependencies(host, provider);
+
+        if status != 0
+        {
+            return ProductReservation.Failed(status);
+        }
+
+        let epoch = host.next_identity;
+
+        if provider matches ?_
+        {
+            host.next_identity += 1;
+        }
+
+        let mut replacement = trusted fresh_product(key, descriptor, provider, epoch);
+
+        if let ?products = host.products
+        {
+            let rows = trusted std.memory.initialized_slice_mut<Product>(&mut products);
+
+            trusted internal std.memory.swap_values<Product>(&mut rows[index], &mut replacement);
+            trusted publish_activation(&rows[index]);
+
+            return ProductReservation.Reserved;
+        }
+
+        trusted core.target.abort();
     }
 
     match consume trusted bray.runtime.bootstrap.heap.reserve<Product>(&mut host.products, prepared)
@@ -98,10 +163,29 @@ trusted internal func reserve_product_locked(
         {
             if !ready
             {
-                return Ok(false);
+                return ProductReservation.Existing;
             }
         }
-        case Error(capacity) { return Error(capacity); }
+        case Error(capacity) { return ProductReservation.Grow(capacity); }
+    }
+
+    if provider matches ?_ && host.next_identity == std.numeric.U64_MAX
+    {
+        return ProductReservation.Failed(6);
+    }
+
+    let status = trusted bind_dependencies(host, provider);
+
+    if status != 0
+    {
+        return ProductReservation.Failed(status);
+    }
+
+    let epoch = host.next_identity;
+
+    if provider matches ?_
+    {
+        host.next_identity += 1;
     }
 
     let products: &mut std.memory.RawBuffer<Product> = if let ?products = host.products
@@ -113,21 +197,30 @@ trusted internal func reserve_product_locked(
         yield trusted core.target.abort();
     };
 
-    if !(products.initialized < products.capacity)
-    {
-        return Ok(false);
-    }
-
-    let value = trusted fresh_product(key, descriptor);
+    let value = trusted fresh_product(key, descriptor, provider, epoch);
 
     trusted internal std.memory.raw_buffer_push<Product>(products, value);
 
-    return Ok(true);
+    let rows = trusted std.memory.initialized_slice_mut<Product>(products);
+
+    trusted publish_activation(&rows[rows.length() - 1]);
+
+    return ProductReservation.Reserved;
 }
 
-trusted internal func fresh_product(pos key: usize, pos descriptor: Descriptor) -> Product
+trusted internal func fresh_product(
+    pos key: usize,
+    pos descriptor: Descriptor,
+    pos provider: &mut(LoadedProvider?),
+    pos epoch: u64
+) -> Product
     requires(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
 {
+    if let ?loaded = provider
+    {
+        trusted stamp_provider(&mut loaded, epoch);
+    }
+
     return
     {
         key = key,
@@ -151,6 +244,27 @@ trusted internal func fresh_product(pos key: usize, pos descriptor: Descriptor) 
         callers = 0,
         failure = none,
         statics = none,
-        execution = none
+        execution = none,
+        provider = trusted std.memory.take_nullable<LoadedProvider>(provider)
     };
+}
+
+trusted internal func vacant_product(pos products: &mut std.memory.RawBuffer<Product>) -> usize?
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let rows = trusted std.memory.initialized_slice_mut<Product>(products);
+    let mut index: usize = 0;
+
+    while index < rows.length()
+    {
+        if rows[index].key == 0
+        {
+            return index;
+        }
+
+        index += 1;
+    }
+
+    return none;
 }

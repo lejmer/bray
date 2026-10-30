@@ -26,12 +26,14 @@ type ExecutableHostClosure = (
     Vec<bray_native_artifact::NativeStatic>,
     super::super::realization::NativeCallableEffects,
     BTreeMap<bray_runtime_abi::NativeStaticIdentity, Vec<bray_runtime_abi::NativeStaticIdentity>>,
-    bool,
+    Option<bray_symbols::CallableExecution>,
 );
 
 pub(super) struct NativeCodegenPreparation {
-    pub(super) native_links:
-        Vec<(bray_symbols::NativeLinkRequirement, bray_linker::LinkInputProvenance)>,
+    pub(super) native_links: Vec<(
+        bray_symbols::NativeLinkRequirement,
+        bray_linker::LinkInputProvenance,
+    )>,
     pub(super) host: Option<ExecutableHostContract>,
     pub(super) runtime: Option<RuntimeArtifactPlan>,
     pub(super) units: Arc<[CodegenUnit]>,
@@ -43,7 +45,7 @@ pub(super) struct NativeCodegenPreparation {
         bray_runtime_abi::NativeStaticIdentity,
         Vec<bray_runtime_abi::NativeStaticIdentity>,
     >,
-    pub(super) worker_cleanup: bool,
+    pub(super) execution: Option<bray_symbols::CallableExecution>,
 }
 
 impl Compilation {
@@ -93,11 +95,39 @@ impl Compilation {
             let requirements = match host.as_ref() {
                 Some(host) => Some(host.requirements()),
                 None if final_image => {
-                    let roles = native_host_runtime_roles(
+                    let mut roles = native_host_runtime_roles(
                         source_reachability.as_ref(),
                         &host_statics,
                         &native_statics,
                     );
+
+                    if kind == ProductKind::Library
+                        && (roles
+                            .contains(&bray_runtime_interface::RuntimeAbiRole::ProductHostControl)
+                            || roles.contains(
+                                &bray_runtime_interface::RuntimeAbiRole::ForeignCallbackExecution,
+                            )
+                            || roles
+                                .iter()
+                                .copied()
+                                .any(super::host::publishes_native_report))
+                    {
+                        roles.extend([
+                            bray_runtime_interface::RuntimeAbiRole::ProductProviderFormation,
+                            bray_runtime_interface::RuntimeAbiRole::ProductProviderRoot,
+                        ]);
+                    }
+
+                    if roles
+                        .iter()
+                        .copied()
+                        .any(super::host::publishes_native_report)
+                    {
+                        roles.extend([
+                            bray_runtime_interface::RuntimeAbiRole::ProviderReferenceAcquire,
+                            bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease,
+                        ]);
+                    }
 
                     let mut capabilities = required_capabilities
                         .iter()
@@ -122,13 +152,19 @@ impl Compilation {
                 None => None,
             };
 
-            let worker_cleanup = requirements.is_some_and(|requirements| {
-                requirements.requires_role(
-                    bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
-                ) && requirements
-                    .capabilities()
-                    .contains(&RuntimeCapability::CooperativeExecution)
-            });
+            let execution = requirements
+                .filter(|requirements| {
+                    requirements.roles().iter().any(|role| {
+                        role.service_class()
+                            == Some(bray_runtime_interface::RuntimeServiceClass::Execution)
+                    }) || requirements.requires_role(
+                        bray_runtime_interface::RuntimeAbiRole::ProductExecutionProvider,
+                    )
+                })
+                .map(|_| {
+                    product_execution(&host_statics, &native_statics)
+                        .unwrap_or(bray_symbols::CallableExecution::Synchronous)
+                });
 
             let runtime_plan = if let Some(requirements) =
                 requirements.filter(|requirements| requirements.requires_implementation())
@@ -154,7 +190,7 @@ impl Compilation {
                     native_statics,
                     BTreeMap::new(),
                     BTreeMap::new(),
-                    worker_cleanup,
+                    execution,
                 ));
             };
 
@@ -223,7 +259,7 @@ impl Compilation {
                     native_statics,
                     callable_effects,
                     runtime_dependencies,
-                    worker_cleanup,
+                    execution,
                 ));
             }
         }
@@ -258,7 +294,7 @@ impl Compilation {
                 native_statics: Vec::new(),
                 native_main_thread: BTreeSet::new(),
                 runtime_dependencies: BTreeMap::new(),
-                worker_cleanup: false,
+                execution: None,
             });
         }
 
@@ -290,7 +326,7 @@ impl Compilation {
             native_statics,
             callable_effects,
             runtime_dependencies,
-            worker_cleanup,
+            execution,
         ) = self.close_executable_host(
             product,
             kind,
@@ -424,7 +460,8 @@ impl Compilation {
         };
 
         Ok(NativeCodegenPreparation {
-            native_links: self.native_product_link_requirements(Some(&reachability), cancellation)?,
+            native_links: self
+                .native_product_link_requirements(Some(&reachability), cancellation)?,
             host,
             runtime: runtime_plan,
             units,
@@ -433,7 +470,7 @@ impl Compilation {
             native_statics,
             native_main_thread,
             runtime_dependencies,
-            worker_cleanup,
+            execution,
         })
     }
 

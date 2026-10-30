@@ -364,6 +364,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let arguments = std::iter::once(cause)
             .chain(source_fields)
             .chain(message_fields)
+            .chain(std::iter::once(
+                crate::mapping::provider::key(self.module, &self.builder, self.types)?.into(),
+            ))
             .collect::<Vec<_>>();
 
         self.invoke_native_runtime(*runtime, &arguments)

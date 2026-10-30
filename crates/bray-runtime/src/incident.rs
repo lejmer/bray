@@ -47,6 +47,8 @@ impl OwnedCleanupIncident {
             None => return NativeRuntimeStatus::SUCCESS,
         };
 
+        let _provider = incident.provider_reference().retain();
+
         crate::report_provider::bray_runtime_cleanup_incident_consumer(
             &mut incident,
             u32::from(report),

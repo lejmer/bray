@@ -1,6 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host;
 
+using internal bray.runtime.bootstrap.domain;
 using std.numeric;
 using core.target;
 using core.atomic;
@@ -33,6 +34,7 @@ internal struct HostOwner
     mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?;
     mut next_identity: u64;
     mut transitioning: bool;
+    mut callbacks_ready: bool;
 }
 
 internal struct HostStorage
@@ -45,6 +47,13 @@ internal struct HostStorage
     mut control_released: bool;
     mut attachments: std.memory.RawBuffer<Attachment>;
     mut active: usize;
+
+    func usable() -> bool
+        executes(pure, total)
+    {
+        return !self.released && !self.cleanup_released && !self.control_released && self.key != std.numeric.U64_MAX &&
+            self.cleanup_key != std.numeric.U64_MAX && self.control_key != std.numeric.U64_MAX;
+    }
 }
 
 // The owner retains every created key until release succeeds. An incomplete key
@@ -58,7 +67,8 @@ internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwne
         storage = none,
         products = none,
         next_identity = 1,
-        transitioning = false
+        transitioning = false,
+        callbacks_ready = false
     }
 );
 
@@ -86,9 +96,7 @@ trusted internal func initialize_host() -> u32
 
         if let ?storage = host.storage
         {
-            if storage.released || storage.cleanup_released || storage.control_released || storage.key ==
-                std.numeric.U64_MAX || storage.cleanup_key == std.numeric.U64_MAX || storage.control_key ==
-                std.numeric.U64_MAX
+            if !storage.usable()
             {
                 return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
             }
@@ -220,8 +228,7 @@ trusted internal func initialize_host() -> u32
                 let cleanup_key: u64 = storage.cleanup_key;
                 let control_key: u64 = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
-                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
+                let usable = storage.usable();
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, prepared);
 
@@ -374,7 +381,7 @@ trusted internal func main_native_thread_identity() -> u64
     uses(raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-        &SYNCHRONIZATION,
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
         trusted synchronization_pointer()
     );
 
@@ -542,7 +549,10 @@ trusted internal func shutdown_host() -> u32
 
                 while index < count
                 {
-                    if rows[index].callers != 0 || !(rows[index].state.phase matches Closed | Failed)
+                    // Independent bindings retire through epoch invalidation and
+                    // resident release, including every outstanding callback pin.
+                    if rows[index].provider matches ?_ || rows[index].callers != 0 || !(rows[index].state.phase matches
+                        Closed | Failed)
                     {
                         return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
                     }
@@ -559,7 +569,7 @@ trusted internal func shutdown_host() -> u32
                 }
 
                 // Unattached control lookups borrow the key without taking this lock.
-                // Unpublish before observing readers; retirement never waits for them.
+                // Unpublish before observing readers. retirement never waits for them.
                 let control_key = core.atomic.exchange<u64, 4>(&synchronization.control_key, 0);
 
                 if core.atomic.load<u64, 4>(&synchronization.control_readers) != 0
@@ -668,8 +678,7 @@ trusted internal func shutdown_host() -> u32
                 let cleanup_key = storage.cleanup_key;
                 let control_key = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
-                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
+                let usable = storage.usable();
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
 

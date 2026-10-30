@@ -36,7 +36,7 @@ pub enum RuntimeAbiType {
 }
 
 /// Native field order shared by panic report type realization and source binding checks.
-pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 20] = [
+pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 22] = [
     RuntimeAbiType::U32,
     RuntimeAbiType::U32,
     RuntimeAbiType::U32,
@@ -51,6 +51,8 @@ pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 20] = [
     RuntimeAbiType::Usize,
     RuntimeAbiType::Usize,
     RuntimeAbiType::Pointer,
+    RuntimeAbiType::Pointer,
+    RuntimeAbiType::Usize,
     RuntimeAbiType::Pointer,
     RuntimeAbiType::Usize,
     RuntimeAbiType::Usize,

@@ -257,7 +257,6 @@ fn report_slot_has_ownership<'context>(
                 pointer,
                 "report.ownership",
             )
-            .map(inkwell::values::BasicValueEnum::into_int_value)
             .map_err(CodegenFailure::backend_library)
     })
 }
@@ -265,22 +264,27 @@ fn report_slot_has_ownership<'context>(
 pub(crate) fn report_has_ownership<'context>(
     context: &'context Context,
     builder: &Builder<'context>,
-    mut field: impl FnMut(u32) -> Result<inkwell::values::IntValue<'context>, CodegenFailure>,
+    mut field: impl FnMut(u32) -> Result<BasicValueEnum<'context>, CodegenFailure>,
 ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
     let mut present = context.bool_type().const_zero();
 
-    // The native header owns its primary, incident chain and unused reservation independently.
-    for index in [10, 17, 18] {
+    // Primary, provider, incident chain and unused reservation own independent resources.
+    for index in [10, 16, 19, 20] {
         let value = field(index)?;
 
-        let owned = builder
-            .build_int_compare(
+        let owned = match value {
+            BasicValueEnum::IntValue(value) => builder.build_int_compare(
                 inkwell::IntPredicate::NE,
                 value,
                 value.get_type().const_zero(),
                 "report.owned",
-            )
-            .map_err(CodegenFailure::backend_library)?;
+            ),
+            BasicValueEnum::PointerValue(value) => {
+                builder.build_is_not_null(value, "report.provider.owned")
+            }
+            _ => panic!("report ownership fields have established scalar or pointer types"),
+        }
+        .map_err(CodegenFailure::backend_library)?;
 
         present = builder
             .build_or(present, owned, "report.has_ownership")

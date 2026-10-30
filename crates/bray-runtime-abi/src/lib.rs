@@ -12,7 +12,7 @@ mod panic;
 mod platform;
 mod process;
 mod product;
-mod product_execution;
+mod provider;
 mod records;
 mod run_result;
 mod runtime;
@@ -35,18 +35,24 @@ pub use platform::{
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
 pub use product::{
     NativeCleanupIncident, NativeCleanupIncidentDestroyCallback,
-    NativeCleanupIncidentReportCallback, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeCleanupIncidentReportCallback, NativeProductBinding, NativeProductCleanupBody,
+    NativeProductCleanupResult, NativeProductExecution, NativeProductExecutionFactory,
+    NativeProductHandle, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostOperation, NativeProductHostState, NativeProductHostStatus,
-    NativeProductIdentity, NativeStaticAccessCallback, NativeStaticAdmissionCallback,
-    NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer,
-    NativeStaticFinalizerExecution, NativeStaticFinalizerResolveCallback,
-    NativeStaticFinalizerStartCallback, NativeStaticFinalizerStatus, NativeStaticHostEntry,
-    NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
-    NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
+    NativeProductIdentity, NativeProductLoadObservation, NativeProductProviderControl,
+    NativeProductProviderFormation, NativeProductProviderNotify, NativeProductProviderOperations,
+    NativeProductProviderRetire, NativeProductProviderRoot, NativeProductRetirement,
+    NativeProviderDomain,
+    NativeStaticAccessCallback, NativeStaticAdmissionCallback, NativeStaticCleanupCallback,
+    NativeStaticDuration, NativeStaticFinalizer, NativeStaticFinalizerExecution,
+    NativeStaticFinalizerResolveCallback, NativeStaticFinalizerStartCallback,
+    NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
+    NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
+    PRODUCT_HOST_ABI_VERSION, PROVIDER_EXECUTION_SERVICES, PROVIDER_HOST_SERVICES,
 };
-pub use product_execution::{
-    NativeProductCleanupBody, NativeProductCleanupResult, NativeProductExecution,
-    NativeProductExecutionFactory,
+pub use provider::{
+    NativeProviderCallbacks, NativeProviderOwner, NativeProviderReference,
+    NativeProviderReferences, NativeProviderRelease, NativeProviderRetain,
 };
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;

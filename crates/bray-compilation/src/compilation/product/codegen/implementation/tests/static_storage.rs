@@ -133,7 +133,24 @@ fn trivial_generic_statics_use_direct_native_storage() {
     assert_eq!(product_instances, 2);
     assert_eq!(thread_instances, 0);
 
-    assert!(plan.product_host().is_none());
+    assert!(
+        static_mappings
+            .iter()
+            .all(|mapping| mapping.finalization().is_none()
+                && mapping.destroy().is_none()
+                && mapping.outgoing_requirements().is_empty())
+    );
+
+    // Reusable report code resolves the resident consumer descriptor. Trivial
+    // statics still need neither managed entries nor an independent provider.
+    let host = plan
+        .product_host()
+        .expect("report construction retains its resident consumer descriptor");
+
+    assert!(host.is_final_image());
+    assert!(!host.is_independent());
+    assert!(host.statics().is_empty());
+    assert!(host.execution().is_none());
 
     assert!(
         generated_artifacts(&backend, &plan)

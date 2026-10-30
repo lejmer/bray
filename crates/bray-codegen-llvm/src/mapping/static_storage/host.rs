@@ -38,18 +38,7 @@ pub(super) fn declare_thread_static_registration<'context>(
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<GlobalValue<'context>, CodegenFailure> {
     let context = types.context();
-    let usize = usize_type(types)?;
-    let descriptor_type = product_host_descriptor_type(context, pointer, usize);
-
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = declare_product_descriptor(module, product_host, types)?;
 
     let entry = product_host
         .statics()
@@ -288,6 +277,25 @@ fn declare_static_dependency_lookup<'context>(
     Ok(dependency)
 }
 
+pub(super) fn declare_product_descriptor<'context>(
+    module: &Module<'context>,
+    product_host: &CodegenProductHostMapping,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<GlobalValue<'context>, CodegenFailure> {
+    let descriptor_type =
+        product_host_descriptor_type(types.context(), pointer_type(types)?, usize_type(types)?);
+
+    Ok(module
+        .get_global(product_host.descriptor_symbol().as_str())
+        .unwrap_or_else(|| {
+            module.add_global(
+                descriptor_type,
+                None,
+                product_host.descriptor_symbol().as_str(),
+            )
+        }))
+}
+
 pub(super) fn declare_product_host<'context>(
     module: &Module<'context>,
     product_host: &CodegenProductHostMapping,
@@ -298,16 +306,7 @@ pub(super) fn declare_product_host<'context>(
     let pointer = pointer_type(types)?;
     let usize = usize_type(types)?;
     let descriptor_type = product_host_descriptor_type(context, pointer, usize);
-
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = declare_product_descriptor(module, product_host, types)?;
 
     if !product_host.is_final_image() || product_host.owner() != mappings.unit() {
         return Ok(());
@@ -361,6 +360,18 @@ pub(super) fn declare_product_host<'context>(
             )
             .into(),
         execution.into(),
+        if product_host.is_independent() {
+            let activation = module.add_global(usize, None, "__bray_provider_activation");
+
+            activation.set_initializer(&usize.const_zero());
+            activation.set_linkage(Linkage::Internal);
+
+            activation.as_pointer_value()
+        } else {
+            pointer.const_null()
+        }
+        .into(),
+        declare_provider_operations(module, product_host, pointer, types)?.into(),
     ]);
 
     descriptor.set_constant(true);
@@ -617,9 +628,57 @@ fn product_host_descriptor_type<'context>(
             pointer.into(),
             usize.into(),
             pointer.into(),
+            pointer.into(),
+            pointer.into(),
         ],
         false,
     )
+}
+
+fn declare_provider_operations<'context>(
+    module: &Module<'context>,
+    product_host: &CodegenProductHostMapping,
+    pointer: PointerType<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<PointerValue<'context>, CodegenFailure> {
+    if !product_host.is_independent() {
+        return Ok(pointer.const_null());
+    }
+
+    let context = types.context();
+
+    let callbacks = [
+        bray_runtime_interface::RuntimeAbiRole::ProductProviderFormation,
+        bray_runtime_interface::RuntimeAbiRole::ProductProviderRoot,
+    ]
+    .map(|role| crate::native::declare_runtime_function(module, context, types.target(), role));
+
+    let [formation, root] = callbacks;
+
+    let formation = formation?;
+    let root = root?;
+
+    if types.target().machine().object_format() == bray_target::ObjectFormat::Elf {
+        formation
+            .as_global_value()
+            .set_visibility(GlobalVisibility::Protected);
+
+        root.as_global_value()
+            .set_visibility(GlobalVisibility::Protected);
+    }
+
+    let ty = context.struct_type(&[pointer.into(), pointer.into()], false);
+    let operations = module.add_global(ty, None, "__bray_provider_operations");
+
+    operations.set_constant(true);
+    operations.set_linkage(Linkage::Internal);
+
+    operations.set_initializer(&ty.const_named_struct(&[
+        formation.as_global_value().as_pointer_value().into(),
+        root.as_global_value().as_pointer_value().into(),
+    ]));
+
+    Ok(operations.as_pointer_value())
 }
 
 fn static_identity_type(context: &inkwell::context::Context) -> ArrayType<'_> {

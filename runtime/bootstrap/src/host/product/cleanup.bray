@@ -124,7 +124,9 @@ trusted internal func empty_incident() -> bray.runtime.bootstrap.report.incident
         },
         report = std.memory.null<u8>(),
         destroy = std.memory.null<u8>(),
-        backing = bray.runtime.bootstrap.storage.empty_lease()
+        backing = bray.runtime.bootstrap.storage.empty_lease(),
+        provider_context = 0,
+        provider_callbacks = 0
     };
 }
 

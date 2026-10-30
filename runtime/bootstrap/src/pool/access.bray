@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.pool;
 
 using std.numeric;
+using core.atomic;
 using core.target;
 using core.memory;
 using std.memory;
@@ -9,6 +10,7 @@ using internal std.memory;
 using internal std.sync;
 using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.domain;
 
 // Native protocol callers retain exclusive record ownership and the linked provider.
 // A source acknowledgement or a well-formed numeric header supplies no such authority.
@@ -16,7 +18,14 @@ trusted internal predicate protocol_access();
 
 // The record allocator must outlive product cleanup and retirement of its backing records.
 // Host shutdown releases the allocations. Ordinary static cleanup must not destroy this owner.
-internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>> =
+internal struct ReportDomain
+{
+    pool: std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>;
+    constructed: core.atomic.Atomic<u64>;
+    consumed: core.atomic.Atomic<u64>;
+}
+
+internal static STORAGE: Uninit<ReportDomain> =
 {
     let prepared = std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>.prepare(
         {
@@ -31,50 +40,49 @@ internal static STORAGE: Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportP
         }
     );
 
-    yield core.memory.uninit_from<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
+    yield core.memory.uninit_from<ReportDomain>(
         {
-            prepared = prepared
+            pool =
+            {
+                prepared = prepared
+            },
+            constructed = core.atomic.initialize<u64>(0),
+            consumed = core.atomic.initialize<u64>(0)
         }
     );
 };
 
-trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.ReportPool>
-    ensures(trusted std.sync.spin_lock.acquired(&result.acquisition))
+trusted internal func domain() -> &ReportDomain
     uses(raw_memory, unchecked_alias)
     requires(trusted bray.runtime.bootstrap.pool.protocol_access())
 {
-    let pointer = std.memory.uninit_pointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(&STORAGE);
+    let storage = trusted bray.runtime.bootstrap.domain.pool_storage();
+    let pointer = std.memory.uninit_pointer<ReportDomain>(storage);
 
-    let authorize = trusted lambda(pos pointer: DataPointer<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>)
+    let authorize = trusted lambda(pos pointer: DataPointer<ReportDomain>)
         ensures(
-            trusted core.memory.valid_read<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
-                pointer = pointer,
-                count = 1
-            ),
-            trusted core.memory.aligned_for<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
-            trusted core.memory.initialized_as<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
-            trusted core.memory.shared_alias_valid<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
-                pointer = pointer
-            ),
-            trusted core.memory.epoch_current<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(pointer = pointer),
-            trusted core.memory.synchronized_access<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
-                pointer = pointer
-            ),
-            trusted core.memory.movement_stable<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
-                pointer = pointer
-            ),
-            trusted core.memory.finalization_pending<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>(
-                pointer = pointer
-            ),
+            trusted core.memory.valid_read<ReportDomain>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<ReportDomain>(pointer = pointer),
+            trusted core.memory.initialized_as<ReportDomain>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<ReportDomain>(pointer = pointer),
+            trusted core.memory.epoch_current<ReportDomain>(pointer = pointer),
+            trusted core.memory.synchronized_access<ReportDomain>(pointer = pointer),
+            trusted core.memory.movement_stable<ReportDomain>(pointer = pointer),
+            trusted core.memory.finalization_pending<ReportDomain>(pointer = pointer),
         )
         executes(pure, total) {};
 
     authorize(pointer);
 
-    let pool = trusted std.memory.borrow_from<
-        std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>,
-        Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>
-    >(&STORAGE, pointer);
+    return trusted std.memory.borrow_from<ReportDomain, Uninit<ReportDomain>>(storage, pointer);
+}
+
+trusted internal func lock() -> std.sync.SpinLockGuard<bray.runtime.bootstrap.ReportPool>
+    ensures(trusted std.sync.spin_lock.acquired(&result.acquisition))
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let storage = trusted domain();
+    let pool = &storage.pool;
 
     let initialized = trusted lambda(pos pool: &std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>)
         ensures(trusted std.sync.spin_lock.valid(&pool.prepared.instance))
@@ -127,7 +135,31 @@ trusted internal func release() -> bool
 trusted internal func identity() -> usize
     uses(intrinsic)
 {
-    return trusted core.target.expose_address<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(
-        std.memory.address_of<Uninit<std.sync.SpinLock<bray.runtime.bootstrap.ReportPool>>>(&STORAGE)
+    return trusted core.target.expose_address<Uninit<ReportDomain>>(
+        std.memory.address_of<Uninit<ReportDomain>>(trusted bray.runtime.bootstrap.domain.pool_storage())
     );
+}
+
+trusted internal func report_constructed()
+    requires(trusted protocol_access())
+{
+    let storage = trusted domain();
+
+    _ = core.atomic.fetch_add<u64, 0>(&storage.constructed, value = 1);
+}
+
+trusted internal func report_consumed()
+    requires(trusted protocol_access())
+{
+    let storage = trusted domain();
+
+    _ = core.atomic.fetch_add<u64, 0>(&storage.consumed, value = 1);
+}
+
+trusted internal func reports_released() -> bool
+    requires(trusted protocol_access())
+{
+    let storage = trusted domain();
+
+    return core.atomic.load<u64, 1>(&storage.constructed) == core.atomic.load<u64, 1>(&storage.consumed);
 }

@@ -5,6 +5,7 @@ mod fixtures;
 mod hello;
 mod libraries;
 mod nullable;
+mod provider;
 mod rejection;
 mod repeatable;
 mod static_storage;

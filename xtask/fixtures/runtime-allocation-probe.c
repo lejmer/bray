@@ -17,6 +17,7 @@ static atomic_bool reject_allocations;
 static atomic_uint allocation_attempts;
 static atomic_uint live_allocations;
 static atomic_size_t allocated_bytes;
+static atomic_size_t retained_bytes;
 static void (*allocation_callback)(void);
 static void (*release_callback)(void);
 static atomic_bool cleanup_observed;
@@ -26,6 +27,7 @@ typedef struct ReportAllocation
 {
     struct ReportAllocation* next;
     void* memory;
+    size_t bytes;
 } ReportAllocation;
 
 static ReportAllocation* report_allocations;
@@ -66,6 +68,14 @@ uint32_t bray_allocation_probe_end(uint32_t before)
 {
     atomic_store(&reject_allocations, 0);
     return atomic_load(&allocation_attempts) - before;
+}
+
+void bray_allocation_probe_snapshot(unsigned* attempts, unsigned* live, size_t* bytes, size_t* retained)
+{
+    *attempts = atomic_load(&allocation_attempts);
+    *live = atomic_load(&live_allocations);
+    *bytes = atomic_load(&allocated_bytes);
+    *retained = atomic_load(&retained_bytes);
 }
 
 // Observe destruction independently after the product has drained its report sink.
@@ -132,12 +142,14 @@ static void* allocate_report_memory(size_t bytes, size_t alignment)
     {
         uintptr_t start = (uintptr_t)(allocation + 1);
         allocation->memory = (void*)((start + alignment - 1) & ~(uintptr_t)(alignment - 1));
+        allocation->bytes = bytes;
 
         lock_allocations();
         allocation->next = report_allocations;
         report_allocations = allocation;
         atomic_fetch_add(&live_allocations, 1);
         atomic_fetch_add(&allocated_bytes, bytes);
+        atomic_fetch_add(&retained_bytes, bytes);
         unlock_allocations();
     }
 
@@ -163,6 +175,7 @@ static void release_report_memory(void* memory)
     {
         *cursor = allocation->next;
         atomic_fetch_sub(&live_allocations, 1);
+        atomic_fetch_sub(&retained_bytes, allocation->bytes);
     }
 
     unlock_allocations();

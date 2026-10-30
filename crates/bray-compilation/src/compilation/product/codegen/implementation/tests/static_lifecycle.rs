@@ -243,7 +243,13 @@ fn shared_library_runtime_roles_do_not_require_static_storage() {
         )
         .expect("shared library runtime roles must select their implementation");
 
-    assert!(plan.product_host().is_none());
+    let host = plan
+        .product_host()
+        .expect("exported reports retain their provider");
+
+    assert!(host.is_independent());
+    assert!(host.statics().is_empty());
+    assert!(host.execution().is_none());
     assert!(plan.link().is_some());
 }
 

@@ -282,6 +282,21 @@ pub(crate) fn declare_destroyer<'context>(
 
     builder.position_at_end(completed);
 
+    let provider = builder
+        .build_struct_gep(incident_type, incident, 6, "incident.provider")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let release_provider = crate::native::declare_runtime_function(
+        module,
+        context,
+        types.target(),
+        bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease,
+    )?;
+
+    builder
+        .build_call(release_provider, &[provider.into()], "")
+        .map_err(CodegenFailure::backend_library)?;
+
     builder
         .build_return(None)
         .map_err(CodegenFailure::backend_library)?;
@@ -290,6 +305,7 @@ pub(crate) fn declare_destroyer<'context>(
 }
 
 pub(crate) fn record_value<'context>(
+    module: &Module<'context>,
     builder: &Builder<'context>,
     identity: [u8; 32],
     source: StructValue<'context>,
@@ -308,13 +324,25 @@ pub(crate) fn record_value<'context>(
         .build_ptr_to_int(payload, usize, "incident.address")
         .map_err(CodegenFailure::backend_library)?;
 
-    let fields: [inkwell::values::BasicValueEnum<'context>; 6] = [
+    let provider = super::provider::acquire(module, builder, types)?;
+
+    let provider_context = builder
+        .build_extract_value(provider, 0, "incident.provider.context")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let provider_callbacks = builder
+        .build_extract_value(provider, 1, "incident.provider.callbacks")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let fields: [inkwell::values::BasicValueEnum<'context>; 8] = [
         address.into(),
         crate::native::identity_value(context, identity).into(),
         source.into(),
         report.as_global_value().as_pointer_value().into(),
         destroy.as_global_value().as_pointer_value().into(),
         backing.into(),
+        provider_context,
+        provider_callbacks,
     ];
 
     let mut incident = record_type(context, usize, pointer, types.target()).const_zero();
@@ -348,6 +376,8 @@ fn record_type<'context>(
             pointer.into(),
             pointer.into(),
             crate::mapping::cleanup::lease_type(context, target).into(),
+            usize.into(),
+            pointer.into(),
         ],
         false,
     )

@@ -1,0 +1,202 @@
+trusted module provider_lifetime;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+
+struct State
+{
+    mut live: i32;
+    visits: core.atomic.Atomic<usize>;
+    produced: core.atomic.Atomic<usize>;
+
+    trusted finalize()
+        uses(intrinsic)
+    {
+        if core.atomic.load<usize, 1>(&self.visits) != 2 * core.atomic.load<usize, 1>(&self.produced)
+        {
+            trusted core.target.abort();
+        }
+
+        self.live = 0;
+    }
+
+    destruct() {}
+}
+
+static STATE: State =
+{
+    live = 739391,
+    visits = core.atomic.initialize<usize>(0),
+    produced = core.atomic.initialize<usize>(0)
+};
+
+struct CallbackScope
+{
+    visits: &core.atomic.Atomic<usize>;
+
+    enter() -> &core.atomic.Atomic<usize>
+    {
+        return self.visits;
+    }
+
+    exit(pos visits: &core.atomic.Atomic<usize>)
+        executes(total)
+    {
+        _ = core.atomic.fetch_add<usize, 3>(visits, value = 1);
+    }
+}
+
+struct CallbackLocal
+{
+    visits: &core.atomic.Atomic<usize>;
+
+    destruct()
+        executes(total)
+    {
+        _ = core.atomic.fetch_add<usize, 3>(self.visits, value = 1);
+    }
+}
+
+struct Payload
+{
+    value: i32;
+    panic_on_destroy: bool;
+
+    trusted destruct()
+        uses(intrinsic)
+    {
+        if STATE.live != 739391 || self.value != 421
+        {
+            trusted core.target.abort();
+        }
+
+        let scope: CallbackScope =
+        {
+            visits = &STATE.visits
+        };
+
+        _ = with visits = scope
+        {
+            let local: CallbackLocal =
+            {
+                visits = visits
+            };
+        };
+
+        if self.panic_on_destroy
+        {
+            panic("provider payload destructor panic");
+        }
+    }
+}
+
+struct Failing
+{
+    panic_on_destroy: bool;
+
+    finalize() -> Result<unit, Payload>
+    {
+        return Error(
+            Payload
+            {
+                value = 421,
+                panic_on_destroy = self.panic_on_destroy
+            }
+        );
+    }
+
+    destruct() {}
+}
+
+trusted predicate native_report_destination(pointer: DataPointer<PanicReport>);
+
+@abi(c)
+@symbol(name = "bray_provider_report")
+trusted func produce_report(pos output: DataPointer<PanicReport>)
+    requires(trusted native_report_destination(pointer = output))
+{
+    trusted produce_selected_report<0, false>(output);
+}
+
+@abi(c)
+@symbol(name = "bray_provider_abnormal_report")
+trusted func produce_abnormal_report(pos output: DataPointer<PanicReport>)
+    requires(trusted native_report_destination(pointer = output))
+{
+    trusted produce_selected_report<0, true>(output);
+}
+
+trusted func produce_selected_report<const MARKER: i32, const panic_on_destroy: bool>(
+    pos output: DataPointer<PanicReport>
+)
+    requires(trusted native_report_destination(pointer = output))
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let destination = trusted report_slot(output);
+
+    _ = core.atomic.fetch_add<usize, 3>(&STATE.produced, value = 1);
+
+    let caught: Result<never, PanicReport> = catch
+    {
+        let owner: Failing =
+        {
+            panic_on_destroy = panic_on_destroy
+        };
+
+        panic("retained provider report");
+    };
+
+    let report: PanicReport = match consume caught
+    {
+        case Error(report) { yield report; }
+        case Ok(_) { yield trusted core.target.abort(); }
+    };
+
+    trusted std.memory.write<PanicReport>(trusted report_pointer(&destination), report);
+}
+
+@abi(c)
+@symbol(name = "bray_provider_state")
+func state_address() -> DataPointer<i32>
+{
+    return std.memory.address_of<i32>(&STATE.live);
+}
+
+struct ReportAcquisition
+{
+}
+
+struct ReportSlot
+{
+    acquisition: ReportAcquisition;
+    pointer: DataPointer<PanicReport>;
+}
+
+trusted predicate report_slot_live(owner: &ReportAcquisition);
+
+trusted func report_slot(pos pointer: DataPointer<PanicReport>) -> ReportSlot
+    requires(trusted native_report_destination(pointer = pointer))
+    ensures(trusted report_slot_live(owner = &result.acquisition))
+    executes(pure, total)
+{
+    return
+    {
+        acquisition = ReportAcquisition
+        {
+        },
+        pointer = pointer
+    };
+}
+
+trusted func report_pointer(pos slot: &ReportSlot) -> DataPointer<PanicReport>
+    requires(trusted report_slot_live(owner = &slot.acquisition))
+    ensures(
+        trusted core.memory.valid_write<PanicReport>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<PanicReport>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return slot.pointer;
+}

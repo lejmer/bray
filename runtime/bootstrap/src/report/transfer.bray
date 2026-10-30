@@ -171,6 +171,14 @@ trusted internal func retain_primary(
 {
     if primary.primary_present == 0
     {
+        if !core.memory.is_null<bray.runtime.bootstrap.provider.Callbacks>(primary.provider.callbacks)
+        {
+            let mut value = trusted panic_record(primary);
+            let provider = trusted bray.runtime.bootstrap.report.incident.take_value_provider(&mut value);
+
+            trusted bray.runtime.bootstrap.provider.release_owned(provider);
+        }
+
         trusted recycle_reservation(reserved);
         return remaining;
     }

@@ -1,0 +1,329 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host.product;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.provider;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.host;
+
+// One stable cell belongs to the admitted product. Known owning references use
+// this cell directly. descriptor and epoch validation belongs to native entry.
+internal struct Residency
+{
+    key: usize;
+    mut epoch: u64;
+    roots: core.atomic.Atomic<usize>;
+    callbacks: core.atomic.Atomic<usize>;
+    revision: core.atomic.Atomic<u64>;
+    native_context: usize;
+    native_callbacks: DataPointer<bray.runtime.bootstrap.provider.Callbacks>;
+}
+
+// The resident native caller owns an existing root until the invocation returns.
+// A copied context word cannot supply that authority.
+internal struct RootBorrow
+{
+    context: usize;
+}
+
+trusted internal predicate root_borrow_live(owner: &RootBorrow);
+
+trusted internal func root_borrow(pos context: usize) -> RootBorrow
+    requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+    ensures(trusted root_borrow_live(owner = &result))
+    executes(total)
+{
+    return
+    {
+        context = context
+    };
+}
+
+trusted internal func root_value(pos owner: &RootBorrow) -> &Residency
+    requires(trusted root_borrow_live(owner = owner))
+    ensures(trusted root_borrow_live(owner = owner))
+    executes(total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted lambda(pos owner: &RootBorrow) -> DataPointer<Residency>
+        requires(trusted root_borrow_live(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Residency>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Residency>(pointer = result),
+            trusted core.memory.initialized_as<Residency>(pointer = result),
+            trusted core.memory.shared_alias_valid<Residency>(pointer = result),
+            trusted core.memory.epoch_current<Residency>(pointer = result),
+            trusted core.memory.synchronized_access<Residency>(pointer = result),
+            trusted core.memory.movement_stable<Residency>(pointer = result),
+            trusted core.memory.finalization_pending<Residency>(pointer = result)
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<Residency>(address = owner.context);
+    };
+
+    return trusted std.memory.borrow_from<Residency, RootBorrow>(owner, trusted pointer(owner));
+}
+
+// The final root can enable cleanup. Keep the stable cell alive through that
+// work and all its local destruction before exposing retirement eligibility.
+internal struct RootAcquisition
+{
+}
+
+trusted internal predicate root_callback_live(owner: &RootAcquisition);
+
+internal struct RootCallback
+{
+    acquisition: RootAcquisition;
+    context: usize;
+
+    trusted destruct()
+        executes(total)
+    {
+        // The sole constructor increments the exact cell before creating this
+        // noncopy owner. Its private acquisition cannot originate in wire bits.
+        let owned = trusted lambda(pos callback: &RootCallback)
+            ensures(trusted root_callback_live(owner = &callback.acquisition))
+            executes(pure, total) {};
+
+        trusted owned(&self);
+
+        let value = trusted callback_value(&self);
+
+        _ = core.atomic.fetch_sub<usize, 3>(&value.callbacks, value = 1);
+    }
+}
+
+trusted internal func callback_value(pos callback: &RootCallback) -> &Residency
+    requires(trusted root_callback_live(owner = &callback.acquisition))
+    ensures(trusted root_callback_live(owner = &callback.acquisition))
+    executes(total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted lambda(pos callback: &RootCallback) -> DataPointer<Residency>
+        requires(trusted root_callback_live(owner = &callback.acquisition))
+        ensures(
+            trusted core.memory.valid_read<Residency>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Residency>(pointer = result),
+            trusted core.memory.initialized_as<Residency>(pointer = result),
+            trusted core.memory.shared_alias_valid<Residency>(pointer = result),
+            trusted core.memory.epoch_current<Residency>(pointer = result),
+            trusted core.memory.synchronized_access<Residency>(pointer = result),
+            trusted core.memory.movement_stable<Residency>(pointer = result),
+            trusted core.memory.finalization_pending<Residency>(pointer = result)
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return trusted core.target.from_exposed_address<Residency>(address = callback.context);
+    };
+
+    return trusted std.memory.borrow_from<Residency, RootCallback>(callback, trusted pointer(callback));
+}
+
+@abi(c)
+trusted internal func root_retain(pos context: usize)
+    requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+    uses(intrinsic)
+{
+    let owner = trusted root_borrow(context);
+    let value = trusted root_value(&owner);
+    let mut count = core.atomic.load<usize, 1>(&value.roots);
+
+    while true
+    {
+        if count == 0 || count >= std.numeric.USIZE_MAX - 1
+        {
+            trusted core.target.abort();
+        }
+
+        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.roots,
+            expected = count,
+            desired = count + 1
+        );
+
+        if acquired
+        {
+            trusted revise_residency(value);
+            return;
+        }
+
+        count = previous;
+    }
+}
+
+@abi(c)
+trusted internal func root_release(pos context: usize)
+    requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+    uses(intrinsic)
+{
+    let permitted = trusted lambda(pos context: usize)
+        requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+        ensures(trusted native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted permitted(context);
+
+    let (key, epoch, last): (usize, u64, bool) =
+    {
+        let callback = trusted begin_root_callback(context);
+
+        let (key, epoch, last): (usize, u64, bool) =
+        {
+            let value = trusted callback_value(&callback);
+            let previous = core.atomic.fetch_sub<usize, 3>(&value.roots, value = 1);
+
+            if previous == 0
+            {
+                trusted core.target.abort();
+            }
+
+            yield (value.key, value.epoch, previous == 1);
+        };
+
+        if last
+        {
+            _ = trusted progress(key, trusted transition(key, 6));
+        }
+
+        yield (key, epoch, last);
+    };
+
+    if last
+    {
+        trusted retire_resident(key, epoch);
+    }
+}
+
+trusted internal func begin_root_callback(pos context: usize) -> RootCallback
+    requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+    ensures(trusted root_callback_live(owner = &result.acquisition))
+{
+    return trusted start_root_callback(trusted root_borrow(context));
+}
+
+trusted internal func start_root_callback(pos owner: RootBorrow) -> RootCallback
+    requires(trusted root_borrow_live(owner = &owner))
+    ensures(trusted root_callback_live(owner = &result.acquisition))
+    uses(intrinsic)
+{
+    let value = trusted root_value(&owner);
+    let mut count = core.atomic.load<usize, 1>(&value.callbacks);
+
+    trusted revise_residency(value);
+
+    while true
+    {
+        if count == std.numeric.USIZE_MAX
+        {
+            trusted core.target.abort();
+        }
+
+        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.callbacks,
+            expected = count,
+            desired = count + 1
+        );
+
+        if acquired
+        {
+            break;
+        }
+
+        count = previous;
+    }
+
+    return
+    {
+        acquisition = RootAcquisition
+        {
+        },
+        context = owner.context
+    };
+}
+
+trusted internal func revise_residency(pos value: &Residency)
+    uses(intrinsic)
+{
+    if core.atomic.fetch_add<u64, 3>(&value.revision, value = 1) == std.numeric.U64_MAX
+    {
+        trusted core.target.abort();
+    }
+}
+
+@abi(c)
+trusted internal func root_references(pos context: usize) -> usize
+    requires(trusted bray.runtime.bootstrap.provider.native_callback(context = context))
+    uses(intrinsic)
+{
+    let owner = trusted root_borrow(context);
+    let value = trusted root_value(&owner);
+    let count = core.atomic.load<usize, 1>(&value.roots);
+
+    if count == std.numeric.USIZE_MAX
+    {
+        trusted core.target.abort();
+    }
+
+    return count + 1;
+}
+
+// Form the native table explicitly before publishing the resident domain. A
+// static initializer cannot form runtime callable addresses. The host lock
+// serializes publication. the stable table is immutable for the domain lifetime.
+internal static ROOT_CALLBACKS: Uninit<bray.runtime.bootstrap.provider.Callbacks> = std.memory.uninit<
+    bray.runtime.bootstrap.provider.Callbacks
+>();
+
+trusted internal func prepare_root_callbacks() -> DataPointer<bray.runtime.bootstrap.provider.Callbacks>
+    requires(trusted native_host())
+    uses(raw_memory, unchecked_init)
+{
+    let pointer = std.memory.uninit_pointer<bray.runtime.bootstrap.provider.Callbacks>(&ROOT_CALLBACKS);
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return std.memory.null<bray.runtime.bootstrap.provider.Callbacks>();
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if !host.callbacks_ready
+    {
+        let destination = trusted lambda(
+            pos storage: &Uninit<bray.runtime.bootstrap.provider.Callbacks>,
+            pos lease: &bray.runtime.bootstrap.host.HostLease
+        ) -> DataPointer<bray.runtime.bootstrap.provider.Callbacks>
+            requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+            ensures(
+                trusted core.memory.valid_write<bray.runtime.bootstrap.provider.Callbacks>(pointer = result, count = 1),
+                trusted core.memory.aligned_for<bray.runtime.bootstrap.provider.Callbacks>(pointer = result)
+            )
+            executes(pure, total)
+        {
+            return std.memory.uninit_pointer<bray.runtime.bootstrap.provider.Callbacks>(storage);
+        };
+
+        trusted std.memory.write<bray.runtime.bootstrap.provider.Callbacks>(
+            trusted destination(&ROOT_CALLBACKS, &lease),
+            {
+                retain = root_retain,
+                release = root_release,
+                references = root_references
+            }
+        );
+
+        host.callbacks_ready = true;
+    }
+
+    return pointer;
+}

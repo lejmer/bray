@@ -237,6 +237,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let source = self.native_source_anchor(operation)?.into_struct_value();
 
         let record = crate::mapping::incident::record_value(
+            self.module,
             &self.builder,
             identity,
             source,

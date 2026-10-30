@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "static-storage-host.h"
+#include "provider-host.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -11,55 +11,6 @@ typedef HMODULE native_library;
 #include <pthread.h>
 typedef void* native_library;
 #endif
-
-typedef uintptr_t (*static_access)(void);
-typedef void (*static_cleanup)(uint32_t abandoned, void* outcome);
-typedef void (*static_transition)(void);
-typedef void (*static_admission)(uint32_t operation, void* outcome);
-typedef uint32_t (*static_finalizer_start)(uintptr_t destination, void* outcome);
-typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident, void* outcome);
-
-typedef struct
-{
-    uint32_t execution;
-    static_admission admission;
-    static_finalizer_start start;
-    static_finalizer_resolve resolve;
-} static_finalizer;
-
-typedef struct
-{
-    uint8_t bytes[32];
-} static_identity;
-
-typedef static_identity (*static_dependency)(size_t index);
-
-typedef struct static_host_entry
-{
-    uint32_t abi_version;
-    uint32_t duration;
-    static_identity identity;
-    uint64_t order;
-    uintptr_t storage;
-    static_access access;
-    static_transition prepare;
-    static_finalizer finalizer;
-    static_cleanup destroy;
-    static_transition detach;
-    static_dependency dependency;
-    size_t dependency_count;
-} static_host_entry;
-
-typedef static_host_entry (*static_host_lookup)(size_t index);
-
-typedef struct
-{
-    uint32_t abi_version;
-    uint32_t reserved;
-    uint8_t identity[32];
-    static_host_lookup static_entry;
-    size_t static_count;
-} product_host_descriptor;
 
 typedef struct
 {
@@ -85,15 +36,6 @@ static void* find_symbol(native_library library, const char* name)
     return (void*)GetProcAddress(library, name);
 #else
     return dlsym(library, name);
-#endif
-}
-
-static int close_library(native_library library)
-{
-#if defined(_WIN32)
-    return FreeLibrary(library) ? 0 : 1;
-#else
-    return dlclose(library);
 #endif
 }
 
@@ -543,6 +485,37 @@ int main(int argument_count, char** arguments)
     )
         return 68;
 
+    provider_host_initialize();
+
+    provider_host_owner first_owner = {first_library, ATOMIC_VAR_INIT(1), (uintptr_t)first_descriptor, 0};
+    provider_host_owner second_owner = {second_library, ATOMIC_VAR_INIT(1), (uintptr_t)second_descriptor, 0};
+    provider_binding first_binding =
+    {
+        2, 3, &provider_host_domain,
+        {(uintptr_t)&first_owner, &provider_host_callbacks}, NULL, 0
+    };
+    provider_binding second_binding =
+    {
+        2, 3, &provider_host_domain,
+        {(uintptr_t)&second_owner, &provider_host_callbacks}, NULL, 0
+    };
+    provider_observation first_formed = {0};
+    provider_observation second_formed = {0};
+
+    if (first_descriptor->provider == NULL || second_descriptor->provider == NULL ||
+        first_descriptor->provider->form((uintptr_t)first_descriptor, &first_binding, &first_formed) != 0 ||
+        second_descriptor->provider->form((uintptr_t)second_descriptor, &second_binding, &second_formed) != 0 ||
+        !observation_is(first_formed.observation, 0, 1) || !observation_is(second_formed.observation, 0, 1) ||
+        first_formed.handle.epoch == second_formed.handle.epoch || first_formed.handle.epoch == 0)
+    {
+        return 104;
+    }
+
+    // Transfer the native caller's initial ownership after formation. The admitted
+    // resident owner keeps both images live until their explicit final retirement.
+    provider_host_release((uintptr_t)&first_owner);
+    provider_host_release((uintptr_t)&second_owner);
+
     if (!observation_is(second_control(PRODUCT_HOST_FORM), 0, 1))
         return 63;
 
@@ -615,8 +588,27 @@ int main(int argument_count, char** arguments)
     )
         return 66;
 
-    if (close_library(first_library) != 0 || close_library(second_library) != 0)
-        return 67;
+    provider_retirement first_retired = {0};
+    provider_retirement second_retired = {0};
+
+    if (provider_host_domain.retire(first_formed.handle.descriptor, first_formed.handle.epoch, &first_retired) != 0 ||
+        provider_host_domain.retire(second_formed.handle.descriptor, second_formed.handle.epoch, &second_retired) != 0 ||
+        first_retired.observation.status != 0 || second_retired.observation.status != 0)
+    {
+        return 105;
+    }
+
+    first_retired.provider.callbacks->release(first_retired.provider.context);
+    second_retired.provider.callbacks->release(second_retired.provider.context);
+
+    provider_observation stale = {0};
+
+    if (first_owner.closes != 1 || second_owner.closes != 1 ||
+        provider_host_domain.control(first_formed.handle.descriptor, first_formed.handle.epoch, 6, &stale) != 0 ||
+        stale.observation.status != 3)
+    {
+        return 106;
+    }
 
     return 0;
 }
