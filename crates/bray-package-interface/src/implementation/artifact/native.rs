@@ -223,6 +223,9 @@ fn symbol_in_unit(unit: &NativeUnit, symbol: &str) -> bool {
             .iter()
             .any(|definition| definition.symbol().identity().name() == Some(symbol)),
         NativeUnitSummary::Opaque { .. } => unit.kind() == NativeUnitKind::OpaqueArchive,
+        NativeUnitSummary::LazyArchive { provided, .. } => provided
+            .iter()
+            .any(|identity| identity.name() == Some(symbol)),
     }
 }
 

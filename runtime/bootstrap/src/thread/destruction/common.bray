@@ -8,6 +8,10 @@ using internal bray.runtime.bootstrap.host;
 // Only the compiler-bound native callback owns this exact-thread exit scope.
 trusted internal predicate native_attachment_exit();
 
+// This native callback observes an already cleared scalar control slot. It does
+// not acquire attachment retirement authority.
+trusted internal predicate native_control_exit();
+
 // The bound native leave adapter consumes an acquisition held by its caller.
 trusted internal predicate native_attachment_release();
 

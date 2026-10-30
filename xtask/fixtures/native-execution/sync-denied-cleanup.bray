@@ -1,0 +1,69 @@
+@link(name = "bray_allocation_probe")
+trusted module sync_denied_cleanup;
+
+using core.atomic;
+using core.target;
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_expect_shutdown")
+extern trusted func deny_through_shutdown()
+    uses(foreign_call);
+
+internal struct Counter
+{
+    visits: core.atomic.Atomic<u32>;
+
+    trusted destruct()
+        uses(intrinsic)
+    {
+        if core.atomic.load<u32, 1>(&self.visits) != 3
+        {
+            trusted core.target.abort();
+        }
+    }
+}
+
+internal static COUNTER: Counter =
+{
+    visits = core.atomic.initialize<u32>(0)
+};
+
+internal struct Guard
+{
+    counter: &Counter;
+
+    finalize()
+    {
+        panic("");
+    }
+
+    destruct()
+    {
+        _ = core.atomic.fetch_add<u32, 0>(&self.counter.visits, value = 1);
+    }
+}
+
+internal static PRODUCT: Guard =
+{
+    counter = &COUNTER
+};
+
+@thread_local internal static THREAD: Guard =
+{
+    counter = &COUNTER
+};
+
+trusted func main()
+    uses(foreign_call)
+{
+    _ = PRODUCT.counter;
+    _ = THREAD.counter;
+
+    let local: Guard =
+    {
+        counter = &COUNTER
+    };
+
+    trusted deny_through_shutdown();
+    panic("");
+}

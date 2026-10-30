@@ -1,0 +1,23 @@
+module sync_static;
+
+using std.io;
+
+struct Resource
+{
+    value: i32;
+
+    destruct()
+    {
+        _ = std.io.print_line("static cleanup");
+    }
+}
+
+internal static RESOURCE: Resource =
+{
+    value = 7
+};
+
+func main() -> i32
+{
+    return RESOURCE.value - 7;
+}

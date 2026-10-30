@@ -89,10 +89,7 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
         kind,
         RuntimeArchiveKind::Host | RuntimeArchiveKind::TestHost
     )
-    .then_some([
-        "bray_runtime_substrate_initialization",
-        "bray_runtime_substrate_shutdown",
-    ])
+    .then_some(["bray_runtime_substrate_initialization"])
     .into_iter()
     .flatten()
 }

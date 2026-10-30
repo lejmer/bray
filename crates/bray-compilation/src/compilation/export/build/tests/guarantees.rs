@@ -727,6 +727,10 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
             extern trusted func asserted() -> bool
                 executes(total)
                 uses(foreign_call);
+
+            @link(name = "c")
+            @symbol(name = "foreign_value")
+            extern trusted static VALUE: i32;
         "#],
         ProductKind::Library,
         [],
@@ -746,6 +750,14 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
     );
 
     let bundle = export(&provider);
+
+    assert_eq!(bundle.native_boundaries().len(), 2);
+
+    for boundary in bundle.native_boundaries() {
+        assert_eq!(boundary.links().len(), 1);
+        assert_eq!(boundary.links()[0].name(), "c");
+        assert_eq!(boundary.links()[0].kind(), bray_symbols::NativeLinkKind::Dynamic);
+    }
 
     assert!(
         bundle

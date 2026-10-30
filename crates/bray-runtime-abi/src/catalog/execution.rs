@@ -533,7 +533,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Bool,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.control.observe"), host_control: false,
                 capabilities: [],
                 effects: [ObserveCancellation]
             }
@@ -543,7 +543,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.control.enter_cleanup"), host_control: false,
                 capabilities: [],
                 effects: []
             }
@@ -553,7 +553,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("entry.control.leave_cleanup"), host_control: false,
                 capabilities: [],
                 effects: []
             }
@@ -890,7 +890,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [PanicReport] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("panic_propagation"), host_control: false,
                 capabilities: [],
                 effects: [PropagatePanic]
             }
@@ -1038,6 +1038,24 @@ macro_rules! runtime_role_catalog {
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [DestroyTask]
+            }
+            ExecutionShutdown {
+                "Retire selected execution and test-host services before common host release.", "execution_shutdown",
+                native: (EXECUTION_SHUTDOWN_SYMBOL = "bray_runtime_execution_shutdown", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [StructuredShutdown]
+            }
+            ControlStorageExit {
+                "Retire the native execution-control projection without admitting entry.", "control_storage_exit",
+                native: (CONTROL_STORAGE_EXIT_SYMBOL = "bray_runtime_control_storage_exit", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("thread.destruction.control_storage_exit"), host_control: false,
+                capabilities: [],
+                effects: []
             }
         }
     };

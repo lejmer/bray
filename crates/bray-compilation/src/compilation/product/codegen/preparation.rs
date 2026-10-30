@@ -30,6 +30,8 @@ type ExecutableHostClosure = (
 );
 
 pub(super) struct NativeCodegenPreparation {
+    pub(super) native_links:
+        Vec<(bray_symbols::NativeLinkRequirement, bray_linker::LinkInputProvenance)>,
     pub(super) host: Option<ExecutableHostContract>,
     pub(super) runtime: Option<RuntimeArtifactPlan>,
     pub(super) units: Arc<[CodegenUnit]>,
@@ -247,6 +249,7 @@ impl Compilation {
     ) -> Result<NativeCodegenPreparation, NativeProductPlanningError> {
         if source_roots.is_empty() && kind != ProductKind::Test {
             return Ok(NativeCodegenPreparation {
+                native_links: self.native_product_link_requirements(None, cancellation)?,
                 host: None,
                 runtime: None,
                 units: Arc::from([]),
@@ -421,6 +424,7 @@ impl Compilation {
         };
 
         Ok(NativeCodegenPreparation {
+            native_links: self.native_product_link_requirements(Some(&reachability), cancellation)?,
             host,
             runtime: runtime_plan,
             units,

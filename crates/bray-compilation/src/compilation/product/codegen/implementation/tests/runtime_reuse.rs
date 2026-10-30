@@ -549,6 +549,7 @@ fn runtime_native_references_select_ordinary_library_dependencies() {
             .expect("fixture `plan` call must succeed");
 
         let result = compilation.product_link_inputs(
+            &[],
             bray_linker::LinkedProductKind::Executable,
             None,
             Some(runtime),

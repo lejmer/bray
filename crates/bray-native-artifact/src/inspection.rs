@@ -300,25 +300,47 @@ fn object_comdats(
     Some(sections)
 }
 
-/// Keeps known external references of a native object archive without claiming exact selection.
+/// Indexes a lazy archive when every member has a readable export inventory.
+/// Unsupported members retain mandatory opaque behavior and all known references.
 pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, object::Error> {
     let archive = object::read::archive::ArchiveFile::parse(bytes)?;
     let mut provided = BTreeSet::new();
     let mut references = BTreeSet::new();
+    let mut complete = true;
 
     for member in archive.members() {
         let data = member?.data(bytes)?;
 
         // Native archives may also contain short import records or unsupported members.
-        if let Ok(file) = object::File::parse(data) {
-            let (definitions, imports) = object_symbols(&file);
+        let Ok(file) = object::File::parse(data) else {
+            complete = false;
+            continue;
+        };
 
-            provided.extend(definitions);
-            references.extend(imports);
-        }
+        let (definitions, imports) = object_symbols(&file);
+
+        provided.extend(definitions);
+        references.extend(imports);
+
+        // Unknown selection/retention within an ordinary archive remains the linker's
+        // responsibility. Linker directives can add exports beyond its symbol table.
+        complete &= file.kind() == object::ObjectKind::Relocatable
+            && file
+                .symbols()
+                .filter(|symbol| symbol.is_global() || symbol.is_weak())
+                .all(|symbol| symbol.name().is_ok_and(|name| !name.is_empty()))
+            && file.sections().all(|section| {
+                section.kind() != SectionKind::Linker
+                    && !(file.format() == object::BinaryFormat::Coff
+                        && section.name().ok() == Some(".drectve"))
+            });
     }
 
-    Ok(NativeUnitSummary::opaque_archive(provided, references))
+    Ok(if complete {
+        NativeUnitSummary::lazy_archive(provided, references)
+    } else {
+        NativeUnitSummary::opaque_archive(provided, references)
+    })
 }
 
 fn object_symbols(
@@ -446,8 +468,91 @@ mod tests {
         Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
     };
 
-    use super::scan_object_unit_summary;
+    use super::{scan_object_archive_summary, scan_object_unit_summary};
     use crate::{NativeComdatSelection, NativeDefinitionSelection, NativeRoot, NativeUnitSummary};
+
+    #[test]
+    fn archive_export_inventory_distinguishes_readable_and_unknown_members() {
+        fn archive(member: &[u8]) -> Vec<u8> {
+            let mut bytes = b"!<arch>\n".to_vec();
+
+            bytes.extend(
+                format!(
+                    "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                    "entry.o/",
+                    0,
+                    0,
+                    0,
+                    "100644",
+                    member.len()
+                )
+                .as_bytes(),
+            );
+
+            bytes.extend_from_slice(member);
+
+            if member.len() % 2 != 0 {
+                bytes.push(b'\n');
+            }
+
+            bytes
+        }
+
+        let object = object_fixture(BinaryFormat::Elf, ".text");
+
+        let summary =
+            scan_object_archive_summary(&archive(&object)).expect("native archive inventory");
+
+        assert!(
+            matches!(summary, NativeUnitSummary::LazyArchive { provided, references }
+            if provided.len() == 1 && references.len() == 1)
+        );
+
+        let summary = scan_object_archive_summary(&archive(b"unsupported member"))
+            .expect("opaque archive inventory");
+
+        assert!(matches!(summary, NativeUnitSummary::Opaque { .. }));
+
+        let mut uncertain =
+            Object::new(BinaryFormat::Elf, Architecture::X86_64, Endianness::Little);
+
+        for (name, section, weak) in [
+            (b"absolute".as_slice(), SymbolSection::Absolute, false),
+            (b"optional".as_slice(), SymbolSection::Undefined, true),
+        ] {
+            uncertain.add_symbol(Symbol {
+                name: name.to_vec(),
+                value: 0,
+                size: 0,
+                kind: SymbolKind::Data,
+                scope: SymbolScope::Linkage,
+                weak,
+                section,
+                flags: SymbolFlags::None,
+            });
+        }
+
+        let uncertain = uncertain.write().expect("uncertain object encodes");
+
+        assert!(matches!(
+            scan_object_unit_summary(&uncertain).expect("object selection summary"),
+            NativeUnitSummary::Opaque { .. }
+        ));
+
+        assert!(matches!(
+            scan_object_archive_summary(&archive(&uncertain)).expect("complete archive inventory"),
+            NativeUnitSummary::LazyArchive { provided, references }
+                if provided.len() == 1 && references.len() == 1
+                    && references[0].presence() == bray_symbols::NativeSymbolPresence::Optional
+        ));
+
+        let opaque = object_fixture(BinaryFormat::Coff, ".drectve");
+
+        let summary = scan_object_archive_summary(&archive(&opaque))
+            .expect("unknown linker directives retain opaque archive behavior");
+
+        assert!(matches!(summary, NativeUnitSummary::Opaque { .. }));
+    }
 
     #[test]
     fn object_symbols_and_lifecycle_sections_are_scanned_without_tools() {

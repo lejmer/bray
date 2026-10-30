@@ -1,4 +1,3 @@
-use crate::bootstrap::RuntimeThreadScope;
 use bray_runtime_abi::{
     NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeThreadCancellationCallback,
     NativeThreadOperationCallback,
@@ -52,7 +51,8 @@ fn execute_callback_boundary(
     };
 
     let mut published = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
-    let thread = RuntimeThreadScope::enter_or_reuse();
+
+    let thread = super::bridge::Scope::enter();
 
     let outcome = match &thread {
         Ok(_) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
@@ -79,7 +79,7 @@ fn execute_callback_boundary(
         }
     };
 
-    let cleanup_incidents = thread.map_or(0, crate::bootstrap::RuntimeThreadEntry::finish);
+    let cleanup_incidents = thread.map_or(0, super::bridge::Scope::finish);
 
     if cleanup_incidents != 0 {
         super::host::record_cleanup_failure(cleanup_incidents);

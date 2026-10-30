@@ -301,7 +301,7 @@ mod tests {
         assert_eq!(root.payload(), 73);
         assert!(!crate::current_run_cancellation_requested());
         assert!(crate::context::current_task_output().is_none());
-        assert!(super::super::super::export::bray_runtime_structured_shutdown().is_success());
+        assert!(super::super::super::export::bray_runtime_execution_shutdown().is_success());
         assert!(!super::active());
 
         OBSERVED.with_borrow(|observed| {

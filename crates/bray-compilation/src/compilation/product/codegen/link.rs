@@ -54,6 +54,7 @@ impl Compilation {
     )]
     pub(super) fn product_link_inputs(
         &self,
+        native_links: &[(NativeLinkRequirement, LinkInputProvenance)],
         product: LinkedProductKind,
         host: Option<&ExecutableHostContract>,
         runtime: Option<RuntimeArtifactPlan>,
@@ -147,9 +148,9 @@ impl Compilation {
             policy
         };
 
-        let configured_inputs = self.native_link_inputs().iter().map(|requirement| {
-            native_link_input(requirement, LinkInputProvenance::HostConfiguration)
-        });
+        let configured_inputs = native_links
+            .iter()
+            .map(|(requirement, provenance)| native_link_input(requirement, provenance.clone()));
 
         let mut imported_symbols: BTreeSet<&str> = mappings
             .iter()
@@ -205,6 +206,7 @@ impl Compilation {
         }
 
         let libraries = self.native_library_link_selection(
+            native_links,
             product,
             &imported_symbols,
             &provided_symbols,
@@ -302,6 +304,7 @@ impl Compilation {
     )]
     fn native_library_link_selection(
         &self,
+        native_links: &[(NativeLinkRequirement, LinkInputProvenance)],
         product_kind: LinkedProductKind,
         imported_symbols: &BTreeSet<&str>,
         provided_symbols: &BTreeMap<Cow<'_, str>, NativeSymbolBinding>,
@@ -356,7 +359,7 @@ impl Compilation {
             provided,
             static_demands,
             runtime.as_ref(),
-            self.native_link_inputs(),
+            &native_links.iter().map(|(link, _)| link.clone()).collect::<Vec<_>>(),
         )?;
 
         let package_units = selection
@@ -366,15 +369,7 @@ impl Compilation {
             .filter(|location| location.artifact < runtime_ordinal)
             .collect::<Vec<_>>();
 
-        let runtime = runtime.map(|runtime| {
-            runtime.finish(
-                selection
-                    .units()
-                    .iter()
-                    .filter(|location| location.artifact == runtime_ordinal)
-                    .map(|location| location.digest),
-            )
-        });
+        let runtime = runtime.map(|runtime| runtime.finish(&selection, runtime_ordinal));
 
         let payloads = package_units
             .iter()
@@ -449,7 +444,12 @@ impl Compilation {
             })
             .collect::<BTreeMap<_, _>>();
 
+        let native_links = self.native_link_inputs().iter().cloned().map(|link| {
+            (link, LinkInputProvenance::HostConfiguration)
+        }).collect::<Vec<_>>();
+
         self.native_library_link_selection(
+            &native_links,
             match product_kind {
                 ProductKind::Library => LinkedProductKind::StaticLibrary,
                 ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,

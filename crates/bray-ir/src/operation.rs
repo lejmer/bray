@@ -673,6 +673,8 @@ pub enum MirHostOperation {
     },
     /// Shut product execution infrastructure down in checked order.
     StructuredShutdown {
+        /// Optional selected execution service retired before common host storage.
+        execution: Option<MirRuntimeReference>,
         /// Selected private shutdown ABI role.
         runtime: MirRuntimeReference,
     },

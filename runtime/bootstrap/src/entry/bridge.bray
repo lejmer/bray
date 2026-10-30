@@ -23,6 +23,7 @@ internal struct NativeCallbacks
 {
     context: DataPointer<u8>;
     report: DataPointer<u8>;
+    control: DataPointer<u8>;
 }
 
 internal callable Observer = @abi(c) trusted func(
@@ -39,6 +40,10 @@ internal callable Observer = @abi(c) trusted func(
         trusted core.memory.aligned_for<bytes<32>>(pointer = identity),
         trusted core.memory.initialized_as<bytes<32>>(pointer = identity)
     );
+
+// The selected execution scope retains this provider through exact-thread cleanup.
+internal callable Control = @abi(c) trusted func(pos operation: u32) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access());
 
 internal callable Callback = @abi(c) trusted func(
     pos continuation: DataPointer<u8>,
@@ -111,6 +116,22 @@ trusted internal func install(
         observer = trusted std.memory.callable_from_pointer<Observer>(trusted observer_address(callbacks.report));
     }
 
+    let control_address = trusted lambda(pos pointer: DataPointer<u8>) -> FunctionPointer<Control>
+        requires(trusted native_provider())
+        ensures(trusted core.memory.callable_address_valid<Control>(pointer = result))
+        executes(pure, total)
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<Control>(pointer);
+    };
+
+    let mut control: Control? = none;
+
+    if !std.memory.is_null<u8>(callbacks.control)
+    {
+        control = trusted std.memory.callable_from_pointer<Control>(trusted control_address(callbacks.control));
+    }
+
     let lease = trusted bray.runtime.bootstrap.host.host_access();
 
     if !lease.active
@@ -121,7 +142,7 @@ trusted internal func install(
     let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-    return trusted exchange(&lease, &mut anchor, identity, selected, observer, previous);
+    return trusted exchange(&lease, &mut anchor, identity, selected, observer, control, previous);
 }
 
 trusted internal func exchange(
@@ -130,6 +151,7 @@ trusted internal func exchange(
     pos identity: u64,
     pos selected: Callback?,
     pos observer: Observer?,
+    pos control: Control?,
     pos previous: DataPointer<NativeCallbacks>
 ) -> u32
     requires(
@@ -144,7 +166,7 @@ trusted internal func exchange(
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
     )
     executes(total)
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init, unchecked_alias, intrinsic)
 {
     let destination = trusted lambda(pos pointer: DataPointer<NativeCallbacks>) -> DataPointer<NativeCallbacks>
         requires(trusted native_provider())
@@ -188,6 +210,33 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
+            let synchronization = trusted std.memory.borrow_from<
+                bray.runtime.bootstrap.host.Synchronization,
+                Uninit<bray.runtime.bootstrap.host.Synchronization>
+            >(lease.synchronization, trusted bray.runtime.bootstrap.host.lease_synchronization_pointer(lease));
+
+            let control_key = core.atomic.load<u64, 1>(&synchronization.control_key);
+
+            let old_control = match consume trusted load_control(control_key)
+            {
+                case Ok(value) { yield value; }
+                case Error(status) { return status; }
+            };
+
+            let next_control = trusted bray.runtime.bootstrap.entry.bridge.address.control(control);
+
+            if old_control != 0 && next_control != 0 && old_control != next_control
+            {
+                return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+            }
+
+            let stored = trusted store_control(control_key, control);
+
+            if stored != 0
+            {
+                return stored;
+            }
+
             attachment.context_bridge = selected;
             attachment.report_observer = observer;
 
@@ -195,7 +244,8 @@ trusted internal func exchange(
                 trusted destination(previous),
                 {
                     context = trusted core.target.from_exposed_address<u8>(address = old),
-                    report = trusted core.target.from_exposed_address<u8>(address = old_observer)
+                    report = trusted core.target.from_exposed_address<u8>(address = old_observer),
+                    control = trusted core.target.from_exposed_address<u8>(address = old_control)
                 }
             );
 
@@ -234,7 +284,7 @@ trusted internal func current() -> Result<Callback?, u32>
         let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
         let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-        yield trusted read(&lease, &mut anchor, identity, false);
+        yield trusted read(&lease, &mut anchor, identity, 0);
     };
 
     if address == 0
@@ -253,7 +303,7 @@ trusted internal func read(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos identity: u64,
-    pos observer: bool
+    pos kind: u32
 ) -> usize
     requires(
         lease.active,
@@ -270,7 +320,7 @@ trusted internal func read(
 {
     // Native TLS is empty during final cleanup. The host retains one closing row
     // for this exact native thread and rejects another acquisition until it retires.
-    let native_thread: u64 = if observer && identity == 0
+    let native_thread: u64 = if kind != 0 && identity == 0
     {
         let synchronization = trusted std.memory.borrow_from<
             bray.runtime.bootstrap.host.Synchronization,
@@ -297,7 +347,7 @@ trusted internal func read(
                 return 0;
             }
 
-            if observer
+            if kind == 1
             {
                 return trusted bray.runtime.bootstrap.entry.bridge.address.report(attachment.report_observer);
             }
@@ -340,7 +390,7 @@ trusted internal func observe(
         let identity = trusted bray.runtime.bootstrap.host.current_attachment_locked(&lease);
         let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
 
-        yield trusted read(&lease, &mut anchor, identity, true);
+        yield trusted read(&lease, &mut anchor, identity, 1);
     };
 
     if address == 0
@@ -355,4 +405,47 @@ trusted internal func observe(
         std.memory.address_of<bray.runtime.bootstrap.ReportPrimary>(primary),
         std.memory.address_of<bytes<32>>(digest)
     );
+}
+
+trusted internal func invoke_control(pos operation: u32) -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(raw_memory, unchecked_alias, intrinsic, layout_reinterpret, foreign_call)
+{
+    let native_address = trusted lambda(pos value: usize) -> FunctionPointer<Control>
+        requires(trusted bray.runtime.bootstrap.pool.protocol_access(), value != 0)
+        ensures(trusted core.memory.callable_address_valid<Control>(pointer = result))
+        executes(total)
+        uses(intrinsic, layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<Control>(
+            trusted core.target.from_exposed_address<u8>(address = value)
+        );
+    };
+
+    let synchronization = trusted std.memory.borrow_from<
+        bray.runtime.bootstrap.host.Synchronization,
+        Uninit<bray.runtime.bootstrap.host.Synchronization>
+    >(&bray.runtime.bootstrap.host.SYNCHRONIZATION, trusted bray.runtime.bootstrap.host.synchronization_pointer());
+
+    _ = core.atomic.fetch_add<u64, 4>(&synchronization.control_readers, 1);
+
+    let key = core.atomic.load<u64, 4>(&synchronization.control_key);
+    let selected = trusted load_control(key);
+
+    _ = core.atomic.fetch_sub<u64, 4>(&synchronization.control_readers, 1);
+
+    let address: usize = match consume selected
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { yield trusted core.target.abort(); }
+    };
+
+    if address == 0
+    {
+        return 0;
+    }
+
+    let callback = trusted std.memory.callable_from_pointer<Control>(trusted native_address(address));
+
+    return trusted callback(operation);
 }

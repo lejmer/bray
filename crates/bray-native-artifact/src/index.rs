@@ -63,7 +63,10 @@ impl NativeArtifactIndex {
             }
 
             if matches!(unit.kind(), NativeUnitKind::OpaqueArchive)
-                && !matches!(unit.summary(), NativeUnitSummary::Opaque { .. })
+                && !matches!(
+                    unit.summary(),
+                    NativeUnitSummary::Opaque { .. } | NativeUnitSummary::LazyArchive { .. }
+                )
             {
                 return Err(NativeIndexError::InvalidSummary(unit.digest()));
             }
@@ -72,10 +75,17 @@ impl NativeArtifactIndex {
                 return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
             }
 
-            if let NativeUnitSummary::Opaque { provided, .. } = unit.summary()
+            if let NativeUnitSummary::Opaque { provided, .. }
+            | NativeUnitSummary::LazyArchive { provided, .. } = unit.summary()
                 && !strictly_sorted(provided)
             {
                 return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
+            }
+
+            if matches!(unit.summary(), NativeUnitSummary::LazyArchive { .. })
+                && unit.kind() != NativeUnitKind::OpaqueArchive
+            {
+                return Err(NativeIndexError::InvalidSummary(unit.digest()));
             }
 
             if let NativeUnitSummary::Exact {

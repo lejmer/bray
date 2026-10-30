@@ -191,6 +191,7 @@ impl Compilation {
                 .is_some_and(|(_, kind)| kind == bray_linker::LinkedProductKind::SharedLibrary);
 
         let super::super::preparation::NativeCodegenPreparation {
+            native_links,
             host,
             runtime,
             units,
@@ -296,6 +297,7 @@ impl Compilation {
                 linker
                     .map(|(_, kind)| {
                         self.product_link_inputs(
+                            &native_links,
                             kind,
                             host.as_ref(),
                             runtime,
@@ -325,6 +327,7 @@ impl Compilation {
             planned_native_statics(product_host.as_ref(), &host_statics, &native_statics);
 
         Ok(NativeProductPlan {
+            native_links: shared_slice(native_links.into_iter().map(|(link, _)| link)),
             backend,
             target,
             options,

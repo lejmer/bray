@@ -9,6 +9,7 @@ use bray_runtime_interface::ExecutableHostContract;
 /// Compilation-owned native product inputs consumed by emission.
 #[derive(Clone, Debug, Hash)]
 pub struct NativeProductPlan {
+    pub(super) native_links: Arc<[bray_symbols::NativeLinkRequirement]>,
     pub(super) backend: EmissionBackend,
     pub(super) target: CodegenTarget,
     pub(super) options: CodegenOptions,
@@ -25,6 +26,10 @@ pub struct NativeProductPlan {
 }
 
 impl NativeProductPlan {
+    pub(in crate::compilation) fn native_links(&self) -> &[bray_symbols::NativeLinkRequirement] {
+        &self.native_links
+    }
+
     /// Returns the selected backend and demanded unit keys.
     pub const fn backend(&self) -> &EmissionBackend {
         &self.backend

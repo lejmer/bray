@@ -329,7 +329,7 @@ fn native_boundaries(
     let mut boundaries = Vec::new();
 
     for symbol in selected.iter().copied() {
-        let (direction, kind, native_symbol) = match symbol {
+        let (direction, kind, native_symbol, links) = match symbol {
             AnySymbolId::Function(function) => {
                 let contract = compilation
                     .foreign_callable_contract(function)
@@ -348,6 +348,7 @@ fn native_boundaries(
                     contract.direction(),
                     bray_package_interface::InterfaceNativeBoundaryKind::Callable,
                     contract.symbol().clone(),
+                    contract.links().to_vec(),
                 )
             }
             AnySymbolId::Static(declaration) => {
@@ -375,6 +376,7 @@ fn native_boundaries(
                         mutable: contract.is_mutable(),
                     },
                     contract.symbol().clone(),
+                    contract.links().to_vec(),
                 )
             }
             _ => continue,
@@ -391,7 +393,7 @@ fn native_boundaries(
             direction,
             kind,
             native_symbol,
-        ));
+        ).with_links(links));
     }
 
     Ok(boundaries)

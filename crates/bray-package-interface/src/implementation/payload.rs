@@ -6,7 +6,7 @@ use bray_codegen::{
     RuntimeObservationMode, SizePreference,
 };
 use bray_symbols::{
-    ForeignCallableDirection, InterfaceSymbolId, NativeSymbolBinding, NativeSymbolContract,
+    ForeignCallableDirection, InterfaceSymbolId, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
     NativeSymbolIdentity, NativeSymbolPresence, StaticStorageDuration,
 };
 
@@ -291,6 +291,19 @@ pub(super) fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<
         NativeSymbolPresence::Optional => 1,
     });
 
+    encoder.write_u64(u64::try_from(boundary.links().len()).expect("native link count must fit u64"));
+
+    for link in boundary.links() {
+        write_string(&mut encoder, link.name());
+
+        encoder.write_u8(match link.kind() {
+            NativeLinkKind::Dynamic => 0,
+            NativeLinkKind::Static => 1,
+            NativeLinkKind::System => 2,
+            NativeLinkKind::Framework => 3,
+        });
+    }
+
     encoder.into_bytes()
 }
 
@@ -392,13 +405,40 @@ pub(super) fn decode_native_boundary(
         }
     };
 
+    let count = reader
+        .read_u64()
+        .map_err(wire_error(InterfaceValidationField::RecordCount))?;
+
+    limits.check(InterfaceLimit::RecordCount, count)?;
+    limits.check(InterfaceLimit::DecodedAllocation, count.saturating_mul(std::mem::size_of::<NativeLinkRequirement>() as u64))?;
+
+    let mut links = Vec::new();
+
+    for _ in 0..count {
+        let name = read_nonempty_string(&mut reader, limits)?;
+
+        let raw_kind = reader
+            .read_u8()
+            .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
+        let kind = match raw_kind {
+            0 => NativeLinkKind::Dynamic,
+            1 => NativeLinkKind::Static,
+            2 => NativeLinkKind::System,
+            3 => NativeLinkKind::Framework,
+            _ => return Err(invalid_discriminant(raw_kind)),
+        };
+
+        links.push(NativeLinkRequirement::new(name, kind));
+    }
+
     reader
         .finish()
         .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
     let symbol = NativeSymbolContract::new(identity, version, binding, presence);
 
-    Ok(InterfaceNativeBoundary::new(owner, direction, kind, symbol))
+    Ok(InterfaceNativeBoundary::new(owner, direction, kind, symbol).with_links(links))
 }
 
 fn write_string(encoder: &mut WireEncoder, value: &str) {

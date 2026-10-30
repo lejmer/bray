@@ -1,0 +1,68 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.entry.bridge;
+
+using core.target;
+using core.memory;
+using std.memory;
+using internal std.thread;
+using internal std.platform;
+using internal bray.runtime.bootstrap.entry.bridge.address;
+
+// A scalar native TLS projection permits cleanup shielding while the host lock
+// is held. The enclosing registered entry scope retains the callback provider.
+trusted internal func load_control(pos key: u64) -> Result<usize, u32>
+    executes(total)
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    if key == 0
+    {
+        return Ok(0);
+    }
+
+    let mut pointer: DataPointer<u8> = std.memory.null<u8>();
+
+    let status = trusted internal std.thread.platform_thread_storage_load(
+        key - 1,
+        std.memory.address_of_mut<DataPointer<u8>>(&mut pointer)
+    );
+
+    if status.category != 0
+    {
+        return Error(4);
+    }
+
+    return Ok(trusted core.target.expose_address<u8>(pointer));
+}
+
+trusted internal func store_control(pos key: u64, pos selected: Control?) -> u32
+    executes(total)
+    uses(intrinsic)
+{
+    let address = trusted bray.runtime.bootstrap.entry.bridge.address.control(selected);
+
+    if key == 0
+    {
+        return if address == 0
+        {
+            yield 0;
+        }
+        else
+        {
+            yield 4;
+        };
+    }
+
+    let status = trusted internal std.thread.platform_thread_storage_store(
+        key - 1,
+        trusted core.target.from_exposed_address<u8>(address = address)
+    );
+
+    return if status.category == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 4;
+    };
+}

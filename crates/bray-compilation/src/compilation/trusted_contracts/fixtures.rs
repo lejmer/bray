@@ -48,6 +48,8 @@ fn production_host_request(caller: &str, target: crate::SelectedTarget) -> Compi
         include_str!("../../../../../runtime/bootstrap/src/entry/execution.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/bridge.bray"),
         include_str!("../../../../../runtime/bootstrap/src/entry/bridge/address.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/bridge/control.bray"),
+        include_str!("../../../../../runtime/bootstrap/src/entry/control.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/product/abi.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/product/admission.bray"),
         include_str!("../../../../../runtime/bootstrap/src/host/product/cleanup.bray"),

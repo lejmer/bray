@@ -135,7 +135,7 @@ pub(super) fn package_native_implementation(
             plan,
             staged,
             contributions[staged.artifact()],
-            compilation.native_link_inputs(),
+            native.native_links(),
         )?;
 
         let Some((key, unit, bytes)) = result else {
@@ -377,7 +377,7 @@ fn package_opaque_archive(
             digest,
             NativeUnitKind::OpaqueArchive,
             summary,
-            compilation.native_link_inputs().iter().cloned(),
+            member_units.iter().flat_map(|unit| unit.native_links().iter().cloned()),
         ),
         Arc::from(bytes),
     ))
@@ -487,7 +487,7 @@ fn native_bindings(
                 NativeUnitSummary::Exact { definitions, .. } => {
                     exact_native_binding_symbol(definitions, object_name.as_ref())
                 }
-                NativeUnitSummary::Opaque { .. } => {
+                NativeUnitSummary::Opaque { .. } | NativeUnitSummary::LazyArchive { .. } => {
                     NonEmptySharedStr::try_new(object_name.as_ref())
                 }
             };

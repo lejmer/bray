@@ -309,6 +309,6 @@ mod tests {
         let _ = super::super::export::bray_runtime_root_terminal_observation(root);
 
         assert!(super::super::export::bray_runtime_root_completion_resolution(root).is_success());
-        assert!(super::super::export::bray_runtime_structured_shutdown().is_success());
+        assert!(super::super::export::bray_runtime_execution_shutdown().is_success());
     }
 }

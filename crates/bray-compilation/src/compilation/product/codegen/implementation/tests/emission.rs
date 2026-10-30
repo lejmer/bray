@@ -93,6 +93,8 @@ fn synchronous_i32_executable_hosts_emit_native_units() {
         )
         .unwrap_or_else(|error| panic!("native plan must resolve: {error:?}"));
 
+    assert!(plan.native_links().is_empty());
+
     let release = compilation
         .native_product_plan(
             product.clone(),
@@ -107,8 +109,8 @@ fn synchronous_i32_executable_hosts_emit_native_units() {
         .executable_host()
         .unwrap_or_else(|| panic!("executable must retain its host"));
 
-    assert!(host.requirements().requires_implementation());
-    assert!(host.runtime_artifact().is_some());
+    assert!(!host.requirements().requires_implementation());
+    assert!(host.runtime_artifact().is_none());
 
     compilation
         .native_product_plan(

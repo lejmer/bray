@@ -20,6 +20,7 @@ static atomic_size_t allocated_bytes;
 static void (*allocation_callback)(void);
 static void (*release_callback)(void);
 static atomic_bool cleanup_observed;
+static unsigned shutdown_allocation_attempts;
 
 typedef struct ReportAllocation
 {
@@ -84,6 +85,26 @@ void bray_allocation_probe_observe_cleanup(void)
 {
     if (atomic_exchange(&cleanup_observed, 1))
         abort();
+}
+
+static void verify_shutdown_without_allocation(void)
+{
+    if (
+        !atomic_load(&reject_allocations) ||
+        atomic_load(&allocation_attempts) != shutdown_allocation_attempts ||
+        atomic_load(&live_allocations) != 0
+    )
+        abort();
+}
+
+void bray_allocation_probe_expect_shutdown(void)
+{
+    shutdown_allocation_attempts = atomic_load(&allocation_attempts);
+
+    if (atexit(verify_shutdown_without_allocation) != 0)
+        abort();
+
+    atomic_store(&reject_allocations, 1);
 }
 
 static void* allocate_report_memory(size_t bytes, size_t alignment)

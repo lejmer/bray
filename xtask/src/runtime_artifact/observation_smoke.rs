@@ -208,7 +208,7 @@ fn smoke_test_generated_products(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let (compilation, product) = observation_product(target)?;
+    let (compilation, product) = observation_product(package, target)?;
 
     let (ordinary, ordinary_map) =
         crate::progress::run("Emitting an ordinary Bray smoke product", || {
@@ -301,6 +301,7 @@ fn smoke_test_generated_products(
 }
 
 fn observation_product(
+    runtime: &Package,
     target: NativeTarget,
 ) -> Result<(Compilation, ProductIdentity), CommandError> {
     let package = PackageIdentity::try_new("bray.runtime.observation.smoke")
@@ -321,7 +322,10 @@ fn observation_product(
     let request = CompilationRequest::with_options(
         package,
         vec![source],
-        CompilationOptions::new(WorkerBudget::default(), ProductKind::Executable, selected),
+        CompilationOptions::new(WorkerBudget::default(), ProductKind::Executable, selected)
+            .with_native_link_inputs(
+                native_links(runtime).map_err(CommandError::ObservationSmoke)?,
+            ),
     )
     .with_standard_library_root(standard_library(target)?);
 

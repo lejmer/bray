@@ -242,7 +242,8 @@ fn ordinary_library_fallback_publication_is_exact() {
                     .iter()
                     .any(|definition| definition.symbol().identity().name() == Some("live"));
             }
-            bray_native_artifact::NativeUnitSummary::Opaque { provided, .. } => {
+            bray_native_artifact::NativeUnitSummary::Opaque { provided, .. }
+            | bray_native_artifact::NativeUnitSummary::LazyArchive { provided, .. } => {
                 assert!(
                     !provided.iter().any(|symbol| symbol.name() == Some("live")),
                     "an opaque fallback must not hide the ordinary export"
@@ -348,7 +349,7 @@ fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
         assert!(user_symbol.is_some(), "the helper user must be exported");
 
         let mut exact = BTreeSet::new();
-        let mut opaque_helpers = false;
+        let mut weak_helpers = false;
 
         for bytes in
             generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode)
@@ -357,13 +358,16 @@ fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
                 .expect("fixture bitcode unit must have a native summary")
             {
                 NativeUnitSummary::Exact { definitions, .. } => {
+                    weak_helpers |= definitions.iter().any(|definition| {
+                        definition.symbol().binding() == NativeSymbolBinding::Weak
+                    });
+
                     exact.extend(definitions.iter().filter_map(|definition| {
                         definition.symbol().identity().name().map(str::to_owned)
                     }));
                 }
-                NativeUnitSummary::Opaque { provided, .. } => {
-                    opaque_helpers |= !provided.is_empty();
-
+                NativeUnitSummary::Opaque { provided, .. }
+                | NativeUnitSummary::LazyArchive { provided, .. } => {
                     assert!(
                         provided.iter().all(|symbol| {
                             symbol.name().is_none_or(|name| !ordinary.contains(name))
@@ -375,8 +379,8 @@ fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
         }
 
         assert!(
-            opaque_helpers,
-            "MachO weak helpers must retain their opaque summaries"
+            weak_helpers,
+            "MachO weak helpers must retain their precise weak definitions"
         );
 
         assert!(ordinary.is_subset(&exact));
@@ -552,7 +556,8 @@ fn optional_native_storage_keeps_unrelated_library_exports_exact() {
                     definition.symbol().identity().name() == Some(ordinary_symbol.as_str())
                 });
             }
-            bray_native_artifact::NativeUnitSummary::Opaque { provided, .. } => {
+            bray_native_artifact::NativeUnitSummary::Opaque { provided, .. }
+            | bray_native_artifact::NativeUnitSummary::LazyArchive { provided, .. } => {
                 optional |= provided
                     .iter()
                     .any(|symbol| symbol.name() == Some(optional_symbol.as_str()));

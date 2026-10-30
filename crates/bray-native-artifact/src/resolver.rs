@@ -33,7 +33,7 @@ pub struct NativeUnitLocation {
 }
 
 /// A reason that one indivisible native unit belongs to the selected product.
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum NativeUnitInclusion {
     /// The publisher identified this unit as an owned entry to close transitively.
     Seed,
@@ -113,6 +113,7 @@ pub struct NativeUnitResolver {
     statics: BTreeMap<[u8; 32], (usize, usize)>,
     static_symbols: BTreeMap<NativeSymbolIdentity, BTreeSet<[u8; 32]>>,
     groups: BTreeMap<usize, BTreeSet<usize>>,
+    archive_providers: BTreeMap<NativeSymbolIdentity, Vec<usize>>,
     selections: Mutex<BTreeMap<Vec<NativeSymbolContract>, SelectionResult>>,
 }
 
@@ -125,6 +126,7 @@ impl NativeUnitResolver {
         let mut static_symbols = BTreeMap::<_, BTreeSet<_>>::new();
         let mut providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
         let mut groups: BTreeMap<usize, BTreeSet<usize>> = BTreeMap::new();
+        let mut archive_providers: BTreeMap<_, Vec<_>> = BTreeMap::new();
 
         for (artifact, index) in artifacts.iter().enumerate() {
             let offset = locations.len();
@@ -160,6 +162,15 @@ impl NativeUnitResolver {
                             .push((unit_index, definition_index));
                     }
                 }
+
+                if let NativeUnitSummary::LazyArchive { provided, .. } = unit.summary() {
+                    for symbol in provided.iter() {
+                        archive_providers
+                            .entry(symbol.clone())
+                            .or_default()
+                            .push(unit_index);
+                    }
+                }
             }
 
             for group in index.co_retention_groups() {
@@ -191,6 +202,7 @@ impl NativeUnitResolver {
             statics,
             static_symbols,
             groups,
+            archive_providers,
             selections: Mutex::new(BTreeMap::new()),
         }
     }
@@ -353,6 +365,7 @@ impl NativeUnitResolver {
                 NativeUnitSummary::Opaque { .. } => {
                     state.include(unit_index, NativeUnitInclusion::Opaque, None);
                 }
+                NativeUnitSummary::LazyArchive { .. } => {}
             }
         }
 
@@ -569,7 +582,43 @@ impl NativeUnitResolver {
             return Ok(());
         }
 
-        let Some(candidates) = self.providers.get(&symbol_key(symbol)) else {
+        let candidates = self.providers.get(&symbol_key(symbol));
+
+        if symbol.version().is_none()
+            && let Some(archives) = self.archive_providers.get(symbol.identity())
+        {
+            let mut included = false;
+
+            for &archive in archives {
+                let precise = candidates.is_some_and(|providers| {
+                    providers.iter().any(|&(unit, definition)| {
+                        let NativeUnitSummary::Exact { definitions, .. } =
+                            self.unit(unit).summary()
+                        else {
+                            unreachable!("exact provider must retain its definition");
+                        };
+
+                        definitions[definition].selection() != &NativeDefinitionSelection::Fallback
+                            && definitions[definition].symbol().binding()
+                                == NativeSymbolBinding::Strong
+                    })
+                });
+
+                if precise {
+                    continue;
+                }
+
+                included = true;
+                state.include(archive, reason.clone(), from);
+                state.connect(symbol, from, SelectionDependency::Unit(archive));
+            }
+
+            if included {
+                return Ok(());
+            }
+        }
+
+        let Some(candidates) = candidates else {
             if provided_binding.is_some() {
                 return Ok(());
             }
@@ -579,7 +628,10 @@ impl NativeUnitResolver {
             for unit_index in 0..self.locations.len() {
                 let unit = self.unit(unit_index);
 
-                if matches!(unit.summary(), NativeUnitSummary::Opaque { .. }) {
+                if matches!(unit.summary(), NativeUnitSummary::Opaque { .. })
+                    || (matches!(unit.summary(), NativeUnitSummary::LazyArchive { .. })
+                        && state.reasons.contains_key(&unit_index))
+                {
                     opaque_terminal = true;
 
                     state.connect(symbol, from, SelectionDependency::Unit(unit_index));
@@ -1668,6 +1720,7 @@ mod tests {
                 .units(),
             [location(1)]
         );
+
     }
 
     #[test]
@@ -2069,6 +2122,117 @@ mod tests {
                 .units(),
             [location(1), location(2)]
         );
+    }
+
+    #[test]
+    fn lazy_archives_require_demand_and_close_their_dependencies() {
+        let archive = NativeUnit::new(
+            digest(1),
+            NativeUnitKind::OpaqueArchive,
+            NativeUnitSummary::lazy_archive(
+                [required("service").identity().clone()],
+                [required("bridge"), required("external")],
+            ),
+            [],
+        );
+
+        let bridge = unit(
+            2,
+            &[(
+                "bridge",
+                NativeSymbolBinding::Strong,
+                NativeDefinitionSelection::Ordinary,
+            )],
+            &[],
+            &[],
+        );
+
+        let artifact = index([archive, bridge], []);
+
+        let artifact = NativeArtifactIndex::decode_authenticated(
+            &artifact.encode().expect("archive index encodes"),
+            artifact.target(),
+        )
+        .expect("archive index round trips");
+
+        let resolver = NativeUnitResolver::new([artifact]);
+
+        assert!(
+            resolver
+                .select([])
+                .expect("unused provider")
+                .units()
+                .is_empty()
+        );
+
+        assert_eq!(
+            resolver.select([required("missing")]),
+            Err(NativeResolutionError::Unresolved(required("missing")))
+        );
+
+        let selected = resolver
+            .select([required("service")])
+            .expect("demanded provider");
+
+        assert_eq!(selected.units(), &[location(1), location(2)]);
+
+        assert_eq!(
+            selected.reasons(location(1)),
+            Some(&BTreeSet::from([NativeUnitInclusion::Demand(required(
+                "service"
+            ))]))
+        );
+    }
+
+    #[test]
+    fn lazy_archives_yield_to_exact_and_product_definitions() {
+        for binding in [NativeSymbolBinding::Strong, NativeSymbolBinding::Weak] {
+            let archive = NativeUnit::new(
+                digest(1),
+                NativeUnitKind::OpaqueArchive,
+                NativeUnitSummary::lazy_archive([required("service").identity().clone()], []),
+                [],
+            );
+
+            let exact = unit(
+                2,
+                &[("service", binding, NativeDefinitionSelection::Ordinary)],
+                &[],
+                &[],
+            );
+
+            let resolver = NativeUnitResolver::new([index([archive, exact], [])]);
+
+            let expected = if binding == NativeSymbolBinding::Strong {
+                location(2)
+            } else {
+                location(1)
+            };
+
+            assert_eq!(
+                resolver
+                    .select([required("service")])
+                    .expect("exact provider")
+                    .units(),
+                &[expected]
+            );
+
+            assert!(
+                resolver
+                    .select_with_provided(
+                        [required("service")],
+                        [(
+                            required("service").identity().clone(),
+                            NativeSymbolBinding::Strong
+                        )],
+                        [],
+                        &[],
+                    )
+                    .expect("product provider")
+                    .units()
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, ValidatedNativeArtifact};
+use bray_native_artifact::{
+    NativeArtifactIndex, NativeContentDigest, NativeUnitInclusion, NativeUnitSelection,
+    ValidatedNativeArtifact,
+};
 use bray_symbols::NativeLinkRequirement;
 use bray_symbols::NativeSymbolContract;
 use bray_target::NativeTarget;
@@ -191,14 +194,18 @@ impl RuntimeArtifactPlan {
     }
 
     /// Retains runtime units selected by the common product resolver, in its link order.
-    /// Every digest must belong to this plan's authenticated index.
+    /// The artifact ordinal identifies this plan in the resolver's dependency set.
     pub fn finish(
         self,
-        units: impl IntoIterator<Item = NativeContentDigest>,
+        selection: &NativeUnitSelection,
+        artifact: usize,
     ) -> RuntimeArtifactSelection {
-        let native_units = units
-            .into_iter()
-            .map(|digest| {
+        let native_units = selection
+            .units()
+            .iter()
+            .filter(|location| location.artifact == artifact)
+            .map(|&location| {
+                let digest = location.digest;
                 let index = self.artifact.index();
 
                 let unit = index
@@ -207,6 +214,7 @@ impl RuntimeArtifactPlan {
                     .expect("selected runtime unit must belong to its authenticated index");
 
                 RuntimeNativeUnit {
+                    digest,
                     path: self
                         .artifact
                         .payload(digest)
@@ -214,6 +222,13 @@ impl RuntimeArtifactPlan {
                         .to_path_buf(),
                     kind: index.units()[unit].kind(),
                     native_links: Arc::from(index.units()[unit].native_links()),
+                    inclusion: selection
+                        .reasons(location)
+                        .expect("selected runtime unit must retain its inclusion reasons")
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .into(),
                 }
             })
             .collect::<Vec<_>>()
@@ -238,12 +253,24 @@ pub struct RuntimeArtifactSelection {
 /// One authenticated runtime native unit selected by generic symbol demand.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeNativeUnit {
+    digest: NativeContentDigest,
     path: PathBuf,
     kind: bray_native_artifact::NativeUnitKind,
     native_links: Arc<[NativeLinkRequirement]>,
+    inclusion: Arc<[NativeUnitInclusion]>,
 }
 
 impl RuntimeNativeUnit {
+    /// Returns the common product resolver's reasons for selecting this unit.
+    pub fn inclusion(&self) -> &[NativeUnitInclusion] {
+        &self.inclusion
+    }
+
+    /// Returns the authenticated content identity independently of its staging path.
+    pub const fn digest(&self) -> NativeContentDigest {
+        self.digest
+    }
+
     /// Returns the authenticated physical representation.
     pub const fn kind(&self) -> bray_native_artifact::NativeUnitKind {
         self.kind

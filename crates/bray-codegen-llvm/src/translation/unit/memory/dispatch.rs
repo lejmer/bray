@@ -626,6 +626,129 @@ mod tests {
     }
 
     #[test]
+    fn native_spin_hints_preserve_exact_bitcode_summaries() {
+        let backend = LlvmCodeGenerator::try_new().expect("LLVM backend constants must be valid");
+
+        for target in bray_target::NativeTarget::ALL {
+            let codegen_target = bray_codegen::CodegenTarget::for_native(target);
+            let bound = bray_testing::test_bound_unit(174);
+            let source = MirSourceAnchor::from(bound.key().source());
+
+            let mut builder = MirUnitBuilder::for_bound(
+                bound.identity(),
+                MirUnitKind::Synchronous,
+                MirTargetContract::new(
+                    codegen_target.profile().clone(),
+                    RuntimeAbiVersion::new(1, 0),
+                ),
+            );
+
+            let entry = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .expect("spin hint entry is valid");
+
+            push_memory(
+                &mut builder,
+                entry,
+                &source,
+                CheckedMemoryOperationKind::SpinLoopHint,
+                [],
+                [],
+                None,
+            );
+
+            builder.set_terminator(
+                entry,
+                source,
+                MirTerminatorKind::Return {
+                    value: None,
+                    report: None,
+                },
+            );
+
+            let mir = builder.finish(entry);
+            let key = CodegenInstanceKey::non_generic(&mir);
+
+            let instance = CodegenInstance::try_new(key.clone(), mir, [])
+                .expect("spin hint instance is valid");
+
+            let unit = CodegenUnit::try_from_instances(
+                bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
+                bray_codegen::test_support::codegen_partition_compatibility(),
+                [instance],
+                bray_testing::test_mir_content_identity,
+            )
+            .expect("spin hint unit is valid");
+
+            let symbol = CodegenSymbolMapping::new(
+                CodegenSymbolKey::Instance(key),
+                BinarySymbolName::try_new("spin_hint").expect("spin hint symbol is valid"),
+                CodegenLinkage::Export,
+                CodegenCallableSignature::new(
+                    [],
+                    CodegenResultMapping::Void,
+                    CallableAbi::Bray,
+                    false,
+                ),
+            );
+
+            let mappings = CodegenMappings::new(
+                &unit,
+                &codegen_target,
+                [],
+                [],
+                [symbol],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+            );
+
+            let fixture = codegen_request_for_unit(
+                unit,
+                codegen_target,
+                mappings,
+                backend.identity().clone(),
+            );
+
+            let context = Context::create();
+
+            let (machine, module) = backend
+                .prepare_module(fixture.request(), &context)
+                .expect("native memory operations generate LLVM")
+                .expect("native memory generation is not cancelled");
+
+            module
+                .verify()
+                .expect("native spin hint has its exact intrinsic signature");
+
+            crate::serialization::serialize_artifact(
+                &machine,
+                &module,
+                bray_codegen::BackendArtifactKind::RelocatableObject,
+            )
+            .expect("native spin hint emits its target instruction");
+
+            let bytes = crate::serialization::bitcode_bytes(&module);
+
+            let summary = crate::summary::inspect_bitcode_unit_summary(&bytes, target)
+                .expect("native memory bitcode has a summary");
+
+            assert!(
+                matches!(
+                    summary,
+                    bray_native_artifact::NativeUnitSummary::Exact { .. }
+                ),
+                "{target:?}: {summary:?}"
+            );
+        }
+    }
+
+    #[test]
     fn every_memory_operation_family_generates_verified_llvm() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");

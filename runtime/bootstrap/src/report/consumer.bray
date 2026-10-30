@@ -361,6 +361,23 @@ trusted internal func panic_reporting(pos pointer: DataPointer<PanicReportData>)
 }
 
 @abi(c)
+trusted internal func panic_propagation(pos pointer: DataPointer<PanicReportData>)
+    requires(
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.valid_write<PanicReportData>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<PanicReportData>(pointer = pointer),
+        trusted core.memory.initialized_as<PanicReportData>(pointer = pointer),
+        trusted native_report_slot_callbacks(pointer = pointer),
+    )
+    uses(intrinsic)
+{
+    _ = trusted consume_report(pointer, 1);
+
+    trusted core.target.abort();
+}
+
+@abi(c)
 trusted internal func panic_report_destruction(pos pointer: DataPointer<PanicReportData>) -> u32
     requires(
         trusted bray.runtime.bootstrap.pool.protocol_access(),

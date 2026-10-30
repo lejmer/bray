@@ -12,6 +12,7 @@ mod observation_smoke;
 mod partition;
 mod reuse;
 mod smoke;
+mod synchronous;
 
 pub use bootstrap::build as build_bootstrap;
 

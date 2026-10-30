@@ -1777,7 +1777,11 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
         }
         MirHostOperation::BeginProductEntry => "begin_product_entry",
         MirHostOperation::BeginStaticCleanup => "begin_static_cleanup",
-        MirHostOperation::StructuredShutdown { runtime } => {
+        MirHostOperation::StructuredShutdown { execution, runtime } => {
+            if let Some(execution) = execution {
+                runtime_reference("execution", *execution, parts);
+            }
+
             runtime_reference("runtime", *runtime, parts);
 
             "structured_shutdown"

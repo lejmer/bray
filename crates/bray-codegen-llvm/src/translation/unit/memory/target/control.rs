@@ -197,15 +197,43 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(in crate::translation::unit::memory) fn translate_spin_loop_hint(
         &mut self,
     ) -> Result<(), CodegenFailure> {
-        let instruction = match self.request.target().profile().machine().architecture() {
-            TargetArchitecture::X86 | TargetArchitecture::X86_64 => "pause",
-            TargetArchitecture::Arm | TargetArchitecture::Aarch64 => "yield",
-            TargetArchitecture::Riscv32 | TargetArchitecture::Riscv64 => "",
-            TargetArchitecture::PowerPc64 => "or 27,27,27",
-            TargetArchitecture::Wasm32 | TargetArchitecture::Wasm64 => "",
-        };
+        match self.request.target().profile().machine().architecture() {
+            TargetArchitecture::X86_64 => crate::native::call_void_intrinsic(
+                self.module,
+                self.types.context(),
+                &self.builder,
+                "llvm.x86.sse2.pause",
+            ),
+            TargetArchitecture::Aarch64 => {
+                let context = self.types.context();
+                let word = context.i32_type();
 
-        self.translate_empty_assembly(instruction, "", true)
+                let function = self
+                    .module
+                    .get_function("llvm.aarch64.hint")
+                    .unwrap_or_else(|| {
+                        self.module.add_function(
+                            "llvm.aarch64.hint",
+                            context.void_type().fn_type(&[word.into()], false),
+                            None,
+                        )
+                    });
+
+                llvm(
+                    self.builder
+                        .build_call(function, &[word.const_int(1, false).into()], ""),
+                )?;
+
+                Ok(())
+            }
+            TargetArchitecture::X86 => self.translate_empty_assembly("pause", "", true),
+            TargetArchitecture::Arm => self.translate_empty_assembly("yield", "", true),
+            TargetArchitecture::PowerPc64 => self.translate_empty_assembly("or 27,27,27", "", true),
+            TargetArchitecture::Riscv32
+            | TargetArchitecture::Riscv64
+            | TargetArchitecture::Wasm32
+            | TargetArchitecture::Wasm64 => self.translate_empty_assembly("", "", true),
+        }
     }
 
     pub(in crate::translation::unit::memory) fn translate_target_feature(

@@ -297,9 +297,6 @@ impl Compilation {
 
         let mut runtime_roles = native_host_runtime_roles(reachability, statics, native_statics);
 
-        let has_exact_thread_statics =
-            runtime_roles.contains(&RuntimeAbiRole::ThreadStaticCleanupRegistration);
-
         if kind != ProductKind::Test {
             runtime_roles.remove(&RuntimeAbiRole::TestEntrySelection);
         }
@@ -313,30 +310,20 @@ impl Compilation {
             runtime_roles.insert(RuntimeAbiRole::TestEntrySelection);
         }
 
-        if entries
+        let synchronous_host_runtime = entries
             .iter()
             .any(|entry| entry.root() == RootExecution::Synchronous)
-        {
-            runtime_roles.insert(RuntimeAbiRole::PanicPropagation);
-        }
-
-        let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())
-            || (has_exact_thread_statics
-                && entries
+            && (kind == ProductKind::Test
+                || runtime_roles
                     .iter()
-                    .any(|entry| entry.root() == RootExecution::Synchronous))
-            || (entries
-                .iter()
-                .any(|entry| entry.root() == RootExecution::Synchronous)
-                && (runtime_roles.contains(&RuntimeAbiRole::PanicPropagation)
-                    || entries.iter().any(|entry| {
-                        matches!(entry.result(), ExecutableEntryResult::Fallible { .. })
-                    })));
+                    .any(|role| role.service_class() == Some(RuntimeServiceClass::Host))
+                || entries
+                    .iter()
+                    .any(|entry| matches!(entry.result(), ExecutableEntryResult::Fallible { .. })));
 
         if synchronous_host_runtime {
             runtime_roles.extend([
                 RuntimeAbiRole::SynchronousRootExecution,
-                RuntimeAbiRole::CleanupIncidentReporting,
                 RuntimeAbiRole::PanicReporting,
                 RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::StructuredShutdown,
@@ -354,6 +341,17 @@ impl Compilation {
         if has_async_entries || requires_main_thread_cleanup(statics, native_statics) {
             capabilities.insert(RuntimeCapability::MainThreadLane);
             runtime_roles.insert(RuntimeAbiRole::RuntimeInitialization);
+        }
+
+        if (kind == ProductKind::Test && !entries.is_empty())
+            || runtime_roles.contains(&RuntimeAbiRole::RuntimeInitialization)
+            || capabilities.contains(&RuntimeCapability::CooperativeExecution)
+            || runtime_roles
+                .iter()
+                .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
+        {
+            runtime_roles.insert(RuntimeAbiRole::ExecutionShutdown);
+            runtime_roles.insert(RuntimeAbiRole::CleanupIncidentReporting);
         }
 
         let requirements =

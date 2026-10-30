@@ -1,0 +1,15 @@
+module sync_empty;
+
+using std.thread;
+
+func main() -> i32
+{
+    return if std.thread.is_main()
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 1;
+    };
+}
