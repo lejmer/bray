@@ -1970,13 +1970,19 @@ const RESULT: Holder<i32> = Holder<i32>.make();
 
     #[test]
     fn generic_constant_instances_are_separated_by_concrete_substitution() {
-        let compilation = Arc::new(compilation(concat!(
-            "module app;\n",
-            "struct Buffer<const count: i32>\n",
-            "{\n",
-            "    const size: i32 = count;\n",
-            "}\n",
-        )));
+        let compilation = Arc::new(
+            crate::test_support::compilation_with_sources_and_worker_budget(
+                &[r#"
+            module app;
+
+            struct Buffer<const count: i32>
+            {
+                const size: i32 = count;
+            }
+            "#],
+                crate::WorkerBudget::new(2).expect("two concurrently held constant evaluations"),
+            ),
+        );
 
         let definitions = source_constant_definitions(&compilation);
 

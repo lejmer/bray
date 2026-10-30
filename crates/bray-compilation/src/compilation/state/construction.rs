@@ -518,7 +518,7 @@ impl Compilation {
         compute: impl FnOnce() -> T + Send,
     ) -> &'a T
     where
-        T: std::hash::Hash + Send,
+        T: std::hash::Hash + Send + Sync,
     {
         crate::compilation::boundary::expect_uncancelled_query(
             "evaluate_query",
@@ -538,7 +538,7 @@ impl Compilation {
         compute: impl FnOnce() -> T + Send,
     ) -> &'a T
     where
-        T: std::hash::Hash + Send,
+        T: std::hash::Hash + Send + Sync,
     {
         if let Some(value) = cache.get_if_published(&key) {
             self.state
@@ -562,7 +562,7 @@ impl Compilation {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&'a T, FactQueryError>
     where
-        T: std::hash::Hash + Send,
+        T: std::hash::Hash + Send + Sync,
     {
         cache.get_or_compute_requested(&self.state.fact_runtime, key, cancellation, compute)
     }
