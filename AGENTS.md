@@ -58,7 +58,9 @@ Review blank lines only for semantic paragraph structure: separate statements wh
 
 ## Refactoring modules
 
-When splitting a module into a directory of submodules, keep the original module file as a thin root. It should contain only module declarations and reexports. Move implementation details into the submodules.
+When splitting a module into a directory of child namespaces, keep the original module file as a thin root. It should contain only module declarations and reexports. Move implementation details into the submodules.
+
+A directory that only organizes source files within the same logical namespace does not require an empty root file. Bray split contributions keep their explicit module declarations in each implementation file.
 
 Apply the same rule at every level you touch. If a nested module is split into its own submodules, give that nested module the same thin-root shape.
 

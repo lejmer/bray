@@ -1,2 +1,0 @@
-@target(target.platform.native_threads)
-trusted internal module bray.runtime.bootstrap.host.product;
