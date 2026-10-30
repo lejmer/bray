@@ -28,6 +28,8 @@
 
 static atomic_bool reenter_allocation;
 static atomic_bool reenter_deallocation;
+static atomic_bool shutdown_on_allocation;
+static uint32_t allocation_shutdown_status;
 static unsigned deallocation_reentries;
 static unsigned deallocation_reentry_status;
 static void reenter_pool_on_release(void);
@@ -209,6 +211,9 @@ extern uint64_t bray_runtime_main_native_thread_identity(void);
 
 static void before_allocation(void)
 {
+    if (atomic_exchange(&shutdown_on_allocation, 0))
+        allocation_shutdown_status = bray_runtime_structured_shutdown();
+
     if (atomic_exchange(&reenter_allocation, 0))
     {
         uint32_t status = bray_runtime_thread_attachment_enter();
@@ -1365,6 +1370,43 @@ extern uint32_t bray_runtime_activation_dispatch(
 
 static unsigned activation_calls;
 static unsigned activation_queries;
+static atomic_uint activation_report_roots;
+static unsigned activation_report_releases;
+
+static void activation_report_retain(uintptr_t context)
+{
+    (void)context;
+    atomic_fetch_add(&activation_report_roots, 1);
+}
+
+static void activation_report_release(uintptr_t context)
+{
+    (void)context;
+
+    if (atomic_fetch_sub(&activation_report_roots, 1) == 0)
+        abort();
+
+    ++activation_report_releases;
+}
+
+static size_t activation_report_references(uintptr_t context)
+{
+    (void)context;
+
+    return atomic_load(&activation_report_roots);
+}
+
+static const struct
+{
+    void (*retain)(uintptr_t);
+    void (*release)(uintptr_t);
+    size_t (*references)(uintptr_t);
+} activation_report_callbacks =
+{
+    activation_report_retain,
+    activation_report_release,
+    activation_report_references
+};
 
 // This fixture's attached cooperative lane admits no blocking/compute or main
 // work. Origin-affine callbacks must use this exact native thread attachment.
@@ -2229,6 +2271,13 @@ static void chain_callback(
         progress->report = incident.report;
         ++chain_reports_emitted;
     }
+
+    if (operation == 3 && progress->kind == 1 && progress->report.primary_present == 0)
+    {
+        // Empty native cleanup reports can still own a provider header root.
+        activation_report_retain(0);
+        progress->report.provider_callbacks = &activation_report_callbacks;
+    }
 }
 
 static int check_activation_chain(unsigned depth, enum ChainMode mode)
@@ -3006,6 +3055,7 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
 
 static void check_product_teardown(void);
 static void check_thread_product_teardown(void);
+static void check_shutdown_during_product_admission(void);
 
 int main(void)
 {
@@ -3162,8 +3212,13 @@ int main(void)
     check_product_teardown();
     check_thread_product_teardown();
 
+    if (atomic_load(&activation_report_roots) != 0 || activation_report_releases == 0)
+        return 192;
+
     if (shutdown_product() != 0 || atomic_load(&live_allocations) != 0)
         return 77;
+
+    check_shutdown_during_product_admission();
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;

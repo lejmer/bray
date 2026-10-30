@@ -20,6 +20,7 @@ typedef struct
 
 extern uint32_t bray_allocation_probe_begin(void);
 extern uint32_t bray_allocation_probe_end(uint32_t);
+extern uint32_t bray_runtime_structured_shutdown(void);
 
 static void verify_rejected_bindings(const product_host_descriptor* descriptor, provider_host_owner* owner)
 {
@@ -327,6 +328,10 @@ static void verify_failed_formation_and_retirement_race(const char* path)
     {
         yield_native();
     }
+
+    // Failed formation still owns its binding and the observer's callback pin.
+    assert(bray_runtime_structured_shutdown() != 0);
+    assert(owner.closes == 0 && atomic_load(&activation) != 1);
 
     // This entered resident callback acquires and releases its pin completely
     // during the off-lock native reference observation.

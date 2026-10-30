@@ -193,6 +193,10 @@ static int check_report(const char* path, uint64_t* previous_epoch, unsigned abn
 
     uint32_t before = bray_allocation_probe_begin();
 
+    // A chain-only native report may also own its own header reference.
+    primary.provider.callbacks->retain(primary.provider.context);
+    report.provider = primary.provider;
+
     // Existing owners can retain disposal authority after entry closure. Known
     // roots use their stable cell without registry lookup or allocation.
     for (unsigned clone = 0; clone < 1024; clone += 1)
@@ -203,7 +207,10 @@ static int check_report(const char* path, uint64_t* previous_epoch, unsigned abn
 
     assert(primary.consume(&primary, 0) == 0);
     assert(owner.closes == 0 && *live == 739391);
-    uint32_t consumed = report.consume(&report, 0);
+
+    provider_report empty = {0};
+    provider_report combined = bray_runtime_panic_report_suppression(&report, &empty);
+    uint32_t consumed = combined.consume(&combined, 0);
     uint32_t attempts = bray_allocation_probe_end(before);
 
     assert(consumed == (abnormal ? 5 : 0));

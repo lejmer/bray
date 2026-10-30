@@ -173,6 +173,25 @@ static const HostDescriptor teardown_products[] = {
 
 extern uint32_t bray_runtime_product_host_control(uintptr_t, uint32_t, HostObservation*);
 
+static void check_shutdown_during_product_admission(void)
+{
+    static const HostDescriptor descriptor = { .abi_version = 2, .identity = {7} };
+    HostObservation result = {0};
+
+    assert(bray_runtime_thread_attachment_enter() == 0);
+    assert(bray_runtime_thread_attachment_leave() == 0);
+
+    // The first registry allocation runs outside the host lock, after host
+    // initialization. Complete shutdown before reservation resumes.
+    atomic_store(&shutdown_on_allocation, 1);
+
+    assert(bray_runtime_product_host_control((uintptr_t)&descriptor, 0, &result) == 0);
+    assert(!atomic_load(&shutdown_on_allocation) && allocation_shutdown_status == 0);
+    assert(result.status == 5 && result.initialized_statics == 0);
+    assert(bray_runtime_structured_shutdown() == 0);
+    assert(atomic_load(&live_allocations) == 0);
+}
+
 static HostObservation product_control(unsigned selected, uint32_t operation)
 {
     HostObservation result;

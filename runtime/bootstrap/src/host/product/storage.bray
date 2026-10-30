@@ -75,6 +75,22 @@ trusted internal func reserve_product_locked(
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
 
+    // Initialization released its lease before preparing this reservation.
+    // Common-host shutdown may have closed admission in the meantime.
+    let host_ready = if let ?storage = host.storage
+    {
+        yield storage.usable();
+    }
+    else
+    {
+        yield false;
+    };
+
+    if host.transitioning || !host_ready
+    {
+        return ProductReservation.Failed(5);
+    }
+
     if let ?products = host.products
     {
         if let ?product = trusted find_product(&mut products, key)

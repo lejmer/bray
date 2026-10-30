@@ -47,6 +47,13 @@ internal struct HostStorage
     mut control_released: bool;
     mut attachments: std.memory.RawBuffer<Attachment>;
     mut active: usize;
+
+    func usable() -> bool
+        executes(pure, total)
+    {
+        return !self.released && !self.cleanup_released && !self.control_released && self.key != std.numeric.U64_MAX &&
+            self.cleanup_key != std.numeric.U64_MAX && self.control_key != std.numeric.U64_MAX;
+    }
 }
 
 // The owner retains every created key until release succeeds. An incomplete key
@@ -89,9 +96,7 @@ trusted internal func initialize_host() -> u32
 
         if let ?storage = host.storage
         {
-            if storage.released || storage.cleanup_released || storage.control_released || storage.key ==
-                std.numeric.U64_MAX || storage.cleanup_key == std.numeric.U64_MAX || storage.control_key ==
-                std.numeric.U64_MAX
+            if !storage.usable()
             {
                 return Error(bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE);
             }
@@ -223,8 +228,7 @@ trusted internal func initialize_host() -> u32
                 let cleanup_key: u64 = storage.cleanup_key;
                 let control_key: u64 = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
-                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
+                let usable = storage.usable();
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, prepared);
 
@@ -545,7 +549,10 @@ trusted internal func shutdown_host() -> u32
 
                 while index < count
                 {
-                    if rows[index].callers != 0 || !(rows[index].state.phase matches Closed | Failed)
+                    // Independent bindings retire through epoch invalidation and
+                    // resident release, including every outstanding callback pin.
+                    if rows[index].provider matches ?_ || rows[index].callers != 0 || !(rows[index].state.phase matches
+                        Closed | Failed)
                     {
                         return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
                     }
@@ -671,8 +678,7 @@ trusted internal func shutdown_host() -> u32
                 let cleanup_key = storage.cleanup_key;
                 let control_key = storage.control_key;
 
-                let usable = !storage.released && !storage.cleanup_released && !storage.control_released && key !=
-                    std.numeric.U64_MAX && cleanup_key != std.numeric.U64_MAX && control_key != std.numeric.U64_MAX;
+                let usable = storage.usable();
 
                 trusted internal std.memory.swap_values<(HostStorage?)>(&mut host.storage, retired);
 

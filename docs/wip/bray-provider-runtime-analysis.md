@@ -33,6 +33,9 @@ does not acquire ownership. A noncopy owner acquires explicitly and releases onc
 guard through callbacks and all body-local destruction. Bray consumers detach the record's root, dispose its payload
 and backing, then release the detached root from resident code.
 
+A native header may own a provider root even when its primary is absent. Suppression releases that independent header
+owner while preserving its incident chain. Activation cleanup also disposes otherwise empty headers that own a root.
+
 Entry closure rejects new external roots. Existing owners can finish, clone their disposal authority and produce a
 replacement error while retaining the original provider. Internal teardown incidents do not retain the product they
 are currently cleaning. Consumer statics finish before their dependency roots release.
@@ -42,6 +45,9 @@ and reentrant control during that observation, including an acquisition that com
 Final retirement requires closed entry, no provider roots, no callbacks, no caller-owned shutdown obligation and no
 attachments. It invalidates both the external registry identity and image activation slot before transferring the last
 native owner to a caller outside the image. Stale handles cannot touch image metadata. Epochs are never reused.
+Common host shutdown rejects independent bindings until this retirement protocol has completed, including failed
+formation with an outstanding observer callback. Product reservation checks admission under the host lock after any
+off-lock preparation, so completed host shutdown cannot be followed by publication into retired storage.
 
 Product TLS membership remains separate inside the common native attachment. Explicitly detaching one product does not
 allow a raw accessor to reenroll through another product's attachment. Explicit reentry opens a fresh membership.
@@ -71,7 +77,8 @@ can deliberately retain the entire image and all its product statics until dispo
 ### Linux x86-64 measurement
 
 The native lifetime fixture loads a real shared image, produces a panic with a typed cleanup payload on an OS thread,
-joins that thread, copies independent history, closes entry, and disposes the primary and incident separately. It repeats
+joins that thread, copies independent history, closes entry, and disposes the primary and incident separately. The
+chain-only header acquires its own root and is suppressed with an empty report before incident disposal. The fixture repeats
 eight times, alternating successful and panicking payload destruction. It also performs 1,024 root retain/release pairs
 after closure with allocations denied. Native archive and generic imported-MIR producers use the same resident host.
 
@@ -82,10 +89,10 @@ after closure with allocations denied. Native archive and generic imported-MIR p
 | Resident storage after each completed cycle | 13 allocations, 10,320 requested bytes |
 | Normal disposal and root cloning after admission | 0 allocation attempts |
 | Required scheduler binding for the synchronous image | None |
-| Development image file | 1,185,328 bytes |
-| Release image file | 1,152,952 bytes |
-| Development image text / data / BSS | 1,081,443 / 2,248 / 96 bytes |
-| Release image text / data / BSS | 1,047,826 / 2,088 / 2,888 bytes |
+| Development image file | 1,189,264 bytes |
+| Release image file | 1,153,296 bytes |
+| Development image text / data / BSS | 1,081,991 / 2,248 / 96 bytes |
+| Release image text / data / BSS | 1,048,374 / 2,088 / 2,344 bytes |
 
 Allocation observations cover Bray's aligned heap allocations. They exclude loader/libc allocations and probe metadata.
 The 13 retained allocations are resident host/report storage, not eight retained providers. Each image's native owner
