@@ -256,6 +256,7 @@ struct FactTestGateState {
     computing: usize,
     waiting: usize,
     computed: usize,
+    abandoned: usize,
     released: bool,
 }
 
@@ -328,6 +329,7 @@ impl FactTestGateState {
             FactCellTestEvent::Computing => self.computing += 1,
             FactCellTestEvent::Waiting => self.waiting += 1,
             FactCellTestEvent::Computed => self.computed += 1,
+            FactCellTestEvent::Abandoned(_) => self.abandoned += 1,
         }
     }
 
@@ -336,6 +338,7 @@ impl FactTestGateState {
             FactCellTestEvent::Computing => self.computing,
             FactCellTestEvent::Waiting => self.waiting,
             FactCellTestEvent::Computed => self.computed,
+            FactCellTestEvent::Abandoned(_) => self.abandoned,
         }
     }
 }

@@ -13,6 +13,8 @@ use super::{
 };
 use crate::profile::CompilationProfileOutcome;
 
+use super::runtime::EvaluationGuard;
+
 const CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
@@ -42,6 +44,7 @@ pub(crate) enum FactCellTestEvent {
     Computing,
     Waiting,
     Computed,
+    Abandoned(FactTaskIdentity),
 }
 
 #[cfg(test)]
@@ -165,7 +168,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -190,7 +193,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -210,7 +213,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -235,7 +238,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -256,7 +259,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce() -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         self.get_or_compute_requested_with_cycle_key_and_priority(
             runtime,
@@ -282,7 +285,7 @@ impl<T> FactCell<T> {
         compute: impl FnOnce(&CancellationToken) -> Result<T, FactQueryError> + Send,
     ) -> Result<&T, FactQueryError>
     where
-        T: Hash + Send,
+        T: Hash + Send + Sync,
     {
         // Cache coordination failures can outlive this request and therefore own exact keys.
         let mut compute = Some(compute);
@@ -309,7 +312,7 @@ impl<T> FactCell<T> {
         loop {
             cancellation.check()?;
 
-            let mut state = self.storage.state.lock().unwrap_or_else(|_| {
+            let state = self.storage.state.lock().unwrap_or_else(|_| {
                 panic!("query runtime SynchronizationPoisoned contract failed: component={:?}, fact={:?}", SynchronizationComponent::FactCell, Some(&key))
             });
 
@@ -324,40 +327,54 @@ impl<T> FactCell<T> {
                     return Ok(value);
                 }
                 FactCellState::Vacant => {
-                    record_cache_outcome(&mut query_request, false);
-
-                    // The task owns its request key while cell publication shares one identity.
-                    let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
-                    let task = context.identity();
-                    let cell_key = Arc::new(key.clone());
-                    let shared_cancellation = SharedCancellation::new();
-                    let _interest = shared_cancellation.register(cancellation)?;
-                    let shared_priority = QueryPriorityDemand::new(priority);
-
-                    *state = FactCellState::Computing {
-                        task,
-                        key: Arc::clone(&cell_key),
-                        cancellation: shared_cancellation.clone(),
-                        priority: shared_priority.clone(),
-                    };
-
                     drop(state);
 
-                    let mut publication = PublicationGuard::new(self, task, Arc::clone(&cell_key));
+                    let shared_priority = QueryPriorityDemand::new(priority);
 
-                    let evaluation = runtime.begin(context)?;
+                    // A fact owner must already hold execution capacity. Claiming before
+                    // admission can leave a running dependency waiting on its queued owner.
+                    let evaluated = runtime.run_demand(&shared_priority, || {
+                        cancellation.check()?;
 
-                    #[cfg(test)]
-                    self.observe(FactCellTestEvent::Computing)?;
-
-                    let Some(compute) = compute.take() else {
-                        panic!(
-                            "query runtime AbandonedComputation contract failed: task={:?}, fact={:?}",
-                            task, key
+                        let mut state = self.storage.state.lock().expect(
+                            "fact state must remain available during execution admission",
                         );
-                    };
 
-                    let value = runtime.run_demand(&shared_priority, || {
+                        if !matches!(*state, FactCellState::Vacant) {
+                            return Ok(None);
+                        }
+
+                        record_cache_outcome(&mut query_request, false);
+
+                        // The task owns its request key while cell publication shares one identity.
+                        let context = runtime.task_with_cycle_key(key.clone(), cycle_key.clone())?;
+                        let task = context.identity();
+                        let cell_key = Arc::new(key.clone());
+                        let shared_cancellation = SharedCancellation::new();
+                        let interest = shared_cancellation.register(cancellation)?;
+
+                        *state = FactCellState::Computing {
+                            task,
+                            key: Arc::clone(&cell_key),
+                            cancellation: shared_cancellation.clone(),
+                            priority: shared_priority.clone(),
+                        };
+
+                        drop(state);
+
+                        let mut publication = PublicationGuard::new(self, task, cell_key);
+                        let evaluation = publication.evaluation.insert(runtime.begin(context)?);
+
+                        #[cfg(test)]
+                        self.observe(FactCellTestEvent::Computing)?;
+
+                        let Some(compute) = compute.take() else {
+                            panic!(
+                                "query runtime AbandonedComputation contract failed: task={:?}, fact={:?}",
+                                task, key
+                            );
+                        };
+
                         let span = profile.map(|(profile, _)| {
                             profile.start_query(
                                 crate::profile::ProfileOperation::QueryEvaluation,
@@ -371,19 +388,33 @@ impl<T> FactCell<T> {
                             span.finish(profile_outcome(&value));
                         }
 
-                        value
-                    });
+                        Ok(Some((value?, publication, shared_cancellation, interest)))
+                    })?;
 
-                    let value = value?;
+                    let Some((value, mut publication, shared_cancellation, _interest)) = evaluated
+                    else {
+                        continue;
+                    };
 
+                    // Hashing and publication do not occupy execution capacity: another
+                    // independent query can progress while a result fingerprint is prepared.
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
 
                     shared_cancellation.token().check()?;
 
-                    let commit = evaluation.prepare(&value)?;
+                    let commit = publication
+                        .evaluation
+                        .take()
+                        .expect("computed fact must retain its evaluation until publication")
+                        .prepare(&value)?;
 
-                    let value = self.publish(value, task, cell_key, commit)?;
+                    let value = self.publish(
+                        value,
+                        publication.task,
+                        Arc::clone(&publication.key),
+                        commit,
+                    )?;
 
                     if let Some((profile, query)) = profile {
                         profile.record_query_publication(query, std::mem::size_of::<T>());
@@ -592,6 +623,10 @@ impl<T> FactCell<T> {
             FactCellState::Vacant
         };
 
+        #[cfg(test)]
+        self.observe(FactCellTestEvent::Abandoned(task))
+            .expect("abandoned fact observation must remain available");
+
         self.storage.changed.notify_all();
     }
 }
@@ -634,6 +669,7 @@ impl<T> Default for FactCell<T> {
 }
 
 struct PublicationGuard<'a, T> {
+    evaluation: Option<EvaluationGuard<'a>>,
     cell: &'a FactCell<T>,
     task: FactTaskIdentity,
     key: Arc<CompilationFactKey>,
@@ -643,6 +679,7 @@ struct PublicationGuard<'a, T> {
 impl<'a, T> PublicationGuard<'a, T> {
     fn new(cell: &'a FactCell<T>, task: FactTaskIdentity, key: Arc<CompilationFactKey>) -> Self {
         Self {
+            evaluation: None,
             cell,
             task,
             key,
@@ -657,6 +694,9 @@ impl<'a, T> PublicationGuard<'a, T> {
 
 impl<T> Drop for PublicationGuard<'_, T> {
     fn drop(&mut self) {
+        // The cell cannot become available while its abandoned runtime owner is still registered.
+        drop(self.evaluation.take());
+
         if self.active {
             self.cell.abandon(self.task, self.key.as_ref());
         }
@@ -721,7 +761,23 @@ mod tests {
         );
 
         std::thread::scope(|scope| {
-            let handles = (0..8)
+            let owner = scope.spawn(|| {
+                cell.get_or_compute(
+                    &runtime,
+                    CompilationFactKey::SyntaxTree,
+                    &cancellation,
+                    || {
+                        computations.fetch_add(1, Ordering::SeqCst);
+
+                        Ok(42_u32)
+                    },
+                )
+                .copied()
+            });
+
+            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
+
+            let handles = (0..7)
                 .map(|_| {
                     scope.spawn(|| {
                         cell.get_or_compute(
@@ -739,11 +795,10 @@ mod tests {
                 })
                 .collect::<Vec<_>>();
 
-            gate.wait_until_observed(FactCellTestEvent::Computing, 1);
             gate.wait_until_observed(FactCellTestEvent::Waiting, 7);
             gate.release();
 
-            for handle in handles {
+            for handle in std::iter::once(owner).chain(handles) {
                 let result = join(handle);
 
                 assert_eq!(result, Ok(42));
@@ -770,6 +825,163 @@ mod tests {
         assert_eq!(query.cache_hits, 0);
         assert_eq!(query.cache_misses, 8);
         assert_eq!(query.evaluations, 1);
+    }
+
+    #[test]
+    fn computing_facts_already_own_execution_capacity() {
+        let runtime = Arc::new(runtime(1));
+        let observed_runtime = Arc::clone(&runtime);
+        let cell = FactCell::new();
+
+        cell.set_test_observer(FactCellTestObserver::new(move |event| {
+            if event == FactCellTestEvent::Computing {
+                assert_eq!(
+                    observed_runtime.current_priority(),
+                    Ok(Some(crate::QueryPriority::Normal)),
+                    "a dependency must never wait for an owner queued outside execution capacity"
+                );
+            }
+        }))
+        .expect("fact observer");
+
+        assert_eq!(
+            cell.get_or_compute(
+                &runtime,
+                CompilationFactKey::SyntaxTree,
+                &CancellationToken::new(),
+                || Ok(42_u32),
+            ),
+            Ok(&42)
+        );
+    }
+
+    #[test]
+    fn running_dependency_and_external_request_share_one_worker() {
+        let runtime = runtime(1);
+        let cancellation = CancellationToken::new();
+        let parent = FactCell::new();
+        let dependency = FactCell::new();
+
+        let (running, started) = mpsc::sync_channel(1);
+
+        let (requested, request) = mpsc::sync_channel(1);
+
+        std::thread::scope(|scope| {
+            let runtime = &runtime;
+            let cancellation = &cancellation;
+            let dependency = &dependency;
+            let parent = &parent;
+
+            let parent_request = scope.spawn(move || {
+                parent
+                    .get_or_compute(
+                        &runtime,
+                        CompilationFactKey::DeclarationTable,
+                        &cancellation,
+                        move || {
+                            running.send(()).expect("running query notification");
+                            request.recv().expect("external dependency request");
+
+                            dependency
+                                .get_or_compute(
+                                    &runtime,
+                                    CompilationFactKey::SyntaxTree,
+                                    &cancellation,
+                                    || Ok(42_u32),
+                                )
+                                .copied()
+                        },
+                    )
+                    .copied()
+            });
+
+            started.recv().expect("parent holds the only worker");
+
+            let value = dependency.get_or_compute_requested_with_cycle_key_and_priority(
+                &runtime,
+                CompilationFactKey::SyntaxTree,
+                CompilationFactKey::SyntaxTree,
+                &cancellation,
+                || {
+                    requested.send(()).expect("external request notification");
+
+                    Ok(crate::QueryPriority::Normal)
+                },
+                |_| Ok(42_u32),
+            );
+
+            assert_eq!(value, Ok(&42));
+            assert_eq!(join(parent_request), Ok(42));
+        });
+    }
+
+    #[test]
+    fn abandoned_computations_release_runtime_ownership_before_the_cell() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::sync::atomic::AtomicBool;
+
+        for unwind in [false, true] {
+            let runtime = Arc::new(runtime(1));
+            let cancellation = CancellationToken::new();
+            let cell = FactCell::new();
+            let released = Arc::new(AtomicBool::new(false));
+            let observed_runtime = Arc::clone(&runtime);
+            let observed_release = Arc::clone(&released);
+            let observed_cancellation = cancellation.clone();
+
+            cell.set_test_observer(FactCellTestObserver::new(move |event| match event {
+                FactCellTestEvent::Computed => {
+                    assert!(
+                        !unwind,
+                        "interrupt the completed evaluation before publication"
+                    );
+
+                    observed_cancellation.cancel();
+                }
+                FactCellTestEvent::Abandoned(task) => {
+                    observed_release.store(
+                        observed_runtime
+                            .wait_for(&CompilationFactKey::SyntaxTree, task)
+                            .expect("abandoned owner observation")
+                            .is_none(),
+                        Ordering::SeqCst,
+                    );
+                }
+                FactCellTestEvent::Computing | FactCellTestEvent::Waiting => {}
+            }))
+            .expect("fact observer");
+
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                cell.get_or_compute(
+                    &runtime,
+                    CompilationFactKey::SyntaxTree,
+                    &cancellation,
+                    || Ok(42_u32),
+                )
+            }));
+
+            if unwind {
+                assert!(result.is_err());
+            } else {
+                assert!(matches!(result, Ok(Err(FactQueryError::Cancelled))));
+            }
+
+            assert!(released.load(Ordering::SeqCst));
+            assert!(cell.is_vacant());
+
+            cell.set_test_observer(FactCellTestObserver::new(|_| {}))
+                .expect("retry observer");
+
+            assert_eq!(
+                cell.get_or_compute(
+                    &runtime,
+                    CompilationFactKey::SyntaxTree,
+                    &CancellationToken::new(),
+                    || Ok(7_u32),
+                ),
+                Ok(&7)
+            );
+        }
     }
 
     #[test]

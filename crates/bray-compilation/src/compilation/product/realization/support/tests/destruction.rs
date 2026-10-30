@@ -803,7 +803,7 @@ fn cancelling_lifecycle_expansion_owner_preserves_waiters_and_cached_result() {
         FactCellTestEvent::Waiting => {
             let _ = waiting_tx.try_send(());
         }
-        FactCellTestEvent::Computed => {}
+        FactCellTestEvent::Computed | FactCellTestEvent::Abandoned(_) => {}
     }))
     .expect("fixture task observer must be installed");
 
