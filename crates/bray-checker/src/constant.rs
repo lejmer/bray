@@ -9,6 +9,7 @@ pub(crate) mod floating;
 mod input;
 mod integer;
 mod intrinsic;
+mod layout;
 mod limits;
 mod literal;
 mod machine;
@@ -53,3 +54,5 @@ pub use template_evaluation::{
 };
 
 pub use intrinsic::evaluate_constant_intrinsic;
+
+pub use layout::{ConstantMemoryLayout, evaluate_constant_layout_intrinsic};

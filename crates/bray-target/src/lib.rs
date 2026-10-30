@@ -16,7 +16,7 @@ pub mod test_support;
 
 pub use control::{InlineAssemblyOptions, TargetControlSupport};
 pub use identity::TargetIdentity;
-pub use layout::{TargetLayoutContract, TargetValueLayout};
+pub use layout::{TargetLayoutContract, TargetValueLayout, allocation_count_limit};
 pub use machine::{
     CodeModel, Endianness, ObjectFormat, RelocationModel, TargetArchitecture,
     TargetMachineProperties,

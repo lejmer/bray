@@ -9,6 +9,7 @@ mod fixtures;
 mod generics;
 mod guarantees;
 mod indexing;
+mod layout;
 mod lifecycle;
 mod numeric;
 mod requirements;

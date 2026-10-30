@@ -150,48 +150,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let maximum = u64::MAX >> (64 - width);
 
-        let base_overflow = self
-            .types
-            .context()
-            .bool_type()
-            .const_int(u64::from(base > maximum), false);
-
-        let multiply_overflow = if stride == 0 {
-            self.types.context().bool_type().const_zero()
-        } else {
-            let limit = integer.const_int(maximum.saturating_sub(base) / stride, false);
-
-            llvm(self.builder.build_int_compare(
-                IntPredicate::UGT,
-                count,
-                limit,
-                "memory.layout.overflow",
-            ))?
-        };
+        let overflow =
+            if let Some(limit) = bray_target::allocation_count_limit(base, stride, maximum) {
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::UGT,
+                    count,
+                    integer.const_int(limit, false),
+                    "memory.layout.overflow",
+                ))?
+            } else {
+                self.types.context().bool_type().const_int(1, false)
+            };
 
         let bytes = llvm(self.builder.build_int_add(
             tail,
             integer.const_int(base, false),
             "memory.layout.bytes",
-        ))?;
-
-        let addition_overflow = llvm(self.builder.build_int_compare(
-            IntPredicate::ULT,
-            bytes,
-            tail,
-            "memory.layout.addition_overflow",
-        ))?;
-
-        let arithmetic_overflow = llvm(self.builder.build_or(
-            multiply_overflow,
-            addition_overflow,
-            "memory.layout.overflow",
-        ))?;
-
-        let overflow = llvm(self.builder.build_or(
-            arithmetic_overflow,
-            base_overflow,
-            "memory.layout.representable",
         ))?;
 
         if status_only {

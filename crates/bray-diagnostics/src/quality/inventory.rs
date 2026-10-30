@@ -1151,6 +1151,10 @@ impl DiagnosticKind {
             Self::CheckingTrailingLayoutQueryTypeUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
+            Self::CheckingTypeLayoutOverflow => Self::quality_source(
+                &[ActualType, TargetTriple],
+                primary_components!(&[ActualType, TargetTriple]),
+            ),
             Self::CheckingMemoryPointeeTypeUnsupported => {
                 Self::quality_source(&[MemoryOperation], primary_components!(&[MemoryOperation]))
             }

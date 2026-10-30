@@ -50,6 +50,13 @@ pub(super) fn smoke_test(
             "",
         ),
         (
+            "layout",
+            include_str!("../../fixtures/native-execution/sync-layout.bray"),
+            0,
+            "",
+            "",
+        ),
+        (
             "numeric",
             include_str!("../../fixtures/native-execution/sync-numeric.bray"),
             0,

@@ -133,9 +133,11 @@ where
                 .declared_type_representation((*structure).into()),
         )?;
 
-        if representation
-            .is_some_and(|representation| representation.value().has_flexible_trailing_member())
-        {
+        if representation.is_some_and(|representation| {
+            representation
+                .value()
+                .has_flexible_trailing_member(self.request.semantic_values())
+        }) {
             return Ok(false);
         }
 

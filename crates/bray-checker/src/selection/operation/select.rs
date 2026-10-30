@@ -261,7 +261,10 @@ where
                     }
                 };
 
-                if representation.value().has_flexible_trailing_member() {
+                if representation
+                    .value()
+                    .has_flexible_trailing_member(request.semantic_values())
+                {
                     return Ok(CandidateCheck::Incompatible(
                         SelectionCandidateRejectionReason::ExpressionForm,
                     ));

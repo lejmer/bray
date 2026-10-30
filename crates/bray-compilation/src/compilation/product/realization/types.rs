@@ -154,6 +154,99 @@ impl Compilation {
         Ok(demanded)
     }
 
+    pub(in crate::compilation) fn constant_memory_layout(
+        &self,
+        ty: TypeId,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        bray_diagnostics::DiagnosticResult<Option<bray_checker::ConstantMemoryLayout>>,
+        FactQueryError,
+    > {
+        let target = self
+            .selected_target()
+            .target()
+            .codegen_target()
+            .map_err(|_| FactQueryError::UnsupportedCodegenProfile)?;
+
+        let physical =
+            (|| -> Result<bray_checker::ConstantMemoryLayout, CodegenPreparationError> {
+                let ty = self.concrete_codegen_type(ty, None, None, cancellation)?;
+                let mut mappings = BTreeMap::new();
+
+                self.codegen_type(
+                    ty,
+                    &target,
+                    cancellation,
+                    &mut mappings,
+                    &mut BTreeSet::new(),
+                )?;
+
+                let mapping = mappings
+                    .get(&ty)
+                    .expect("physical query mapped its selected type");
+
+                let layout = mapping
+                    .layout()
+                    .expect("checked layout query has a sized or flexible layout");
+
+                let trailing = mapping.behavior().and_then(|behavior| {
+                    let bray_codegen::CodegenTypeBehavior::FlexibleAggregate { element, offset } =
+                        behavior
+                    else {
+                        return None;
+                    };
+
+                    let stride = mappings
+                        .get(&element)
+                        .and_then(CodegenTypeMapping::layout)
+                        .expect("flexible element has a complete layout")
+                        .size();
+
+                    Some((offset, stride))
+                });
+
+                Ok((layout, trailing))
+            })();
+
+        match physical {
+            Ok(layout) => Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+                Some(layout),
+            )),
+            Err(CodegenPreparationError::Query(error)) => Err(error),
+            Err(CodegenPreparationError::Diagnostics(diagnostics)) => {
+                Ok(bray_diagnostics::DiagnosticResult::new(None, diagnostics))
+            }
+            Err(CodegenPreparationError::UnsupportedType(_)) => Ok(
+                bray_diagnostics::DiagnosticResult::without_diagnostics(None),
+            ),
+            Err(CodegenPreparationError::LayoutOverflow(ty)) => {
+                let context = self.checker_context(cancellation)?;
+
+                let actual =
+                    bray_checker::diagnostic_type(&context, ty).map_err(FactQueryError::from)?;
+
+                let mut diagnostics = DiagnosticBag::new();
+
+                diagnostics.add(
+                    bray_diagnostics::Diagnostic::new(
+                        bray_diagnostics::DiagnosticId::new(0),
+                        bray_diagnostics::DiagnosticKind::CheckingTypeLayoutOverflow,
+                        bray_diagnostics::SeverityKind::Error,
+                    )
+                    .with_arg(bray_diagnostics::DiagnosticArg::actual_type(actual))
+                    .with_arg(bray_diagnostics::DiagnosticArg::target_triple(
+                        target.triple(),
+                    )),
+                );
+
+                Ok(bray_diagnostics::DiagnosticResult::new(None, diagnostics))
+            }
+            Err(error) => {
+                panic!("physical type layout must not require code generation: {error:?}")
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn codegen_types(
         &self,
