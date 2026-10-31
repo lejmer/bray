@@ -454,8 +454,14 @@ impl Compilation {
                     None => *substitution,
                 };
 
-                let substitution = self.realize_codegen_substitution(substitution)?;
-                let owner_substitution = owner.substitution();
+                let binding_context = self.binding_context(cancellation)?;
+                let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
+
+                let substitution = substitute_contextual_self_in_substitution(
+                    values,
+                    substitution,
+                    contextual_self,
+                )?;
 
                 let selected_witnesses = if selected_witnesses.is_empty()
                     && owner.static_declaration() == Some(template.declaration())
@@ -465,28 +471,11 @@ impl Compilation {
                     selected_witnesses
                 };
 
-                let witnesses = selected_witnesses
-                    .iter()
-                    .map(|witness| {
-                        let data = values.implementation_instance_data(*witness);
-
-                        let nested = match owner_substitution {
-                            Some(owner) => values
-                                .substitute_generic_substitution(data.substitution(), owner)
-                                .map_err(FactQueryError::SemanticValueStore)?,
-                            None => data.substitution(),
-                        };
-
-                        let nested = self.realize_codegen_substitution(nested)?;
-
-                        values
-                            .intern_implementation_instance(ImplementationInstanceData::new(
-                                data.definition(),
-                                nested,
-                            ))
-                            .map_err(|error| FactQueryError::SemanticValueStore(error).into())
-                    })
-                    .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
+                let witnesses = self.concrete_codegen_demand_witnesses(
+                    selected_witnesses,
+                    owner.substitution(),
+                    contextual_self,
+                )?;
 
                 (*template, substitution, witnesses, target.clone())
             }
@@ -702,22 +691,18 @@ impl Compilation {
         let reference = demand.reference();
         let callable = reference.instance();
 
-        let (substitution, mut witnesses) = match owner.substitution() {
-            Some(owner_substitution) => {
-                let substitution = values
-                    .substitute_generic_substitution(callable.substitution(), owner_substitution)
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                let witnesses = self.concrete_codegen_demand_witnesses(
-                    demand.witnesses(),
-                    owner_substitution,
-                    contextual_self,
-                )?;
-
-                (substitution, witnesses)
-            }
-            None => (callable.substitution(), demand.witnesses().to_vec()),
+        let substitution = match owner.substitution() {
+            Some(owner_substitution) => values
+                .substitute_generic_substitution(callable.substitution(), owner_substitution)
+                .map_err(FactQueryError::SemanticValueStore)?,
+            None => callable.substitution(),
         };
+
+        let mut witnesses = self.concrete_codegen_demand_witnesses(
+            demand.witnesses(),
+            owner.substitution(),
+            contextual_self,
+        )?;
 
         let substitution =
             substitute_contextual_self_in_substitution(values, substitution, contextual_self)?;
@@ -787,7 +772,7 @@ impl Compilation {
 
         let mut witnesses = self.concrete_codegen_demand_witnesses(
             demand.witnesses(),
-            owner_substitution,
+            Some(owner_substitution),
             contextual_self,
         )?;
 
@@ -1141,7 +1126,7 @@ impl Compilation {
     fn concrete_codegen_demand_witnesses(
         &self,
         witnesses: &[ImplementationInstanceId],
-        owner_substitution: GenericSubstitutionId,
+        owner_substitution: Option<GenericSubstitutionId>,
         contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
     ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
@@ -1151,9 +1136,12 @@ impl Compilation {
             .map(|witness| -> Result<_, CodegenPreparationError> {
                 let data = values.implementation_instance_data(*witness);
 
-                let substitution = values
-                    .substitute_generic_substitution(data.substitution(), owner_substitution)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let substitution = match owner_substitution {
+                    Some(owner) => values
+                        .substitute_generic_substitution(data.substitution(), owner)
+                        .map_err(FactQueryError::SemanticValueStore)?,
+                    None => data.substitution(),
+                };
 
                 let substitution = substitute_contextual_self_in_substitution(
                     values,

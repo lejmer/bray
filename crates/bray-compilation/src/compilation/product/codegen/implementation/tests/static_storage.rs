@@ -1,14 +1,160 @@
 use super::support::artifacts::generated_artifacts;
+use super::support::compilation::{codegen_compilation, source_request_with_runtime};
+use super::support::dependencies::{
+    GenericDependencyFixture, generic_consumer_for_target_with_source,
+    generic_dependency_from_fixture,
+};
+use super::support::mappings::realize_codegen_mappings;
 use super::support::runtime::{
     runtime_native_plan, runtime_native_plan_for_product, runtime_native_plan_for_sources_target,
     runtime_native_plan_for_target,
 };
-use crate::SelectedTarget;
+use crate::{CancellationToken, CompilationOptions, SelectedTarget, WorkerBudget};
 
+use bray_codegen::{CodegenOptions, OptimizationLevel};
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{ProductKind, StaticStorageDuration};
 use bray_target::NativeTarget;
 use std::collections::BTreeSet;
+
+const CONTEXTUAL_SELF_STATIC_SOURCE: &str = r#"
+    module templates;
+
+    static VALUE<T>: u32 = 7;
+
+    struct Cell<T>
+    {
+        value: T;
+    }
+
+    trait Access
+    {
+        func read() -> u32
+        {
+            return VALUE<Self> + VALUE<(Self, Self)>;
+        }
+    }
+
+    impl CellAccess = Cell<T>(Access)
+    {
+    }
+
+    impl Cell<T>
+    {
+        func inherent() -> u32
+        {
+            return VALUE<Self> + VALUE<(Self, Self)>;
+        }
+    }
+
+    func forward<T>(pos cell: &Cell<T>) -> u32
+    {
+        return cell.read() + cell.inherent() + VALUE<Cell<T>> + VALUE<(Cell<T>, Cell<T>)>;
+    }
+"#;
+
+#[test]
+#[ignore = "tier:native"]
+fn contextual_self_generic_statics_share_the_concrete_instance() {
+    let source = r#"
+        module application;
+
+        using templates;
+
+        func main() -> i32
+        {
+            let first: templates.Cell<i32> = { value = 1 };
+            let second: templates.Cell<u64> = { value = 2 };
+
+            if templates.forward<i32>(&first) != 42 || templates.forward<u64>(&second) != 42
+            {
+                return 1;
+            }
+
+            return 0;
+        }
+    "#;
+
+    let (_, source_compilation) = codegen_compilation(source_request_with_runtime(
+        &[CONTEXTUAL_SELF_STATIC_SOURCE, source],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+        ),
+    ));
+
+    let imported_compilation = generic_consumer_for_target_with_source(
+        generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: CONTEXTUAL_SELF_STATIC_SOURCE,
+                runtime_frames: &[],
+                executable_templates: 4,
+                platform_service: None,
+            },
+        ),
+        SelectedTarget::baseline(),
+        &source.replace("templates", "example.dependency.templates"),
+    );
+
+    for compilation in [&source_compilation, &imported_compilation] {
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("test target must support codegen");
+
+        let semantics = compilation
+            .product_semantics()
+            .expect("static consumer semantics must resolve");
+
+        for optimization in [
+            OptimizationLevel::None,
+            OptimizationLevel::Basic,
+            OptimizationLevel::Full,
+        ] {
+            let roots = compilation
+                .product_root_instances(semantics.value(), None, &target, &cancellation)
+                .expect("static consumer roots must resolve");
+
+            let reachability = compilation
+                .codegen_reachability(
+                    roots,
+                    None,
+                    &target,
+                    CodegenOptions::default().with_optimization(optimization),
+                    false,
+                    &cancellation,
+                )
+                .expect("contextual Self static instances must close");
+
+            let mappings =
+                realize_codegen_mappings(compilation, &target, &reachability, &cancellation);
+
+            let instances = mappings
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::static_storages)
+                .map(|mapping| mapping.instance())
+                .collect::<BTreeSet<_>>();
+
+            assert_eq!(
+                instances.len(),
+                4,
+                "Self and explicit types must share storage, while distinct subjects and nested types must not"
+            );
+        }
+    }
+}
 
 #[test]
 #[ignore = "tier:native"]
