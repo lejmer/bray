@@ -77,6 +77,9 @@ pub(crate) fn format_english_native_product_failure(
     let message = match kind {
         Kind::CodegenBackendNotSelected => "no native-code generator is selected",
         Kind::MissingRuntime => "the asynchronous product has no selected runtime",
+        Kind::MissingStandardLibrary => {
+            "this product requires the compiled 'std' package, but no standard-library dependency was supplied"
+        }
         Kind::InvalidNativeLinkInput(failure) => {
             return format_english_native_link_input_failure(failure);
         }

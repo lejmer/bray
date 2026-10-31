@@ -244,6 +244,7 @@ impl Lowerer<'_> {
             invocation,
             true,
             None,
+            callable.phase_behaviors.clone(),
             |operation, ty| {
                 self.push_operation(block, Self::retained_source(source), operation, ty)
             },

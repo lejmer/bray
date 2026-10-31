@@ -34,6 +34,13 @@ internal callable PanicMessageRelease = @abi(c) trusted func(
 )
     requires(trusted bray.runtime.bootstrap.pool.protocol_access());
 
+internal func report_is_empty(pos report: &PanicReportData) -> bool
+    executes(pure, total)
+{
+    return report.primary_present == 0 && report.outgoing_count == 0 && report.reserved == 0 &&
+        report.provider_callbacks == 0;
+}
+
 trusted internal func empty_panic_report() -> PanicReportData
     ensures(trusted native_report_callbacks(report = &result))
     executes(pure, total)

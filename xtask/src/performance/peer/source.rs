@@ -163,7 +163,7 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
             "start one child copy of the workload, write one borrowed 4096-byte range to its piped standard input, close the pipe, and join the child successfully",
         ),
         "file_output" => Some(
-            "create a new file, write all 4096 bytes while accepting partial writes, flush, close, and remove the file",
+            "create a new file, write all 4096 bytes while accepting partial writes, durably flush, close, and remove the file",
         ),
         _ => None,
     }

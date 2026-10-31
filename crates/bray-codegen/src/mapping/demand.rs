@@ -153,7 +153,8 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
             collect_place_values(destination, demands);
             collect_operand_value(value, demands);
         }
-        MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport { destination: place }
+        | MirOperationKind::Borrow { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),

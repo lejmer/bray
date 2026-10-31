@@ -1,4 +1,4 @@
-use super::support::artifacts::unoptimized_library_ir;
+use super::support::artifacts::library_ir;
 use super::support::compilation::{
     codegen_compilation, source_request_with_runtime, test_product_identity,
 };
@@ -18,10 +18,121 @@ use std::collections::BTreeSet;
 
 #[test]
 #[ignore = "tier:native"]
+fn abnormal_bray_calls_leave_language_results_unobserved_and_native_results_defined() {
+    for abi in ["", "@abi(c)"] {
+        let direct = library_ir(
+            &format!(
+                r"
+                module app;
+                {abi}
+                public func checked(pos allowed: bool) -> u32 {{
+                    assert(allowed);
+                    return 17;
+                }}
+                "
+            ),
+            bray_codegen::OptimizationLevel::None,
+        );
+
+        let indirect = library_ir(
+            &format!(
+                r"
+                module app;
+                @layout(c)
+                public struct Block {{ a: u64; b: u64; c: u64; d: u64; }}
+                {abi}
+                func checked(pos allowed: bool) -> Block {{
+                    assert(allowed);
+                    return {{ a = 7, b = 7, c = 7, d = 7 }};
+                }}
+                {abi}
+                public func forward(pos allowed: bool) -> Block {{
+                    return checked(allowed);
+                }}
+                "
+            ),
+            bray_codegen::OptimizationLevel::None,
+        );
+
+        if abi.is_empty() {
+            assert!(direct.contains("ret i32 undef"), "{direct}");
+        } else {
+            assert!(direct.contains("ret i32 0"), "{direct}");
+            assert!(!direct.contains("ret i32 undef"), "{direct}");
+        }
+
+        let epilogues = indirect
+            .split("outcome.propagated:")
+            .skip(1)
+            .map(|body| body.split("\n\n").next().expect("failure epilogue"))
+            .collect::<Vec<_>>();
+
+        assert!(!epilogues.is_empty(), "{indirect}");
+        assert!(indirect.contains("call.result"), "{indirect}");
+
+        for epilogue in epilogues {
+            assert_eq!(epilogue.contains("store "), !abi.is_empty(), "{epilogue}");
+        }
+
+        assert_eq!(
+            indirect.contains("zeroinitializer, ptr %call.result"),
+            !abi.is_empty(),
+            "{indirect}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn full_optimization_outlines_panic_construction_from_successful_calls() {
+    let ir = library_ir(
+        r"
+        module app;
+        public func checked(pos allowed: bool, pos value: u64) -> u64 {
+            assert(allowed);
+            return value;
+        }
+        ",
+        bray_codegen::OptimizationLevel::Full,
+    );
+
+    let bodies = ir.split("\ndefine ").skip(1).collect::<Vec<_>>();
+
+    assert!(
+        bodies.iter().any(|body| body
+            .lines()
+            .next()
+            .is_some_and(|header| header.contains(".cold."))),
+        "the uncommon panic path remains in an outlined helper: {ir}"
+    );
+
+    let successful = bodies
+        .iter()
+        .filter(|body| {
+            body.lines()
+                .next()
+                .is_some_and(|header| !header.contains(".cold."))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(!successful.is_empty(), "{ir}");
+
+    for body in successful {
+        let body = body.split("\n}").next().expect("function body");
+
+        assert!(
+            !body.contains("@bray_runtime_panic_report_construction"),
+            "the successful callable delegates panic construction to its cold helper: {body}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn verified_normal_calls_do_not_regain_backend_outcome_checks() {
     for (contract, checks_outcome) in [("executes(pure, total)", false), ("", true)] {
         let possible_panic = if checks_outcome {
-            "if value == 0 { panic(\"zero\"); }"
+            "assert(value != 0);"
         } else {
             ""
         };
@@ -44,11 +155,142 @@ fn verified_normal_calls_do_not_regain_backend_outcome_checks() {
                 "#
             ),
         ] {
-            let ir = unoptimized_library_ir(&source);
+            let ir = library_ir(&source, bray_codegen::OptimizationLevel::None);
 
             assert_eq!(ir.contains("call.outcome.state"), checks_outcome, "{ir}");
-            assert!(!ir.contains("call.panic.report.context"), "{ir}");
+
+            if !checks_outcome {
+                assert!(!ir.contains("call.panic.report.context"), "{ir}");
+            }
         }
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn small_union_results_do_not_initialize_the_inactive_large_payload() {
+    for source in [
+        r"
+            module app;
+            public func selected(pos value: u64) -> Result<[u8; 4096], u64> {
+                return Error(value);
+            }
+        ",
+        r"
+            module app;
+            const SMALL: Result<[u8; 4096], u64> = Error(17);
+            public func selected() -> Result<[u8; 4096], u64> {
+                return SMALL;
+            }
+        ",
+    ] {
+        let ir = library_ir(source, bray_codegen::OptimizationLevel::Full);
+
+        assert!(!ir.contains("@llvm.memset"), "{ir}");
+        assert!(!ir.contains("@llvm.memcpy"), "{ir}");
+        assert!(!ir.contains("alloca"), "{ir}");
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn local_union_payloads_scalarize_through_checked_physical_projections() {
+    let source = r#"
+        module app;
+        public func round_trip(pos choose: bool, pos value: u64) -> u64 {
+            let result: Result<(u64, u64, u64, u64), u64> = if choose {
+                yield Ok((value, value, value, value));
+            } else {
+                yield Error(value);
+            };
+            match consume result {
+                case Ok(values) { return values.2; }
+                case Error(error) { return error; }
+            }
+        }
+    "#;
+
+    let ir = library_ir(source, bray_codegen::OptimizationLevel::Full);
+
+    assert!(ir.contains("ret i64 %1"), "{ir}");
+    assert!(!ir.contains("alloca"), "{ir}");
+    assert!(!ir.contains("@llvm.memcpy"), "{ir}");
+    assert!(!ir.contains("@llvm.memset"), "{ir}");
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn completed_empty_reports_do_not_copy_or_reset_the_incoming_context() {
+    let ir = library_ir(
+        r"
+        module app;
+        public func repeat(pos operation: func() -> bool) {
+            while operation() {}
+        }
+        ",
+        bray_codegen::OptimizationLevel::None,
+    );
+
+    let empty_routes = ir
+        .split("\ncall.report.empty:")
+        .skip(1)
+        .map(|route| route.split("\n\n").next().expect("report route"))
+        .collect::<Vec<_>>();
+
+    assert!(!empty_routes.is_empty(), "{ir}");
+
+    for route in empty_routes {
+        assert!(!route.contains("memcpy"), "{route}");
+        assert_eq!(route.matches("store ").count(), 1, "{route}");
+        assert!(route.contains("zeroinitializer"), "{route}");
+    }
+
+    assert!(ir.contains("call.report.owned:"), "{ir}");
+    assert!(ir.contains("call.outcome.report"), "{ir}");
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn empty_normal_reports_do_not_write_the_callers_outcome() {
+    let source = r#"
+        module app;
+        struct Resource {
+            value: bool;
+            destruct() executes(pure, total) {}
+        }
+        public func apply(pos value: bool) {
+            let owner: Resource = { value = value };
+        }
+    "#;
+
+    let ir = library_ir(source, bray_codegen::OptimizationLevel::Full);
+
+    let bodies =
+        ir.split("\ndefine ")
+            .skip(1)
+            .filter(|function| {
+                function.lines().next().is_some_and(|signature| {
+                    signature.contains("(i1 ") || signature.contains("(i8 ")
+                })
+            })
+            .collect::<Vec<_>>();
+
+    assert!(!bodies.is_empty(), "{ir}");
+
+    for function in bodies {
+        let body = function
+            .split_once("\n}")
+            .expect("LLVM definition has a complete body")
+            .0;
+
+        assert!(
+            !body.lines().any(|line| {
+                line.contains("zeroinitializer, ptr %1,")
+                    || line.contains("llvm.memset") && line.contains(" %1,")
+                    || line.trim_start().starts_with("store ") && line.contains(" 0, ptr %1,")
+            }),
+            "{body}"
+        );
     }
 }
 
@@ -67,7 +309,7 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
             "#
         );
 
-        let ir = unoptimized_library_ir(&source);
+        let ir = library_ir(&source, bray_codegen::OptimizationLevel::None);
 
         let fills = ir
             .lines()

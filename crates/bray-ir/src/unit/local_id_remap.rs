@@ -59,7 +59,8 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             destination.remap_local_ids(mappings);
             value.remap_local_ids(mappings);
         }
-        MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport { destination: place }
+        | MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => place.remap_local_ids(mappings),

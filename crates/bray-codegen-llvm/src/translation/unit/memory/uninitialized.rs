@@ -1,10 +1,10 @@
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirMemoryOperation, MirOperation};
 use bray_symbols::TypeId;
-use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 use super::super::core::UnitTranslator;
+use super::super::support::undefined_value;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_uninit_new(
@@ -88,17 +88,5 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.operand(authority)?;
 
         self.memory_pointer(pointer)
-    }
-}
-
-fn undefined_value<'context>(ty: BasicTypeEnum<'context>) -> BasicValueEnum<'context> {
-    match ty {
-        BasicTypeEnum::ArrayType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::FloatType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::IntType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::PointerType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::StructType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::VectorType(ty) => ty.get_undef().into(),
-        BasicTypeEnum::ScalableVectorType(ty) => ty.get_undef().into(),
     }
 }

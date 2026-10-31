@@ -233,6 +233,7 @@ fn operation_runtime_references(
     abi: bray_runtime_interface::RuntimeAbiVersion,
 ) -> [Option<MirRuntimeReference>; 3] {
     match operation {
+        MirOperationKind::TakeIncomingReport { .. } => [None, None, None],
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
         MirOperationKind::Async(

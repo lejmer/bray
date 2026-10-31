@@ -260,7 +260,7 @@ impl<C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableContractsQu
         )
         .expect("selected lifecycle uses checked semantic types");
 
-        Ok((!completed(lifecycle)?).then_some(lifecycle))
+        Ok((!completed(lifecycle.clone())?).then_some(lifecycle))
     }
 
     fn observe_cleanup_call(

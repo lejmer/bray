@@ -125,7 +125,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         "checked MIR place translation requires an established mapping or value",
                     );
 
-                self.constant_offset_pointer(pointer, field.offset_bytes())
+                self.representation_offset_pointer(pointer, field.offset_bytes())
             }
             MirProjectionKind::NullableValue => {
                 self.nullable_value_pointer(pointer, source_type, &kind)
@@ -436,7 +436,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .expect("checked MIR place translation requires an established mapping or value");
 
-        self.constant_offset_pointer(pointer, offset)
+        self.representation_offset_pointer(pointer, offset)
     }
 
     pub(super) fn union_field_pointer(
@@ -452,7 +452,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenFieldLayout::offset_bytes)
             .expect("checked MIR place translation requires an established mapping or value");
 
-        self.constant_offset_pointer(pointer, offset)
+        self.representation_offset_pointer(pointer, offset)
     }
 
     pub(super) fn nullable_value_pointer(

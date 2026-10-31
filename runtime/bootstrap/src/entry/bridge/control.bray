@@ -34,11 +34,15 @@ trusted internal func load_control(pos key: u64) -> Result<usize, u32>
     return Ok(trusted core.target.expose_address<u8>(pointer));
 }
 
-trusted internal func store_control(pos key: u64, pos selected: Control?) -> u32
+trusted internal func store_control(
+    pos synchronization: &bray.runtime.bootstrap.host.Synchronization,
+    pos selected: Control?
+) -> u32
     executes(total)
     uses(intrinsic)
 {
     let address = trusted bray.runtime.bootstrap.entry.bridge.address.control(selected);
+    let key = core.atomic.load<u64, 1>(&synchronization.control_key);
 
     if key == 0
     {
@@ -50,6 +54,13 @@ trusted internal func store_control(pos key: u64, pos selected: Control?) -> u32
         {
             yield 4;
         };
+    }
+
+    // Once published, keep the conservative flag until this synchronization domain ends.
+    // Set it before TLS so an installed callback can never be hidden by the fast path.
+    if address != 0
+    {
+        core.atomic.store<u64, 4>(&synchronization.control_used, 1);
     }
 
     let status = trusted internal std.thread.platform_thread_storage_store(

@@ -1,6 +1,6 @@
 use super::support::artifacts::{
     assert_source_emits_valid_native_units, generated_artifacts, generated_artifacts_of_kind,
-    generated_artifacts_of_kind_with_options, unoptimized_library_ir,
+    generated_artifacts_of_kind_with_options, library_ir,
 };
 use super::support::compilation::{
     codegen_compilation, source_request_with_runtime, test_product_identity,
@@ -841,12 +841,10 @@ public func update(pos records: Records) -> Records
     assert!(ir.contains("@llvm.memmove"), "{ir}");
 
     assert!(
-        ir.lines().any(|line| line.contains("add i64")
-            && line
-                .split(", !dbg")
-                .next()
-                .expect("fixture LLVM instruction must have its text segment")
-                .ends_with(", 8")),
+        ir.lines()
+            .any(|line| line.contains("getelementptr inbounds")
+                && line.contains("<{ [8 x i8], i8 }>")
+                && line.contains("ptr %call.result,")),
         "the records payload must be addressed after tuple padding: {ir}"
     );
 }
@@ -899,7 +897,7 @@ fn predicate_complement_preserves_the_declared_integer_width() {
         "#
         );
 
-        let ir = unoptimized_library_ir(&source);
+        let ir = library_ir(&source, bray_codegen::OptimizationLevel::None);
 
         assert!(ir.contains(&format!("xor i{bits} ")), "{ty}: {ir}");
         assert!(!ir.contains(&format!("xor i{} ", bits + 1)), "{ty}: {ir}");
@@ -927,7 +925,7 @@ fn predicate_power_handles_zero_and_one_bit_counts_without_full_width_shifts() {
         "#
         );
 
-        let ir = unoptimized_library_ir(&source);
+        let ir = library_ir(&source, bray_codegen::OptimizationLevel::None);
 
         assert!(!ir.contains("lshr i1 "), "maximum {maximum}: {ir}");
 
@@ -965,7 +963,7 @@ fn predicate_signed_complement_preserves_exact_intermediates() {
         "#
         );
 
-        let ir = unoptimized_library_ir(&source);
+        let ir = library_ir(&source, bray_codegen::OptimizationLevel::None);
 
         assert!(ir.contains(&format!("xor i{} ", bits + 1)), "{ty}: {ir}");
         assert!(!ir.contains(&format!("xor i{bits} ")), "{ty}: {ir}");

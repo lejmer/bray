@@ -711,6 +711,11 @@ fn operation_parts(
 
             "store"
         }
+        MirOperationKind::TakeIncomingReport { destination } => {
+            parts.place("destination", destination, context)?;
+
+            "take_incoming_report"
+        }
         MirOperationKind::Borrow { kind, place } => {
             parts.attribute("borrow_kind", borrow_kind(*kind));
             parts.place("place", place, context)?;

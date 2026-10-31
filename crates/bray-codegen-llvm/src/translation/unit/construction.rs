@@ -263,8 +263,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let llvm_type = self.types.map(result)?;
         let storage = self.allocate_temporary(llvm_type, "construction.union")?;
 
-        llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
-
+        // Only the tag and active fields form the initialized union value. Clearing
+        // inactive payload storage makes small variants pay for the largest variant.
         self.store_union_tag(storage, *tag, variant.tag())?;
 
         for construction_input in construction.inputs() {
@@ -289,7 +289,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "checked MIR construction translation requires an established mapping or value",
             );
 
-            let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, layout.offset_bytes())?;
 
             self.store_value(destination, *input_value, layout.ty())?;
         }

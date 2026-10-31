@@ -70,7 +70,8 @@ pub(super) fn validate_operation(
                 return None;
             }
         }
-        MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport { destination: place }
+        | MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => {
@@ -204,6 +205,7 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
+        | MirOperationKind::TakeIncomingReport { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::TraitView { .. }
         | MirOperationKind::TraitViewMethod { .. }
@@ -268,6 +270,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         MirOperationKind::AdmitOutgoing { .. }
             | MirOperationKind::DischargeOutgoing { .. }
             | MirOperationKind::Store { .. }
+            | MirOperationKind::TakeIncomingReport { .. }
             | MirOperationKind::ReleaseBuffer { .. }
             | MirOperationKind::Quiesce { .. }
             | MirOperationKind::Destroy { .. }

@@ -21,7 +21,8 @@ const fn optimization_pipeline(options: CodegenOptions) -> Option<&'static str> 
         (_, SizePreference::Size) => Some("default<Os>"),
         (OptimizationLevel::None, SizePreference::None) => None,
         (OptimizationLevel::Basic, SizePreference::None) => Some("default<O1>"),
-        (OptimizationLevel::Full, SizePreference::None) => Some("default<O2>"),
+        // Expose small successful paths to inlining while retaining cold panic construction.
+        (OptimizationLevel::Full, SizePreference::None) => Some("default<O2>,hotcoldsplit"),
     }
 }
 
@@ -45,7 +46,7 @@ mod tests {
 
         assert_eq!(
             optimization_pipeline(options(OptimizationLevel::Full, SizePreference::None)),
-            Some("default<O2>")
+            Some("default<O2>,hotcoldsplit")
         );
 
         assert_eq!(

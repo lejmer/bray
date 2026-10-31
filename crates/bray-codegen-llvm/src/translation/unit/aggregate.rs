@@ -148,7 +148,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("aggregate field ordinal is checked");
 
         if let BasicValueEnum::PointerValue(storage) = value {
-            let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, field.offset_bytes())?;
 
             self.store_value(destination, child, field.ty())?;
 
@@ -191,7 +191,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .checked_mul(ordinal)
                 .expect("array element offset fits its checked layout");
 
-            let destination = self.constant_offset_pointer(storage, offset)?;
+            let destination = self.representation_offset_pointer(storage, offset)?;
 
             self.store_value(destination, child, element)?;
 
@@ -498,7 +498,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("aggregate field ordinal is checked");
 
         if let BasicValueEnum::PointerValue(storage) = subject {
-            let pointer = self.constant_offset_pointer(storage, field.offset_bytes())?;
+            let pointer = self.representation_offset_pointer(storage, field.offset_bytes())?;
 
             self.place_value(pointer, field.ty(), "aggregate.field")
         } else {
@@ -538,7 +538,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .checked_mul(index)
                 .expect("array element offset fits its checked layout");
 
-            let pointer = self.constant_offset_pointer(storage, offset)?;
+            let pointer = self.representation_offset_pointer(storage, offset)?;
 
             self.place_value(pointer, element, "array.element")
         } else {
@@ -604,7 +604,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             storage
         };
 
-        let field = self.constant_offset_pointer(storage, offset)?;
+        let field = self.representation_offset_pointer(storage, offset)?;
 
         self.place_value(field, result_type, "pattern.union.field")
     }

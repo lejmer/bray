@@ -15,6 +15,31 @@ use super::{
 use crate::fact::FactQueryError;
 
 #[test]
+fn absent_standard_library_is_preserved_through_native_product_diagnostics() {
+    let error =
+        NativeProductPlanningError::Codegen(crate::CodegenPreparationError::MissingStandardLibrary);
+
+    assert_eq!(
+        native_product_failure_kind(&error),
+        Some(DiagnosticNativeProductFailureKind::MissingStandardLibrary)
+    );
+
+    let diagnostic = native_product_preparation_diagnostic(
+        DiagnosticNativeProductFailureKind::MissingStandardLibrary,
+        &ProductIdentity::try_new(
+            PackageIdentity::try_new("example.output").expect("fixture package identity"),
+            "library",
+        )
+        .expect("fixture product identity"),
+        "x86_64-unknown-linux-gnu",
+    );
+
+    assert!(diagnostic.notes().iter().any(|note| {
+        note.kind() == bray_diagnostics::DiagnosticNoteKind::StandardLibraryDependencyRequired
+    }));
+}
+
+#[test]
 fn runtime_selection_reports_unresolved_native_symbol() {
     let error = NativeProductPlanningError::NativeResolution(
         bray_native_artifact::NativeResolutionError::Unresolved(

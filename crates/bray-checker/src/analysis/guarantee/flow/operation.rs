@@ -469,7 +469,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         self.complete_memory_write(state, expression);
-        self.preserve_integer_result(state, expression);
+        self.preserve_integer_value(state, expression);
     }
 
     fn publish_result(&self, state: &mut ExecutionState, expression: BoundExpressionId) {

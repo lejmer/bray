@@ -58,7 +58,7 @@ pub use target::MirTargetContract;
 pub use unit::{
     MirCapacityError, MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
     MirImportedExecutableKey, MirReconstructionMappings, MirUnit, MirUnitBuilder, MirUnitKey,
-    MirUnitKind, append_cleanup_continuation, inline_scalar_call, reachable_blocks,
+    MirUnitKind, append_cleanup_continuation, inline_call, reachable_blocks,
     reconstruct_reachable, reconstruct_with_edits,
 };
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};

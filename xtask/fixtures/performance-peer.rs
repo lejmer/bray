@@ -637,7 +637,7 @@ fn workload() -> bool {
         written += count;
     }
 
-    if file.flush().is_err() {
+    if file.sync_all().is_err() {
         return false;
     }
 

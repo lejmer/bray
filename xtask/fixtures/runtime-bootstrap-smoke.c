@@ -46,6 +46,7 @@ static atomic_uint reject_key_creation_at;
 static atomic_bool reject_key_destruction;
 static atomic_uint key_creation_attempts;
 static atomic_uint key_destruction_attempts;
+static atomic_uint key_load_attempts;
 static atomic_uint live_keys;
 static atomic_bool reenter_key_creation;
 static atomic_uint recursive_key_status;
@@ -55,6 +56,8 @@ static unsigned control_retirement_keys;
 
 static int before_control_load(void)
 {
+    atomic_fetch_add(&key_load_attempts, 1);
+
     if (!atomic_exchange(&retire_control_on_load, 0))
         return 1;
 
@@ -760,6 +763,20 @@ static int check_execution_control_bridge(void)
     EntryCallbacks selected = { .control = execution_control };
     EntryCallbacks previous = {0};
     EntryCallbacks replaced = {0};
+
+#if defined(_WIN32) || defined(__linux__)
+    unsigned loads = atomic_load(&key_load_attempts);
+
+    // A domain that has never installed a provider needs no TLS lookup.
+    bray_runtime_cleanup_shield_enter();
+    bray_runtime_cleanup_shield_leave();
+
+    if (
+        bray_runtime_current_run_cancellation_observation() != 0 ||
+        atomic_load(&key_load_attempts) != loads
+    )
+        return 78;
+#endif
 
     if (
         bray_runtime_thread_attachment_enter() != 0 ||
@@ -3006,6 +3023,20 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
     unsigned attempts = atomic_load(&allocation_attempts);
 
     atomic_store(&reject_allocations, 1);
+
+    PanicReport empty_primary = { 0 };
+    PanicReport empty_incident = { 0 };
+    PanicReport empty_combined = bray_runtime_panic_report_suppression(&empty_primary, &empty_incident);
+
+    if (
+        empty_combined.primary_present != 0 ||
+        empty_combined.count != 0 ||
+        empty_combined.reserved != 0 ||
+        empty_combined.provider_callbacks != 0 ||
+        empty_primary.primary_present != 0 ||
+        empty_incident.primary_present != 0
+    )
+        return 189;
 
     ActivationRecords records = retain_test_incident(count);
 

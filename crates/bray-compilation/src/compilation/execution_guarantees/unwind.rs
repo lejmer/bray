@@ -37,8 +37,15 @@ impl Compilation {
                 let semantic_context =
                     semantic_unit_context(context.symbols(), bound.result().value());
 
+                let static_dependencies = self.static_dependency_roots(
+                    &key,
+                    expressions.result().value().selections(),
+                    cancellation,
+                )?;
+
                 let request =
-                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
+                    CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
+                        .with_static_dependencies(&static_dependencies);
 
                 let (entry, entry_diagnostics) = self
                     .unwind_entry_conditions(&key, cancellation)?

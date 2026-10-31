@@ -14,6 +14,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         // Keep this exhaustive so every MIR operation requires an explicit translation.
         let result = match operation.kind() {
+            MirOperationKind::TakeIncomingReport { destination } => {
+                let context = self.panic_report_context.expect("an inlined report transfer requires its Bray incoming context");
+
+                self.take_completed_call_report(context, destination)?;
+
+                None
+            }
             MirOperationKind::Store {
                 destination, value, ..
             } => {

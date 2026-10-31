@@ -69,7 +69,8 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_place_types(destination, types);
             collect_operand_types(value, types);
         }
-        MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport { destination: place }
+        | MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),

@@ -64,6 +64,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let entry = state.entries.get(&expression.into())?;
 
+        if let Some(bray_bound_tree::CheckedMemoryOperationKind::AtomicCompareExchange {
+            value, weak: false, ..
+        }) = self.memory.operation(expression).map(|operation| operation.kind())
+            && crate::representation::type_representation(self.request, *value)
+                .is_some_and(|role| role.integer_representation().is_some())
+        {
+            let expected = ExecutionPlace::argument(SymbolOrdinal::new(1))
+                .value_in(&entry.arguments)
+                .expect("checked compare-exchange retains its evaluated expected value");
+
+            let result = ExecutionCondition::Expression(expression);
+            let observed = result.clone().component(bray_symbols::ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+            // Integer strong success is exactly equality with the observed value, independent
+            // of later atomic writes. Weak failure does not establish this relationship.
+            let succeeded = ExecutionCondition::operation(
+                bray_bound_tree::BoundOperator::Equal,
+                vec![observed, expected],
+            );
+
+            return Some(ExecutionCondition::Constructed(
+                std::sync::Arc::new(result),
+                [(bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)), succeeded)].into(),
+            ));
+        }
+
         if call.implementation_hook()
             == Some(bray_compiler_known::ImplementationHook::NumericTruncate)
             && let [bray_bound_tree::SelectedArgument::Explicit { conversion, .. }] =

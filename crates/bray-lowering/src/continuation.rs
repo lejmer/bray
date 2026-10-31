@@ -135,6 +135,23 @@ pub(crate) fn check_call_outcome(
         })
         .transpose()?;
 
+    if matches!(builder.last_operation(block).map(|operation| operation.kind()),
+        Some(bray_ir::MirOperationKind::Call(call)) if call.has_non_unwinding_invocation())
+    {
+        let edge = MirEdge::new(completed, value);
+
+        builder.set_terminator(
+            block,
+            source.clone(),
+            match completed_report {
+                Some(report) => MirTerminatorKind::TakeCallReport { completed: edge, report },
+                None => MirTerminatorKind::Goto(edge),
+            },
+        );
+
+        return Ok((completed, parameter.map(MirOperand::Value)));
+    }
+
     let (panicked, cancelled) =
         if kind == MirBlockKind::CleanupBroadcast && builder.block_kind(panicked) != kind {
             let panic_bridge = builder.push_block(source.clone(), kind)?;

@@ -69,7 +69,7 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         let action = bray_checker::select_lifecycle_action(self, ty, phase)?;
 
         if phase == bray_bound_tree::LifecyclePhase::Finalize
-            && let bray_bound_tree::LifecycleAction::Call(callable) = action
+            && let bray_bound_tree::LifecycleAction::Call(ref callable) = action
             && self.compilation.finalizer_is_complete(
                 callable.callable,
                 callable.result.completion_type(),

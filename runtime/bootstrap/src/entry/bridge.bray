@@ -230,7 +230,7 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
-            let stored = trusted store_control(control_key, control);
+            let stored = trusted store_control(synchronization, control);
 
             if stored != 0
             {
@@ -426,6 +426,13 @@ trusted internal func invoke_control(pos operation: u32) -> u32
         bray.runtime.bootstrap.host.Synchronization,
         Uninit<bray.runtime.bootstrap.host.Synchronization>
     >(&bray.runtime.bootstrap.host.SYNCHRONIZATION, trusted bray.runtime.bootstrap.host.synchronization_pointer());
+
+    // Ordinary synchronous entries have never installed a control provider. The
+    // monotonic domain flag avoids TLS and key-retirement traffic in that case.
+    if core.atomic.load<u64, 4>(&synchronization.control_used) == 0
+    {
+        return 0;
+    }
 
     _ = core.atomic.fetch_add<u64, 4>(&synchronization.control_readers, 1);
 

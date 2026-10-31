@@ -28,8 +28,8 @@ impl StorageCleanupType {
     }
 
     /// Returns the whole-value finalizer, including its substituted receiver and completion types.
-    pub const fn finalizer(&self) -> Option<crate::LifecycleCallable> {
-        self.finalizer
+    pub fn finalizer(&self) -> Option<crate::LifecycleCallable> {
+        self.finalizer.clone()
     }
 
     /// Records the independently checked whole-value cleanup requirement.

@@ -129,6 +129,7 @@ impl DiagnosticProductKind {
 pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendNotSelected,
     MissingRuntime,
+    MissingStandardLibrary,
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCancelled,
     EvaluationCycle(crate::DiagnosticEvaluationFailureDetail),
@@ -177,6 +178,7 @@ impl DiagnosticNativeProductFailureKind {
         match self {
             Self::CodegenBackendNotSelected => "codegen_backend_not_selected",
             Self::MissingRuntime => "missing_runtime",
+            Self::MissingStandardLibrary => "missing_standard_library",
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCancelled => "evaluation_cancelled",
             Self::EvaluationCycle(_) => "evaluation_cycle",

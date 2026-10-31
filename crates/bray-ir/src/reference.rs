@@ -384,6 +384,13 @@ impl MirCall {
         self
     }
 
+    /// Retains the checked signature behavior of a compiler-selected protocol invocation.
+    pub fn with_phase_behaviors(mut self, behavior: Arc<CallablePhaseBehaviors>) -> Self {
+        self.phase_behaviors = Some(behavior);
+
+        self
+    }
+
     /// Returns whether this invocation consumes a local action's outgoing allowance.
     pub const fn is_cleanup(&self) -> bool {
         self.cleanup

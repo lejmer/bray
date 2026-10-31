@@ -19,7 +19,6 @@ pub struct PreparedBodyAnalysis {
     pub(crate) generator_observations: bray_bound_tree::GeneratorObservations,
     pub(crate) values: super::liveness::ValueRetention,
     pub(crate) cleanup: super::guarantee::CleanupPlan,
-    pub(crate) sequence_lengths: Vec<BoundExpressionId>,
     pub(crate) has_bounds_checks: bool,
     pub(crate) observed_types: BTreeMap<crate::ExecutionPlace, Option<TypeId>>,
     pub(crate) borrowed_inputs: BTreeSet<crate::ExecutionPlace>,
@@ -53,7 +52,7 @@ impl PreparedBodyAnalysis {
             .iter()
             .filter_map(|((ty, slot), lifecycle)| {
                 (*slot == bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
-                    .then_some((*ty, lifecycle.call))
+                    .then_some((*ty, lifecycle.call.clone()))
             })
     }
 
@@ -204,7 +203,6 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
         graph,
         cleanup,
         kind: request.unit().key().kind(),
-        sequence_lengths: Vec::new(),
         has_bounds_checks: false,
         observed_types: BTreeMap::new(),
         borrowed_inputs: BTreeSet::new(),
@@ -225,7 +223,7 @@ pub fn prepare_body_analysis<C: CheckerRequestContext + ?Sized>(
 
     prepared.prepare_observations(request, expressions);
 
-    match prepared.prepare_input_invariants(request) {
+    match prepared.prepare_input_invariants(request, storage) {
         Ok(()) => {}
         Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(crate::CheckerQueryError::Upstream(error)) => {
@@ -260,14 +258,6 @@ impl PreparedBodyAnalysis {
                     }
                 ))
             );
-
-            if let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                semantics.selections().expression(expression)
-                && call.implementation_hook()
-                    == Some(bray_compiler_known::ImplementationHook::SequenceLength)
-            {
-                self.sequence_lengths.push(expression);
-            }
 
             if let BoundExpression::ControlTransfer(transfer) = node
                 && matches!(
@@ -325,8 +315,33 @@ impl PreparedBodyAnalysis {
     fn prepare_input_invariants<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,
+        storage: &StoragePlan,
     ) -> Result<(), crate::CheckerQueryError<C::UpstreamError>> {
+        // Contracts can observe scalar parameters that the body never reads. Keep
+        // their checked entry types without walking arbitrary aggregate fields.
+        for (identity, _) in storage.identity_entries() {
+            let Some(place) = crate::ExecutionPlace::storage_identity(storage, identity)
+                .filter(crate::ExecutionPlace::is_callable_input)
+            else {
+                continue;
+            };
+
+            let Some(ty) = storage.storage_type(identity) else {
+                continue;
+            };
+
+            let ty = request.semantic_values().unborrowed_type(ty);
+
+            if crate::representation::type_representation(request, ty)
+                .and_then(bray_compiler_known::RepresentationRole::integer_representation)
+                .is_some()
+            {
+                self.observed_types.entry(place).or_insert(Some(ty));
+            }
+        }
+
         let mut types = BTreeMap::new();
+        let mut scalar_fields = Vec::new();
 
         for (place, ty) in &self.observed_types {
             if !place.is_callable_input() {
@@ -353,6 +368,20 @@ impl PreparedBodyAnalysis {
 
             let (capacity, initialized) = (fields.capacity, fields.initialized);
 
+            let scalar = crate::representation::representation_type(
+                request,
+                bray_compiler_known::RepresentationRole::ScalarUsize,
+            );
+
+            for field in [capacity, initialized] {
+                scalar_fields.push((
+                    place
+                        .clone()
+                        .component(bray_symbols::ConstantProjectionKind::ProductField(field)),
+                    scalar,
+                ));
+            }
+
             let field = |field| {
                 crate::ExecutionCondition::Input(
                     place
@@ -366,6 +395,10 @@ impl PreparedBodyAnalysis {
                     bray_bound_tree::BoundOperator::LessEqual,
                     vec![field(initialized), field(capacity)],
                 ));
+        }
+
+        for (place, ty) in scalar_fields {
+            self.observed_types.entry(place).or_insert(Some(ty));
         }
 
         Ok(())

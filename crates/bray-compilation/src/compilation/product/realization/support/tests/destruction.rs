@@ -720,6 +720,18 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
             "only retained fallible finalizer calls transfer an error payload",
         );
 
+        for operation in finalized.operations() {
+            if let MirOperationKind::Call(call) = operation.kind()
+                && matches!(call.target(), MirCallTarget::Direct(_))
+            {
+                assert!(call.phase_behaviors().is_some(), "selected lifecycle retains checked behavior");
+
+                if guarantees.contains("total") {
+                    assert!(!call.may_propagate_panic(), "total invocation needs no failure check");
+                }
+            }
+        }
+
         if calls == 0 {
             assert!(finalized.operations().iter().all(|operation| !matches!(
                 operation.kind(),

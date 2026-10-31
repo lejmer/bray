@@ -683,6 +683,11 @@ pub enum MirHostOperation {
 /// One explicit MIR operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirOperationKind {
+    /// Move the completed incoming outcome's owned report after an inlined call returns.
+    TakeIncomingReport {
+        /// Caller-owned destination for the report; the incoming context becomes empty.
+        destination: MirPlace,
+    },
     /// Create a capture-free anonymous callable value for an independently lowered unit.
     AnonymousCallable(MirAnonymousCallableReference),
     /// Materialize the address of one declared callable instance.

@@ -674,7 +674,7 @@ impl Compilation {
             let callable =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?;
 
-            let source = match callable {
+            let source = match &callable {
                 Some(callable) => {
                     self.callable_body_key(callable.callable.definition())?
                         .map(|key| {
@@ -686,7 +686,7 @@ impl Compilation {
                 None => None,
             };
 
-            let (execution, result, error_type_identity) = callable.map_or_else(
+            let (execution, result, error_type_identity) = callable.as_ref().map_or_else(
                 || {
                     Ok((
                         CallableExecution::Synchronous,

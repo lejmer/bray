@@ -184,7 +184,7 @@ func main() -> Result<unit, std.io.IoError>
 trusted func retain_bytes(pos bytes: &[u8])
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let pointer: DataPointer<u8> = std.memory.address_of<u8>(&bytes[0]);
+    let pointer: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(bytes, count = bytes.length());
 
     trusted core.target.assembly<(DataPointer<u8>, usize), unit>(
         template = "",
@@ -199,7 +199,6 @@ trusted func retain_bytes(pos bytes: &[u8])
 
 pub(super) const PROCESS_PIPE_TRANSFER: &str = r#"module process_pipe_transfer;
 
-using std.fs;
 using std.io;
 using internal std.io.StandardInputReader;
 using std.path;
@@ -266,32 +265,10 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance child command must be created"); }
     };
 
-    let observation_name: string = "bray-performance-pipe-child-observations";
-
-    let observation_key: std.path.NativeText = match consume std.path.NativeText.from_string(
-        &"BRAY_PERFORMANCE_OBSERVATION_PATH"
-    )
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("performance observation key must be valid"); }
-    };
-
-    let observation_value: std.path.NativeText = match consume std.path.NativeText.from_string(&observation_name)
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("performance child observation path must be valid"); }
-    };
-
     match command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
     {
         case Ok(_) {}
         case Error(_) { panic("performance child environment must be isolated"); }
-    }
-
-    match command.set_environment(observation_key, observation_value)
-    {
-        case Ok(_) {}
-        case Error(_) { panic("performance child observation path must be configured"); }
     }
 
     let child_argument: std.path.NativeText = match consume std.path.NativeText.from_string(&"pipe-child")
@@ -343,18 +320,6 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
     {
         case std.process.ExitStatus.Code(0) {}
         case _ { panic("performance child must exit successfully"); }
-    }
-
-    let observation_path: std.path.Path = match consume std.path.Path.from_string(&observation_name)
-    {
-        case Ok(path) { yield path; }
-        case Error(_) { panic("performance child observation path must be valid"); }
-    };
-
-    match std.fs.remove_file(&observation_path)
-    {
-        case Ok(_) {}
-        case Error(_) {}
     }
 
     return Ok(unit);

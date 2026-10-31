@@ -298,13 +298,70 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let route = self.begin_route("call.completed", moved_reports);
 
         if let Some(report) = report {
-            self.take_call_report(context, report)?;
+            self.take_completed_call_report(context, report)?;
         }
 
         self.add_edge_arguments(edge)?;
         self.finish_route(edge.target())?;
 
         Ok(route)
+    }
+
+    pub(super) fn take_completed_call_report(
+        &mut self,
+        context: PointerValue<'context>,
+        destination: &MirPlace,
+    ) -> Result<(), CodegenFailure> {
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let report =
+            llvm(
+                self.builder
+                    .build_struct_gep(outcome_type, context, 2, "call.completed.report"),
+            )?;
+
+        let owned = crate::translation::panic::report_slot_has_ownership(
+            self.types.context(),
+            &self.builder,
+            report,
+        )?;
+
+        let transfer = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.owned");
+
+        let empty = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.empty");
+
+        let continued = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.taken");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(owned, transfer, empty),
+        )?;
+
+        self.builder.position_at_end(transfer);
+        self.take_call_report(context, destination)?;
+        llvm(self.builder.build_unconditional_branch(continued))?;
+        self.builder.position_at_end(empty);
+
+        // An empty completed context already satisfies the next call's entry contract.
+        // Canonicalize the logical report without copying or rewriting that context.
+        let ty = self.types.map(destination.ty())?;
+        let destination = self.place(destination)?;
+
+        llvm(self.builder.build_store(destination, ty.const_zero()))?;
+        llvm(self.builder.build_unconditional_branch(continued))?;
+        self.builder.position_at_end(continued);
+
+        Ok(())
     }
 
     fn take_call_report(

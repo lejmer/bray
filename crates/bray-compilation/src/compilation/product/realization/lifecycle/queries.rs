@@ -116,6 +116,7 @@ impl Compilation {
         Ok(LifecycleCallable {
             callable: *callable,
             abi: callable_type.abi(),
+            phase_behaviors: std::sync::Arc::new(callable_type.phase_behaviors().clone()),
             receiver: parameter.ty(),
             result: bray_bound_tree::BoundCallResult::Immediate(signature.result()),
         })

@@ -238,7 +238,7 @@ fn merge_report_slots<'context>(
     Ok(())
 }
 
-fn report_slot_has_ownership<'context>(
+pub(crate) fn report_slot_has_ownership<'context>(
     context: &'context Context,
     builder: &Builder<'context>,
     report: PointerValue<'context>,

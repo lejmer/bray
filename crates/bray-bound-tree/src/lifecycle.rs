@@ -34,7 +34,7 @@ pub enum CompletedFinalizer {
 }
 
 /// One selected lifecycle invocation with its substituted signature.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LifecycleCallable {
     /// Exact selected implementation.
     pub callable: CallableInstanceData,
@@ -44,6 +44,8 @@ pub struct LifecycleCallable {
     pub receiver: TypeId,
     /// Checked immediate result or inactive future produced by the invocation.
     pub result: crate::BoundCallResult,
+    /// Checked behavior of invocation and deferred execution.
+    pub phase_behaviors: Arc<bray_symbols::CallablePhaseBehaviors>,
 }
 
 impl LifecycleCallable {
@@ -67,6 +69,7 @@ impl LifecycleCallable {
         Ok(Self {
             callable,
             abi: selected.abi(),
+            phase_behaviors: Arc::new(selected.phase_behaviors().clone()),
             receiver: receiver.mode().input_type(values, receiver.ty())?,
             result: crate::BoundCallResult::from_execution(
                 values,
@@ -131,10 +134,10 @@ impl LifecycleAction {
     /// Structural children retain their own selected actions and cleanup allowances.
     pub fn local_calls(&self) -> impl Iterator<Item = LifecycleCallable> {
         let calls = match self {
-            Self::Call(callable) => [Some(*callable), None],
+            Self::Call(callable) => [Some(callable.clone()), None],
             Self::Owned {
                 borrow, release, ..
-            } => [Some(*borrow), *release],
+            } => [Some(borrow.clone()), release.clone()],
             Self::None
             | Self::Resolve
             | Self::Members(_)
@@ -146,7 +149,7 @@ impl LifecycleAction {
             | Self::ReleaseString
             | Self::DestroyReport
             | Self::Task
-            | Self::Future => [None; 2],
+            | Self::Future => [None, None],
         };
 
         calls.into_iter().flatten()

@@ -1,8 +1,11 @@
 use super::super::core::UnitTranslator;
 use super::super::support::pointer_value;
-use bray_codegen::{CodegenCallSite, CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
+use bray_codegen::{
+    CodegenCallSite, CodegenCallableSignature, CodegenFailure, CodegenHelperMapping,
+    CodegenTypeKind,
+};
 use bray_ir::{MirCall, MirCallArgument, MirCallTarget};
-use inkwell::values::BasicValueEnum;
+use inkwell::values::{BasicValueEnum, FunctionValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(in crate::translation::unit) fn translate_call(
@@ -54,6 +57,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             None
         };
 
+        let retains_call_outcome = checks_call_panic || outgoing.is_some();
+
         let result = match call.target() {
             MirCallTarget::Direct(_) => {
                 let mapping = self
@@ -81,14 +86,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         semantic_arguments,
                     )?;
 
-                    if checks_call_panic {
+                    if retains_call_outcome {
                         let context = self.checked_call_panic_report_context()?;
 
                         self.set_pending_call_context(context)?;
                     }
 
                     if let Some(record) = outgoing {
-                        self.retire_outgoing_call(record)?;
+                        self.retire_outgoing_call(record, checks_call_panic)?;
                     }
 
                     return Ok(Some(result));
@@ -110,24 +115,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 // mutates translation state.
                 let signature = symbol.signature().clone();
 
-                if checks_call_panic {
-                    self.invoke_checked_function(function, &signature, semantic_arguments, "call")
-                } else if call.has_non_unwinding_invocation() {
-                    let context = signature
-                        .has_panic_report_context()
-                        .then(|| self.checked_call_panic_report_context())
-                        .transpose()?;
-
-                    self.invoke_function_with_panic_report_context(
-                        function,
-                        &signature,
-                        semantic_arguments,
-                        "call",
-                        context,
-                    )
-                } else {
-                    self.invoke_function(function, &signature, semantic_arguments, "call")
-                }
+                self.invoke_call_function(
+                    call,
+                    retains_call_outcome,
+                    function,
+                    &signature,
+                    semantic_arguments,
+                )
             }
             MirCallTarget::DefaultValue { .. }
             | MirCallTarget::Predicate(_)
@@ -136,81 +130,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR call translation requires an established mapping or value",
                 );
 
-                self.invoke_operation_helper(operation, helper, semantic_arguments)
+                if let Some(key) = helper.symbol() {
+                    let symbol = self.request.mappings().symbol(key).expect(
+                        "checked MIR call translation requires an established mapping or value",
+                    );
+
+                    let function = self.module.get_function(symbol.name().as_str()).expect(
+                        "checked MIR call translation requires an established mapping or value",
+                    );
+
+                    let signature = symbol.signature().clone();
+
+                    self.invoke_call_function(
+                        call,
+                        retains_call_outcome,
+                        function,
+                        &signature,
+                        semantic_arguments,
+                    )
+                } else {
+                    self.invoke_operation_helper(operation, helper, semantic_arguments)
+                }
             }
             MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
-                let callee_type = self.operand_type(callee);
-
-                let mapping = self.type_mapping(callee_type).expect(
-                    "checked MIR call translation requires an established mapping or value",
-                );
-
-                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    panic!(
-                        "checked MIR call translation violated an established compiler contract"
-                    );
-                };
-
-                // Translation mutates its value cache after releasing the borrowed mapping.
-                let signature = signature.clone();
-
-                let pointer = pointer_value(self.operand(callee)?).expect(
-                    "checked MIR call translation requires an established mapping or value",
-                );
-
-                let pointer = if matches!(
-                    call.result(),
-                    bray_bound_tree::BoundCallResult::LazyFuture(_)
-                ) {
-                    crate::mapping::frame::factory_field(
-                        self.types.context(),
-                        &self.builder,
-                        pointer,
-                        0,
-                    )?
-                } else {
-                    pointer
-                };
-
-                let function_type = self.types.function_type(&signature)?;
-
-                if checks_call_panic {
-                    self.invoke_checked_indirect(
-                        function_type,
-                        pointer,
-                        &signature,
-                        semantic_arguments,
-                        "call.indirect",
-                    )
-                } else if call.has_non_unwinding_invocation() {
-                    let context = signature
-                        .has_panic_report_context()
-                        .then(|| self.checked_call_panic_report_context())
-                        .transpose()?;
-
-                    self.invoke_indirect_with_panic_report_context(
-                        function_type,
-                        pointer,
-                        &signature,
-                        semantic_arguments,
-                        "call.indirect",
-                        context,
-                    )
-                } else {
-                    self.invoke_indirect(
-                        function_type,
-                        pointer,
-                        &signature,
-                        semantic_arguments,
-                        "call.indirect",
-                    )
-                }
+                self.invoke_call_indirect(call, retains_call_outcome, callee, semantic_arguments)
             }
         }?;
 
         if let Some(record) = outgoing {
-            self.retire_outgoing_call(record)?;
+            self.retire_outgoing_call(record, checks_call_panic)?;
         }
 
         if result.is_some() {
@@ -232,6 +181,115 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR call translation requires an established mapping or value");
 
         self.materialize_call_result(None, ty).map(Some)
+    }
+
+    fn invoke_call_function(
+        &mut self,
+        call: &MirCall,
+        retains_call_outcome: bool,
+        function: FunctionValue<'context>,
+        signature: &CodegenCallableSignature,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        if retains_call_outcome && signature.has_panic_report_context() {
+            self.invoke_checked_function(function, signature, arguments, "call")
+        } else if retains_call_outcome {
+            let context = self.checked_call_panic_report_context()?;
+
+            self.set_pending_call_context(context)?;
+
+            self.invoke_function(function, signature, arguments, "call")
+        } else if call.has_non_unwinding_invocation() {
+            let context = signature
+                .has_panic_report_context()
+                .then(|| self.checked_call_panic_report_context())
+                .transpose()?;
+
+            self.invoke_function_with_panic_report_context(
+                function, signature, arguments, "call", context,
+            )
+        } else {
+            self.invoke_function(function, signature, arguments, "call")
+        }
+    }
+
+    fn invoke_call_indirect(
+        &mut self,
+        call: &MirCall,
+        retains_call_outcome: bool,
+        callee: &bray_ir::MirOperand,
+        semantic_arguments: &[BasicValueEnum<'context>],
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let callee_type = self.operand_type(callee);
+
+        let mapping = self
+            .type_mapping(callee_type)
+            .expect("checked MIR call translation requires an established mapping or value");
+
+        let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+            panic!("checked MIR call translation violated an established compiler contract");
+        };
+
+        // Translation mutates its value cache after releasing the borrowed mapping.
+        let signature = signature.clone();
+
+        let pointer = pointer_value(self.operand(callee)?)
+            .expect("checked MIR call translation requires an established mapping or value");
+
+        let pointer = if matches!(
+            call.result(),
+            bray_bound_tree::BoundCallResult::LazyFuture(_)
+        ) {
+            crate::mapping::frame::factory_field(self.types.context(), &self.builder, pointer, 0)?
+        } else {
+            pointer
+        };
+
+        let function_type = self.types.function_type(&signature)?;
+
+        if retains_call_outcome && signature.has_panic_report_context() {
+            self.invoke_checked_indirect(
+                function_type,
+                pointer,
+                &signature,
+                semantic_arguments,
+                "call.indirect",
+            )
+        } else if retains_call_outcome {
+            let context = self.checked_call_panic_report_context()?;
+
+            self.set_pending_call_context(context)?;
+
+            self.invoke_indirect(
+                function_type,
+                pointer,
+                &signature,
+                semantic_arguments,
+                "call.indirect",
+            )
+        } else if call.has_non_unwinding_invocation() {
+            let context = signature
+                .has_panic_report_context()
+                .then(|| self.checked_call_panic_report_context())
+                .transpose()?;
+
+            self.invoke_indirect_with_panic_report_context(
+                function_type,
+                pointer,
+                &signature,
+                semantic_arguments,
+                "call.indirect",
+                context,
+            )
+        } else {
+            self.invoke_indirect(
+                function_type,
+                pointer,
+                &signature,
+                semantic_arguments,
+                "call.indirect",
+            )
+        }
     }
 
     pub(in crate::translation::unit) fn materialize_call_result(

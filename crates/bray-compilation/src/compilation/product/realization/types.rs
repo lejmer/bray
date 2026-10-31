@@ -321,7 +321,7 @@ impl Compilation {
         Ok(())
     }
 
-    pub(super) fn concrete_codegen_type(
+    pub(in crate::compilation::product) fn concrete_codegen_type(
         &self,
         ty: TypeId,
         substitution: Option<GenericSubstitutionId>,

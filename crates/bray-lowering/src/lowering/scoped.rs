@@ -130,6 +130,7 @@ impl Lowerer<'_> {
                     invocation_result,
                     false,
                     None,
+                    std::sync::Arc::new(callable_type.phase_behaviors().clone()),
                     |operation, ty| {
                         lowerer.push_operation(
                             current,
@@ -382,6 +383,7 @@ impl Lowerer<'_> {
                         invocation_result,
                         true,
                         None,
+                        std::sync::Arc::new(callable_type.phase_behaviors().clone()),
                         |operation, ty| {
                             lowerer.push_operation(
                                 block,

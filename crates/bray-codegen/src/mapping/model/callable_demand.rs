@@ -117,6 +117,7 @@ fn operation_callable_instances(
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
+        | MirOperationKind::TakeIncomingReport { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::TraitView { .. }
         | MirOperationKind::TraitViewMethod { .. }
