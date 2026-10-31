@@ -76,11 +76,28 @@ pub(crate) fn native_unit(
         }
     };
 
+    // Native targets use hosted C ABIs. LLVM can introduce runtime calls during
+    // optimization and object emission, after the IR's declarations are known.
+    // Retain the target runtime when this unit is imported independently.
+    let runtime_library = match target.machine().object_format() {
+        bray_target::ObjectFormat::Elf => Some("c"),
+        bray_target::ObjectFormat::MachO => Some("System"),
+        bray_target::ObjectFormat::Coff => Some("msvcrt"),
+        bray_target::ObjectFormat::WebAssembly | bray_target::ObjectFormat::Xcoff => None,
+    };
+
+    let native_link = runtime_library.map(|library| {
+        bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new(library).expect("hosted runtime library name is nonempty"),
+            bray_symbols::NativeLinkKind::System,
+        )
+    });
+
     Ok(Some(NativeUnit::new(
         NativeContentDigest::new(digest),
         kind,
         summary,
-        [],
+        native_link,
     )))
 }
 
@@ -121,12 +138,67 @@ pub fn bitcode_bytes(module: &Module<'_>) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use bray_codegen::{BackendArtifactKind, CodegenTarget};
+    use bray_target::NativeTarget;
     use bray_testing::TemporaryFile;
     use inkwell::context::Context;
     use inkwell::memory_buffer::MemoryBuffer;
     use inkwell::module::Module;
 
-    use super::bitcode_bytes;
+    use super::{bitcode_bytes, native_unit, serialize_artifact};
+
+    #[test]
+    fn emitted_native_units_retain_their_hosted_runtime_dependency() {
+        for (target, library, tls_symbol) in [
+            (NativeTarget::X86_64LinuxGnu, "c", Some("__tls_get_addr")),
+            (NativeTarget::Aarch64LinuxGnu, "c", None),
+            (NativeTarget::X86_64WindowsMsvc, "msvcrt", Some("_tls_index")),
+            (NativeTarget::Aarch64WindowsMsvc, "msvcrt", Some("_tls_index")),
+            (NativeTarget::X86_64MacOs, "System", Some("__tlv_bootstrap")),
+            (NativeTarget::Aarch64MacOs, "System", Some("__tlv_bootstrap")),
+        ] {
+            for thread_local in [false, true] {
+                let context = Context::create();
+                let qualifier = if thread_local { "thread_local " } else { "" };
+
+                let ir = format!(r#"
+                    @storage = {qualifier}global i32 0
+
+                    define i32 @read_storage() {{
+                        %value = load i32, ptr @storage
+                        ret i32 %value
+                    }}
+                "#);
+
+                let terminated = format!("{ir}\0");
+                let buffer = MemoryBuffer::create_from_memory_range(terminated.as_bytes(), "TLS dependency");
+                let module = context.create_module_from_ir(buffer).expect("fixture IR is valid");
+                let target = CodegenTarget::for_native(target);
+                let machine = crate::machine::LlvmTargetMachine::create(&target).expect("native target is supported");
+
+                machine.configure_module(&module);
+
+                let content = serialize_artifact(&machine, &module, BackendArtifactKind::RelocatableObject)
+                    .expect("LLVM emits the native object");
+
+                let unit = native_unit(&content, BackendArtifactKind::RelocatableObject, &target)
+                    .expect("emitted object is readable").expect("native object has a dependency summary");
+
+                let expected = tls_symbol.filter(|_| thread_local);
+
+                if let Some(symbol) = expected {
+                    assert!(unit.summary().references().iter().any(|reference| {
+                        reference.identity().name() == Some(symbol)
+                    }));
+                }
+
+                let libraries = unit.native_links().iter()
+                    .map(|link| (link.name(), link.kind())).collect::<Vec<_>>();
+
+                assert_eq!(libraries, [(library, bray_symbols::NativeLinkKind::System)]);
+            }
+        }
+    }
 
     #[test]
     fn serialized_bitcode_excludes_the_memory_buffer_terminator() {

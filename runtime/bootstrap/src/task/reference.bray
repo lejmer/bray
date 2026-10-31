@@ -15,29 +15,25 @@ using internal bray.runtime.bootstrap.host.product;
 trusted internal func retention(pos runtime: u64, pos handle: u64, pos output: DataPointer<Reference>) -> u32
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let acquisition_result =
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
     {
-        let lease = trusted bray.runtime.bootstrap.host.host_access();
-
-        if !lease.active
-        {
-            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
-        }
-
-        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
-
-        yield trusted retain_locked(&lease, &mut anchor, runtime, handle);
-    };
-
-    match consume acquisition_result
-    {
-        case Error(status) { return status; }
-        case Ok(reference)
-        {
-            trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, reference);
-            return 0;
-        }
+        return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
     }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let (acquired, status) = trusted retain_locked(&lease, &mut anchor, runtime, handle);
+
+    if acquired matches none
+    {
+        return status;
+    }
+
+    let reference = trusted take_retained(acquired);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, reference);
+    return 0;
 }
 
 trusted internal func retain_locked(
@@ -45,7 +41,7 @@ trusted internal func retain_locked(
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos runtime: u64,
     pos handle: u64
-) -> Result<Reference, u32>
+) -> (Reference?, u32)
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
@@ -53,8 +49,10 @@ trusted internal func retain_locked(
         trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
     )
     ensures(
+        trusted retained_option(owner = &result.0),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
     )
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
@@ -63,14 +61,14 @@ trusted internal func retain_locked(
 
     if index == 0 || index > host.tasks.total || generation == 0
     {
-        return Error(7);
+        return (none, 7);
     }
 
     let slot = trusted slot_at(&mut host.tasks, index);
 
     if slot.generation != generation || slot.runtime != runtime || slot.control matches none
     {
-        return Error(7);
+        return (none, 7);
     }
 
     // The actual resident acquisition pins this exact cell while a storage
@@ -105,11 +103,15 @@ trusted internal func retain_locked(
 
         if !trusted retain(control)
         {
-            return Error(7);
+            return (none, 7);
         }
     }
 
-    return Ok(reference);
+    // The nullable owner is introduced only after the count commits. Status
+    // remains an independent ordinary value, including on rejected admission.
+    let owned: Reference? = reference;
+
+    return (owned, 0);
 }
 
 // This carrier is issued after retaining an actual resident cell. It names
@@ -124,6 +126,22 @@ internal struct Reference
 }
 
 trusted internal predicate retained(owner: &Reference);
+
+// Presence carries one admitted storage reference. Its status is separate from
+// this noncopy owner, so consuming it never splits another witness carrier.
+trusted internal predicate retained_option(owner: &(Reference?));
+
+trusted internal func take_retained(pos owner: Reference?) -> Reference
+    requires(owner matches ?_, trusted retained_option(owner = &owner))
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?reference { yield reference; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
 
 // The native caller lends its retained reference for this whole callback. It
 // keeps the corresponding host/provider and cell allocation alive through return.

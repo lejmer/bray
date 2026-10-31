@@ -1,0 +1,145 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.numeric;
+
+internal const CANCELLATION_REQUESTED: usize = 1;
+
+internal const CANCELLATION_TERMINAL: usize = 2;
+
+internal const CANCELLATION_SHIELD: usize = 4;
+
+// Request, terminal masking and shield depth share one admitted atomic word.
+// Cleanup shielding can enter while a task cell lock is held, including while
+// releasing that lock. These transitions must never acquire the cell lock.
+trusted internal func cancellation_observable(pos owner: &Reference) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    return core.atomic.load<usize, 1>(&((trusted cell(owner)).cancellation)) == CANCELLATION_REQUESTED;
+}
+
+trusted internal func close_cancellation(pos owner: &Reference)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let value = trusted cell(owner);
+    let mut state = core.atomic.load<usize, 1>(&value.cancellation);
+
+    while (state & CANCELLATION_TERMINAL) == 0
+    {
+        let (previous, changed) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.cancellation,
+            expected = state,
+            desired = state | CANCELLATION_TERMINAL
+        );
+
+        if changed
+        {
+            return;
+        }
+
+        state = previous;
+    }
+}
+
+// The caller lends its retained task cell, with no source completion authority.
+// Bit zero reports a request/change; bit one requests an eligible wake.
+@abi(c)
+trusted internal func cancellation_control(pos pointer: DataPointer<Reference>, pos operation: u32) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+    uses(intrinsic)
+{
+    let reference = trusted read_reference(pointer);
+    let value = trusted cell(&reference);
+    let mut state = core.atomic.load<usize, 1>(&value.cancellation);
+
+    if operation == 0
+    {
+        return request_bits((state & CANCELLATION_REQUESTED) != 0, state == CANCELLATION_REQUESTED);
+    }
+
+    while true
+    {
+        let next = if operation == 1
+        {
+            if (state & (CANCELLATION_REQUESTED | CANCELLATION_TERMINAL)) != 0
+            {
+                return 0;
+            }
+
+            yield state | CANCELLATION_REQUESTED;
+        }
+        else if operation == 2
+        {
+            if state > std.numeric.USIZE_MAX - CANCELLATION_SHIELD
+            {
+                trusted core.target.abort();
+            }
+
+            yield state + CANCELLATION_SHIELD;
+        }
+        else if operation == 3
+        {
+            if state < CANCELLATION_SHIELD
+            {
+                trusted core.target.abort();
+            }
+
+            yield state - CANCELLATION_SHIELD;
+        }
+        else
+        {
+            yield trusted core.target.abort();
+        };
+
+        let (previous, changed) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.cancellation,
+            expected = state,
+            desired = next
+        );
+
+        if changed
+        {
+            if operation == 1
+            {
+                return request_bits(true, next == CANCELLATION_REQUESTED);
+            }
+
+            return if operation == 3 && next == CANCELLATION_REQUESTED
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            };
+        }
+
+        state = previous;
+    }
+}
+
+internal func request_bits(pos requested: bool, pos observable: bool) -> u32
+{
+    let pending: u32 = if requested
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    return pending | if observable
+    {
+        yield 2;
+    }
+    else
+    {
+        yield 0;
+    };
+}

@@ -9,8 +9,6 @@ using internal bray.runtime.bootstrap.activation;
 // These operations borrow the native task context for one dispatch. They
 // transport cancellation shielding, incidents and wake delivery. The Bray
 // record remains the only owner of task state and terminal disposition.
-internal callable ControlService = @abi(c) trusted func(pos operation: u32) -> u32;
-
 internal callable WakeService = @abi(c) trusted func(pos task: u64);
 
 internal callable TransferService = @abi(c) trusted func(
@@ -43,7 +41,6 @@ internal struct Services
 {
     invoke: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>;
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>;
-    control: FunctionPointer<ControlService>;
     transfer: FunctionPointer<TransferService>;
     wake: FunctionPointer<WakeService>;
 }
@@ -98,23 +95,6 @@ trusted internal func activation_callbacks(
         trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Invoke>(owner.invoke),
         trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(owner.ready)
     );
-}
-
-trusted internal func control_service(pos owner: &Services, pos operation: u32) -> u32
-    requires(trusted native_services(owner = owner))
-    ensures(trusted native_services(owner = owner))
-    uses(layout_reinterpret, foreign_call)
-{
-    let permit = trusted lambda(pos owner: &Services)
-        requires(trusted native_services(owner = owner))
-        ensures(trusted core.memory.callable_address_valid<ControlService>(pointer = owner.control))
-        executes(pure, total) {};
-
-    trusted permit(owner);
-
-    let invoke = trusted std.memory.callable_from_pointer<ControlService>(owner.control);
-
-    return trusted invoke(operation);
 }
 
 trusted internal func transfer_service(

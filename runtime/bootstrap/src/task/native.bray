@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.task;
 
 using core.memory;
+using core.atomic;
 using core.target;
 using std.memory;
 using std.numeric;
@@ -41,6 +42,21 @@ trusted internal func creation() -> u64
 // Admission creates the source claim before an inactive frame transfers.
 @abi(c)
 trusted internal func admission(pos runtime: u64) -> u64
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    // Generic buffer cleanup can require report backing before its fallible
+    // allocation is attempted. Keep that failure inside this native boundary;
+    // the source start operation still owns and resolves its inactive frame.
+    let admitted = catch trusted admit(runtime);
+
+    return match consume admitted
+    {
+        case Ok(handle) { yield handle; }
+        case Error(_) { yield 0; }
+    };
+}
+
+trusted internal func admit(pos runtime: u64) -> u64
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
 {
     let mut prepared: Prepared =
@@ -116,6 +132,7 @@ trusted internal func admit_locked(
 
         slot.next = 0;
         slot.runtime = runtime;
+        core.atomic.store<usize, 4>(&slot.cancellation, 0);
 
         slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
             trusted std.sync.SpinLock<Control>(prepare())

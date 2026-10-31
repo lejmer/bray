@@ -336,12 +336,35 @@ fn prepare_staging(
     package: &ToolchainPackage,
     source: &ToolchainSource,
 ) -> Result<(), ToolchainError> {
+    extract_archive(staging, archive)?;
+    validate_root(staging, version)?;
+
+    let identity = crate::instrumentation::identity(version, &source.sha256);
+
+    crate::instrumentation::install(staging, source_archive, version, &identity)
+        .map_err(ToolchainError::Instrumentation)?;
+
+    write_marker(staging, version, package, source)
+}
+
+fn extract_archive(staging: &Path, archive: &Path) -> Result<(), ToolchainError> {
     let output = Command::new("tar")
         .arg("-xJf")
         .arg(archive)
         .arg("--directory")
         .arg(staging)
         .args(["--strip-components", "1"])
+        // Bray links LLVM and LLD, rather than the Clang and MLIR SDKs. Keep
+        // compiler runtime libraries and resource files while omitting those
+        // unused SDK archives before they consume installation storage.
+        .args([
+            "--exclude=*/lib/libclang*.a",
+            "--exclude=*/lib/libMLIR*.a",
+            "--exclude=*/lib/clang*.lib",
+            "--exclude=*/lib/MLIR*.lib",
+            "--exclude=*/lib/libclang*.lib",
+            "--exclude=*/lib/libMLIR*.lib",
+        ])
         .output()
         .map_err(|error| ToolchainError::ProcessStart {
             program: "tar",
@@ -355,14 +378,7 @@ fn prepare_staging(
         });
     }
 
-    validate_root(staging, version)?;
-
-    let identity = crate::instrumentation::identity(version, &source.sha256);
-
-    crate::instrumentation::install(staging, source_archive, version, &identity)
-        .map_err(ToolchainError::Instrumentation)?;
-
-    write_marker(staging, version, package, source)
+    Ok(())
 }
 
 fn cleanup_after_failure(
@@ -773,9 +789,12 @@ impl fmt::Display for ToolchainError {
 mod tests {
     use std::fs;
     use std::path::Path;
+    use std::process::Command;
+
+    use crate::process::output_detail;
 
     use super::{
-        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, read_marker,
+        ToolchainError, cleanup_after_failure, extract_archive, manifest, parse_rustc_host, read_marker,
         tool_path_with_prefix, write_marker,
     };
 
@@ -925,6 +944,53 @@ mod tests {
             }
 
             assert!(!changed.matches_package(&manifest.version, package, &manifest.source));
+        }
+    }
+
+    #[test]
+    fn extraction_preserves_linker_and_compiler_runtime_without_frontend_sdks() {
+        let directory = tempfile::tempdir().expect("temporary directory must be available");
+        let source = directory.path().join("source");
+        let staging = directory.path().join("staging");
+        let archive = directory.path().join("toolchain.tar.xz");
+
+        let files = [
+            ("bin/clang", true),
+            ("include/llvm-c/Core.h", true),
+            ("lib/libLLVMCore.a", true),
+            ("lib/liblldELF.a", true),
+            ("lib/LLVMCore.lib", true),
+            ("lib/lldCOFF.lib", true),
+            ("lib/libclang-cpp.so.22", true),
+            ("lib/clang/22/lib/linux/libclang_rt.builtins-x86_64.a", true),
+            ("lib/libclangAST.a", false),
+            ("lib/libMLIRIR.a", false),
+            ("lib/clangAST.lib", false),
+            ("lib/MLIRIR.lib", false),
+            ("lib/libclangAST.lib", false),
+            ("lib/libMLIRIR.lib", false),
+        ];
+
+        for (file, _) in files {
+            let path = source.join("package").join(file);
+
+            fs::create_dir_all(path.parent().expect("fixture file has a directory"))
+                .expect("fixture directory must be created");
+
+            fs::write(path, b"fixture").expect("fixture file must be written");
+        }
+
+        fs::create_dir(&staging).expect("staging directory must be created");
+
+        let output = Command::new("tar").arg("-cJf").arg(&archive)
+            .arg("--directory").arg(&source).arg("package")
+            .output().expect("toolchain provisioning requires tar");
+
+        assert!(output.status.success(), "{}", output_detail(&output));
+        extract_archive(&staging, &archive).expect("toolchain archive must extract");
+
+        for (file, retained) in files {
+            assert_eq!(staging.join(file).is_file(), retained, "{file}");
         }
     }
 

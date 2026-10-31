@@ -97,7 +97,7 @@ pub(in crate::native) fn current_services() -> Option<Arc<super::super::NativeTa
 pub(in crate::native) fn current_reference_address() -> Option<u64> {
     NATIVE_CONTEXT.try_with(|context| {
         context.borrow().services.as_ref().map(|task| {
-            u64::try_from(std::ptr::from_ref(&task.control).addr())
+            u64::try_from(std::ptr::from_ref(task.control()).addr())
                 .expect("native task-reference addresses fit the execution ABI")
         })
     }).ok().flatten()

@@ -416,6 +416,52 @@ fn task_operations_retain_normal_completion_before_await() {
 }
 
 #[test]
+fn run_result_retains_implicit_panic_report_cleanup() {
+    for (result_type, lifecycle) in [
+        ("RunResult<unit>", true),
+        ("Result<unit, unit>", false),
+        ("Result<unit, PanicReport>", true),
+    ] {
+        for body in ["_ = await pending();", "let result = await pending();"] {
+            let application = compilation(&format!(r#"
+                module app;
+
+                extern async func pending() -> {result_type};
+
+                async func caller()
+                {{
+                    {body}
+                }}
+            "#));
+
+            assert!(!application.check_diagnostics().has_errors(), "{:?}", application.check_diagnostics());
+
+            let lowered = application.lowered_unit(source_function_body_key(&application, "caller"))
+                .expect("checked result cleanup must lower");
+
+            let mir = lowered_mir(&lowered);
+
+            let completion = mir.operations().iter().find(|operation| matches!(operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CommitAwaitedCompletion { .. })
+            )).expect("await commits its completed value");
+
+            let completed_type = completion.result()
+                .map(|value| mir.value(value).expect("completed value belongs to the MIR").ty());
+
+            for (phase, required) in [
+                (bray_ir::MirCleanupPhase::LifecycleResolution, lifecycle),
+                (bray_ir::MirCleanupPhase::TaskCancellation, false),
+            ] {
+                assert_eq!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                    MirOperationKind::Cleanup { phase: actual, place, .. }
+                        if *actual == phase && Some(place.ty()) == completed_type
+                )), required, "{result_type}: {body}, {phase:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn await_takes_the_child_outcome_before_cancellation_and_cleans_its_result() {
     let application = compilation(
         r#"

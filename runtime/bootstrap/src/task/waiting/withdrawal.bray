@@ -1,0 +1,129 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.target;
+using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+trusted internal func take_registration(pos entries: &mut Entries, pos parent: u64) -> WaitRegistration?
+    ensures(trusted optional_registration(owner = &result))
+{
+    let slot = trusted wait_slot(&mut entries, parent);
+
+    return trusted std.memory.replace_value<(WaitRegistration?)>(&mut slot.registration, none);
+}
+
+// Withdrawal uses the admitted previous/next links and never scans waiters.
+// A terminal transition commits the still-linked owner to delivery. Resumption
+// waits for its pop, which releases the link before waking the continuation.
+trusted internal func withdraw_wait(pos parent: &Reference) -> bool
+    requires(trusted retained(owner = parent), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained(owner = parent))
+    uses(intrinsic)
+{
+    let withdrawn =
+    {
+        let lease = trusted registration_access(parent);
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let identity = parent.handle;
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+        let taken = trusted take_registration(&mut host.tasks, identity);
+
+        if taken matches none
+        {
+            return true;
+        }
+
+        let registration = trusted take_optional_registration(taken);
+        let committed = trusted wait_committed(&registration);
+        let mut entries = &mut host.tasks;
+
+        if committed
+        {
+            (trusted wait_slot(&mut entries, identity)).registration = registration;
+            return false;
+        }
+
+        trusted unlink_registration(&mut entries, &registration);
+        yield registration;
+    };
+
+    trusted release_wait(withdrawn);
+    return true;
+}
+
+trusted internal func wait_committed(pos owner: &WaitRegistration) -> bool
+    requires(trusted registration_owned(owner = owner))
+    ensures(trusted registration_owned(owner = owner))
+{
+    let observed = trusted registration_target(owner);
+    let mut guard = trusted lock_cell(observed);
+    let child = trusted guard.get();
+
+    return if owner.retirement == 0
+    {
+        yield child.phase matches Phase.Terminal | Phase.Resolved;
+    }
+    else
+    {
+        yield child.retired;
+    };
+}
+
+trusted internal func unlink_registration(pos mut entries: &mut Entries, pos owner: &WaitRegistration)
+    requires(trusted registration_owned(owner = owner))
+    ensures(trusted registration_owned(owner = owner))
+    uses(intrinsic)
+{
+    {
+        if owner.previous == 0
+        {
+            let observed_slot = trusted wait_slot(&mut entries, owner.target.handle);
+
+            if owner.retirement == 0
+            {
+                observed_slot.terminal_waiters = owner.next;
+            }
+            else
+            {
+                observed_slot.retirement_waiters = owner.next;
+            }
+        }
+        else
+        {
+            let previous = trusted wait_slot(&mut entries, owner.previous);
+
+            if let ?registration = previous.registration
+            {
+                registration.next = owner.next;
+            }
+            else
+            {
+                trusted core.target.abort();
+            }
+        }
+    }
+
+    if owner.next != 0
+    {
+        let next = trusted wait_slot(&mut entries, owner.next);
+
+        if let ?registration = next.registration
+        {
+            registration.previous = owner.previous;
+        }
+        else
+        {
+            trusted core.target.abort();
+        }
+    }
+}

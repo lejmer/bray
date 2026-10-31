@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #define FlsAlloc SystemFlsAlloc
@@ -3084,6 +3085,138 @@ static int check_retained_incidents(unsigned count, uint32_t outcome)
     return 0;
 }
 
+// This fixture links the Bray bootstrap and system providers without the Rust
+// cancellation or scheduler adapters. Counted cells remain real source owners.
+typedef struct
+{
+    uintptr_t address;
+    uint64_t runtime, handle;
+} TaskReference;
+
+typedef struct
+{
+    uintptr_t root, callback;
+    uint32_t phase;
+    uint8_t resumable, retiring, retired, dispatching;
+    ActivationExecution execution;
+} TaskSnapshot;
+
+_Static_assert(sizeof(TaskReference) == 24, "native task reference layout");
+_Static_assert(sizeof(TaskSnapshot) == 88, "native task snapshot layout");
+
+extern uint64_t bray_runtime_task_control_creation(void);
+extern uint64_t bray_runtime_task_control_admission(uint64_t);
+extern uint32_t bray_runtime_task_control_retention(uint64_t, uint64_t, TaskReference*);
+extern uint32_t bray_runtime_task_control_cancellation(const TaskReference*, uint32_t);
+extern uint32_t bray_runtime_task_control_snapshot(const TaskReference*, TaskSnapshot*);
+extern uint32_t bray_runtime_task_control_wait(const TaskReference*, const TaskReference*, uint8_t);
+extern uint32_t bray_runtime_task_control_destruction(const TaskReference*);
+extern uint32_t bray_runtime_task_control_reference_release(const TaskReference*);
+
+static int check_task_cancellation(void)
+{
+    enum
+    {
+        TASKS = 256,
+        READS = 500000
+    };
+
+    TaskReference cells[TASKS];
+
+    if (bray_runtime_thread_attachment_enter() != 0)
+        return 193;
+
+    uint64_t runtime = bray_runtime_task_control_creation();
+    size_t previous_bytes = atomic_load(&retained_bytes);
+    unsigned setup_attempts = atomic_load(&allocation_attempts);
+    uintptr_t cell_stride = UINTPTR_MAX;
+
+    for (unsigned index = 0; index < TASKS; ++index)
+    {
+        uint64_t handle = bray_runtime_task_control_admission(runtime);
+
+        if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(runtime, handle, &cells[index]) != 0)
+            return 194;
+
+        if (index != 0)
+        {
+            uintptr_t first = cells[index - 1].address;
+            uintptr_t second = cells[index].address;
+            uintptr_t distance = first > second ? first - second : second - first;
+
+            if (distance < cell_stride)
+                cell_stride = distance;
+        }
+    }
+
+    size_t pooled_bytes = atomic_load(&retained_bytes) - previous_bytes;
+
+    printf(
+        "task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
+        TASKS, (size_t)cell_stride, pooled_bytes, (double)pooled_bytes / TASKS,
+        atomic_load(&allocation_attempts) - setup_attempts
+    );
+
+    unsigned attempts = atomic_load(&allocation_attempts);
+    atomic_store(&reject_allocations, 1);
+    uint32_t observed = 0;
+    clock_t begin = clock();
+
+    for (unsigned index = 0; index < READS; ++index)
+        observed |= bray_runtime_task_control_cancellation(&cells[index % TASKS], 0);
+
+    double read_seconds = (double)(clock() - begin) / CLOCKS_PER_SEC;
+
+    if (observed != 0 || bray_runtime_task_control_wait(&cells[0], &cells[0], 0) != 3)
+        return 195;
+
+    if (
+        bray_runtime_task_control_cancellation(&cells[0], 2) != 0 ||
+        bray_runtime_task_control_cancellation(&cells[0], 2) != 0 ||
+        bray_runtime_task_control_cancellation(&cells[0], 1) != 1 ||
+        bray_runtime_task_control_cancellation(&cells[0], 0) != 1 ||
+        bray_runtime_task_control_cancellation(&cells[0], 3) != 0 ||
+        bray_runtime_task_control_cancellation(&cells[0], 3) != 1 ||
+        bray_runtime_task_control_cancellation(&cells[0], 0) != 3
+    )
+        return 196;
+
+    begin = clock();
+
+    for (unsigned index = 1; index < TASKS; ++index)
+    {
+        TaskSnapshot snapshot;
+
+        if (
+            bray_runtime_task_control_cancellation(&cells[index], 1) != 3 ||
+            bray_runtime_task_control_cancellation(&cells[index], 1) != 0 ||
+            bray_runtime_task_control_snapshot(&cells[index], &snapshot) != 0 || snapshot.phase != 0
+        )
+            return 197;
+    }
+
+    double request_seconds = (double)(clock() - begin) / CLOCKS_PER_SEC;
+
+    for (unsigned index = 0; index < TASKS; ++index)
+    {
+        if (
+            bray_runtime_task_control_destruction(&cells[index]) != 0 ||
+            bray_runtime_task_control_cancellation(&cells[index], 1) != 0 ||
+            bray_runtime_task_control_reference_release(&cells[index]) != 0
+        )
+            return 198;
+    }
+
+    atomic_store(&reject_allocations, 0);
+
+    if (atomic_load(&allocation_attempts) != attempts || bray_runtime_thread_attachment_leave() != 0)
+        return 199;
+
+    printf("cancellation read_cpu_ns=%.1f request_pair_and_snapshot_cpu_ns=%.1f fanout=%u allocations=0\n",
+        read_seconds * 1e9 / READS, request_seconds * 1e9 / (TASKS - 1), TASKS);
+    return 0;
+}
+
 static void check_product_teardown(void);
 static void check_thread_product_teardown(void);
 static void check_shutdown_during_product_admission(void);
@@ -3145,6 +3278,11 @@ int main(void)
 
     if (numeric_status != 0)
         return numeric_status;
+
+    int cancellation_status = check_task_cancellation();
+
+    if (cancellation_status != 0)
+        return cancellation_status;
 
     int stream_status = stream_without_allocation();
 

@@ -498,7 +498,13 @@ where
                     }
                 }));
 
-                Ok(CleanupShape::default())
+                // RunResult also owns its implicit Panicked(PanicReport)
+                // alternative, even when the completed value needs no cleanup.
+                Ok(if role == Some(RepresentationRole::RunResult) {
+                    CleanupShape::LIFECYCLE
+                } else {
+                    CleanupShape::default()
+                })
             }
             Some(RepresentationRole::Uninit) => {
                 let substitution = self

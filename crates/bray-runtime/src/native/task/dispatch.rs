@@ -13,7 +13,6 @@ impl NativeTaskServices {
         let services = NativeTaskDispatchServices {
             invoke: activation::bray_runtime_activation_callback,
             ready: activation::readiness,
-            control,
             transfer,
             wake,
         };
@@ -22,7 +21,7 @@ impl NativeTaskServices {
         let mut execution = NativeActivationExecution::default();
 
         let status = report_provider::bray_runtime_task_control_dispatch(
-            &self.control, &services, &mut progress, &mut execution,
+            self.control(), &services, &mut progress, &mut execution,
         );
 
         (status, progress, execution)
@@ -36,7 +35,7 @@ impl NativeTaskServices {
         let mut previous_resumable = 0;
 
         let previous = report_provider::bray_runtime_task_control_callback_entry(
-            &self.control, execution, u8::from(resumable), &mut previous_resumable,
+            self.control(), execution, u8::from(resumable), &mut previous_resumable,
         );
 
         CallbackScope { services: self, previous, previous_resumable }
@@ -52,30 +51,12 @@ pub(in crate::native) struct CallbackScope<'a> {
 impl Drop for CallbackScope<'_> {
     fn drop(&mut self) {
         report_provider::bray_runtime_task_control_callback_exit(
-            &self.services.control, self.previous, self.previous_resumable,
+            self.services.control(), self.previous, self.previous_resumable,
         );
     }
 }
 
-extern "C" fn control(operation: u32) -> u32 {
-    match operation {
-        0 => u32::from(crate::context::current_run_cancellation_observable()),
-        1 => {
-            let task = state::current_services().expect("task dispatch retains its native services");
-
-            let mut shield = task.terminal_shield.lock()
-                .expect("terminal cancellation shielding is available");
-
-            assert!(shield.is_none(), "terminal publication acquires one cancellation shield");
-            *shield = Some(task.cancellation.shield());
-
-            0
-        }
-        _ => panic!("unknown task dispatch service operation {operation}"),
-    }
-}
-
-extern "C" fn transfer(
+pub(super) extern "C" fn transfer(
     execution: &NativeActivationExecution,
     unused: &mut NativeReportRecords,
     incidents: &mut NativeReportRecords,

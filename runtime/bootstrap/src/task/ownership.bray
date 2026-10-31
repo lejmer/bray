@@ -78,6 +78,8 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
         {
             // No frame has transferred. Its producer still owns the inactive
             // input, including when low-level start admission was rejected.
+            trusted close_cancellation(&reference);
+
             control.phase = Phase.Resolved;
 
             control.retired = true;
