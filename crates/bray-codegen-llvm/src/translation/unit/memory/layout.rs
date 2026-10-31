@@ -261,7 +261,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.store_union_tag(storage, tag, variant.tag())?;
 
         for (field, value) in variant.fields().iter().zip(values.iter().copied()) {
-            let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, field.offset_bytes())?;
 
             self.store_value(destination, value, field.ty())?;
         }

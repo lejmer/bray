@@ -140,7 +140,7 @@ pub(super) fn predict_results(
     unit: &MirUnit,
     ids: &mut LocalIds,
     blocks: impl Iterator<Item = MirBlockId>,
-    skip: Option<MirOperationId>,
+    skip: Option<(MirOperationId, usize)>,
     next: &mut usize,
     output_unit: MirUnitId,
 ) -> Result<(), MirCapacityError> {
@@ -148,7 +148,10 @@ pub(super) fn predict_results(
         let block = unit.block(block).expect("selected block exists");
 
         for operation_id in block.operations() {
-            if Some(*operation_id) == skip {
+            if let Some((skipped, inserted)) = skip
+                && *operation_id == skipped
+            {
+                *next += inserted;
                 continue;
             }
 

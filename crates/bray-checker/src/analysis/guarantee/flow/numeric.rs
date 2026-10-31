@@ -11,19 +11,93 @@ use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
-    pub(super) fn preserve_integer_result(
+    pub(in crate::analysis::guarantee) fn preserve_integer_entry_conditions(
+        &self,
+        state: &ExecutionState,
+        conditions: &[(ExecutionCondition, bray_symbols::PredicateDomain)],
+        entry: &mut crate::ExecutionCallEvidence,
+    ) {
+        let mut ranges = IntegerRanges::new();
+
+        for (condition, _) in conditions {
+            let condition = condition.substitute(
+                &|place| {
+                    place
+                        .value_in(&entry.arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
+                &ExecutionCondition::Unknown,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            );
+
+            let mut pending = vec![condition];
+            let mut budget = ExecutionCondition::WORK_LIMIT;
+
+            while let Some(condition) = pending.pop() {
+                let Some(remaining) = budget.checked_sub(1) else {
+                    break;
+                };
+
+                budget = remaining;
+
+                if let ExecutionCondition::Operation(
+                    BoundOperator::LogicalAnd
+                    | BoundOperator::LogicalOr
+                    | BoundOperator::LogicalNot,
+                    operands,
+                ) = &condition
+                {
+                    pending.extend(operands.iter().cloned());
+                } else if let Some(value) =
+                    self.integer_condition_truth(state, &condition, &mut ranges)
+                {
+                    // Publish an established entry proof before the invocation can mutate storage.
+                    // Later consumers use the same captured conditions as other call evidence.
+                    condition.assume(value, &mut entry.assumptions);
+                }
+            }
+        }
+    }
+
+    pub(super) fn preserve_integer_value(
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
     ) {
-        if let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-            self.semantics.selections().expression(expression)
-            && let bray_bound_tree::BoundCallResult::Immediate(ty) = call.resolution().result()
-            && let Some((minimum, maximum)) = self.integer_type_range(ty)
-        {
-            // A normally returned scalar has its checked result representation. Preserve
-            // that type invariant alongside its value, just as entry inputs preserve theirs.
+        let (ty, component) = match self.semantics.selections().expression(expression) {
+            Some(SemanticSelection::Call(call)) => match call.resolution().result() {
+                bray_bound_tree::BoundCallResult::Immediate(ty) => (Some(ty), false),
+                _ => (None, false),
+            },
+            _ if matches!(
+                self.request.view().expression(expression),
+                Some(
+                    BoundExpression::Name(_)
+                        | BoundExpression::PatternReference(_)
+                        | BoundExpression::MemberAccess(_)
+                )
+            ) =>
+            {
+                (
+                    self.semantics
+                        .types()
+                        .expression(expression)
+                        .map(|entry| entry.ty()),
+                    true,
+                )
+            }
+            _ => (None, false),
+        };
+
+        if let Some((minimum, maximum)) = ty.and_then(|ty| self.integer_type_range(ty)) {
             let value = self.value(state, expression);
+
+            if component && !matches!(value, ExecutionCondition::Projection(..)) {
+                return;
+            }
+
+            // Normally returned scalars and reads of their components retain their checked
+            // representation. Do not assume bounds for an unevaluated arithmetic result.
 
             for (operator, bound) in [
                 (bray_bound_tree::BoundOperator::GreaterEqual, minimum),

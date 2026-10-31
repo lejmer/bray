@@ -361,6 +361,7 @@ fn run_workload(
 
         super::super::observation::measure_storage(
             storage_executable.path(),
+            executable.path(),
             &storage_map,
             &storage_output,
             &storage_output,

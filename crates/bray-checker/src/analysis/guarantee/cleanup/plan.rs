@@ -99,7 +99,7 @@ impl Plan {
     pub(crate) fn finalizer(&self, ty: TypeId) -> Option<bray_bound_tree::LifecycleCallable> {
         self.lifecycles
             .get(&(ty, TypeAssociatedLifecycleSlot::Finalizer))
-            .map(|lifecycle| lifecycle.call)
+            .map(|lifecycle| lifecycle.call.clone())
     }
 
     pub(crate) fn asynchronous_scopes(

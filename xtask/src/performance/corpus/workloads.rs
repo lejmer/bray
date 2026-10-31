@@ -460,7 +460,6 @@ func main()
             forbidden_symbols: &[
                 "bray_runtime_foreign_callback_execution",
                 "bray_platform_standard_input_read",
-                "bray_platform_standard_error_write",
                 "bray_platform_file_read",
                 "bray_platform_file_write",
                 "bray_platform_file_flush",
@@ -529,7 +528,7 @@ func main()
         category: WorkloadCategory::Streaming,
         scale: 4096,
         units: "captured bytes",
-        batching: BatchingPolicy::SingleExecution,
+        batching: BatchingPolicy::Calibrated,
         source: crate::performance::source::CAPTURED_OUTPUT,
         expected_output: ExpectedOutput::Empty,
         expected_side_effects: ExpectedSideEffects::None,
@@ -558,7 +557,6 @@ func main()
             "platform.process_pipe.write",
             "platform.process_pipe.flush",
             "platform.process_pipe.close",
-            "platform.path.remove_file",
         ],
         retention: NO_RETENTION_CONTRACT,
         storage: None,
@@ -724,7 +722,6 @@ trusted func main() -> Result<unit, std.io.IoError>
             forbidden_provenance: &[
                 "bray_platform_core",
                 "bray_platform_process",
-                "bray_platform_standard_streams",
                 "bray_runtime_test_host",
                 "run_output_context",
             ],

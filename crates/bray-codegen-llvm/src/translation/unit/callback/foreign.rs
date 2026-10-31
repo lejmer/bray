@@ -68,24 +68,28 @@ pub(in crate::translation::unit) fn translate<'context, 'request>(
     let return_block = context.append_basic_block(trampoline, "callback.return");
     let invoke_block = context.append_basic_block(trampoline, "callback.admitted");
 
-    let observation = crate::translation::product::control(
+    if let Some(observation) = crate::translation::product::control(
         context,
         module,
         request,
         &builder,
         bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY,
-    )?;
+    )? {
+        let status =
+            super::super::support::extract_value(&builder, observation, 0)?.into_int_value();
 
-    let status = super::super::support::extract_value(&builder, observation, 0)?.into_int_value();
+        let admitted = llvm(builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "callback.admission",
+        ))?;
 
-    let admitted = llvm(builder.build_int_compare(
-        inkwell::IntPredicate::EQ,
-        status,
-        status.get_type().const_zero(),
-        "callback.admission",
-    ))?;
+        llvm(builder.build_conditional_branch(admitted, invoke_block, return_block))?;
+    } else {
+        llvm(builder.build_unconditional_branch(invoke_block))?;
+    }
 
-    llvm(builder.build_conditional_branch(admitted, invoke_block, return_block))?;
     builder.position_at_end(invoke_block);
 
     let callback = declare_callback(context, module, request, symbol, state_type, body, types)?;
@@ -150,37 +154,41 @@ pub(in crate::translation::unit) fn translate<'context, 'request>(
         terminal_status,
     )?;
 
-    let observation = crate::translation::product::control(
+    if let Some(observation) = crate::translation::product::control(
         context,
         module,
         request,
         &builder,
         bray_runtime_abi::NativeProductHostOperation::RELEASE_ENTRY,
-    )?;
+    )? {
+        let status =
+            super::super::support::extract_value(&builder, observation, 0)?.into_int_value();
 
-    let status = super::super::support::extract_value(&builder, observation, 0)?.into_int_value();
+        let failure = llvm(builder.build_int_compare(
+            inkwell::IntPredicate::EQ,
+            status,
+            status.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeProductHostStatus::RUNTIME_FAILURE.code()),
+                false,
+            ),
+            "callback.product.failure",
+        ))?;
 
-    let failure = llvm(builder.build_int_compare(
-        inkwell::IntPredicate::EQ,
-        status,
-        status.get_type().const_int(
-            u64::from(bray_runtime_abi::NativeProductHostStatus::RUNTIME_FAILURE.code()),
-            false,
-        ),
-        "callback.product.failure",
-    ))?;
+        let failure = llvm(builder.build_int_z_extend(
+            failure,
+            context.i32_type(),
+            "callback.product.status",
+        ))?;
 
-    let failure =
-        llvm(builder.build_int_z_extend(failure, context.i32_type(), "callback.product.status"))?;
-
-    resolve_terminal_status(
-        context,
-        module,
-        request,
-        &builder,
-        trampoline,
-        failure.into(),
-    )?;
+        resolve_terminal_status(
+            context,
+            module,
+            request,
+            &builder,
+            trampoline,
+            failure.into(),
+        )?;
+    }
 
     llvm(builder.build_unconditional_branch(return_block))?;
     builder.position_at_end(return_block);

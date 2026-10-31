@@ -138,6 +138,12 @@ impl Lowerer<'_> {
             _ => None,
         };
 
+        let signature = self.input.semantic_values().type_data(call.callable_type());
+
+        let TypeData::Callable(signature) = signature.as_ref() else {
+            panic!("checked storage protocol retains its callable signature");
+        };
+
         let value = crate::lifecycle_call::lower_lifecycle_call(
             MirCallableReference::new(call.callable(), CallableAbi::Bray),
             call.parameter(),
@@ -146,6 +152,7 @@ impl Lowerer<'_> {
             BoundCallResult::Immediate(call.result()),
             cleanup,
             None,
+            std::sync::Arc::new(signature.phase_behaviors().clone()),
             |operation, result| {
                 self.push_operation(block, Self::retained_source(source), operation, result)
             },

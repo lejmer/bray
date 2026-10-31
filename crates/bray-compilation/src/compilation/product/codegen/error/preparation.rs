@@ -14,6 +14,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
 
     Some(match error {
         CodegenPreparationError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
+        CodegenPreparationError::MissingStandardLibrary => Kind::MissingStandardLibrary,
         CodegenPreparationError::ExactIntegerCapacity { minimum_bits } => {
             Kind::CodegenExactIntegerCapacity {
                 minimum_bits: *minimum_bits,

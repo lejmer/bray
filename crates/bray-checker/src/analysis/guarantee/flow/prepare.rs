@@ -81,7 +81,16 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 ) -> ExecutionFlowDomain<'a, 'view, C> {
     ExecutionFlowDomain {
         dependencies,
-        sequence_lengths: &prepared.sequence_lengths,
+        sequence_length: request
+            .context()
+            .available_compiler_known_symbols()
+            .provider()
+            .declaration_symbols()
+            .get(
+                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("SequenceLength")
+                    .expect("closed sequence length key must be valid"),
+            )
+            .copied(),
         has_bounds_checks: prepared.has_bounds_checks,
         observed_types: &prepared.observed_types,
         pattern_conditions: &prepared.pattern_conditions,

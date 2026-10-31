@@ -19,6 +19,7 @@ pub(crate) fn lower_lifecycle_call(
     result: BoundCallResult,
     cleanup: bool,
     destruction: Option<MirOperand>,
+    phase_behaviors: std::sync::Arc<bray_symbols::CallablePhaseBehaviors>,
     mut emit: impl FnMut(
         MirOperationKind,
         Option<TypeId>,
@@ -43,7 +44,8 @@ pub(crate) fn lower_lifecycle_call(
     let arguments = std::iter::once(receiver).chain(destruction);
 
     let call = MirCall::protocol(MirCallTarget::Direct(callable), result, arguments, [])
-        .with_cleanup(cleanup);
+        .with_cleanup(cleanup)
+        .with_phase_behaviors(phase_behaviors);
 
     let operation = match result {
         BoundCallResult::Immediate(_) => MirOperationKind::Call(call),

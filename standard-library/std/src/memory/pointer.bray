@@ -135,7 +135,7 @@ trusted internal func slice_pointer<T>(pos values: &[T], count: usize) -> DataPo
         trusted core.memory.aligned_for<T>(pointer = result),
         trusted core.memory.initialized_range_as<T>(pointer = result, count = count),
     )
-    executes(pure)
+    executes(pure, total)
 {
     if count == 0
     {
@@ -153,7 +153,7 @@ trusted internal func slice_pointer_mut<T>(pos values: &mut [T], count: usize) -
         trusted core.memory.aligned_for<T>(pointer = result),
         trusted core.memory.initialized_range_as<T>(pointer = result, count = count),
     )
-    executes(pure)
+    executes(pure, total)
 {
     if count == 0
     {

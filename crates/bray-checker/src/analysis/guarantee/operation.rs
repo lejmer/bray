@@ -167,8 +167,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                 return false;
             }
         }
-        Some(SemanticSelection::StaticReference(_)) => {
-            return request.unit().key().is_static_initializer();
+        Some(SemanticSelection::StaticReference(reference)) => {
+            return static_access_preserves_execution(
+                request,
+                reference.template().declaration(),
+                property,
+            );
         }
         _ => {}
     }
@@ -189,13 +193,12 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
                     })
                 })
         }
-        BoundExpression::Name(name) => {
-            request.unit().key().is_static_initializer()
-                || !matches!(
-                    name.target(),
-                    BoundReferenceTarget::Surface(AnySymbolId::Static(_))
-                )
-        }
+        BoundExpression::Name(name) => match name.target() {
+            BoundReferenceTarget::Surface(AnySymbolId::Static(declaration)) => {
+                static_access_preserves_execution(request, declaration, property)
+            }
+            _ => true,
+        },
         BoundExpression::Structured(expression)
             if expression.kind() == BoundStructuredExpressionKind::Panic =>
         {
@@ -227,8 +230,8 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
 
         if storage.identity(identity).is_none_or(|identity| {
             matches!(identity, StorageIdentity::Error(_))
-                || matches!(identity, StorageIdentity::Static(_))
-                    && !request.unit().key().is_static_initializer()
+                || matches!(identity, StorageIdentity::Static(declaration)
+                    if !static_access_preserves_execution(request, declaration, property))
         }) {
             return false;
         }
@@ -263,6 +266,21 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
     }
 
     true
+}
+
+fn static_access_preserves_execution<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    declaration: bray_symbols::StaticSymbolId,
+    property: ExecutionProperty,
+) -> bool {
+    // Product storage is already materialized for a valid entry. Exact-thread storage can
+    // still require attachment registration, and observing ambient storage is not pure.
+    request.unit().key().is_static_initializer()
+        || property == ExecutionProperty::Total
+            && matches!(
+                request.static_dependencies().get(&declaration),
+                Some(bray_symbols::DependencySubjectRoot::ProductStatic(_))
+            )
 }
 
 fn check_operation(

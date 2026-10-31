@@ -11,6 +11,39 @@ use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 impl Compilation {
+    pub(in crate::compilation) fn static_dependency_roots(
+        &self,
+        key: &BoundUnitKey,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        std::collections::BTreeMap<
+            bray_symbols::StaticSymbolId,
+            bray_symbols::DependencySubjectRoot,
+        >,
+        FactQueryError,
+    > {
+        let binding = self.binding_context_for(key, cancellation)?;
+
+        selections
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                bray_bound_tree::SemanticSelection::StaticReference(selection) => {
+                    Some(selection.template().declaration())
+                }
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|declaration| {
+                super::super::binder::static_dependency_root(&binding, declaration)
+                    .map(|root| (declaration, root))
+                    .map_err(super::super::binder::binding_query_error)
+            })
+            .collect()
+    }
+
     pub(in crate::compilation) fn storage_plan_with_cancellation(
         &self,
         key: BoundUnitKey,
@@ -132,28 +165,12 @@ impl Compilation {
         )?;
 
         let non_unwinding = self.checked_unwind(key.clone(), cancellation)?;
-        let binding = self.binding_context_for(&key, cancellation)?;
 
-        let static_dependencies = expressions
-            .result()
-            .value()
-            .selections()
-            .entries()
-            .iter()
-            .filter_map(|entry| match entry.selection() {
-                bray_bound_tree::SemanticSelection::StaticReference(selection) => {
-                    Some(selection.template().declaration())
-                }
-                _ => None,
-            })
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .map(|declaration| {
-                super::super::binder::static_dependency_root(&binding, declaration)
-                    .map(|root| (declaration, root))
-                    .map_err(super::super::binder::binding_query_error)
-            })
-            .collect::<Result<std::collections::BTreeMap<_, _>, _>>()?;
+        let static_dependencies = self.static_dependency_roots(
+            &key,
+            expressions.result().value().selections(),
+            cancellation,
+        )?;
 
         Ok(BodyAnalysisInputs {
             key,

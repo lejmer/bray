@@ -639,34 +639,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         if let Some(report) = report {
             let report = self.operand(report)?;
 
-            if let Some(destination) = self.panic_report_context {
-                let outcome = super::support::native_run_outcome_value(
-                    self.types.context(),
-                    &self.builder,
-                    self.request.target(),
-                    bray_runtime_abi::NativeRunState::COMPLETED,
-                    None,
-                    Some(report),
-                )?;
-
-                llvm(self.builder.build_store(destination, outcome))?;
-            } else {
-                assert_ne!(
-                    self.signature.abi(),
-                    bray_symbols::CallableAbi::Bray,
-                    "Bray report return in {:?} retains its explicit outcome destination",
-                    self.instance.key()
-                );
-
-                super::callback::consume_owned_report(
-                    self.types.context(),
-                    self.module,
-                    self.request,
-                    &self.builder,
-                    self.function,
-                    report,
-                )?;
-            }
+            self.publish_normal_report(report)?;
         }
 
         match self.signature.result() {

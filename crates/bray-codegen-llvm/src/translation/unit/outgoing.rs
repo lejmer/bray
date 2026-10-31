@@ -166,6 +166,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn retire_outgoing_call(
         &mut self,
         (record, lease): (BasicValueEnum<'context>, PointerValue<'context>),
+        checks_call_outcome: bool,
     ) -> Result<(), CodegenFailure> {
         let context = self
             .pending_call_panic_report_context
@@ -178,6 +179,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ),
             &[record, lease.into(), context.into()],
         )?;
+
+        if !checks_call_outcome {
+            // Retirement still uses the invocation's outcome when checked guarantees
+            // omit a later MIR outcome terminator.
+            self.pending_call_panic_report_context = None;
+        }
 
         Ok(())
     }

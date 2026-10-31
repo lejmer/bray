@@ -188,7 +188,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 let storage = self.aligned_alloca(*pointee, alignment.get(), "call.result")?;
 
-                if signature.has_panic_report_context() {
+                if signature.has_panic_report_context()
+                    && signature.abi() != bray_symbols::CallableAbi::Bray
+                {
                     llvm(
                         self.builder
                             .build_store(storage, self.types.map(*pointee)?.const_zero()),

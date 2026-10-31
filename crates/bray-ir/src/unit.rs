@@ -18,4 +18,4 @@ pub use model::{
 pub use reconstruction::{
     MirReconstructionMappings, reachable_blocks, reconstruct_reachable, reconstruct_with_edits,
 };
-pub use splice::{append_cleanup_continuation, inline_scalar_call};
+pub use splice::{append_cleanup_continuation, inline_call};

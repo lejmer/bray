@@ -113,10 +113,28 @@ impl Compilation {
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
+        if imported.diagnostics().has_errors() {
+            // Preserve the dependency's exact failure beyond the borrowed query result.
+            return Err(CodegenPreparationError::Diagnostics(
+                imported.diagnostics().clone(),
+            ));
+        }
+
         let imported = imported
             .value()
             .as_ref()
-            .ok_or_else(|| missing_helper(reference))?;
+            .filter(|imported| imported.package_by_identity(&package).is_some())
+            .ok_or_else(|| {
+                if self
+                    .dependency_interfaces()
+                    .iter()
+                    .any(|input| input.package() == &package)
+                {
+                    return missing_helper(reference);
+                }
+
+                CodegenPreparationError::MissingStandardLibrary
+            })?;
 
         let target = self.selected_target().target();
 
@@ -164,6 +182,19 @@ mod tests {
     use crate::fact::CancellationToken;
     use crate::test_support::source_input;
     use crate::{Compilation, CompilationRequest};
+
+    #[test]
+    fn demanded_helpers_report_an_absent_standard_library_dependency() {
+        let compilation =
+            crate::test_support::compilation("module app; public func value() -> u8 { return 1; }");
+
+        for helper in MirStandardLibraryHelper::ALL {
+            assert!(matches!(
+                compilation.standard_library_helper_callable(helper, &CancellationToken::new()),
+                Err(crate::CodegenPreparationError::MissingStandardLibrary)
+            ));
+        }
+    }
 
     #[test]
     fn every_mir_standard_library_helper_has_a_catalog_declaration() {

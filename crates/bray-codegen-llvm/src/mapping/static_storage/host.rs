@@ -383,6 +383,10 @@ pub(super) fn declare_product_host<'context>(
         descriptor.set_visibility(GlobalVisibility::Protected);
     }
 
+    if !product_host.requires_control() {
+        return Ok(());
+    }
+
     let observation_type = crate::native::product_observation_type(context, types.target());
 
     let control_type = context

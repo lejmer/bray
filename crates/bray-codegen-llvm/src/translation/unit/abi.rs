@@ -26,7 +26,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .pieces()
             .iter()
             .map(|piece| {
-                let pointer = self.constant_offset_pointer(storage, piece.offset_bytes)?;
+                let pointer = self.representation_offset_pointer(storage, piece.offset_bytes)?;
                 let ty = self.types.abi_scalar_type(piece.scalar)?;
                 let value = llvm(self.builder.build_load(ty, pointer, "abi.piece"))?;
 
@@ -59,7 +59,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(storage, mapped.const_zero()))?;
 
         for (piece, value) in coercion.pieces().iter().zip(pieces) {
-            let pointer = self.constant_offset_pointer(storage, piece.offset_bytes)?;
+            let pointer = self.representation_offset_pointer(storage, piece.offset_bytes)?;
 
             llvm(self.builder.build_store(pointer, *value))?
                 .set_alignment(1)

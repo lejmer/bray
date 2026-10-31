@@ -7,6 +7,7 @@ use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
     MirConstruction, MirHelperReference, MirOperation, SelectedConversion,
 };
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -26,6 +27,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             );
 
         let mapped = self.types.map(result)?;
+
+        if aggregate.kind() == MirAggregateKind::RepeatedArray
+            && self.types.is_address_value(result)?
+            && let CodegenTypeKind::Array { element, length } = &kind
+            && let BasicTypeEnum::IntType(byte) = self.types.map(*element)?
+            && byte.get_bit_width() == 8
+        {
+            let [element] = aggregate.operands() else {
+                panic!("a checked repeated array has exactly one element operand");
+            };
+
+            let element = self.operand(element)?.into_int_value();
+            let storage = self.allocate_temporary(mapped, "aggregate.bytes")?;
+            let count = self.pointer_integer_type().const_int(*length, false);
+
+            llvm(self.builder.build_memset(storage, 1, element, count))?;
+
+            return Ok(storage.into());
+        }
+
         let mut value = self.initialize_value(mapped.const_zero(), result, "aggregate.value")?;
 
         match aggregate.kind() {
@@ -242,8 +263,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let llvm_type = self.types.map(result)?;
         let storage = self.allocate_temporary(llvm_type, "construction.union")?;
 
-        llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
-
+        // Only the tag and active fields form the initialized union value. Clearing
+        // inactive payload storage makes small variants pay for the largest variant.
         self.store_union_tag(storage, *tag, variant.tag())?;
 
         for construction_input in construction.inputs() {
@@ -268,7 +289,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "checked MIR construction translation requires an established mapping or value",
             );
 
-            let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, layout.offset_bytes())?;
 
             self.store_value(destination, *input_value, layout.ty())?;
         }

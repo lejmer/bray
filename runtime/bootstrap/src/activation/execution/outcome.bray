@@ -38,8 +38,7 @@ trusted internal func retain_incident(
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &report),
     )
 {
-    if report.primary_present == 0 && report.outgoing_count == 0 && report.reserved == 0 && report.provider_callbacks ==
-        0
+    if bray.runtime.bootstrap.report_is_empty(&report)
     {
         return;
     }

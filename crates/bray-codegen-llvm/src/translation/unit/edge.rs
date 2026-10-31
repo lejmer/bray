@@ -10,7 +10,7 @@ use inkwell::context::Context;
 use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 
 use super::core::UnitTranslator;
-use super::support::pointer_value;
+use super::support::{extract_value, pointer_value};
 
 pub(super) fn reachable_blocks(
     unit: &MirUnit,
@@ -298,13 +298,168 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let route = self.begin_route("call.completed", moved_reports);
 
         if let Some(report) = report {
-            self.take_call_report(context, report)?;
+            self.take_completed_call_report(context, report, None)?;
         }
 
         self.add_edge_arguments(edge)?;
         self.finish_route(edge.target())?;
 
         Ok(route)
+    }
+
+    pub(super) fn publish_normal_report(
+        &mut self,
+        report: BasicValueEnum<'context>,
+    ) -> Result<(), CodegenFailure> {
+        if let Some(destination) = self.panic_report_context {
+            let owned = crate::translation::panic::report_has_ownership(
+                self.types.context(),
+                &self.builder,
+                |index| extract_value(&self.builder, report, index),
+            )?;
+
+            let publish = self
+                .types
+                .context()
+                .append_basic_block(self.function, "return.report.publish");
+
+            let returned = self
+                .types
+                .context()
+                .append_basic_block(self.function, "return.report.complete");
+
+            // Callers supply an empty completed outcome. An empty normal report is
+            // the same absent publication as a return without a report operand.
+            llvm(
+                self.builder
+                    .build_conditional_branch(owned, publish, returned),
+            )?;
+
+            self.builder.position_at_end(publish);
+
+            let outcome = super::support::native_run_outcome_value(
+                self.types.context(),
+                &self.builder,
+                self.request.target(),
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                None,
+                Some(report),
+            )?;
+
+            llvm(self.builder.build_store(destination, outcome))?;
+            llvm(self.builder.build_unconditional_branch(returned))?;
+            self.builder.position_at_end(returned);
+        } else {
+            assert_ne!(
+                self.signature.abi(),
+                bray_symbols::CallableAbi::Bray,
+                "Bray report return in {:?} retains its explicit outcome destination",
+                self.instance.key()
+            );
+
+            super::callback::consume_owned_report(
+                self.types.context(),
+                self.module,
+                self.request,
+                &self.builder,
+                self.function,
+                report,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn take_completed_call_report(
+        &mut self,
+        context: PointerValue<'context>,
+        destination: &MirPlace,
+        normal_report: Option<BasicValueEnum<'context>>,
+    ) -> Result<(), CodegenFailure> {
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let continued = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.taken");
+
+        if let Some(report) = normal_report {
+            let owned = crate::translation::panic::report_has_ownership(
+                self.types.context(),
+                &self.builder,
+                |index| extract_value(&self.builder, report, index),
+            )?;
+
+            let returned = self
+                .types
+                .context()
+                .append_basic_block(self.function, "call.report.returned");
+
+            let incoming = self
+                .types
+                .context()
+                .append_basic_block(self.function, "call.report.incoming");
+
+            llvm(
+                self.builder
+                    .build_conditional_branch(owned, returned, incoming),
+            )?;
+
+            self.builder.position_at_end(returned);
+
+            // Publishing this owner and immediately collecting it has the same
+            // destination and empty outcome, without copying through the context.
+            let destination = self.place(destination)?;
+
+            llvm(self.builder.build_store(destination, report))?;
+            llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
+            llvm(self.builder.build_unconditional_branch(continued))?;
+            self.builder.position_at_end(incoming);
+        }
+
+        let report =
+            llvm(
+                self.builder
+                    .build_struct_gep(outcome_type, context, 2, "call.completed.report"),
+            )?;
+
+        let owned = crate::translation::panic::report_slot_has_ownership(
+            self.types.context(),
+            &self.builder,
+            report,
+        )?;
+
+        let transfer = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.owned");
+
+        let empty = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.empty");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(owned, transfer, empty),
+        )?;
+
+        self.builder.position_at_end(transfer);
+        self.take_call_report(context, destination)?;
+        llvm(self.builder.build_unconditional_branch(continued))?;
+        self.builder.position_at_end(empty);
+
+        // An empty completed context already satisfies the next call's entry contract.
+        // Canonicalize the logical report without copying or rewriting that context.
+        let ty = self.types.map(destination.ty())?;
+        let destination = self.place(destination)?;
+
+        llvm(self.builder.build_store(destination, ty.const_zero()))?;
+        llvm(self.builder.build_unconditional_branch(continued))?;
+        self.builder.position_at_end(continued);
+
+        Ok(())
     }
 
     fn take_call_report(

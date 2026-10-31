@@ -473,6 +473,7 @@ impl DiagnosticNativeProductFailureJson {
             ]),
             Kind::CodegenBackendNotSelected
             | Kind::MissingRuntime
+            | Kind::MissingStandardLibrary
             | Kind::EvaluationCancelled
             | Kind::EvaluationSemanticValueStoreCreate
             | Kind::CodegenTargetUnsupportedProfile

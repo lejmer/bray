@@ -22,6 +22,18 @@ trait Writer
             let remaining: &[u8] = &source[written..length];
             let result: Result<usize, IoError> = self.write(remaining);
 
+            match result
+            {
+                case Ok(transferred)
+                {
+                    if transferred == length - written
+                    {
+                        return Ok(unit);
+                    }
+                }
+                case Error(_) {}
+            }
+
             match consume advance_transfer(
                 result = result,
                 completed = written,

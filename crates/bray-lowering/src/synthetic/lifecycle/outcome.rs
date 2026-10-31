@@ -189,6 +189,32 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         result: bray_symbols::TypeId,
         reports: bool,
     ) -> Result<(MirBlockId, bray_ir::MirValueId), C::Error> {
+        if matches!(builder.last_operation(block).map(|operation| operation.kind()),
+            Some(bray_ir::MirOperationKind::Call(call)) if call.has_non_unwinding_invocation())
+        {
+            if !reports {
+                return Ok((block, value));
+            }
+
+            let outcome = self
+                .collection
+                .as_ref()
+                .or(self.pending_reports.as_ref())
+                .expect("normal reporting lifecycle retains its incident owner");
+
+            let mut value = Some(bray_ir::MirOperand::Value(value));
+
+            let block = outcome
+                .take_completed_report(builder, block, source, &mut value)
+                .map_err(|cause| self.capacity_error(cause))?;
+
+            let Some(bray_ir::MirOperand::Value(value)) = value else {
+                unreachable!("normal lifecycle report transfer retains its value");
+            };
+
+            return Ok((block, value));
+        }
+
         if let Some(collection) = &self.collection {
             let (completed, result, failed) = collection
                 .check_completion(

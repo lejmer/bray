@@ -405,6 +405,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
+        if let Some(contract) = self
+            .request
+            .trusted_contracts()
+            .and_then(|contracts| contracts.calls.get(&invocation))
+        {
+            self.preserve_integer_entry_conditions(state, &contract.preconditions, &mut entry);
+        }
+
         if !entry.pending_execution {
             entry.returned = self.returned_value_evidence(state, invocation, &entry.arguments);
         }

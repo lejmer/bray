@@ -674,7 +674,7 @@ impl Compilation {
             let callable =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?;
 
-            let source = match callable {
+            let source = match &callable {
                 Some(callable) => {
                     self.callable_body_key(callable.callable.definition())?
                         .map(|key| {
@@ -686,7 +686,7 @@ impl Compilation {
                 None => None,
             };
 
-            let (execution, result, error_type_identity) = callable.map_or_else(
+            let (execution, result, error_type_identity) = callable.as_ref().map_or_else(
                 || {
                     Ok((
                         CallableExecution::Synchronous,
@@ -811,23 +811,34 @@ impl Compilation {
     ) -> Result<StaticInitializerReferences, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let mut pending = vec![root];
+        let mut pending = vec![(root, true)];
         let mut outgoing_calls = Vec::new();
         let mut requirements = BTreeMap::new();
         let mut relocations = BTreeMap::new();
 
-        while let Some(value) = pending.pop() {
+        while let Some((value, owns_cleanup)) = pending.pop() {
             let data = values.constant_value_data(value);
 
-            let local = match requirements.entry(data.ty()) {
-                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(self.owner_outgoing_calls(data.ty(), cancellation)?)
-                }
-            };
+            if owns_cleanup {
+                let local = match requirements.entry(data.ty()) {
+                    std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(self.owner_outgoing_calls(data.ty(), cancellation)?)
+                    }
+                };
 
-            // Each initialized constant child owns its local allowance independently.
-            outgoing_calls.extend(local.iter().cloned());
+                outgoing_calls.extend(local.iter().cloned());
+            }
+
+            // Protected storage retains representation and relocations, but its
+            // initialized contents do not acquire an implicit enclosing lifecycle.
+            let owns_children = owns_cleanup
+                && !matches!(
+                    values.type_data(data.ty()).as_ref(),
+                    TypeData::Named { definition, .. }
+                        if super::super::super::foreign::compiler_known_representation(self, *definition)
+                            == Some(RepresentationRole::Uninit)
+                );
 
             match data.kind() {
                 bray_symbols::ConstantValueKind::Borrowed(_) => {
@@ -851,16 +862,18 @@ impl Compilation {
                         );
                     }
                 }
-                bray_symbols::ConstantValueKind::NullablePresent(child) => pending.push(*child),
+                bray_symbols::ConstantValueKind::NullablePresent(child) => {
+                    pending.push((*child, owns_children));
+                }
                 bray_symbols::ConstantValueKind::Tuple(children)
                 | bray_symbols::ConstantValueKind::Array(children) => {
-                    pending.extend(children.iter().copied());
+                    pending.extend(children.iter().map(|child| (*child, owns_children)));
                 }
                 bray_symbols::ConstantValueKind::Product(fields) => {
-                    pending.extend(fields.iter().map(|field| *field.value()));
+                    pending.extend(fields.iter().map(|field| (*field.value(), owns_children)));
                 }
                 bray_symbols::ConstantValueKind::Union { fields, .. } => {
-                    pending.extend(fields.iter().map(|field| *field.value()));
+                    pending.extend(fields.iter().map(|field| (*field.value(), owns_children)));
                 }
                 bray_symbols::ConstantValueKind::Error
                 | bray_symbols::ConstantValueKind::Boolean(_)

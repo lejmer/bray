@@ -388,12 +388,9 @@ fn native_boundaries(
             ));
         };
 
-        boundaries.push(InterfaceNativeBoundary::new(
-            owner,
-            direction,
-            kind,
-            native_symbol,
-        ).with_links(links));
+        boundaries.push(
+            InterfaceNativeBoundary::new(owner, direction, kind, native_symbol).with_links(links),
+        );
     }
 
     Ok(boundaries)

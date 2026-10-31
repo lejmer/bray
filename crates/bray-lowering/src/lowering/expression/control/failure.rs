@@ -414,6 +414,21 @@ impl Lowerer<'_> {
             .flatten()
             .cloned();
 
+        if matches!(self.builder.last_operation(current).map(|operation| operation.kind()),
+            Some(MirOperationKind::Call(call)) if call.has_non_unwinding_invocation())
+        {
+            let mut value = Some(Self::retained_operand(value));
+
+            let block = match outcome {
+                Some(outcome) => {
+                    outcome.take_completed_report(&mut self.builder, current, source, &mut value)?
+                }
+                None => current,
+            };
+
+            return Ok((block, value.expect("normal invocation retains its result")));
+        }
+
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 

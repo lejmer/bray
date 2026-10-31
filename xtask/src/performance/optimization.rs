@@ -7,7 +7,7 @@ use super::model::{OptimizationArtifactReport, RetainedInput, WorkloadReport};
 
 pub(super) struct OptimizationCatalog {
     entries: Vec<OptimizationEntry>,
-    provider_symbols: BTreeMap<&'static str, &'static str>,
+    provider_symbols: BTreeMap<String, &'static str>,
 }
 
 impl OptimizationCatalog {
@@ -42,19 +42,47 @@ impl OptimizationCatalog {
                         | StandardLibraryArtifactKind::NativeImplementation
                 )
             })
-            .map(|artifact| OptimizationEntry {
-                partition: match artifact.kind() {
-                    StandardLibraryArtifactKind::PackageImplementation => "native-object",
-                    StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
+            .map(|artifact| {
+                let path = root.join(artifact.path());
+
+                let implementation =
+                    bray_package_interface::PackageArtifactInput::file(&path, None)
+                        .load_implementation()
+                        .map_err(|error| format!("could not load {}: {error:?}", path.display()))?;
+
+                let index = match artifact.kind() {
+                    StandardLibraryArtifactKind::PackageImplementation => {
+                        implementation.native_artifact()
+                    }
+                    StandardLibraryArtifactKind::NativeImplementation => {
+                        implementation.native_variant(bray_native_artifact::NativeUnitKind::Bitcode)
+                    }
                     _ => unreachable!("filtered implementation kinds"),
                 }
-                .to_owned(),
-                path: artifact.path().to_owned(),
-                bytes: artifact.byte_len(),
-                fallback: fallback.path().to_owned(),
-                symbols: BTreeSet::new(),
+                .map_err(|error| {
+                    format!("could not read native index {}: {error:?}", path.display())
+                })?
+                .ok_or_else(|| format!("missing native index {}", path.display()))?;
+
+                Ok(OptimizationEntry {
+                    partition: match artifact.kind() {
+                        StandardLibraryArtifactKind::PackageImplementation => "native-object",
+                        StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
+                        _ => unreachable!("filtered implementation kinds"),
+                    }
+                    .to_owned(),
+                    path: artifact.path().to_owned(),
+                    bytes: artifact.byte_len(),
+                    fallback: fallback.path().to_owned(),
+                    symbols: index
+                        .units()
+                        .iter()
+                        .flat_map(|unit| unit.summary().defined_symbols())
+                        .filter_map(|identity| identity.name().map(str::to_owned))
+                        .collect(),
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
 
         entries.sort_by(|left, right| left.partition.cmp(&right.partition));
 
@@ -63,7 +91,7 @@ impl OptimizationCatalog {
             .copied()
             .map(|role| {
                 (
-                    role.native_symbol(),
+                    target.object_symbol_name(role.native_symbol()).into_owned(),
                     platform_provider_identity(role.family()),
                 )
             })
@@ -212,7 +240,7 @@ mod tests {
                 "bray_platform_standard_output_write",
             )],
             provider_symbols: BTreeMap::from([(
-                "bray_platform_standard_output_write",
+                "bray_platform_standard_output_write".to_owned(),
                 "bray_platform_standard_streams",
             )]),
         };

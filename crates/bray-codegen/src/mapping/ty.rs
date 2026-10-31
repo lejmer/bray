@@ -257,6 +257,9 @@ impl CodegenCallableSignature {
     }
 
     /// Adds the hidden context through which a synchronous Bray call returns a panic report.
+    ///
+    /// Callers supply an initialized, completed outcome with no owned report. They move out
+    /// and clear any returned report before reusing the context for another call.
     pub const fn with_panic_report_context(mut self) -> Self {
         self.panic_report_context = true;
 

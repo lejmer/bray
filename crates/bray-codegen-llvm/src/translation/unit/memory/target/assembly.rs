@@ -13,7 +13,7 @@ use inkwell::types::{BasicMetadataTypeEnum, BasicType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum};
 
 use crate::callbr::{CallBrError, build_callbr};
-use crate::mapping::type_attribute;
+use crate::mapping::{read_only_memory_attribute, type_attribute};
 
 use super::super::super::core::UnitTranslator;
 use super::super::super::support::{extract_value, llvm};
@@ -164,7 +164,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut parameter_types = Vec::new();
         let mut arguments = Vec::new();
-        let mut parameter_attributes = Vec::new();
+        let mut attributes = Vec::new();
+
+        if options.pure() {
+            // Memory descriptors are inputs. Pure assembly cannot clobber memory.
+            attributes.push((
+                AttributeLoc::Function,
+                read_only_memory_attribute(self.types.context())?,
+            ));
+        }
+
         let mut symbol_index = 0_usize;
 
         for descriptor in descriptors.iter().copied() {
@@ -226,8 +235,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     ),
                 };
 
-                parameter_attributes.push((
-                    parameter,
+                attributes.push((
+                    AttributeLoc::Param(parameter),
                     type_attribute("elementtype", target, self.types)?,
                 ));
             }
@@ -293,7 +302,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 default,
                 alternates,
                 &arguments,
-                &parameter_attributes,
+                &attributes,
                 "target.inline_assembly",
             )
             .map_err(|error| match error {
@@ -310,8 +319,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "target.inline_assembly",
                 ))?;
 
-                for &(index, attribute) in &parameter_attributes {
-                    call.add_attribute(AttributeLoc::Param(index), attribute);
+                for &(location, attribute) in &attributes {
+                    call.add_attribute(location, attribute);
                 }
 
                 call.try_as_basic_value().basic()

@@ -130,7 +130,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         refine_integer_range(value, range, &state.assumptions, &|other| {
-            self.scalar_integer_range(state, other)
+            self.observation_type(other)
+                .and_then(|ty| self.integer_type_range(ty))
         })
     }
 
@@ -244,7 +245,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         range = refine_integer_range(&value, range, &state.assumptions, &|other| {
-            self.scalar_integer_range(state, other)
+            self.observation_type(other)
+                .and_then(|ty| self.integer_type_range(ty))
         });
 
         // Each block retains the derived bounds so shared arithmetic is not traversed again.
@@ -602,8 +604,42 @@ fn refine_integer_range(
     assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
     typed_range: &impl Fn(&ExecutionCondition) -> Option<(BigInt, BigInt)>,
 ) -> Option<(BigInt, BigInt)> {
+    refine_integer_range_with(
+        value,
+        range,
+        assumptions,
+        typed_range,
+        &mut BTreeMap::new(),
+        &mut { ExecutionCondition::WORK_LIMIT },
+    )
+}
+
+fn refine_integer_range_with(
+    value: &ExecutionCondition,
+    range: Option<(BigInt, BigInt)>,
+    assumptions: &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    typed_range: &impl Fn(&ExecutionCondition) -> Option<(BigInt, BigInt)>,
+    ranges: &mut BTreeMap<ExecutionCondition, Option<(BigInt, BigInt)>>,
+    budget: &mut usize,
+) -> Option<(BigInt, BigInt)> {
+    if let Some(range) = ranges.get(value) {
+        return range.clone();
+    }
+
+    let Some(remaining) = budget.checked_sub(1) else {
+        return range;
+    };
+
+    *budget = remaining;
+
+    // Seed cycles with conservative entry bounds. Every refinement only narrows
+    // those bounds, and exhaustion leaves the established interval unchanged.
+    ranges.insert(value.clone(), range.clone());
+
     let (mut lower, mut upper) =
         range.map_or((None, None), |(lower, upper)| (Some(lower), Some(upper)));
+
+    let mut excluded = std::collections::BTreeSet::new();
 
     for (condition, holds) in assumptions {
         let ExecutionCondition::Operation(operator, operands) = condition else {
@@ -624,7 +660,16 @@ fn refine_integer_range(
 
         let bounds = integer_constant(other, &mut { ExecutionCondition::WORK_LIMIT })
             .map(|value| (value.clone(), value))
-            .or_else(|| typed_range(other));
+            .or_else(|| {
+                refine_integer_range_with(
+                    other,
+                    typed_range(other),
+                    assumptions,
+                    typed_range,
+                    ranges,
+                    budget,
+                )
+            });
 
         let Some((minimum, maximum)) = bounds else {
             continue;
@@ -645,17 +690,7 @@ fn refine_integer_range(
             (BoundOperator::NotEqual, true) | (BoundOperator::Equal, false)
                 if minimum == maximum =>
             {
-                if let Some(lower) = &mut lower
-                    && *lower == minimum
-                {
-                    *lower += 1;
-                }
-
-                if let Some(upper) = &mut upper
-                    && *upper == maximum
-                {
-                    *upper -= 1;
-                }
+                excluded.insert(minimum);
             }
             (BoundOperator::Less, true) | (BoundOperator::GreaterEqual, false) => {
                 upper = Some(match upper {
@@ -685,9 +720,23 @@ fn refine_integer_range(
         }
     }
 
-    let (lower, upper) = (lower?, upper?);
+    let (mut lower, mut upper) = (lower?, upper?);
 
-    (lower <= upper).then_some((lower, upper))
+    // Exclusions refine the completed interval, regardless of condition ordering.
+    // Each step removes one recorded endpoint, including adjacent excluded values.
+    while excluded.contains(&lower) {
+        lower += 1;
+    }
+
+    while excluded.contains(&upper) {
+        upper -= 1;
+    }
+
+    let range = (lower <= upper).then_some((lower, upper));
+
+    ranges.insert(value.clone(), range.clone());
+
+    range
 }
 
 #[cfg(test)]
@@ -698,6 +747,127 @@ mod tests {
     use bray_symbols::SymbolOrdinal;
     use num_bigint::BigInt;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn excluded_endpoints_refine_the_completed_interval() {
+        let value = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let zero = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let one = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+        let two = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(3)));
+        let eight = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(4)));
+        let nine = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(5)));
+        let ten = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(6)));
+
+        let assumptions = BTreeSet::from([
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::Greater,
+                    vec![value.clone(), zero.clone()],
+                ),
+                true,
+            ),
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::Less,
+                    vec![value.clone(), ten.clone()],
+                ),
+                true,
+            ),
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::Equal,
+                    vec![value.clone(), one.clone()],
+                ),
+                false,
+            ),
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::NotEqual,
+                    vec![value.clone(), two.clone()],
+                ),
+                true,
+            ),
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::NotEqual,
+                    vec![value.clone(), eight.clone()],
+                ),
+                true,
+            ),
+            (
+                ExecutionCondition::operation(
+                    BoundOperator::Equal,
+                    vec![value.clone(), nine.clone()],
+                ),
+                false,
+            ),
+        ]);
+
+        let range = refine_integer_range(
+            &value,
+            Some((0.into(), 10.into())),
+            &assumptions,
+            &|subject| {
+                [
+                    (&zero, 0),
+                    (&one, 1),
+                    (&two, 2),
+                    (&eight, 8),
+                    (&nine, 9),
+                    (&ten, 10),
+                ]
+                .into_iter()
+                .find_map(|(input, value)| (subject == input).then(|| (value.into(), value.into())))
+            },
+        );
+
+        assert_eq!(range, Some((3.into(), 7.into())));
+    }
+
+    #[test]
+    fn relational_bounds_follow_live_intervals_without_assuming_unsigned_values() {
+        let length = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let count = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+        let zero = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+
+        for (positive, expected) in [(true, 1), (false, 0)] {
+            let assumptions = BTreeSet::from([
+                (
+                    ExecutionCondition::operation(
+                        BoundOperator::LessEqual,
+                        vec![count.clone(), length.clone()],
+                    ),
+                    true,
+                ),
+                (
+                    ExecutionCondition::operation(
+                        if positive {
+                            BoundOperator::Greater
+                        } else {
+                            BoundOperator::GreaterEqual
+                        },
+                        vec![count.clone(), zero.clone()],
+                    ),
+                    true,
+                ),
+            ]);
+
+            let range = refine_integer_range(
+                &length,
+                Some(((-100).into(), 100.into())),
+                &assumptions,
+                &|value| {
+                    Some(if value == &zero {
+                        (0.into(), 0.into())
+                    } else {
+                        ((-100).into(), 100.into())
+                    })
+                },
+            );
+
+            assert_eq!(range, Some((expected.into(), 100.into())));
+        }
+    }
 
     #[test]
     fn completed_integer_bounds_require_both_endpoints() {

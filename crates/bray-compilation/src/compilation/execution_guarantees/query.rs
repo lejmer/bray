@@ -179,11 +179,18 @@ impl Compilation {
 
         let recursive = Default::default();
 
+        let static_dependencies = self.static_dependency_roots(
+            key,
+            expressions.result().value().selections(),
+            cancellation,
+        )?;
+
         let unit =
             bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
                 .with_trusted_contracts(trusted.value())
                 .with_result_dependencies(&defaults, &recursive)
-                .with_unwind(body.result().value().unwind());
+                .with_unwind(body.result().value().unwind())
+                .with_static_dependencies(&static_dependencies);
 
         let mut diagnostics = DiagnosticBag::merged_all([
             bound.result().diagnostics(),

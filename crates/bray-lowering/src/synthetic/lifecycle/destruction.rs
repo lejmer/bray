@@ -43,6 +43,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             parameter
                 .as_ref()
                 .map(|place| MirOperand::Copy(place.clone())),
+            callable.phase_behaviors.clone(),
             |operation, ty| builder.push_operation(block, source.clone(), operation, ty),
         )
         .map_err(|cause| self.capacity_error(cause))?;

@@ -17,6 +17,7 @@ trusted internal func acquire_stream_lock(pos lock: &core.atomic.Atomic<u32>) ->
 }
 
 trusted internal func release_stream_lock(pos lock: &core.atomic.Atomic<u32>) -> std.platform.PlatformStatus
+    executes(total)
 {
     trusted std.sync.release_blocking_word_lock(lock);
 
@@ -31,6 +32,7 @@ trusted internal func platform_standard_input_lock() -> std.platform.PlatformSta
 
 @abi(c)
 trusted internal func platform_standard_input_unlock() -> std.platform.PlatformStatus
+    executes(total)
 {
     return trusted internal release_stream_lock(&INPUT_LOCK);
 }
@@ -49,6 +51,7 @@ trusted internal func platform_standard_output_lock() -> std.platform.PlatformSt
 
 @abi(c)
 trusted internal func platform_standard_output_unlock() -> std.platform.PlatformStatus
+    executes(total)
 {
     return trusted internal release_stream_lock(&OUTPUT_LOCK);
 }
@@ -67,6 +70,7 @@ trusted internal func platform_standard_error_lock() -> std.platform.PlatformSta
 
 @abi(c)
 trusted internal func platform_standard_error_unlock() -> std.platform.PlatformStatus
+    executes(total)
 {
     return trusted internal release_stream_lock(&ERROR_LOCK);
 }
@@ -76,6 +80,7 @@ internal struct StandardInputLock
     acquired: bool;
 
     trusted destruct()
+        executes(total)
     {
         if self.acquired
         {
@@ -89,6 +94,7 @@ internal struct StandardOutputLock
     acquired: bool;
 
     trusted destruct()
+        executes(total)
     {
         if self.acquired
         {
@@ -102,6 +108,7 @@ internal struct StandardErrorLock
     acquired: bool;
 
     trusted destruct()
+        executes(total)
     {
         if self.acquired
         {

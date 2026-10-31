@@ -69,7 +69,7 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         let action = bray_checker::select_lifecycle_action(self, ty, phase)?;
 
         if phase == bray_bound_tree::LifecyclePhase::Finalize
-            && let bray_bound_tree::LifecycleAction::Call(callable) = action
+            && let bray_bound_tree::LifecycleAction::Call(ref callable) = action
             && self.compilation.finalizer_is_complete(
                 callable.callable,
                 callable.result.completion_type(),
@@ -205,30 +205,9 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
                         })
                         .collect::<Result<_, _>>()?;
 
-                    let binding = self.compilation.binding_context(cancellation)?;
-
-                    let contextual_self =
-                        super::codegen_instance_contextual_self(&binding, &instance)?;
-
-                    let callables = bray_codegen::demanded_callable_instances_for_mir(&unit)
-                        .into_iter()
-                        .map(|demand| {
-                            let reference = demand.reference();
-
-                            super::substitute_callable_instance(
-                                self.values,
-                                reference.instance(),
-                                instance.substitution(),
-                                contextual_self,
-                            )
-                            .map(|callable| {
-                                (
-                                    reference,
-                                    bray_ir::MirCallableReference::new(callable, reference.abi()),
-                                )
-                            })
-                        })
-                        .collect::<Result<_, _>>()?;
+                    let callables =
+                        self.compilation
+                            .concrete_mir_callables(&instance, &unit, cancellation)?;
 
                     Ok::<_, CodegenPreparationError>(bray_lowering::DestructionBody {
                         unit,

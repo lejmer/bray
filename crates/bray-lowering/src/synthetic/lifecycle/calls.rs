@@ -104,7 +104,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             block,
             source,
             place.clone(),
-            callable,
+            callable.clone(),
             callable.result,
         )?;
 
@@ -331,6 +331,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             result,
             true,
             None,
+            callable.phase_behaviors.clone(),
             |operation, result| builder.push_operation(block, source.clone(), operation, result),
         )
         .map_err(|cause| self.capacity_error(cause))

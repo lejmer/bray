@@ -146,6 +146,16 @@ impl MirOperationKind {
                 visit_place_operands(destination, &mut visit);
                 visit_operand(value, &mut visit);
             }
+            Self::TakeIncomingReport {
+                destination,
+                normal_report,
+            } => {
+                visit_place_operands(destination, &mut visit);
+
+                if let Some(report) = normal_report {
+                    visit_operand(report, &mut visit);
+                }
+            }
             Self::Borrow { place, .. }
             | Self::Quiesce { place, .. }
             | Self::ReleaseBuffer { place, .. }
@@ -416,7 +426,8 @@ pub fn for_each_operation_storage(
     }
 
     match operation {
-        MirOperationKind::Store { destination, .. }
+        MirOperationKind::TakeIncomingReport { destination, .. }
+        | MirOperationKind::Store { destination, .. }
         | MirOperationKind::Borrow {
             place: destination, ..
         }

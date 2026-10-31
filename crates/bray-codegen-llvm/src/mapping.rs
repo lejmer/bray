@@ -8,7 +8,7 @@ mod static_storage;
 mod symbol;
 mod ty;
 
-pub(crate) use attribute::{enum_attribute, type_attribute};
+pub(crate) use attribute::{enum_attribute, read_only_memory_attribute, type_attribute};
 pub(crate) use debug::{LlvmDebugInfo, create_debug_metadata};
 pub(crate) use symbol::{
     apply_instance_optimization_attributes, apply_signature_call_attributes, call_convention,

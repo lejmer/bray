@@ -260,6 +260,27 @@ func standard_error_is_captured() -> Result<unit, std.io.IoError>
 }
 
 @test
+func complete_transfers_use_one_call_and_empty_transfers_use_none() -> Result<unit, std.io.IoError>
+{
+    let source: bytes<5> = [1, 2, 3, 4, 5];
+    let mut writer: CountingWriter = CountingWriter(limit = 5);
+
+    try writer.write_all(&source[..]);
+    try writer.write_all(&source[0..0]);
+    assert(writer.calls == 1);
+    assert(writer.total == 5);
+
+    let mut reader: CountingReader = CountingReader(remaining = 5, limit = 5);
+    let mut destination: bytes<5> = [0; 5];
+
+    try reader.read_exact(&mut destination[..]);
+    try reader.read_exact(&mut destination[0..0]);
+    assert(reader.calls == 1);
+
+    return Ok(unit);
+}
+
+@test
 func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoError>
 {
     let source: bytes<5> = [1, 2, 3, 4, 5];

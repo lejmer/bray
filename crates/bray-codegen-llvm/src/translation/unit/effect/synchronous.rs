@@ -121,30 +121,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(panic_report),
         )?;
 
-        match (entry_result, result) {
-            (ExecutableEntryResult::Unit, None) => {}
-            (ExecutableEntryResult::I32, Some(result)) => {
-                llvm(self.builder.build_store(result_destination, result))?;
-            }
-            (ExecutableEntryResult::Fallible { ty, .. }, Some(result)) => {
-                self.store_value(result_destination, result, ty)?;
-            }
-            unexpected => panic!(
-                "checked synchronous entry result disagrees with its signature: {unexpected:?}"
-            ),
-        }
-
-        let observed_outcome = if matches!(
+        if matches!(
             self.request.options().runtime_observations(),
             bray_codegen::RuntimeObservationMode::PerformanceInterval { .. }
         ) {
-            let value = llvm(self.builder.build_load(
+            let state = llvm(self.builder.build_struct_gep(
                 outcome_type,
                 panic_report,
-                "root.performance.outcome",
+                0,
+                "root.performance.state",
             ))?;
 
-            let (state, _) = native_run_outcome(&self.builder, value)?;
+            let state = llvm(self.builder.build_load(
+                self.types.context().i32_type(),
+                state,
+                "root.performance.state.value",
+            ))?
+            .into_int_value();
 
             let completed = native_run_state_is(
                 &self.builder,
@@ -162,19 +155,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ))?;
 
             self.finish_performance_interval_iteration(performance_loop, successful)?;
+        }
 
-            Some(value)
-        } else {
-            None
-        };
+        // Only the last iteration publishes a result to the runtime boundary.
+        match (entry_result, result) {
+            (ExecutableEntryResult::Unit, None) => {}
+            (ExecutableEntryResult::I32, Some(result)) => {
+                llvm(self.builder.build_store(result_destination, result))?;
+            }
+            (ExecutableEntryResult::Fallible { ty, .. }, Some(result)) => {
+                self.store_value(result_destination, result, ty)?;
+            }
+            unexpected => panic!(
+                "checked synchronous entry result disagrees with its signature: {unexpected:?}"
+            ),
+        }
 
-        let value = match observed_outcome {
-            Some(value) => value,
-            None => llvm(
-                self.builder
-                    .build_load(outcome_type, panic_report, "root.outcome"),
-            )?,
-        };
+        let value = llvm(
+            self.builder
+                .build_load(outcome_type, panic_report, "root.outcome"),
+        )?;
 
         let (state, report) = native_run_outcome(&self.builder, value)?;
 

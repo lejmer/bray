@@ -13,6 +13,7 @@ internal struct Synchronization
     cleanup_key: core.atomic.Atomic<u64>;
     control_key: core.atomic.Atomic<u64>;
     control_readers: core.atomic.Atomic<u64>;
+    control_used: core.atomic.Atomic<u64>;
     main: core.atomic.Atomic<u64>;
 }
 
@@ -24,6 +25,7 @@ internal static SYNCHRONIZATION: Uninit<Synchronization> = core.memory.uninit_fr
         cleanup_key = core.atomic.initialize<u64>(0),
         control_key = core.atomic.initialize<u64>(0),
         control_readers = core.atomic.initialize<u64>(0),
+        control_used = core.atomic.initialize<u64>(0),
         main = core.atomic.initialize<u64>(0)
     }
 );
@@ -39,6 +41,7 @@ trusted internal func synchronization_pointer() -> DataPointer<Synchronization>
         trusted core.memory.movement_stable<Synchronization>(pointer = result),
         trusted core.memory.finalization_pending<Synchronization>(pointer = result)
     )
+    executes(total)
 {
     return std.memory.uninit_pointer<Synchronization>(trusted bray.runtime.bootstrap.domain.synchronization_storage());
 }

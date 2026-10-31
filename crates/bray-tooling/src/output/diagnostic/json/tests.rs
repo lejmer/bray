@@ -39,6 +39,41 @@ use crate::output::diagnostic::test_support::file_source_store;
 use crate::product::NativeLinkerBuildError;
 use crate::toolchain::LlvmToolPathError;
 
+#[test]
+fn json_output_preserves_an_absent_standard_library_dependency() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity("example.output"))
+    .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::MissingStandardLibrary,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::StandardLibraryDependencyRequired,
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .expect("JSON diagnostics should write");
+
+    let output: serde_json::Value =
+        serde_json::from_slice(&output).expect("JSON diagnostics should parse");
+
+    assert_eq!(
+        output["diagnostics"][0]["args"][2]["value"]["value"]["reason"],
+        "missing_standard_library"
+    );
+
+    assert_eq!(
+        output["diagnostics"][0]["notes"][0]["kind"],
+        "standard_library_dependency_required"
+    );
+}
+
 const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json.rs",
     "output/diagnostic/json/argument.rs",

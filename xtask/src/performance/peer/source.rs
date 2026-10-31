@@ -157,13 +157,13 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
             "start two concurrent tasks that each complete 64 standard-output operations that write one byte and flush before returning, then join both tasks",
         ),
         "captured_output" => Some(
-            "write one borrowed 4096-byte range into a preallocated captured-output sink and validate its final length",
+            "write one retained borrowed 4096-byte range into a preallocated captured-output sink, retain the captured bytes, and validate its final length",
         ),
         "process_pipe_transfer" => Some(
             "start one child copy of the workload, write one borrowed 4096-byte range to its piped standard input, close the pipe, and join the child successfully",
         ),
         "file_output" => Some(
-            "create a new file, write all 4096 bytes while accepting partial writes, flush, close, and remove the file",
+            "create a new file, write all 4096 bytes while accepting partial writes, durably flush, close, and remove the file",
         ),
         _ => None,
     }

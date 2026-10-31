@@ -292,24 +292,39 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CodegenResultMapping::Void => {
                 llvm(builder.build_return(None))?;
             }
-            CodegenResultMapping::Direct { ty, coercion, .. } => {
+            CodegenResultMapping::Direct {
+                ty,
+                coercion,
+                attributes,
+                ..
+            } => {
                 let result = match coercion {
                     Some(coercion) => self.types.coercion_result_type(coercion)?,
                     None => self.types.map(*ty)?,
                 };
 
-                let value = result.const_zero();
+                let value = if self.signature.abi() == bray_symbols::CallableAbi::Bray
+                    && attributes.is_empty()
+                {
+                    // The caller inspects the outcome before observing a language result.
+                    // A fabricated zero can otherwise masquerade as successful zero progress.
+                    super::support::undefined_value(result)
+                } else {
+                    result.const_zero()
+                };
 
                 llvm(builder.build_return(Some(&value)))?;
             }
             CodegenResultMapping::Indirect { pointee, .. } => {
-                let destination = self
-                    .function
-                    .get_first_param()
-                    .and_then(pointer_value)
-                    .expect("checked MIR translation requires an established mapping or value");
+                if self.signature.abi() != bray_symbols::CallableAbi::Bray {
+                    let destination = self
+                        .function
+                        .get_first_param()
+                        .and_then(pointer_value)
+                        .expect("checked MIR translation requires an established mapping or value");
 
-                llvm(builder.build_store(destination, self.types.map(*pointee)?.const_zero()))?;
+                    llvm(builder.build_store(destination, self.types.map(*pointee)?.const_zero()))?;
+                }
 
                 llvm(builder.build_return(None))?;
             }

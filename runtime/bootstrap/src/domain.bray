@@ -53,7 +53,8 @@ trusted internal predicate selected_binding(owner: &Selection);
 trusted internal predicate admitted_view(owner: &Selection, value: &View);
 
 trusted internal func selected() -> Selection
-    ensures(trusted selected_binding(owner = &result))
+    ensures(trusted selected_binding(owner = &result), result.address > 0)
+    executes(total)
 {
     let value = core.atomic.load<usize, 1>(&BINDING.selection);
 
@@ -67,16 +68,17 @@ trusted internal func selected() -> Selection
 
     let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(&BINDING.selection, expected = 0, desired = 1);
 
+    if acquired
+    {
+        return
+        {
+            address = 1
+        };
+    }
+
     return
     {
-        address = if acquired
-        {
-            yield 1;
-        }
-        else
-        {
-            yield previous;
-        }
+        address = previous
     };
 }
 
@@ -269,6 +271,7 @@ trusted internal predicate registered_storage<T>(binding: &Binding, pointer: Dat
 
 trusted internal func anchor<T>(pos binding: &Binding, pos pointer: DataPointer<Uninit<T>>) -> &Uninit<T>
     requires(trusted registered_storage<T>(binding = binding, pointer = pointer))
+    executes(total)
     uses(raw_memory, unchecked_alias)
 {
     let authorize = trusted lambda(pos binding: &Binding, pos pointer: DataPointer<Uninit<T>>)
@@ -316,6 +319,7 @@ trusted internal func host_storage() -> &Uninit<bray.runtime.bootstrap.host.Host
 }
 
 trusted internal func synchronization_storage() -> &Uninit<bray.runtime.bootstrap.host.Synchronization>
+    executes(total)
 {
     let selection = trusted selected();
 

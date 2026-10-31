@@ -70,6 +70,20 @@ pub(super) fn validate_operation(
                 return None;
             }
         }
+        MirOperationKind::TakeIncomingReport {
+            destination,
+            normal_report,
+        } => {
+            validate_place(unit, destination, block, Some(id))?;
+
+            if let Some(report) = normal_report {
+                validate_operand(unit, report, block, Some(id))?;
+
+                if unit.operand_type(report)? != destination.ty() {
+                    return None;
+                }
+            }
+        }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
@@ -204,6 +218,7 @@ fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
+        | MirOperationKind::TakeIncomingReport { .. }
         | MirOperationKind::Borrow { .. }
         | MirOperationKind::TraitView { .. }
         | MirOperationKind::TraitViewMethod { .. }
@@ -268,6 +283,7 @@ fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option
         MirOperationKind::AdmitOutgoing { .. }
             | MirOperationKind::DischargeOutgoing { .. }
             | MirOperationKind::Store { .. }
+            | MirOperationKind::TakeIncomingReport { .. }
             | MirOperationKind::ReleaseBuffer { .. }
             | MirOperationKind::Quiesce { .. }
             | MirOperationKind::Destroy { .. }

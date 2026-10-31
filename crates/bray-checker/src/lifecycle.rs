@@ -223,30 +223,16 @@ fn member_types<'a, C: LifecycleSelectionContext + ?Sized>(
 pub fn invocation_execution_requirements(
     values: &SemanticValueStore,
     known: &bray_symbols::AvailableCompilerKnownSymbols,
-    callable_type: TypeId,
+    phases: &bray_symbols::CallablePhaseBehaviors,
 ) -> std::collections::BTreeSet<bray_symbols::CallableExecutionRequirement> {
-    let data = values.type_data(callable_type);
-
-    let TypeData::Callable(callable) = data.as_ref() else {
-        panic!("selected cleanup has a checked callable type");
-    };
-
     let mut requirements = std::collections::BTreeSet::new();
 
-    requirements.extend(
-        callable
-            .phase_behaviors()
-            .invocation()
-            .execution_requirements()
-            .iter()
-            .copied(),
-    );
+    requirements.extend(phases.invocation().execution_requirements().iter().copied());
 
     // Declared source requirements are available before body-effect inference.
     // Imported callable signatures already include their phase requirements.
-    if callable.execution() == bray_symbols::CallableExecution::Synchronous {
-        for condition in callable
-            .phase_behaviors()
+    if phases.execution() == bray_symbols::CallableExecution::Synchronous {
+        for condition in phases
             .invocation()
             .predicate_requirements()
             .iter()

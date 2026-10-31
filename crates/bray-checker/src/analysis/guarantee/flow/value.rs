@@ -187,6 +187,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                     _ => None,
                 }),
+            ExecutionCondition::Call(instance, _)
+                if Some(instance.definition().symbol()) == self.sequence_length =>
+            {
+                Some(crate::representation::representation_type(
+                    self.request,
+                    bray_compiler_known::RepresentationRole::ScalarUsize,
+                ))
+            }
             ExecutionCondition::Expression(expression) => self
                 .semantics
                 .types()

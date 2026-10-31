@@ -1,6 +1,6 @@
+mod call;
 mod cleanup;
 mod mapping;
-mod scalar;
 
+pub use call::inline_call;
 pub use cleanup::append_cleanup_continuation;
-pub use scalar::inline_scalar_call;

@@ -27,7 +27,7 @@ use crate::session::LlvmBackendSession;
 use crate::translation::{TranslationError, translate_instances};
 
 const BACKEND_NAME: &str = "llvm";
-const BACKEND_REVISION: &str = "1";
+const BACKEND_REVISION: &str = "5";
 const LLVM_REVISION: &str = env!("BRAY_LLVM_REVISION");
 const LLVM_TOOLCHAIN_IDENTITY: &str = env!("BRAY_LLVM_TOOLCHAIN_IDENTITY");
 const LLVM_TARGETS: &str = env!("BRAY_LLVM_TARGETS");
@@ -483,7 +483,7 @@ mod tests {
         };
 
         assert_eq!(backend.identity().name(), "llvm");
-        assert_eq!(backend.identity().revision(), "1");
+        assert_eq!(backend.identity().revision(), "5");
         assert_eq!(backend.identity().toolchain_revision(), LLVM_REVISION);
         assert!(backend.capabilities().supports_target(&codegen_target()));
 

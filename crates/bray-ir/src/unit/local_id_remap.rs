@@ -59,6 +59,16 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
             destination.remap_local_ids(mappings);
             value.remap_local_ids(mappings);
         }
+        MirOperationKind::TakeIncomingReport {
+            destination,
+            normal_report,
+        } => {
+            destination.remap_local_ids(mappings);
+
+            if let Some(report) = normal_report {
+                report.remap_local_ids(mappings);
+            }
+        }
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
@@ -75,9 +85,25 @@ pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl 
         MirOperationKind::TraitView { operand, .. }
         | MirOperationKind::TraitViewMethod { operand, .. }
         | MirOperationKind::Unary { operand, .. }
-        | MirOperationKind::Convert { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => {
             operand.remap_local_ids(mappings);
+        }
+        MirOperationKind::Convert {
+            operand,
+            conversion,
+        } => {
+            operand.remap_local_ids(mappings);
+
+            if matches!(
+                conversion.target(),
+                bray_bound_tree::ConversionTarget::Identity
+            ) {
+                *conversion = bray_bound_tree::SelectedConversion::new(
+                    mappings.ty(conversion.source_type()),
+                    mappings.ty(conversion.target_type()),
+                    bray_bound_tree::ConversionTarget::Identity,
+                );
+            }
         }
         MirOperationKind::Binary { left, right, .. } => {
             left.remap_local_ids(mappings);

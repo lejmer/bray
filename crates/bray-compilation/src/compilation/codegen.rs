@@ -474,6 +474,8 @@ fn symbol_mapping(
 pub enum CodegenPreparationError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,
+    /// A demanded operation requires a standard-library dependency that was not supplied.
+    MissingStandardLibrary,
     /// A MIR identity table exceeded its compact representation.
     MirCapacity(MirCapacityError),
     /// Exact contract arithmetic requires a wider backend integer.
