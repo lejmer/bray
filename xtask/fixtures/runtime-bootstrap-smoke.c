@@ -3115,7 +3115,12 @@ extern uint32_t bray_runtime_task_control_reference_release(const TaskReference*
 
 static int check_task_cancellation(void)
 {
-    enum { TASKS = 256, READS = 500000 };
+    enum
+    {
+        TASKS = 256,
+        READS = 500000
+    };
+
     TaskReference cells[TASKS];
 
     if (bray_runtime_thread_attachment_enter() != 0)
@@ -3145,9 +3150,12 @@ static int check_task_cancellation(void)
     }
 
     size_t pooled_bytes = atomic_load(&retained_bytes) - previous_bytes;
-    printf("task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
+
+    printf(
+        "task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
         TASKS, (size_t)cell_stride, pooled_bytes, (double)pooled_bytes / TASKS,
-        atomic_load(&allocation_attempts) - setup_attempts);
+        atomic_load(&allocation_attempts) - setup_attempts
+    );
 
     unsigned attempts = atomic_load(&allocation_attempts);
     atomic_store(&reject_allocations, 1);
@@ -3162,13 +3170,15 @@ static int check_task_cancellation(void)
     if (observed != 0 || bray_runtime_task_control_wait(&cells[0], &cells[0], 0) != 3)
         return 195;
 
-    if (bray_runtime_task_control_cancellation(&cells[0], 2) != 0 ||
+    if (
+        bray_runtime_task_control_cancellation(&cells[0], 2) != 0 ||
         bray_runtime_task_control_cancellation(&cells[0], 2) != 0 ||
         bray_runtime_task_control_cancellation(&cells[0], 1) != 1 ||
         bray_runtime_task_control_cancellation(&cells[0], 0) != 1 ||
         bray_runtime_task_control_cancellation(&cells[0], 3) != 0 ||
         bray_runtime_task_control_cancellation(&cells[0], 3) != 1 ||
-        bray_runtime_task_control_cancellation(&cells[0], 0) != 3)
+        bray_runtime_task_control_cancellation(&cells[0], 0) != 3
+    )
         return 196;
 
     begin = clock();
@@ -3177,9 +3187,11 @@ static int check_task_cancellation(void)
     {
         TaskSnapshot snapshot;
 
-        if (bray_runtime_task_control_cancellation(&cells[index], 1) != 3 ||
+        if (
+            bray_runtime_task_control_cancellation(&cells[index], 1) != 3 ||
             bray_runtime_task_control_cancellation(&cells[index], 1) != 0 ||
-            bray_runtime_task_control_snapshot(&cells[index], &snapshot) != 0 || snapshot.phase != 0)
+            bray_runtime_task_control_snapshot(&cells[index], &snapshot) != 0 || snapshot.phase != 0
+        )
             return 197;
     }
 
@@ -3187,9 +3199,11 @@ static int check_task_cancellation(void)
 
     for (unsigned index = 0; index < TASKS; ++index)
     {
-        if (bray_runtime_task_control_destruction(&cells[index]) != 0 ||
+        if (
+            bray_runtime_task_control_destruction(&cells[index]) != 0 ||
             bray_runtime_task_control_cancellation(&cells[index], 1) != 0 ||
-            bray_runtime_task_control_reference_release(&cells[index]) != 0)
+            bray_runtime_task_control_reference_release(&cells[index]) != 0
+        )
             return 198;
     }
 
