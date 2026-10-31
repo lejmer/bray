@@ -70,8 +70,21 @@ pub(super) fn validate_operation(
                 return None;
             }
         }
-        MirOperationKind::TakeIncomingReport { destination: place }
-        | MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport {
+            destination,
+            normal_report,
+        } => {
+            validate_place(unit, destination, block, Some(id))?;
+
+            if let Some(report) = normal_report {
+                validate_operand(unit, report, block, Some(id))?;
+
+                if unit.operand_type(report)? != destination.ty() {
+                    return None;
+                }
+            }
+        }
+        MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => {

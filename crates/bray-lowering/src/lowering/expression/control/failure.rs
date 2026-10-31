@@ -420,7 +420,9 @@ impl Lowerer<'_> {
             let mut value = Some(Self::retained_operand(value));
 
             let block = match outcome {
-                Some(outcome) => outcome.take_completed_report(&mut self.builder, current, source, &mut value)?,
+                Some(outcome) => {
+                    outcome.take_completed_report(&mut self.builder, current, source, &mut value)?
+                }
                 None => current,
             };
 

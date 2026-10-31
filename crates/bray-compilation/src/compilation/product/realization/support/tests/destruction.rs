@@ -724,10 +724,16 @@ fn completed_unit_finalizer_omits_only_its_invocation() {
             if let MirOperationKind::Call(call) = operation.kind()
                 && matches!(call.target(), MirCallTarget::Direct(_))
             {
-                assert!(call.phase_behaviors().is_some(), "selected lifecycle retains checked behavior");
+                assert!(
+                    call.phase_behaviors().is_some(),
+                    "selected lifecycle retains checked behavior"
+                );
 
                 if guarantees.contains("total") {
-                    assert!(!call.may_propagate_panic(), "total invocation needs no failure check");
+                    assert!(
+                        !call.may_propagate_panic(),
+                        "total invocation needs no failure check"
+                    );
                 }
             }
         }

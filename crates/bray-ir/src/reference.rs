@@ -362,6 +362,7 @@ impl MirCall {
                     *ty = mappings.ty(*ty);
                 }
             }
+            MirCallTarget::Lifecycle { ty, .. } => *ty = mappings.ty(*ty),
             _ => {}
         }
 

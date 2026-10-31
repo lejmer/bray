@@ -687,6 +687,8 @@ pub enum MirOperationKind {
     TakeIncomingReport {
         /// Caller-owned destination for the report; the incoming context becomes empty.
         destination: MirPlace,
+        /// Explicit normal return report, published only when it owns resources.
+        normal_report: Option<MirOperand>,
     },
     /// Create a capture-free anonymous callable value for an independently lowered unit.
     AnonymousCallable(MirAnonymousCallableReference),

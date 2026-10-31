@@ -144,7 +144,10 @@ pub(crate) fn check_call_outcome(
             block,
             source.clone(),
             match completed_report {
-                Some(report) => MirTerminatorKind::TakeCallReport { completed: edge, report },
+                Some(report) => MirTerminatorKind::TakeCallReport {
+                    completed: edge,
+                    report,
+                },
                 None => MirTerminatorKind::Goto(edge),
             },
         );

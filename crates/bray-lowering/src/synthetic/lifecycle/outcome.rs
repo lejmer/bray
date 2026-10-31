@@ -196,12 +196,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 return Ok((block, value));
             }
 
-            let outcome = self.collection.as_ref().or(self.pending_reports.as_ref())
+            let outcome = self
+                .collection
+                .as_ref()
+                .or(self.pending_reports.as_ref())
                 .expect("normal reporting lifecycle retains its incident owner");
 
             let mut value = Some(bray_ir::MirOperand::Value(value));
 
-            let block = outcome.take_completed_report(builder, block, source, &mut value)
+            let block = outcome
+                .take_completed_report(builder, block, source, &mut value)
                 .map_err(|cause| self.capacity_error(cause))?;
 
             let Some(bray_ir::MirOperand::Value(value)) = value else {

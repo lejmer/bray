@@ -88,13 +88,14 @@ fn numeric_records_and_native_signatures_agree_for_every_target() {
         let values = compilation.semantic_value_store().expect("numeric values");
         let symbols = compilation.symbol_graph().expect("numeric symbols");
 
-        let records = [("RealBits", 16, vec![0]), ("ComplexBits", 32, vec![0, 16])]
-            .map(|(name, size, offsets)| {
+        let records = [("RealBits", 16, vec![0]), ("ComplexBits", 32, vec![0, 16])].map(
+            |(name, size, offsets)| {
                 let definition = symbols
                     .structures()
                     .iter()
                     .find(|symbol| {
-                        symbols.member_name(symbol.id().into())
+                        symbols
+                            .member_name(symbol.id().into())
                             .is_some_and(|actual| actual.as_str() == name)
                     })
                     .expect("production numeric record");
@@ -102,23 +103,32 @@ fn numeric_records_and_native_signatures_agree_for_every_target() {
                 let ty = crate::compilation::substitution::named_type(
                     values,
                     bray_symbols::NamedTypeSymbolId::Struct(definition.id()),
-                ).expect("numeric record type");
+                )
+                .expect("numeric record type");
 
                 (ty, size, offsets)
-            });
+            },
+        );
 
-        let codegen_target = compilation.selected_target().target().codegen_target()
+        let codegen_target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
             .expect("numeric target supports code generation");
 
-        let mappings = compilation.codegen_types(
-            records.iter().map(|(ty, _, _)| *ty).collect(),
-            None,
-            &codegen_target,
-            &CancellationToken::new(),
-        ).expect("numeric record mappings");
+        let mappings = compilation
+            .codegen_types(
+                records.iter().map(|(ty, _, _)| *ty).collect(),
+                None,
+                &codegen_target,
+                &CancellationToken::new(),
+            )
+            .expect("numeric record mappings");
 
         for (ty, size, offsets) in &records {
-            let mapping = mappings.iter().find(|mapping| mapping.ty() == *ty)
+            let mapping = mappings
+                .iter()
+                .find(|mapping| mapping.ty() == *ty)
                 .expect("numeric record mapping");
 
             let layout = mapping.layout().expect("numeric record is sized");
@@ -130,7 +140,14 @@ fn numeric_records_and_native_signatures_agree_for_every_target() {
                 panic!("numeric C record must map to an aggregate");
             };
 
-            assert_eq!(fields.iter().map(|field| field.offset_bytes()).collect::<Vec<_>>(), *offsets, "{target:?}");
+            assert_eq!(
+                fields
+                    .iter()
+                    .map(|field| field.offset_bytes())
+                    .collect::<Vec<_>>(),
+                *offsets,
+                "{target:?}"
+            );
         }
 
         let width = compilation

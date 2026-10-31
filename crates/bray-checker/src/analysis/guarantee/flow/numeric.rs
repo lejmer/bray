@@ -21,7 +21,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (condition, _) in conditions {
             let condition = condition.substitute(
-                &|place| place.value_in(&entry.arguments).unwrap_or(ExecutionCondition::Unknown),
+                &|place| {
+                    place
+                        .value_in(&entry.arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
                 &ExecutionCondition::Unknown,
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
@@ -37,11 +41,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 budget = remaining;
 
                 if let ExecutionCondition::Operation(
-                    BoundOperator::LogicalAnd | BoundOperator::LogicalOr | BoundOperator::LogicalNot,
+                    BoundOperator::LogicalAnd
+                    | BoundOperator::LogicalOr
+                    | BoundOperator::LogicalNot,
                     operands,
-                ) = &condition {
+                ) = &condition
+                {
                     pending.extend(operands.iter().cloned());
-                } else if let Some(value) = self.integer_condition_truth(state, &condition, &mut ranges) {
+                } else if let Some(value) =
+                    self.integer_condition_truth(state, &condition, &mut ranges)
+                {
                     // Publish an established entry proof before the invocation can mutate storage.
                     // Later consumers use the same captured conditions as other call evidence.
                     condition.assume(value, &mut entry.assumptions);
@@ -60,10 +69,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 bray_bound_tree::BoundCallResult::Immediate(ty) => (Some(ty), false),
                 _ => (None, false),
             },
-            _ if matches!(self.request.view().expression(expression),
-                Some(BoundExpression::Name(_) | BoundExpression::PatternReference(_) | BoundExpression::MemberAccess(_))) =>
+            _ if matches!(
+                self.request.view().expression(expression),
+                Some(
+                    BoundExpression::Name(_)
+                        | BoundExpression::PatternReference(_)
+                        | BoundExpression::MemberAccess(_)
+                )
+            ) =>
             {
-                (self.semantics.types().expression(expression).map(|entry| entry.ty()), true)
+                (
+                    self.semantics
+                        .types()
+                        .expression(expression)
+                        .map(|entry| entry.ty()),
+                    true,
+                )
             }
             _ => (None, false),
         };

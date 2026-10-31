@@ -639,61 +639,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         if let Some(report) = report {
             let report = self.operand(report)?;
 
-            if let Some(destination) = self.panic_report_context {
-                let owned = crate::translation::panic::report_has_ownership(
-                    self.types.context(),
-                    &self.builder,
-                    |index| extract_value(&self.builder, report, index),
-                )?;
-
-                let publish = self
-                    .types
-                    .context()
-                    .append_basic_block(self.function, "return.report.publish");
-
-                let returned = self
-                    .types
-                    .context()
-                    .append_basic_block(self.function, "return.report.complete");
-
-                // Callers supply an empty completed outcome. An empty normal report is
-                // the same absent publication as a return without a report operand.
-                llvm(
-                    self.builder
-                        .build_conditional_branch(owned, publish, returned),
-                )?;
-
-                self.builder.position_at_end(publish);
-
-                let outcome = super::support::native_run_outcome_value(
-                    self.types.context(),
-                    &self.builder,
-                    self.request.target(),
-                    bray_runtime_abi::NativeRunState::COMPLETED,
-                    None,
-                    Some(report),
-                )?;
-
-                llvm(self.builder.build_store(destination, outcome))?;
-                llvm(self.builder.build_unconditional_branch(returned))?;
-                self.builder.position_at_end(returned);
-            } else {
-                assert_ne!(
-                    self.signature.abi(),
-                    bray_symbols::CallableAbi::Bray,
-                    "Bray report return in {:?} retains its explicit outcome destination",
-                    self.instance.key()
-                );
-
-                super::callback::consume_owned_report(
-                    self.types.context(),
-                    self.module,
-                    self.request,
-                    &self.builder,
-                    self.function,
-                    report,
-                )?;
-            }
+            self.publish_normal_report(report)?;
         }
 
         match self.signature.result() {

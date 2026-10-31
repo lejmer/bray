@@ -1,6 +1,6 @@
 use std::ffi::CString;
 
-use inkwell::attributes::Attribute;
+use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::ContextRef;
@@ -44,7 +44,7 @@ pub(crate) fn build_callbr<'context>(
     default_destination: BasicBlock<'context>,
     indirect_destinations: &[BasicBlock<'context>],
     arguments: &[BasicMetadataValueEnum<'context>],
-    parameter_attributes: &[(u32, Attribute)],
+    attributes: &[(AttributeLoc, Attribute)],
     name: &str,
 ) -> Result<Option<BasicValueEnum<'context>>, CallBrError> {
     let (insertion_block, destination_count, argument_count) = validate_callbr(
@@ -54,7 +54,7 @@ pub(crate) fn build_callbr<'context>(
         default_destination,
         indirect_destinations,
         arguments,
-        parameter_attributes,
+        attributes,
     )?;
 
     let name = if function_type.get_return_type().is_some() {
@@ -79,8 +79,8 @@ pub(crate) fn build_callbr<'context>(
         .collect::<Vec<_>>();
 
     // SAFETY: All handles share the validated insertion function and Inkwell context. The
-    // destination and argument arrays remain borrowed for this call, and every attribute index
-    // was validated against that argument array before being attached to the new instruction.
+    // destination and argument arrays remain borrowed for this call, and every attribute location
+    // was validated against the signature before being attached to the new instruction.
     let built_instruction = unsafe {
         let instruction = LLVMBuildCallBr(
             builder.as_mut_ptr(),
@@ -96,8 +96,14 @@ pub(crate) fn build_callbr<'context>(
             name.as_ptr(),
         );
 
-        for &(index, attribute) in parameter_attributes {
-            LLVMAddCallSiteAttribute(instruction, index + 1, attribute.as_mut_ptr());
+        for &(location, attribute) in attributes {
+            let index = match location {
+                AttributeLoc::Function => u32::MAX,
+                AttributeLoc::Return => 0,
+                AttributeLoc::Param(index) => index + 1,
+            };
+
+            LLVMAddCallSiteAttribute(instruction, index, attribute.as_mut_ptr());
         }
 
         instruction
@@ -135,7 +141,7 @@ fn validate_callbr<'context>(
     default_destination: BasicBlock<'context>,
     indirect_destinations: &[BasicBlock<'context>],
     arguments: &[BasicMetadataValueEnum<'context>],
-    parameter_attributes: &[(u32, Attribute)],
+    attributes: &[(AttributeLoc, Attribute)],
 ) -> Result<(BasicBlock<'context>, u32, u32), CallBrError> {
     let insertion_block = builder
         .get_insert_block()
@@ -180,10 +186,13 @@ fn validate_callbr<'context>(
         return Err(CallBrError::ContextMismatch);
     }
 
-    if parameter_attributes
-        .iter()
-        .any(|(index, _)| usize::try_from(*index).map_or(true, |index| index >= arguments.len()))
-    {
+    if attributes.iter().any(|(location, _)| match location {
+        AttributeLoc::Function => false,
+        AttributeLoc::Return => function_type.get_return_type().is_none(),
+        AttributeLoc::Param(index) => {
+            usize::try_from(*index).map_or(true, |index| index >= arguments.len())
+        }
+    }) {
         return Err(CallBrError::InvalidArguments);
     }
 
@@ -230,7 +239,7 @@ fn argument_context(argument: BasicMetadataValueEnum<'_>) -> Option<ContextRef<'
 
 #[cfg(test)]
 mod tests {
-    use inkwell::attributes::Attribute;
+    use inkwell::attributes::{Attribute, AttributeLoc};
     use inkwell::context::Context;
     use inkwell::types::AnyType;
     use inkwell::values::{BasicValueEnum, InstructionOpcode};
@@ -328,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn callbr_attaches_device_element_types_to_indirect_memory_parameters() {
+    fn callbr_attaches_memory_effects_and_device_element_types() {
         let context = Context::create();
         let module = context.create_module("callbr.memory.test");
         let builder = context.create_builder();
@@ -356,6 +365,9 @@ mod tests {
         let kind = Attribute::get_named_enum_kind_id("elementtype");
         let attribute = context.create_type_attribute(kind, context.i16_type().as_any_type_enum());
 
+        let read_only = super::super::mapping::read_only_memory_attribute(&context)
+            .expect("LLVM supports read-only memory effects");
+
         builder.position_at_end(entry);
 
         build_callbr(
@@ -365,7 +377,10 @@ mod tests {
             default,
             &[alternate],
             &[input.into()],
-            &[(0, attribute)],
+            &[
+                (AttributeLoc::Param(0), attribute),
+                (AttributeLoc::Function, read_only),
+            ],
             "assembly",
         )
         .unwrap_or_else(|error| panic!("memory callbr must build: {error:?}"));
@@ -383,6 +398,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("alternate block must terminate: {error:?}"));
 
         assert!(module.verify().is_ok());
+
+        assert!(
+            module
+                .print_to_string()
+                .to_string()
+                .contains("memory(read)")
+        );
 
         assert!(
             module

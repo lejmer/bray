@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 /// Splices a checked synchronous callee into a direct call and its outcome continuations.
 ///
-/// The caller supplies concrete semantic references and a callee that forwards normal reports.
+/// The caller supplies the callee's concrete semantic types and callable references.
 /// Parameter storage retains borrowed projections. Explicit abnormal exits transfer reports into
 /// the original caller's failure edges, after the callee's own cleanup has completed.
 /// `scalar_parameters` requires the caller's scalar-body eligibility proof: parameter reads
@@ -22,6 +22,7 @@ pub fn inline_call(
     site: MirOperationId,
     callee: &MirUnit,
     concrete_types: &BTreeMap<TypeId, TypeId>,
+    concrete_callables: &BTreeMap<crate::MirCallableReference, crate::MirCallableReference>,
     caller_types: &BTreeMap<TypeId, TypeId>,
     scalar_parameters: bool,
 ) -> Result<Option<MirUnit>, MirCapacityError> {
@@ -87,6 +88,7 @@ pub fn inline_call(
         call_block.kind(),
         result_type,
         concrete_types,
+        report,
         failure.is_some(),
     ) {
         return Ok(None);
@@ -97,6 +99,8 @@ pub fn inline_call(
     let mut caller_ids = LocalIds::new(caller, &unchanged_types);
     let mut callee_ids = LocalIds::new(callee, concrete_types);
     let source = operation.source().clone();
+
+    callee_ids.callables = Some(concrete_callables);
 
     copy_inline_layout(
         caller,
@@ -432,6 +436,7 @@ fn body_is_compatible(
     kind: MirBlockKind,
     result: Option<TypeId>,
     types: &BTreeMap<TypeId, TypeId>,
+    normal_report: Option<&MirPlace>,
     has_failure: bool,
 ) -> bool {
     matches!(caller.kind(), MirUnitKind::Synchronous)
@@ -457,7 +462,7 @@ fn body_is_compatible(
             .iter()
             .all(|block| match block.terminator().kind() {
                 MirTerminatorKind::Return { value, report } => {
-                    report.is_none()
+                    (report.is_none() || normal_report.is_some())
                         && value.as_ref().map(|value| {
                             concrete_type(callee.operand_type(value).expect("return type"), types)
                         }) == result
@@ -470,4 +475,50 @@ fn body_is_compatible(
                 | MirTerminatorKind::InlineAssembly(_) => false,
                 _ => true,
             })
+        && body_supports_type_substitution(callee, types)
+}
+
+fn body_supports_type_substitution(callee: &MirUnit, types: &BTreeMap<TypeId, TypeId>) -> bool {
+    if types.iter().all(|(source, target)| source == target) {
+        return true;
+    }
+
+    callee
+        .operations()
+        .iter()
+        .all(|operation| match operation.kind() {
+            MirOperationKind::Memory(memory) => {
+                let mut retained = std::collections::BTreeSet::new();
+
+                crate::types::collect_memory_types(memory.kind(), &mut retained);
+                retained.extend(memory.operand_types());
+                retained.extend(memory.result_type());
+
+                retained
+                    .into_iter()
+                    .all(|ty| concrete_type(ty, types) == ty)
+            }
+            MirOperationKind::Text(text) => text
+                .operand_types()
+                .iter()
+                .copied()
+                .chain(text.result_type())
+                .all(|ty| concrete_type(ty, types) == ty),
+            MirOperationKind::Convert { conversion, .. } => {
+                matches!(
+                    conversion.target(),
+                    bray_bound_tree::ConversionTarget::Identity
+                )
+            }
+            MirOperationKind::TraitView { .. } | MirOperationKind::TraitViewMethod { .. } => false,
+            MirOperationKind::Construct(construction) => !matches!(
+                construction.target(),
+                bray_bound_tree::ConstructionTarget::TypeForm { .. }
+            ),
+            MirOperationKind::Call(call) => {
+                call.witnesses().is_empty()
+                    && !matches!(call.target(), crate::MirCallTarget::DefaultValue { .. })
+            }
+            _ => true,
+        })
 }

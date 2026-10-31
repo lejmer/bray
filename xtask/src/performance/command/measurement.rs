@@ -335,9 +335,10 @@ fn execute_process_sample(
 ) -> Result<u64, String> {
     let started = Instant::now();
 
-    let output = super::super::execution::workload_command(executable, executable, working_directory)
-        .output()
-        .map_err(|error| format!("could not execute {}: {error}", executable.display()))?;
+    let output =
+        super::super::execution::workload_command(executable, executable, working_directory)
+            .output()
+            .map_err(|error| format!("could not execute {}: {error}", executable.display()))?;
 
     let elapsed = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
 

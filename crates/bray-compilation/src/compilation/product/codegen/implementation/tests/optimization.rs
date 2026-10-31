@@ -296,6 +296,68 @@ fn empty_normal_reports_do_not_write_the_callers_outcome() {
 
 #[test]
 #[ignore = "tier:native"]
+fn pure_assembly_preserves_read_only_memory_inputs() {
+    for (options, clobbers, read_only) in [(1, "", true), (0, "memory", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            using core.target;
+            public trusted func observe(pos pointer: DataPointer<[u8; 16]>, pos length: usize) -> usize
+                requires(
+                    trusted core.memory.valid_read<[u8; 16]>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<[u8; 16]>(pointer = pointer),
+                    trusted core.memory.initialized_as<[u8; 16]>(pointer = pointer),
+                )
+                uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+            {{
+                let observed: (usize, ) = trusted core.target.assembly<
+                    (usize, DataPointer<[u8; 16]>), (usize, )
+                >(
+                    template = "",
+                    constraints = "+reg,m",
+                    clobbers = "{clobbers}",
+                    features = "",
+                    options = {options},
+                    inputs = (length, pointer),
+                );
+                return observed.0;
+            }}
+            "#
+        );
+
+        let ir = library_ir(&source, bray_codegen::OptimizationLevel::Full);
+
+        let module = ir
+            .split("; ModuleID =")
+            .find(|module| module.contains(" asm ") && module.contains("*m"))
+            .expect("assembly module");
+
+        let assembly = module
+            .lines()
+            .find(|line| line.contains(" asm ") && line.contains("*m"))
+            .expect("the complete memory input remains observable");
+
+        let group = assembly
+            .rsplit_once(" #")
+            .expect("assembly attributes")
+            .1
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+
+        let attributes = module
+            .lines()
+            .find(|line| line.starts_with(&format!("attributes #{group} =")))
+            .unwrap_or_else(|| panic!("assembly attribute definition: {ir}"));
+
+        assert_eq!(attributes.contains("memory(read)"), read_only, "{ir}");
+        assert!(assembly.contains("elementtype([16 x i8])"), "{ir}");
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
     for element in ["u8", "i8"] {
         let source = format!(

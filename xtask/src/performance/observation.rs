@@ -106,17 +106,14 @@ fn execute_observed(
 ) -> Result<RecordedExecution, String> {
     let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
 
-    let execution = super::execution::workload_command(
-        executable,
-        production_executable,
-        working_directory,
-    )
-        .env(
-            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
-            &observation_path,
-        )
-        .output()
-        .map_err(|error| format!("could not execute observed artifact: {error}"))?;
+    let execution =
+        super::execution::workload_command(executable, production_executable, working_directory)
+            .env(
+                bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+                &observation_path,
+            )
+            .output()
+            .map_err(|error| format!("could not execute observed artifact: {error}"))?;
 
     if !execution.status.success() {
         return Err(format!(

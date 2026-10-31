@@ -859,6 +859,21 @@ bool workload()
     return true;
 }
 #elif BRAY_WORKLOAD == 15
+std::uint8_t const* opaque_capture_pointer(std::uint8_t const* pointer)
+{
+    __asm__("" : "+r"(pointer));
+
+    return pointer;
+}
+
+std::size_t retained_capture_length(std::uint8_t const* pointer, std::size_t length)
+{
+    using CaptureRange = std::uint8_t[4096];
+    __asm__("" : "+r"(length) : "m"(*reinterpret_cast<CaptureRange const*>(pointer)));
+
+    return length;
+}
+
 bool workload()
 {
     std::vector<std::uint8_t> output;
@@ -866,11 +881,10 @@ bool workload()
 
     std::uint8_t bytes[4096];
     std::fill_n(bytes, 4096, std::uint8_t{120});
-    retain_work(bytes);
-    output.insert(output.end(), bytes, bytes + 4096);
-    retain_work(output);
+    auto const* source = opaque_capture_pointer(bytes);
+    output.insert(output.end(), source, source + 4096);
 
-    return output.size() == 4096;
+    return retained_capture_length(output.data(), output.size()) == 4096;
 }
 #elif BRAY_WORKLOAD == 17
 bool workload()

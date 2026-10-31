@@ -447,7 +447,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let mut evidence = lifecycle.entry(state, place.as_ref(), value);
 
-                self.preserve_integer_entry_conditions(state, &lifecycle.contract.preconditions, &mut evidence);
+                self.preserve_integer_entry_conditions(
+                    state,
+                    &lifecycle.contract.preconditions,
+                    &mut evidence,
+                );
 
                 // These premises hold only on the runtime branch that invokes this payload's cleanup.
                 for (path, operator, expected) in guards {

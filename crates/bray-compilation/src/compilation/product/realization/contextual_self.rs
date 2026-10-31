@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_symbols::{
     ExactSymbolId, GenericSubstitutionId, ImplementationCoherenceQuery, ImplementationSymbolId,
@@ -8,8 +10,46 @@ use bray_symbols::{
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::super::implementation::implementation_instance_requirement;
 use super::super::specialization::ConcreteCodegenInstance;
-use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::FactQueryError;
+use crate::compilation::{
+    CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
+};
+use crate::fact::{CancellationToken, FactQueryError};
+
+impl Compilation {
+    pub(in crate::compilation::product) fn concrete_mir_callables(
+        &self,
+        instance: &ConcreteCodegenInstance,
+        unit: &bray_ir::MirUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        BTreeMap<bray_ir::MirCallableReference, bray_ir::MirCallableReference>,
+        CodegenPreparationError,
+    > {
+        let values = self.semantic_value_store()?;
+        let binding = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding, instance)?;
+        let mut callables = BTreeMap::new();
+
+        for demand in bray_codegen::demanded_callable_instances_for_mir(unit) {
+            let reference = demand.reference();
+
+            let callable = substitute_callable_instance(
+                values,
+                reference.instance(),
+                instance.substitution(),
+                contextual_self,
+            )?;
+
+            let concrete = bray_ir::MirCallableReference::new(callable, reference.abi());
+
+            if concrete != reference {
+                callables.insert(reference, concrete);
+            }
+        }
+
+        Ok(callables)
+    }
+}
 
 pub(in crate::compilation::product) fn substitute_contextual_self(
     values: &SemanticValueStore,

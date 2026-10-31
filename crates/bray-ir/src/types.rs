@@ -69,8 +69,17 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
             collect_place_types(destination, types);
             collect_operand_types(value, types);
         }
-        MirOperationKind::TakeIncomingReport { destination: place }
-        | MirOperationKind::Borrow { place, .. }
+        MirOperationKind::TakeIncomingReport {
+            destination,
+            normal_report,
+        } => {
+            collect_place_types(destination, types);
+
+            if let Some(report) = normal_report {
+                collect_operand_types(report, types);
+            }
+        }
+        MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Quiesce { place, .. }
         | MirOperationKind::ReleaseBuffer { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
@@ -136,7 +145,10 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
     }
 }
 
-fn collect_memory_types(kind: &CheckedMemoryOperationKind, types: &mut BTreeSet<TypeId>) {
+pub(crate) fn collect_memory_types(
+    kind: &CheckedMemoryOperationKind,
+    types: &mut BTreeSet<TypeId>,
+) {
     match *kind {
         CheckedMemoryOperationKind::UninitFrom { element: pointee }
         | CheckedMemoryOperationKind::UninitNew { element: pointee }

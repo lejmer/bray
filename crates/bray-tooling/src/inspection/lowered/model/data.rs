@@ -565,6 +565,19 @@ impl OperationParts {
         Ok(())
     }
 
+    fn optional_operand(
+        &mut self,
+        role: impl Into<String>,
+        operand: Option<&MirOperand>,
+        context: &MirInspectionContext<'_>,
+    ) -> Result<(), MirInspectionModelError> {
+        if let Some(operand) = operand {
+            self.operand(role, operand, context)?;
+        }
+
+        Ok(())
+    }
+
     fn place(
         &mut self,
         role: impl Into<String>,
@@ -711,8 +724,13 @@ fn operation_parts(
 
             "store"
         }
-        MirOperationKind::TakeIncomingReport { destination } => {
+        MirOperationKind::TakeIncomingReport {
+            destination,
+            normal_report,
+        } => {
             parts.place("destination", destination, context)?;
+
+            parts.optional_operand("normal_report", normal_report.as_ref(), context)?;
 
             "take_incoming_report"
         }
@@ -828,9 +846,7 @@ fn operation_parts(
                 MirPanicCause::Assertion(message) => {
                     parts.attribute("cause", "assertion");
 
-                    if let Some(message) = message {
-                        parts.operand("message", message, context)?;
-                    }
+                    parts.optional_operand("message", message.as_ref(), context)?;
                 }
                 MirPanicCause::ExplicitTestFailure(message) => {
                     parts.attribute("cause", "explicit_test_failure");
@@ -848,17 +864,7 @@ fn operation_parts(
         }
         MirOperationKind::AdmitOutgoing { owner, runtime }
         | MirOperationKind::DischargeOutgoing { owner, runtime } => {
-            match owner {
-                bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
-                    parts.operand("factory", callee, context)?
-                }
-                bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context)?,
-                bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
-                    callable_reference("callable", selection.reference(), parts, context);
-                    parts.r#type("result", result.ty(), context)?;
-                }
-            }
-
+            outgoing_owner_parts(owner, parts, context)?;
             runtime_reference("runtime", *runtime, parts);
 
             if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
@@ -882,9 +888,7 @@ fn operation_parts(
         } => {
             parts.place("place", place, context)?;
 
-            if let Some(abandoned) = abandoned {
-                parts.operand("abandoned", abandoned, context)?;
-            }
+            parts.optional_operand("abandoned", abandoned.as_ref(), context)?;
 
             "destroy"
         }
@@ -899,6 +903,24 @@ fn operation_parts(
     };
 
     Ok(kind)
+}
+
+fn outgoing_owner_parts(
+    owner: &bray_ir::MirOutgoingOwner,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    match owner {
+        bray_ir::MirOutgoingOwner::FrameFactory(callee) => {
+            parts.operand("factory", callee, context)
+        }
+        bray_ir::MirOutgoingOwner::Value(ty) => parts.r#type("owner", *ty, context),
+        bray_ir::MirOutgoingOwner::Invocation { selection, result } => {
+            callable_reference("callable", selection.reference(), parts, context);
+
+            parts.r#type("result", result.ty(), context)
+        }
+    }
 }
 
 fn trait_view_entries(

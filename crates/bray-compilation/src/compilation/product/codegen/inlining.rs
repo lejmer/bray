@@ -17,8 +17,7 @@ use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenInstance};
 use crate::fact::CancellationToken;
 
-const MAX_CALLEE_OPERATIONS: usize = 32;
-const MAX_INSERTED_OPERATIONS: usize = 128;
+const MAX_INLINE_WORK: usize = 192;
 const MAX_INLINE_DEPTH: usize = 4;
 
 impl Compilation {
@@ -52,7 +51,7 @@ impl Compilation {
         }
 
         let mut stack = vec![owner.key().clone()];
-        let mut remaining = MAX_INSERTED_OPERATIONS;
+        let mut remaining = MAX_INLINE_WORK;
 
         // MIR bodies own Arc-backed tables. The cached base remains immutable while expansion replaces this handle.
         let (body, changed) = self.expand_calls(
@@ -146,13 +145,9 @@ impl Compilation {
                     let base =
                         self.optimized_mir_for_plan(&callee, &raw, basic, target, cancellation)?;
 
-                    if base.operations().len() > MAX_CALLEE_OPERATIONS
-                        || base.blocks().len() > MAX_CALLEE_OPERATIONS
-                    {
-                        continue;
-                    }
-
-                    let cost = (base.operations().len() + call.arguments().len()).max(1);
+                    let cost = (base.operations().len().max(base.blocks().len())
+                        + call.arguments().len())
+                    .max(1);
 
                     if cost > *remaining {
                         continue;
@@ -194,6 +189,12 @@ impl Compilation {
                         continue;
                     };
 
+                    let callables = if scalar_parameters {
+                        BTreeMap::new()
+                    } else {
+                        self.concrete_mir_callables(&callee, &expanded, cancellation)?
+                    };
+
                     for argument in call.arguments() {
                         let ty = body
                             .operand_type(argument.value())
@@ -217,6 +218,7 @@ impl Compilation {
                         *operation_id,
                         &expanded,
                         &concrete_types,
+                        &callables,
                         &caller_types,
                         scalar_parameters,
                     )
@@ -225,7 +227,19 @@ impl Compilation {
                         continue;
                     };
 
-                    replacement = Some((spliced, tentative));
+                    let inserted = spliced
+                        .operations()
+                        .len()
+                        .saturating_sub(body.operations().len())
+                        .max(spliced.blocks().len().saturating_sub(body.blocks().len()));
+
+                    let extra = inserted.saturating_sub(*remaining - tentative);
+
+                    if extra > tentative {
+                        continue;
+                    }
+
+                    replacement = Some((spliced, tentative - extra));
                     break 'sites;
                 }
             }
@@ -293,8 +307,8 @@ impl Compilation {
         body: &MirUnit,
         cancellation: &CancellationToken,
     ) -> Result<Option<(BTreeMap<TypeId, TypeId>, bool)>, CodegenPreparationError> {
-        // Scalar templates need only substitute operand types. Rich bodies retain semantic
-        // references and witnesses, so splice them only when already monomorphic.
+        // Scalar templates need only substitute operand types. Rich bodies also
+        // retain the selected trait Self and their closed callable references.
         let values = self.semantic_value_store()?;
 
         let borrows_input = body.storages_with_ids().any(|(_, storage)| {
@@ -328,11 +342,13 @@ impl Compilation {
                 cancellation,
             )?;
 
-            if concrete != ty {
-                return Ok(None);
-            }
-
             types.insert(ty, concrete);
+        }
+
+        if types.iter().any(|(source, target)| source != target)
+            && !bray_codegen::demanded_constant_terms(body).is_empty()
+        {
+            return Ok(None);
         }
 
         if body
@@ -340,6 +356,10 @@ impl Compilation {
             .iter()
             .any(|operation| match operation.kind() {
                 MirOperationKind::Call(call) => call.trait_dispatch().is_some(),
+                MirOperationKind::Memory(memory) => matches!(
+                    memory.kind(),
+                    bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { .. }
+                ),
                 MirOperationKind::Async(_)
                 | MirOperationKind::Host(_)
                 | MirOperationKind::AnonymousCallable(_)
@@ -1180,6 +1200,7 @@ mod tests {
             callee,
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &BTreeMap::new(),
             true,
         )
         .expect("MIR capacity")
@@ -1261,6 +1282,7 @@ mod tests {
             callee.mir(),
             &BTreeMap::new(),
             &BTreeMap::new(),
+            &BTreeMap::new(),
             true,
         )
         .expect("MIR capacity")
@@ -1313,7 +1335,12 @@ mod tests {
                 )
                 .with_native_link_inputs(native_links.iter().cloned()),
             )
-            .with_package_interface_export(export),
+            .with_package_interface_export(export)
+            .with_dependency_interfaces([
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
         )
         .expect("library compilation");
 
@@ -1359,7 +1386,12 @@ mod tests {
                 )
                 .with_native_link_inputs(native_links.iter().cloned()),
             )
-            .with_dependency_interfaces([dependency]),
+            .with_dependency_interfaces([
+                dependency,
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
         )
         .expect("consumer compilation");
 
@@ -1483,32 +1515,73 @@ mod tests {
 
     #[test]
     fn source_and_imported_static_borrowed_adapters_inline_before_outcome_lowering() {
-        let adapter = r"
+        let adapter = r#"
             module adapters;
             public struct Sink { mut length: usize; }
+            public struct Failure { detail: string; }
             func checked_length(pos count: usize) -> usize { assert(count != 0); return count; }
+            func checked_count<T>(pos count: usize) -> Result<usize, Failure> {
+                assert(count != 0);
+                return Ok(count);
+            }
             public trait Writer {
-                mut func write(pos bytes: &[u8]) -> usize;
+                mut func write(pos bytes: &[u8]) -> Result<usize, Failure>;
                 mut func complete(pos bytes: &[u8]) -> usize {
-                    if bytes.length() == self.write(bytes) { return bytes.length(); }
-                    return 0;
+                    let length: usize = match consume checked_count<Self>(bytes.length()) {
+                        case Ok(count) { yield count; }
+                        case Error(_) { panic("length failed"); }
+                    };
+                    let mut written: usize = 0;
+                    while written < length {
+                        let result: Result<usize, Failure> = self.write(&bytes[written..length]);
+                        match result {
+                            case Ok(count) {
+                                if count == length - written { return length; }
+                            }
+                            case Error(_) {}
+                        }
+                        match consume result {
+                            case Ok(count) {
+                                assert(count > 0 && count <= length - written);
+                                written += count;
+                            }
+                            case Error(error) { panic("write failed"); }
+                        }
+                    }
+                    return length;
                 }
             }
             impl SinkWriter = Sink(Writer) {
-                mut func write(pos bytes: &[u8]) -> usize {
+                mut func write(pos bytes: &[u8]) -> Result<usize, Failure> {
                     let count: usize = checked_length(bytes.length());
                     self.length = count;
-                    return count;
+                    return Ok(count);
                 }
             }
-        ";
+        "#;
 
-        let source = crate::test_support::compilation_with_product(
-            &format!(
-                "{adapter} func main() {{ let mut sink: Sink = {{ length = 0 }}; let bytes: [u8; 4] = [1; 4]; assert(sink.complete(&bytes[..]) == 4); assert(sink.length == 4); }}"
-            ),
-            bray_symbols::ProductKind::Executable,
-        );
+        let source = crate::Compilation::load(
+            crate::CompilationRequest::with_options(
+                crate::test_support::package_identity(),
+                vec![crate::test_support::source_input(
+                    &format!(
+                        "{adapter} func main() {{ let mut sink: Sink = {{ length = 0 }}; let bytes: [u8; 4] = [1; 4]; assert(sink.complete(&bytes[..]) == 4); assert(sink.length == 4); }}"
+                    ),
+                    0,
+                )],
+                crate::CompilationOptions::new(
+                    crate::WorkerBudget::serial(),
+                    bray_symbols::ProductKind::Executable,
+                    crate::SelectedTarget::baseline(),
+                ),
+            )
+            .with_dependency_interfaces([
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
+        )
+        .expect("source compilation");
 
         let imported = imported_consumer(
             adapter,
@@ -1545,11 +1618,18 @@ mod tests {
                 let retained_adapter = graph.graph().instances().iter().any(|instance| {
                     match instance.key().template() {
                         MirUnitKey::Bound(key) => {
-                            key.declared_owner().kind()
-                                == bray_symbols::SymbolKind::TraitCallableFulfillment
+                            matches!(
+                                key.declared_owner().kind(),
+                                bray_symbols::SymbolKind::TraitCallableFulfillment
+                                    | bray_symbols::SymbolKind::TraitCallableMember
+                            )
                         }
                         MirUnitKey::ImportedExecutable(key) => {
-                            key.owner().kind() == bray_symbols::SymbolKind::TraitCallableFulfillment
+                            matches!(
+                                key.owner().kind(),
+                                bray_symbols::SymbolKind::TraitCallableFulfillment
+                                    | bray_symbols::SymbolKind::TraitCallableMember
+                            )
                         }
                         _ => false,
                     }
@@ -1559,6 +1639,35 @@ mod tests {
                     retained_adapter,
                     configuration == crate::BuildConfiguration::Development
                 );
+
+                if configuration != crate::BuildConfiguration::Development {
+                    let values = compilation.semantic_value_store().expect("semantic values");
+                    let mut type_arguments = 0;
+
+                    for instance in graph.graph().instances() {
+                        let concrete = graph.instance(instance.key()).expect("concrete instance");
+
+                        let Some(substitution) = concrete.substitution() else {
+                            continue;
+                        };
+
+                        for binding in values.generic_substitution_data(substitution).bindings() {
+                            if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
+                                assert!(!matches!(
+                                    values.type_data(ty).as_ref(),
+                                    bray_symbols::TypeData::ContextualSelf(_)
+                                ));
+
+                                type_arguments += 1;
+                            }
+                        }
+                    }
+
+                    assert!(
+                        type_arguments > 0,
+                        "the generic helper remains a closed call"
+                    );
+                }
 
                 assert!(
                     graph
@@ -1632,6 +1741,7 @@ mod tests {
             caller.mir(),
             site,
             imported.mir(),
+            &BTreeMap::new(),
             &BTreeMap::new(),
             &BTreeMap::new(),
             true,

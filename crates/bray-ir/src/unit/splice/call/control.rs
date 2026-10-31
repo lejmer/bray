@@ -176,19 +176,19 @@ fn inline_outcome(
     ids: &LocalIds<'_>,
 ) -> Result<MirTerminatorKind, MirCapacityError> {
     let (report, edge) = match kind {
-        MirTerminatorKind::Return {
-            value,
-            report: None,
-        } => {
-            if let Some(report) = normal.1 {
-                let mut destination = report.clone();
+        MirTerminatorKind::Return { value, report } => {
+            if let Some(destination) = normal.1 {
+                let mut destination = destination.clone();
 
                 destination.remap_local_ids(ids);
 
                 builder.push_operation(
                     block,
                     source.clone(),
-                    MirOperationKind::TakeIncomingReport { destination },
+                    MirOperationKind::TakeIncomingReport {
+                        destination,
+                        normal_report: report,
+                    },
                     None,
                 )?;
             }

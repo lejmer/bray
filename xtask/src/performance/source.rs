@@ -129,6 +129,7 @@ func output_path() -> std.path.Path
 pub(super) const CAPTURED_OUTPUT: &str = r#"module captured_output;
 
 using core.target;
+using core.memory;
 using std.bytes;
 using std.io;
 using std.memory;
@@ -173,27 +174,72 @@ func main() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
-    trusted retain_bytes(&bytes[..]);
-    try output.write_all(&bytes[..]);
-    trusted retain_bytes(output.bytes.as_slice());
-    assert(std.bytes.length(&output.bytes) == 4096);
+    let source: &[u8; 4096] = trusted opaque_array(&bytes);
+
+    try output.write_all(&source[..]);
+    assert(trusted retain_bytes(output.bytes.as_slice()) == 4096);
 
     return Ok(unit);
 }
 
-trusted func retain_bytes(pos bytes: &[u8])
+trusted func retain_bytes(pos bytes: &[u8]) -> usize
+    requires(bytes.length() == 4096)
+    uses(device_memory, intrinsic, layout_reinterpret, raw_memory, unchecked_alias, unchecked_init)
+{
+    let pointer: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(bytes, count = 4096);
+    let region: DataPointer<[u8; 4096]> = trusted std.memory.reinterpret<[u8; 4096], u8>(pointer);
+
+    let observed: (usize,) = trusted core.target.assembly<(usize, DataPointer<[u8; 4096]>), (usize,)>(
+        template = "",
+        constraints = "+reg,m",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (bytes.length(), region),
+    );
+
+    return observed.0;
+}
+
+trusted func opaque_array(pos bytes: &[u8; 4096]) -> &[u8; 4096]
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer: DataPointer<[u8; 4096]> = std.memory.address_of<[u8; 4096]>(bytes);
+    let observed: DataPointer<[u8; 4096]> = trusted opaque_array_pointer(pointer);
+
+    return trusted std.memory.borrow_from<[u8; 4096], [u8; 4096]>(bytes, observed);
+}
+
+// The empty tied register operand preserves the exact pointer and its existing access authority.
+trusted func opaque_array_pointer(pos pointer: DataPointer<[u8; 4096]>) -> DataPointer<[u8; 4096]>
+    requires(
+        trusted core.memory.valid_read<[u8; 4096]>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.initialized_as<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.shared_alias_valid<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.epoch_current<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.synchronized_access<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.movement_stable<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.finalization_pending<[u8; 4096]>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<[u8; 4096]>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<[u8; 4096]>(pointer = result),
+        trusted core.memory.initialized_as<[u8; 4096]>(pointer = result),
+        trusted core.memory.shared_alias_valid<[u8; 4096]>(pointer = result),
+        trusted core.memory.epoch_current<[u8; 4096]>(pointer = result),
+        trusted core.memory.synchronized_access<[u8; 4096]>(pointer = result),
+        trusted core.memory.movement_stable<[u8; 4096]>(pointer = result),
+        trusted core.memory.finalization_pending<[u8; 4096]>(pointer = result),
+    )
     uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
 {
-    let pointer: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(bytes, count = bytes.length());
+    let observed: (DataPointer<[u8; 4096]>,) = trusted core.target.assembly<
+        (DataPointer<[u8; 4096]>,),
+        (DataPointer<[u8; 4096]>,),
+    >(template = "", constraints = "+reg", clobbers = "", features = "", options = 1, inputs = (pointer,));
 
-    trusted core.target.assembly<(DataPointer<u8>, usize), unit>(
-        template = "",
-        constraints = "reg,reg",
-        clobbers = "memory",
-        features = "",
-        options = 0,
-        inputs = (pointer, bytes.length()),
-    );
+    return observed.0;
 }
 "#;
 

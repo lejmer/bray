@@ -20,8 +20,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         target: TypeId,
         borrow: bray_bound_tree::LifecycleCallable,
     ) -> Result<(bray_ir::MirBlockId, MirPlace), C::Error> {
-        let borrowed =
-            self.push_selected_call(builder, block, source, storage_place, borrow.clone(), borrow.result)?;
+        let borrowed = self.push_selected_call(
+            builder,
+            block,
+            source,
+            storage_place,
+            borrow.clone(),
+            borrow.result,
+        )?;
 
         let (block, borrowed) = self.check_lifecycle_value(
             builder,
