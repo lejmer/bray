@@ -124,15 +124,7 @@ pub extern "C" fn bray_runtime_activation_callback(
 
     *destination = NativeFrameProgress::new(initial, 0, 0);
 
-    let run = super::super::state::current_native_task().map(|task| {
-        super::super::state::with_runtime(|runtime| {
-            runtime
-                .retained_task(task, true)
-                .map(|task| std::sync::Arc::clone(&task.run))
-        })
-        .expect("callback retains its runtime")
-        .expect("callback retains its registered task")
-    });
+    let run = super::super::state::current_services();
 
     let _scope = run
         .as_ref()

@@ -10,7 +10,6 @@ use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{
     AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisSuspensionKind,
-    AnalysisTaskOperationKind,
 };
 
 impl<C> ControlFlowGraphBuilder<'_, C>
@@ -291,18 +290,7 @@ where
             return Some(Some(resume));
         }
 
-        if self.call_may_propagate_panic(id, hook) {
-            return Some(Some(self.push_invocation(id, current, true)));
-        }
-
-        match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
-            Some(kind) => self.push_task_operation(current, id, kind),
-            None => {
-                return Some(Some(self.push_invocation(id, current, false)));
-            }
-        }
-
-        Some(Some(current))
+        Some(Some(self.push_invocation(id, current, self.call_may_propagate_panic(id, hook))))
     }
 
     fn build_call_inputs(
@@ -464,7 +452,10 @@ pub const fn implementation_hook_may_propagate_synchronous_panic(
     matches!(
         hook,
         None | Some(
-            ImplementationHook::NativeThreadStart
+            ImplementationHook::FutureStart
+                | ImplementationHook::TaskJoin
+                | ImplementationHook::TaskCancel
+                | ImplementationHook::NativeThreadStart
                 | ImplementationHook::BranchingInlineAssembly
                 | ImplementationHook::RawAllocate
                 | ImplementationHook::RawBufferAllocate
@@ -524,6 +515,9 @@ mod tests {
         )));
 
         for hook in [
+            ImplementationHook::FutureStart,
+            ImplementationHook::TaskJoin,
+            ImplementationHook::TaskCancel,
             ImplementationHook::RawAllocate,
             ImplementationHook::RawBufferAllocate,
             ImplementationHook::RawDeallocate,
@@ -537,8 +531,5 @@ mod tests {
             )));
         }
 
-        assert!(!implementation_hook_may_propagate_synchronous_panic(Some(
-            ImplementationHook::FutureStart,
-        )));
     }
 }

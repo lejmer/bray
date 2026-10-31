@@ -6,7 +6,6 @@ use bray_runtime_abi::{
     NativeInactiveFrameTransfer, NativeProductExecution, NativeRootHandle, NativeRootStart,
     NativeRunOutcome, NativeRunResultLayout, NativeRuntimeConfiguration,
     NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
 };
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
@@ -179,6 +178,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
         resume_state: u32,
@@ -196,60 +197,19 @@ native_export! {
 }
 
 native_export! {
-    #[expect(
-        unsafe_code,
-        reason = "the factory copies the compiler-owned layout during this call"
-    )]
-    #[expect(
-        clippy::not_unsafe_ptr_arg_deref,
-        reason = "native callers provide a valid compiler-owned layout for this call"
-    )]
-    pub extern "C-unwind" fn bray_runtime_task_observation_creation(
-        task: NativeTaskHandle,
-        request_cancellation: u8,
-        layout: *const NativeRunResultLayout,
-        cancellation: Option<bray_runtime_abi::NativeValueCleanupCallback>,
-        lifecycle: Option<bray_runtime_abi::NativeValueCleanupCallback>,
-        requirements: u32,
-    ) -> NativeInactiveFrame {
-        let layout = unsafe { layout.as_ref() }
-            .copied()
-            .unwrap_or_else(|| panic!("task observation layout is required"));
-
-        super::task_observation::create(
-            task,
-            request_cancellation != 0,
-            layout,
-            cancellation,
-            lifecycle,
-            requirements,
-        )
-        .unwrap_or_else(|| panic!("task observation layout is invalid"))
-    }
-}
-
-native_export! {
-    #[expect(
-        unsafe_code,
-        reason = "the resolver borrows the compiler-owned layout only for this call"
-    )]
-    #[expect(
-        clippy::not_unsafe_ptr_arg_deref,
-        reason = "native callers provide a valid compiler-owned layout while the task is resolved"
-    )]
     pub extern "C" fn bray_runtime_task_resolution(
         task: NativeTaskHandle,
         destination: *mut u8,
         layout: *const NativeRunResultLayout,
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            let Some(layout) = (unsafe { layout.as_ref() }).copied() else {
-                return NativeRuntimeStatus::INVALID_ARGUMENT;
-            };
             with_runtime(|runtime| runtime.with_cleanup_driving(|| {
-                let outcome = runtime.resolve_task(task);
+                let mut outcome = runtime.resolve_task(task);
+                let status = crate::report_provider::bray_runtime_task_result_transfer(
+                    &mut outcome, destination, layout,
+                );
 
-                if let Err(status) = super::task_observation::transfer_outcome(outcome, destination.addr(), layout) {
+                if !status.is_success() {
                     return status;
                 }
 
@@ -260,6 +220,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_task_destruction(
         task: NativeTaskHandle,
     ) -> NativeRuntimeStatus {
@@ -315,6 +277,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_task_cancellation_request(
         task: NativeTaskHandle,
     ) -> NativeRuntimeStatus {
@@ -326,18 +290,14 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_join_registration(
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
+    pub extern "C" fn bray_runtime_task_observation_service(
         task: NativeTaskHandle,
-        callback: NativeWakeCallback,
-        context: usize,
-    ) -> NativeRunOutcome {
-        catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|runtime| {
-                runtime.join(task, std::sync::Arc::new(move || callback(context)))
-            })
-            .unwrap_or_else(runtime_failure)
-        }))
-        .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED))
+        operation: u32,
+        output: &mut u64,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| super::task::observation_service(task, operation, output))
     }
 }
 
@@ -459,6 +419,10 @@ fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> Native
 
 #[cfg(test)]
 mod tests {
+    fn observe_task(task: bray_runtime_abi::NativeTaskHandle, _: bray_runtime_abi::NativeWakeCallback, _: usize) -> bray_runtime_abi::NativeRunOutcome {
+        super::super::state::with_runtime(|runtime| runtime.observe(task)).expect("fixture runtime is active")
+    }
+
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
@@ -474,7 +438,7 @@ mod tests {
     };
 
     use super::{
-        bray_runtime_execution_shutdown, bray_runtime_join_registration,
+        bray_runtime_execution_shutdown,
         bray_runtime_main_thread_lane_drive, bray_runtime_main_thread_lane_startup,
         bray_runtime_root_completion_resolution, bray_runtime_root_execution,
         bray_runtime_root_terminal_observation, bray_runtime_suspension_registration,
@@ -1406,7 +1370,7 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        let outcome = bray_runtime_join_registration(task, ignore_wake, 0);
+        let outcome = observe_task(task, ignore_wake, 0);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_ne!(outcome.payload(), 0);
@@ -1456,7 +1420,7 @@ mod tests {
 
         assert_eq!(
             bray_runtime_task_allocation().status(),
-            NativeRuntimeStatus::RUNTIME_FAILURE
+            NativeRuntimeStatus::SUCCESS
         );
 
         assert_eq!(
@@ -1466,7 +1430,7 @@ mod tests {
     }
 
     #[test]
-    fn task_start_queries_initial_state_once_outside_the_task_table_lock() {
+    fn task_start_queries_initial_state_once_before_publication() {
         static QUERIES: AtomicUsize = AtomicUsize::new(0);
         static LOCKED: AtomicUsize = AtomicUsize::new(0);
 
@@ -1474,7 +1438,11 @@ mod tests {
             QUERIES.fetch_add(1, Ordering::Relaxed);
 
             let locked =
-                super::super::state::with_runtime(|runtime| runtime.tasks.try_lock().is_err())
+                super::super::state::with_runtime(|runtime| {
+                    let task = runtime.allocate().task().expect("reentrant admission succeeds");
+
+                    !runtime.destroy_task(task).is_success()
+                })
                     .expect("admission retains the native runtime");
 
             if locked {
@@ -1534,12 +1502,12 @@ mod tests {
     }
 
     #[test]
-    fn terminal_retirement_releases_reports_outside_the_task_table_lock() {
+    fn terminal_retirement_releases_reports_outside_the_registry_lock() {
         static RELEASED: AtomicUsize = AtomicUsize::new(0);
 
         extern "C" fn release(_: usize, _: usize, _: &mut NativeRunOutcome) {
             let unlocked =
-                super::super::state::with_runtime(|runtime| runtime.tasks.try_lock().is_ok())
+                super::super::state::with_runtime(|runtime| runtime.scheduler.snapshot().is_ok())
                     .expect("retirement retains the runtime context");
 
             RELEASED.store(if unlocked { 1 } else { 2 }, Ordering::Relaxed);
@@ -1569,13 +1537,13 @@ mod tests {
         assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
-            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            observe_task(task, ignore_wake, 0).state(),
             NativeRunState::COMPLETED
         );
 
         super::super::state::with_runtime(|runtime| {
             let task = runtime
-                .retained_task(task, true)
+                .retained_task(task)
                 .expect("fixture `retained_task` call must succeed");
 
             let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
@@ -1591,10 +1559,13 @@ mod tests {
 
             report.reserve_from(&mut admitted);
 
-            task.task.transfer_cleanup_incident(
-                &runtime.cleanup_reports,
-                task.task.execution_origin(),
+            let execution = task.execution_state();
+
+            runtime.cleanup_reports.transfer(
+                crate::CleanupIncidentProducer::Task(task.id()),
+                crate::CleanupIncidentOrigin::new(execution.frame(), execution.state()),
                 report,
+                &mut admitted,
             );
         })
         .expect("fixture runtime must be active");
@@ -1665,7 +1636,7 @@ mod tests {
         assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
-            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            observe_task(task, ignore_wake, 0).state(),
             NativeRunState::COMPLETED
         );
 
@@ -1683,6 +1654,49 @@ mod tests {
     }
 
     #[test]
+    fn resolved_task_storage_survives_internal_users_without_another_payload_claim() {
+        let _isolation = super::super::state::test_runtime_isolation();
+        let configuration = NativeRuntimeConfiguration::new(1, 1);
+
+        assert!(bray_runtime_main_thread_lane_startup(configuration).is_success());
+
+        let task = bray_runtime_task_allocation().task().expect("task admission succeeds");
+        let frame = protected_frame(8, resume_frame, ignore_completion_move, ignore_action);
+
+        assert!(bray_runtime_task_start(task, frame).is_success());
+
+        let retained = super::super::state::with_runtime(|runtime| runtime.retained_task(task))
+            .expect("runtime remains active").expect("published task has native services");
+
+        let returning_callback = std::sync::Arc::clone(&retained);
+
+        assert!(bray_runtime_main_thread_lane_drive().is_success());
+        assert_eq!(retained.observe().expect("terminal payload transfers once").state(), NativeRunState::COMPLETED);
+        assert_eq!(returning_callback.observe().err(), Some(NativeRuntimeStatus::UNKNOWN_TASK));
+
+        assert!(super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+            .expect("runtime remains active").is_success());
+
+        assert!(bray_runtime_task_destruction(task).is_success());
+
+        // Returning callbacks retain the actual Source cell after the public
+        // owner and scheduler registration have both resolved.
+        assert_eq!(returning_callback.snapshot().phase, 5);
+        assert_eq!(returning_callback.snapshot().retired, 1);
+        drop(retained);
+        assert_eq!(returning_callback.snapshot().phase, 5);
+        drop(returning_callback);
+
+        let replacement = bray_runtime_task_allocation().task().expect("released storage is reusable");
+
+        assert_ne!(replacement, task);
+        assert_eq!(replacement.raw() & 0xffff_ffff, task.raw() & 0xffff_ffff);
+        assert_eq!(bray_runtime_task_destruction(task), NativeRuntimeStatus::UNKNOWN_TASK);
+        assert!(bray_runtime_task_destruction(replacement).is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
+    }
+
+    #[test]
     fn failed_root_admission_preserves_the_exact_inactive_owner_for_retry() {
         static DESTROYED: AtomicUsize = AtomicUsize::new(0);
 
@@ -1696,15 +1710,13 @@ mod tests {
         assert!(bray_runtime_main_thread_lane_startup(configuration).is_success());
 
         let frame = protected_frame(8, resume_frame, ignore_completion_move, destroy);
-        let failure = crate::outgoing::tests::reject_admission();
 
         let start =
-            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration);
+            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), NativeRuntimeConfiguration::new(0, 1));
 
-        assert_eq!(start.status(), NativeRuntimeStatus::RUNTIME_FAILURE);
+        assert_eq!(start.status(), NativeRuntimeStatus::INVALID_ARGUMENT);
         assert!(start.root().is_none());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
-        drop(failure);
 
         let root =
             bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration)
@@ -1723,7 +1735,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_outgoing_admission_preserves_the_inactive_frame_for_retry() {
+    fn task_registration_does_not_readmit_unused_incident_storage() {
         static DESTROYED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
         extern "C-unwind" fn destroy(_: usize) {
@@ -1741,24 +1753,19 @@ mod tests {
 
         let failure = crate::outgoing::tests::reject_admission();
 
-        let rejected = bray_runtime_task_allocation();
-
-        assert_eq!(rejected.status(), NativeRuntimeStatus::RUNTIME_FAILURE);
-        assert!(rejected.task().is_none());
-        assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
-
-        drop(failure);
-
         let task = bray_runtime_task_allocation()
             .task()
-            .expect("fixture `task` call must succeed");
+            .expect("task registration has no unused outgoing reservation");
+
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
+        drop(failure);
 
         assert!(bray_runtime_task_start(task, inactive).is_success());
         assert!(bray_runtime_main_thread_lane_drive().is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
 
         assert_eq!(
-            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            observe_task(task, ignore_wake, 0).state(),
             NativeRunState::COMPLETED
         );
 
@@ -1803,7 +1810,7 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_join_registration(task, ignore_wake, 0).state(),
+            observe_task(task, ignore_wake, 0).state(),
             NativeRunState::RUNTIME_FAILURE
         );
 

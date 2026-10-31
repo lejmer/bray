@@ -31,6 +31,21 @@ func testing_completed_assertion_returns_the_selected_payload()
     assert(completed == 43);
 }
 
+async func completed_payload() -> i32
+{
+    return 47;
+}
+
+@test
+async func testing_completed_assertion_transfers_an_async_owner()
+{
+    let pending = std.testing.assert_completed<Future<i32>>(RunResult.Completed(completed_payload()));
+
+    let value = await pending;
+
+    assert(value == 47);
+}
+
 @test
 func testing_panicked_assertion_returns_the_selected_report()
 {
@@ -44,7 +59,7 @@ func testing_panicked_assertion_returns_the_selected_report()
     let panicked_report: PanicReport = std.testing.assert_error<unit, PanicReport>(caught_for_panicked);
     let returned_report: PanicReport = std.testing.assert_panicked<unit>(RunResult.Panicked(panicked_report));
 
-    returned_report;
+    _ = returned_report;
 }
 
 @test

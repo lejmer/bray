@@ -1,0 +1,83 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+
+// These states describe the independent run, rather than the source Task's
+// resolution obligation. Internal dispatch and delivery users retain storage
+// after the sole source owner has taken the result.
+internal union Phase
+{
+    Admitted;
+    Ready;
+    Running;
+    Waiting;
+    Terminal;
+    Resolved;
+}
+
+internal struct Control
+{
+    mut phase: Phase;
+    mut references: usize;
+    mut source_owner: bool;
+    mut root: usize;
+    mut callback: usize;
+    mut resumable: bool;
+    mut execution: bray.runtime.bootstrap.activation.requirements.Execution;
+    mut outcome: bray.runtime.bootstrap.ReportOutcome;
+    mut terminal_waiters: Reference?;
+    mut retirement_waiters: Reference?;
+    mut next_waiter: Reference?;
+    mut waiting_on: u64;
+    mut waiting_retirement: u8;
+    mut dispatching: bool;
+    mut retiring: bool;
+    mut retired: bool;
+}
+
+internal func empty_outcome() -> bray.runtime.bootstrap.ReportOutcome
+{
+    return
+    {
+        state = 4,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+}
+
+internal func prepare() -> Control
+{
+    return
+    {
+        phase = Phase.Admitted,
+        references = 1,
+        source_owner = true,
+        root = 0,
+        callback = 0,
+        resumable = false,
+        execution =
+        {
+            address = 0,
+            identity = [0; 32],
+            state = 0,
+            requirements =
+            {
+                affinity = 0,
+                lanes = 0
+            },
+            origin = 0
+        },
+        outcome = empty_outcome(),
+        terminal_waiters = none,
+        retirement_waiters = none,
+        next_waiter = none,
+        waiting_on = 0,
+        waiting_retirement = 0,
+        dispatching = false,
+        retiring = false,
+        retired = false
+    };
+}

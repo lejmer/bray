@@ -467,8 +467,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             AnalysisOperationKind::Call {
                 phase: AnalysisCallPhase::Completion,
                 ..
-            } | AnalysisOperationKind::TaskOperation { .. }
-                | AnalysisOperationKind::Result {
+            } | AnalysisOperationKind::Result {
                     phase: crate::analysis::model::AnalysisResultPhase::Completion,
                     ..
                 }

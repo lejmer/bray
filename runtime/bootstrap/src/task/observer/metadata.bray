@@ -1,0 +1,184 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+
+internal callable Resume = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize
+)
+    requires(trusted callback_entry(context = context, operation = 0));
+
+internal callable Cancel = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize
+)
+    requires(trusted callback_entry(context = context, operation = 1));
+
+internal callable Broadcast = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize
+)
+    requires(trusted callback_entry(context = context, operation = 2));
+
+internal callable Resolve = @abi(c) trusted func(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize,
+    pos disposition: u32
+)
+    requires(trusted callback_entry(context = context, operation = 3));
+
+internal callable Move = @abi(c) trusted func(pos context: usize, pos destination: usize)
+    requires(
+        trusted callback_entry(context = context, operation = 4),
+        trusted completion_entry(context = context, destination = destination)
+    );
+
+internal callable Destroy = @abi(c) trusted func(pos context: usize)
+    requires(trusted callback_entry(context = context, operation = 5));
+
+trusted internal func describe_observer(
+    pos shape: bray.runtime.bootstrap.storage.Descriptor,
+    pos header: usize,
+    pos result: usize,
+    pos layout: bray.runtime.bootstrap.task.result.Layout
+) -> bray.runtime.bootstrap.activation.Descriptor
+    uses(layout_reinterpret)
+{
+    let query: bray.runtime.bootstrap.activation.requirements.Query = query_requirements;
+    let resume_callback: Resume = resume;
+    let cancel_callback: Cancel = cancel;
+    let broadcast_callback: Broadcast = broadcast;
+    let resolve_callback: Resolve = resolve;
+    let move_callback: Move = move_completion;
+    let destroy_callback: Destroy = destroy;
+
+    return
+    {
+        storage = shape,
+        header = header,
+        completion = result,
+        completion_bytes = layout.size,
+        completion_align = layout.alignment,
+        states = 2,
+        state = trusted std.memory.function.to_data<bray.runtime.bootstrap.activation.requirements.Query>(
+            trusted std.memory.function_address<bray.runtime.bootstrap.activation.requirements.Query>(query)
+        ),
+        resume = trusted std.memory.function.to_data<Resume>(
+            trusted std.memory.function_address<Resume>(resume_callback)
+        ),
+        cancel = trusted std.memory.function.to_data<Cancel>(
+            trusted std.memory.function_address<Cancel>(cancel_callback)
+        ),
+        broadcast = trusted std.memory.function.to_data<Broadcast>(
+            trusted std.memory.function_address<Broadcast>(broadcast_callback)
+        ),
+        resolve = trusted std.memory.function.to_data<Resolve>(
+            trusted std.memory.function_address<Resolve>(resolve_callback)
+        ),
+        move_completion = trusted std.memory.function.to_data<Move>(
+            trusted std.memory.function_address<Move>(move_callback)
+        ),
+        destroy = trusted std.memory.function.to_data<Destroy>(
+            trusted std.memory.function_address<Destroy>(destroy_callback)
+        )
+    };
+}
+
+internal struct QueryInvocation
+{
+    context: usize;
+    state: u32;
+    operation: u32;
+    argument: usize;
+}
+
+trusted internal predicate query_owner(owner: &QueryInvocation);
+
+trusted internal func acquire_query(
+    pos context: usize,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
+) -> QueryInvocation
+    requires(
+        trusted bray.runtime.bootstrap.activation.requirements.query_context(
+            context = context,
+            state = state,
+            operation = operation,
+            argument = argument
+        )
+    )
+    ensures(trusted query_owner(owner = &result))
+    executes(pure, total)
+{
+    return
+    {
+        context = context,
+        state = state,
+        operation = operation,
+        argument = argument
+    };
+}
+
+@abi(c)
+trusted internal func query_requirements(
+    pos context: usize,
+    pos state: u32,
+    pos operation: u32,
+    pos argument: usize
+) -> bray.runtime.bootstrap.activation.requirements.State
+    requires(
+        trusted bray.runtime.bootstrap.activation.requirements.query_context(
+            context = context,
+            state = state,
+            operation = operation,
+            argument = argument
+        )
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.requirements.query_context(
+            context = context,
+            state = state,
+            operation = operation,
+            argument = argument
+        )
+    )
+    uses(intrinsic, raw_memory, unchecked_alias)
+{
+    let owner = trusted acquire_query(context, state, operation, argument);
+    let pointer = trusted core.target.from_exposed_address<Context>(address = owner.context);
+
+    let permit = trusted lambda(pos owner: &QueryInvocation, pos pointer: DataPointer<Context>)
+        requires(trusted query_owner(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Context>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Context>(pointer = pointer),
+            trusted core.memory.aligned_for<Context>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Context>(pointer = pointer),
+            trusted core.memory.epoch_current<Context>(pointer = pointer),
+            trusted core.memory.synchronized_access<Context>(pointer = pointer),
+            trusted core.memory.movement_stable<Context>(pointer = pointer),
+            trusted core.memory.finalization_pending<Context>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner, pointer);
+
+    let context_view = trusted std.memory.borrow_from<Context, QueryInvocation>(&owner, pointer);
+
+    if (operation == 3 && argument != 0) || (operation < 2 && state == 1)
+    {
+        return context_view.requirements;
+    }
+
+    return
+    {
+        affinity = 0,
+        lanes = 0
+    };
+}

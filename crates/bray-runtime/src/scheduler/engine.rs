@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use bray_platform::{MonotonicDeadline, MonotonicInstant, NativeEvent, RuntimeThreadId};
+use bray_platform::{MonotonicDeadline, NativeEvent, RuntimeThreadId};
 use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
+use super::queue::{self, QueuedTask, ReadyQueue};
 use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_state_lane};
 
 /// Target-independent scheduler policy and ready-queue storage.
@@ -33,10 +34,11 @@ pub(super) struct SchedulerData {
 #[derive(Debug, Default)]
 pub(super) struct SchedulerState {
     pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
-    pub(super) queues: BTreeMap<ExecutionLane, VecDeque<QueuedTask>>,
+    pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,
     pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
     next_timer: u64,
     pub(super) timer_count: usize,
+    pub(super) running_count: usize,
 }
 
 #[derive(Debug)]
@@ -46,6 +48,9 @@ pub(super) struct RegisteredTask {
     pub(super) cancellation: CancellationContext,
     pub(super) dispatch: DispatchState,
     pub(super) wake_count: u64,
+    pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
+    pub(super) queued: Option<QueuedTask>,
+    pub(super) execution_slot: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,14 +61,6 @@ pub(super) enum DispatchState {
         state: ProtectedFrameStateId,
         pending: Option<TaskWakeCause>,
     },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct QueuedTask {
-    pub(super) task: TaskId,
-    pub(super) state: ProtectedFrameStateId,
-    pub(super) cause: TaskWakeCause,
-    pub(super) queued_at: Option<MonotonicInstant>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -137,8 +134,12 @@ impl Scheduler {
                 return Err(SchedulerError::TaskAlreadyRegistered(task));
             }
 
-            if state.tasks.len() >= self.data.limits.tasks().get() {
-                return Err(SchedulerError::TaskCapacityReached);
+            let capacity = state.tasks.len().checked_add(1).expect("the registry length is representable");
+
+            if state.queues.capacity() < capacity {
+                let additional = capacity - state.queues.len();
+
+                state.queues.try_reserve(additional).map_err(SchedulerError::ReadyStorageUnavailable)?;
             }
 
             state.tasks.insert(
@@ -150,6 +151,9 @@ impl Scheduler {
                     cancellation: cancellation.clone(),
                     dispatch: DispatchState::Idle(initial_state),
                     wake_count: 0,
+                    native: None,
+                    queued: None,
+                    execution_slot: false,
                 },
             );
         }
@@ -161,7 +165,7 @@ impl Scheduler {
         {
             Ok(registration) => registration,
             Err(error) => {
-                self.lock_state()?.tasks.remove(&task);
+                unregister_task(&self.data, task);
 
                 return Err(error.into());
             }
@@ -240,6 +244,33 @@ impl Scheduler {
     /// Returns the current registered-task count.
     pub fn task_count(&self) -> Result<usize, SchedulerError> {
         self.lock_state().map(|state| state.tasks.len())
+    }
+
+    pub(crate) fn unregister_native_task(&self, task: TaskId) {
+        unregister_task(&self.data, task);
+    }
+
+    pub(crate) fn install_native_task(
+        &self,
+        task: Arc<crate::native::NativeTaskServices>,
+    ) -> Result<(), SchedulerError> {
+        let mut state = self.lock_state()?;
+        let registered = state.tasks.get_mut(&task.id()).ok_or(SchedulerError::UnknownTask(task.id()))?;
+
+        assert!(registered.native.is_none(), "a registration accepts its native resources once");
+        registered.native = Some(task);
+
+        Ok(())
+    }
+
+    pub(crate) fn native_task(
+        &self,
+        task: TaskId,
+    ) -> Result<Arc<crate::native::NativeTaskServices>, SchedulerError> {
+        self.lock_state()?.tasks.get(&task)
+            .and_then(|registered| registered.native.as_ref())
+            .map(Arc::clone)
+            .ok_or(SchedulerError::UnknownTask(task))
     }
 
     /// Captures registered tasks and timers in deterministic identity order.
@@ -336,9 +367,9 @@ impl Drop for TimerRegistration {
 /// Registration whose lifetime keeps one task known to the scheduler.
 #[derive(Debug)]
 pub struct TaskRegistration {
-    task: TaskId,
+    pub(super) task: TaskId,
     origin: RuntimeThreadId,
-    scheduler: Weak<SchedulerData>,
+    pub(super) scheduler: Weak<SchedulerData>,
     _cancellation_wake: CancellationWakeRegistration,
 }
 
@@ -392,18 +423,22 @@ impl TaskRegistration {
 
 impl Drop for TaskRegistration {
     fn drop(&mut self) {
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return;
-        };
+        if let Some(scheduler) = self.scheduler.upgrade() {
+            unregister_task(&scheduler, self.task);
+        }
+    }
+}
 
-        let Ok(mut state) = scheduler.state.lock() else {
-            return;
-        };
+fn unregister_task(scheduler: &SchedulerData, task: TaskId) {
+    let removed = {
+        let mut state = scheduler.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        state.tasks.remove(&self.task);
+        queue::remove(&mut state, task);
 
-        for queue in state.queues.values_mut() {
-            queue.retain(|queued| queued.task != self.task);
+        let removed = state.tasks.remove(&task);
+
+        if removed.as_ref().is_some_and(|task| task.execution_slot) {
+            state.running_count -= 1;
         }
 
         let mut removed_timers = 0;
@@ -411,14 +446,22 @@ impl Drop for TaskRegistration {
         state.timers.retain(|_, wakes| {
             let previous = wakes.len();
 
-            wakes.retain(|_, wake| wake.task != self.task);
+            wakes.retain(|_, wake| wake.task != task);
             removed_timers += previous - wakes.len();
 
             !wakes.is_empty()
         });
 
         state.timer_count = state.timer_count.saturating_sub(removed_timers);
-    }
+
+        removed
+    };
+
+    // Native resources include their registration. Drop them after releasing
+    // the registry lock so final resource cleanup can reenter the scheduler.
+    drop(removed);
+
+    let _ = scheduler.event.wake_handle().wake();
 }
 
 /// Transferable authority to request dispatch of one registered task.
@@ -489,9 +532,14 @@ pub struct ReadyTask {
     pub(super) queue_latency: Option<Duration>,
     pub(super) scheduler: Weak<SchedulerData>,
     pub(super) released: bool,
+    pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
 }
 
 impl ReadyTask {
+    pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
+        self.native.take()
+    }
+
     /// Returns the task selected for this dispatch.
     pub const fn task(&self) -> TaskId {
         self.task
@@ -617,13 +665,15 @@ fn release_dispatch(
             .then_some(TaskWakeCause::Cancellation)
     });
 
+    let task = state.tasks.get_mut(&task_id).expect("the running task remains registered");
+
+    assert!(task.execution_slot, "dispatch return reacquires its temporarily parked execution slot");
+
+    task.execution_slot = false;
+    state.running_count -= 1;
+
     if let Some(next) = next {
-        state.queues.entry(lane).or_default().push_back(QueuedTask {
-            task: task_id,
-            state: suspended_state,
-            cause: next,
-            queued_at: queue_instant(scheduler),
-        });
+        queue::push(state, task_id, lane, suspended_state, next, queue_instant(scheduler));
 
         let Some(task) = state.tasks.get_mut(&task_id) else {
             return Err(SchedulerError::UnknownTask(task_id));
@@ -640,7 +690,7 @@ fn release_dispatch(
         task.dispatch = DispatchState::Idle(suspended_state);
     }
 
-    Ok((next.is_some(), lane))
+    Ok((true, lane))
 }
 
 fn enqueue_task(
@@ -682,12 +732,7 @@ fn enqueue_task(
     let origin = task.execution.origin().unwrap_or(task.origin);
     let lane = select_state_lane(scheduler, task.execution.descriptor(), origin)?;
 
-    state.queues.entry(lane).or_default().push_back(QueuedTask {
-        task: task_id,
-        state: state_id,
-        cause,
-        queued_at: queue_instant(scheduler),
-    });
+    queue::push(state, task_id, lane, state_id, cause, queue_instant(scheduler));
 
     let Some(task) = state.tasks.get_mut(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
@@ -1146,42 +1191,81 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_limits_fail_without_partial_registration() {
+    fn task_capacity_limits_execution_without_rejecting_registrations() {
         let _isolation = crate::native::test_runtime_isolation();
-
-        let runtime = RuntimeThreadScope::enter()
-            .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
+        let runtime = RuntimeThreadScope::enter().expect("fixture thread enters");
 
         let scheduler = Scheduler::new(
-            [RuntimeCapability::CooperativeExecution],
+            [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
 
-        let first =
-            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+        let first = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+        let second = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+        let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
+        let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
-        let second =
-            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+        first_registration.wake_handle().wake().expect("first task wakes");
+        second_registration.wake_handle().wake().expect("second task wakes");
 
-        let _registration = register_task(&scheduler, &first, runtime.runtime().id());
+        assert_eq!(scheduler.task_count().expect("registry remains available"), 2);
 
-        assert!(matches!(
-            scheduler.register_task(
-                second.id(),
-                second.execution_state(),
-                runtime.runtime().id(),
-                second.cancellation_context()
-            ),
-            Err(SchedulerError::TaskCapacityReached)
-        ));
+        let running = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds")
+            .expect("first task is ready");
 
-        assert_eq!(
-            scheduler
-                .task_count()
-                .unwrap_or_else(|error| panic!("task count must be available: {error:?}")),
-            1
+        assert_eq!(running.task(), first.id());
+        assert!(scheduler.take_ready(cooperative_lane()).expect("quota check succeeds").is_none());
+
+        drop(running);
+
+        assert_eq!(scheduler.take_ready(cooperative_lane()).expect("released quota admits work")
+            .expect("queued second task is ready").task(), second.id());
+    }
+
+    #[test]
+    fn parked_dispatch_lends_capacity_without_releasing_its_exclusive_claim() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture thread enters");
+
+        let scheduler = Scheduler::new(
+            [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
+            runtime.runtime().id(),
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
+
+        let first = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+        let second = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+        let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
+        let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
+
+        first_registration.wake_handle().wake().expect("first task wakes");
+        second_registration.wake_handle().wake().expect("second task wakes");
+
+        let first_dispatch = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds")
+            .expect("first task is ready");
+
+        let parked = first_registration.park_execution().expect("the running dispatch owns capacity");
+
+        assert!(first_registration.park_execution().is_none());
+        assert!(!first_registration.wake_handle().wake().expect("wake retains exclusive claim"));
+
+        let second_dispatch = scheduler.take_ready(cooperative_lane()).expect("parked capacity admits work")
+            .expect("second task is ready");
+
+        assert_eq!(second_dispatch.task(), second.id());
+        assert!(scheduler.take_ready(cooperative_lane()).expect("quota remains bounded").is_none());
+
+        drop(second_dispatch);
+        drop(parked);
+
+        assert_eq!(scheduler.lock_state().expect("quota remains observable").running_count, 1);
+        assert!(scheduler.take_ready(cooperative_lane()).expect("the parent retains capacity").is_none());
+
+        drop(first_dispatch);
+
+        assert_eq!(scheduler.take_ready(cooperative_lane()).expect("parent wake is preserved")
+            .expect("the parent can run after dispatch return").task(), first.id());
     }
 
     #[test]
@@ -1224,7 +1308,7 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         assert_eq!(state.timer_count, 0);
-        assert!(state.queues.values().all(|queue| queue.is_empty()));
+        assert!(state.queues.is_empty());
         assert!(state.timers.is_empty());
     }
 

@@ -460,15 +460,13 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
             .filter(|point| point.kind() == bray_bound_tree::AsyncSuspensionKind::Cleanup)
             .collect::<Vec<_>>();
 
-        if execution.is_empty() {
-            // The started future is already moved. Potential storage-flow cleanup
-            // points do not require a suspension after checked owner selection.
-            assert!(cleanup.is_empty());
-
-            continue;
-        }
-
+        // The Task retains its own asynchronous resolution obligation even
+        // when the user-defined Owner finalizer is synchronous.
         assert!(!cleanup.is_empty());
+        assert!(cleanup.iter().any(|point| point.deferred_calls().is_empty()));
+
+        assert_eq!(cleanup.iter().filter(|point| !point.deferred_calls().is_empty()).count(),
+            usize::from(!execution.is_empty()));
 
         for point in cleanup {
             assert!(matches!(
@@ -476,7 +474,6 @@ fn implicit_async_cleanup_retains_pending_owners_and_dependencies() {
                 bray_bound_tree::BoundExecutionSite::Cleanup(_)
             ));
 
-            assert_eq!(point.deferred_calls().len(), 1);
             assert!(!point.is_recovered());
 
             let state = flow

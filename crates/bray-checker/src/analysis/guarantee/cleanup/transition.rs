@@ -150,7 +150,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::Suspension { .. }
-            | AnalysisOperationKind::TaskOperation { .. }
             | AnalysisOperationKind::Recovery(_) => {}
         }
     }
@@ -306,7 +305,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::Suspension { .. }
-            | AnalysisOperationKind::TaskOperation { .. }
             | AnalysisOperationKind::Recovery(_) => {}
         }
     }

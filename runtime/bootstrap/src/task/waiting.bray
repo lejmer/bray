@@ -1,0 +1,327 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.host.product;
+
+// Both native slots lend their actual retained cells through registration.
+// Their ordinary field values do not grant a source observation claim.
+trusted internal predicate wait_entry(child: DataPointer<Reference>, parent: DataPointer<Reference>);
+
+trusted internal func read_wait_inputs(
+    pos child: DataPointer<Reference>,
+    pos parent: DataPointer<Reference>
+) -> (Reference, Reference)
+    requires(trusted wait_entry(child = child, parent = parent))
+    ensures(trusted retained(owner = &result.0), trusted retained(owner = &result.1))
+{
+    let observed = trusted read_wait_child(child, parent);
+    let waiter = trusted read_reference(parent);
+
+    return (observed, waiter);
+}
+
+trusted internal func read_wait_child(
+    pos child: DataPointer<Reference>,
+    pos parent: DataPointer<Reference>
+) -> Reference
+    requires(trusted wait_entry(child = child, parent = parent))
+    ensures(trusted retained(owner = &result), trusted reference_slot(pointer = parent))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos child: DataPointer<Reference>, pos parent: DataPointer<Reference>)
+        requires(trusted wait_entry(child = child, parent = parent))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = child, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = child),
+            trusted core.memory.initialized_as<Reference>(pointer = child)
+        )
+        executes(pure, total) {};
+
+    trusted permit(child, parent);
+    return trusted std.memory.read<Reference>(child);
+}
+
+// Acquiring one cell does not consume the independently retained other cell.
+trusted internal func lock_wait_cell(pos selected: &Reference, pos other: &Reference) -> std.sync.SpinLockGuard<Control>
+    requires(trusted retained(owner = selected), trusted retained(owner = other))
+    ensures(
+        trusted retained(owner = selected),
+        trusted retained(owner = other),
+        trusted std.sync.spin_lock.acquired(&result.acquisition)
+    )
+{
+    return trusted lock_cell(selected);
+}
+
+@abi(c)
+trusted internal func wait(
+    pos child: DataPointer<Reference>,
+    pos parent: DataPointer<Reference>,
+    pos retirement: u8
+) -> u32
+    requires(trusted wait_entry(child = child, parent = parent))
+{
+    let (observed, waiter) = trusted read_wait_inputs(child, parent);
+
+    if retirement > 1 || observed.runtime != waiter.runtime || observed.handle == waiter.handle
+    {
+        return 3;
+    }
+
+    // All registration pairs acquire cells in identity order. Notification
+    // detaches a complete chain before locking a parent, so it never inverts it.
+    if observed.handle < waiter.handle
+    {
+        let mut observed_guard = trusted lock_wait_cell(&observed, &waiter);
+        let mut waiter_guard = trusted lock_wait_cell(&waiter, &observed);
+
+        return trusted register_waiter(
+            trusted observed_guard.get(),
+            trusted waiter_guard.get(),
+            &observed,
+            &waiter,
+            retirement
+        );
+    }
+
+    let mut waiter_guard = trusted lock_wait_cell(&waiter, &observed);
+    let mut observed_guard = trusted lock_wait_cell(&observed, &waiter);
+
+    return trusted register_waiter(
+        trusted observed_guard.get(),
+        trusted waiter_guard.get(),
+        &observed,
+        &waiter,
+        retirement
+    );
+}
+
+trusted internal func register_waiter(
+    pos child: &mut Control,
+    pos parent: &mut Control,
+    pos observed: &Reference,
+    pos waiter: &Reference,
+    pos retirement: u8
+) -> u32
+{
+    if !child.source_owner || child.phase matches Phase.Admitted
+    {
+        return 7;
+    }
+
+    if retirement == 0
+    {
+        if child.phase matches Phase.Terminal | Phase.Resolved
+        {
+            return 0;
+        }
+    }
+    else
+    {
+        if !(child.phase matches Phase.Resolved)
+        {
+            return 6;
+        }
+
+        if child.retired
+        {
+            return 0;
+        }
+
+        child.retiring = true;
+    }
+
+    if parent.waiting_on != 0
+    {
+        return if parent.waiting_on == observed.handle && parent.waiting_retirement == retirement
+        {
+            yield 6;
+        }
+        else
+        {
+            yield 3;
+        };
+    }
+
+    if !trusted retain(parent)
+    {
+        return 4;
+    }
+
+    let next = if retirement == 0
+    {
+        yield trusted std.memory.replace_value<(Reference?)>(&mut child.terminal_waiters, none);
+    }
+    else
+    {
+        yield trusted std.memory.replace_value<(Reference?)>(&mut child.retirement_waiters, none);
+    };
+
+    let retained_waiter: Reference =
+    {
+        pointer = waiter.pointer,
+        runtime = waiter.runtime,
+        handle = waiter.handle
+    };
+
+    parent.next_waiter = next;
+    parent.waiting_on = observed.handle;
+    parent.waiting_retirement = retirement;
+
+    if retirement == 0
+    {
+        child.terminal_waiters = retained_waiter;
+    }
+    else
+    {
+        child.retirement_waiters = retained_waiter;
+    }
+
+    return 6;
+}
+
+@abi(c)
+trusted internal func request_retirement(pos pointer: DataPointer<Reference>) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted resolution_entry(reference = pointer))
+{
+    let reference = trusted read_reference(pointer);
+    let mut guard = trusted lock_cell(&reference);
+    let control = trusted guard.get();
+
+    if !control.source_owner
+    {
+        return 7;
+    }
+
+    if !(control.phase matches Phase.Resolved)
+    {
+        return 6;
+    }
+
+    if control.retired
+    {
+        return 0;
+    }
+
+    control.retiring = true;
+    return 6;
+}
+
+// A detached chain owns one independent cell reference per node, including
+// the selected node through wake return. Taking a link transfers that ownership.
+trusted internal predicate waiter_chain(owner: &(Reference?));
+
+trusted internal func take_waiters(pos owner: &Dispatch, pos retirement: u8) -> Reference?
+    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    ensures(trusted waiter_chain(owner = &result), trusted dispatch_acquired(owner = &owner.acquisition))
+{
+    let reference = trusted dispatch_reference(owner);
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    return if retirement == 0
+    {
+        yield trusted std.memory.replace_value<(Reference?)>(&mut control.terminal_waiters, none);
+    }
+    else
+    {
+        yield trusted std.memory.replace_value<(Reference?)>(&mut control.retirement_waiters, none);
+    };
+}
+
+trusted internal func pop_waiter(pos owner: &Dispatch, pos chain: Reference?) -> (Reference, Reference?)
+    requires(
+        chain matches ?_,
+        trusted waiter_chain(owner = &chain),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted retained(owner = &result.0),
+        trusted owned_reference(owner = &result.0),
+        trusted waiter_chain(owner = &result.1),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+{
+    let extract = trusted lambda(pos chain: Reference?) -> Reference
+        requires(chain matches ?_, trusted waiter_chain(owner = &chain))
+        ensures(trusted retained(owner = &result))
+        uses(intrinsic)
+    {
+        return match consume chain
+        {
+            case ?node { yield node; }
+            case none { yield trusted core.target.abort(); }
+        };
+    };
+
+    let node = trusted extract(chain);
+
+    let next =
+    {
+        let mut guard = trusted lock_cell(&node);
+        let control = trusted guard.get();
+
+        control.waiting_on = 0;
+        control.waiting_retirement = 0;
+
+        yield trusted std.memory.replace_value<(Reference?)>(&mut control.next_waiter, none);
+    };
+
+    return (node, next);
+}
+
+trusted internal func notify_waiters(pos owner: &Dispatch, pos retirement: u8)
+    requires(
+        trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let mut chain = trusted take_waiters(owner, retirement);
+
+    while chain matches ?_
+    {
+        chain = trusted deliver_waiter(owner, chain);
+    }
+}
+
+trusted internal func deliver_waiter(pos owner: &Dispatch, pos chain: Reference?) -> Reference?
+    requires(
+        chain matches ?_,
+        trusted waiter_chain(owner = &chain),
+        trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted waiter_chain(owner = &result), trusted dispatch_acquired(owner = &owner.acquisition))
+{
+    let (node, next) = trusted pop_waiter(owner, chain);
+    let remaining = trusted wake_waiter(owner, &node, next);
+
+    _ = trusted dispose_reference(node);
+
+    return remaining;
+}
+
+// The native callback borrows the selected node; this function retains both
+// the selected reference and the rest of the owned chain through its return.
+trusted internal func wake_waiter(pos owner: &Dispatch, pos node: &Reference, pos remaining: Reference?) -> Reference?
+    requires(
+        trusted retained(owner = node),
+        trusted owned_reference(owner = node),
+        trusted waiter_chain(owner = &remaining),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted retained(owner = node),
+        trusted owned_reference(owner = node),
+        trusted waiter_chain(owner = &result),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+{
+    trusted wake_service(trusted dispatch_services(owner), node.handle);
+    return remaining;
+}

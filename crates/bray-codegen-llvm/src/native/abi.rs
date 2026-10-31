@@ -166,7 +166,7 @@ fn register_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if kind == RuntimeAbiType::LaneResult {
+    if matches!(kind, RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState) {
         return Some(context.i64_type().into());
     }
 

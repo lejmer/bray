@@ -455,7 +455,13 @@ impl Plan {
             }
         }
 
-        prepared.select_inputs(request.unit(), expressions.types(), graph, &input_cleanup);
+        prepared.select_inputs(
+            request.unit(),
+            expressions.types(),
+            expressions.selections(),
+            graph,
+            &input_cleanup,
+        );
 
         prepared.select_buffer_cleanup(
             expressions.selections(),

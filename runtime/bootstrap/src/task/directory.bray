@@ -1,0 +1,206 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using std.sync;
+using internal std.memory;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.heap;
+
+// A slab never moves. Handles are (slot, generation) views; the native owner or
+// an admitted internal reference supplies authority, independently of these bits.
+internal struct Slot
+{
+    mut runtime: u64;
+    mut generation: u32;
+    mut next: usize;
+    mut control: Uninit<std.sync.SpinLock<Control>>?;
+}
+
+internal struct Slab
+{
+    first: usize;
+    mut slots: std.memory.RawBuffer<Slot>;
+}
+
+internal struct Entries
+{
+    mut slabs: std.memory.RawBuffer<Slab>?;
+    mut free: usize;
+    mut total: usize;
+    mut active: usize;
+}
+
+// Binary search is over geometrically admitted slabs, rather than live tasks.
+// Releasing a task reuses its cell and does not grow a permanent task history.
+trusted internal func slot_at(pos entries: &mut Entries, pos index: usize) -> &mut Slot
+    requires(index > 0, index <= entries.total)
+    uses(intrinsic, raw_memory)
+{
+    if let ?backing = entries.slabs
+    {
+        let rows = trusted std.memory.initialized_slice_mut<Slab>(&mut backing);
+        let mut low: usize = 0;
+        let mut high = rows.length();
+
+        while low < high
+        {
+            let middle = low + (high - low) / 2;
+
+            if rows[middle].first <= index
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        let first = rows[low - 1].first;
+        let slots = trusted std.memory.initialized_slice_mut<Slot>(&mut rows[low - 1].slots);
+
+        return &mut slots[index - first];
+    }
+
+    trusted core.target.abort();
+}
+
+internal struct Prepared
+{
+    mut slabs: std.memory.RawBuffer<Slab>?;
+    mut slots: std.memory.RawBuffer<Slot>?;
+}
+
+internal union Growth
+{
+    Slabs(pos capacity: usize);
+    Slots(pos capacity: usize);
+}
+
+// Allocation and disposal of replaced index storage happen outside the lock.
+trusted internal func prepare_growth(pos prepared: &mut Prepared, pos request: Growth) -> bool
+{
+    match consume request
+    {
+        case Growth.Slabs(capacity)
+        {
+            prepared.slabs = trusted bray.runtime.bootstrap.heap.try_buffer<Slab>(capacity);
+            return prepared.slabs.is_present();
+        }
+        case Growth.Slots(capacity)
+        {
+            prepared.slots = trusted bray.runtime.bootstrap.heap.try_buffer<Slot>(capacity);
+            return prepared.slots.is_present();
+        }
+    }
+}
+
+trusted internal func grow(pos entries: &mut Entries, pos prepared: &mut Prepared) -> Result<bool, Growth>
+    uses(intrinsic)
+{
+    if entries.free != 0
+    {
+        return Ok(true);
+    }
+
+    let maximum: usize = 0xffffffff;
+
+    if entries.total == maximum
+    {
+        return Ok(false);
+    }
+
+    let count = if entries.total == 0
+    {
+        yield 16;
+    }
+    else if entries.total <= (maximum - entries.total)
+    {
+        yield entries.total;
+    }
+    else
+    {
+        yield maximum - entries.total;
+    };
+
+    match consume trusted bray.runtime.bootstrap.heap.reserve<Slab>(&mut entries.slabs, &mut prepared.slabs)
+    {
+        case Ok(ready)
+        {
+            if !ready
+            {
+                return Ok(false);
+            }
+        }
+        case Error(capacity) { return Error(Growth.Slabs(capacity)); }
+    }
+
+    if let ?slots = prepared.slots
+    {
+        if slots.capacity < count || slots.initialized != 0
+        {
+            return Error(Growth.Slots(count));
+        }
+    }
+    else
+    {
+        return Error(Growth.Slots(count));
+    }
+
+    let backing = trusted std.memory.replace_value<(std.memory.RawBuffer<Slot>?)>(&mut prepared.slots, none);
+
+    match consume backing
+    {
+        case ?storage
+        {
+            let mut slots = storage;
+            let first = entries.total + 1;
+
+            while slots.initialized < count
+            {
+                let index = first + slots.initialized;
+
+                trusted internal std.memory.initialize_spare<Slot>(
+                    &mut slots,
+                    {
+                        runtime = 0,
+                        generation = 0,
+                        next = if index == first
+                        {
+                            yield 0;
+                        }
+                        else
+                        {
+                            yield index - 1;
+                        },
+                        control = none
+                    }
+                );
+            }
+
+            if let ?slabs = entries.slabs
+            {
+                trusted internal std.memory.initialize_spare<Slab>(
+                    &mut slabs,
+                    {
+                        first = first,
+                        slots = slots
+                    }
+                );
+            }
+            else
+            {
+                trusted core.target.abort();
+            }
+
+            entries.total += count;
+            entries.free = entries.total;
+            return Ok(true);
+        }
+        case none { trusted core.target.abort(); }
+    }
+}

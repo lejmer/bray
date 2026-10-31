@@ -644,9 +644,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ..
             } => {
                 let frame = self.native_inactive_frame(value)?;
-                let task = self.allocate_native_task(*allocation)?;
-
-                self.start_native_task(*start, task, frame)?;
+                let task = self.start_native_task(*allocation, *start, frame)?;
 
                 Ok(Some(task.into()))
             }

@@ -1,23 +1,23 @@
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
 use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
 use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
 use bray_platform::RuntimeThreadId;
 use bray_runtime_abi::{
-    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
+    NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
     CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    JoinWaitRegistration, RuntimeEvent, RuntimeEventGeneration, RuntimeEventRegistration,
-    Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
+    Scheduler, SchedulerLimits,
 };
 
 // Context contents belong to explicit scopes and runtime retirement. The slot itself
@@ -56,6 +56,7 @@ enum NativeRuntimeBinding {
 struct NativeExecutionContext {
     runtime: Option<NativeRuntimeBinding>,
     task: Option<NativeTaskHandle>,
+    services: Option<Arc<super::super::NativeTaskServices>>,
 }
 
 impl NativeExecutionContext {
@@ -63,6 +64,7 @@ impl NativeExecutionContext {
         Self {
             runtime: None,
             task: None,
+            services: None,
         }
     }
 }
@@ -87,6 +89,24 @@ pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
         .flatten()
 }
 
+pub(in crate::native) fn current_services() -> Option<Arc<super::super::NativeTaskServices>> {
+    NATIVE_CONTEXT.try_with(|context| context.borrow().services.as_ref().map(Arc::clone))
+        .ok().flatten()
+}
+
+pub(in crate::native) fn current_reference_address() -> Option<u64> {
+    NATIVE_CONTEXT.try_with(|context| {
+        context.borrow().services.as_ref().map(|task| {
+            u64::try_from(std::ptr::from_ref(&task.control).addr())
+                .expect("native task-reference addresses fit the execution ABI")
+        })
+    }).ok().flatten()
+}
+
+pub(in crate::native) fn park_current_execution() -> Option<crate::scheduler::ExecutionPark> {
+    current_services().and_then(|task| task.registration.park_execution())
+}
+
 fn replace_runtime(runtime: Option<NativeRuntimeBinding>) -> Option<NativeRuntimeBinding> {
     NATIVE_CONTEXT.with(|cell| {
         let context = &mut *cell.borrow_mut();
@@ -105,10 +125,13 @@ pub(in crate::native) fn with_bound_runtime<T>(
     runtime: Rc<NativeRuntime>,
     callback: impl FnOnce() -> T,
 ) -> T {
+    let _parked = park_current_execution();
+
     let previous = NATIVE_CONTEXT.with(|cell| {
         cell.replace(NativeExecutionContext {
             runtime: Some(NativeRuntimeBinding::Borrowed(runtime)),
             task: None,
+            services: None,
         })
     });
 
@@ -120,6 +143,7 @@ pub(in crate::native) fn with_bound_runtime<T>(
 }
 
 pub(in crate::native) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
+    let _parked = park_current_execution();
     let previous = NATIVE_CONTEXT.with(|cell| cell.replace(NativeExecutionContext::empty()));
 
     crate::context::with_independent_execution_context(|| {
@@ -131,10 +155,12 @@ pub(in crate::native) fn with_independent_execution_context<T>(callback: impl Fn
 
 /// A returned root handle remains owned by the caller's runtime after entry returns.
 pub(in crate::native) fn with_root_execution_context<T>(callback: impl FnOnce() -> T) -> T {
+    let _parked = park_current_execution();
+
     let previous = NATIVE_CONTEXT.with(|cell| {
         let context = &mut *cell.borrow_mut();
 
-        context.task.take()
+        (context.task.take(), context.services.take())
     });
 
     let _scope = NativeTaskScope(previous);
@@ -149,7 +175,7 @@ pub(in crate::native) fn with_current_task<T>(
     let previous = NATIVE_CONTEXT.with(|cell| {
         let context = &mut *cell.borrow_mut();
 
-        context.task.replace(task)
+        (context.task.replace(task), context.services.take())
     });
 
     let _scope = NativeTaskScope(previous);
@@ -181,19 +207,33 @@ impl Drop for NativeExecutionContextScope {
     }
 }
 
-struct NativeTaskScope(Option<NativeTaskHandle>);
+pub(in crate::native) fn with_task_services<T>(
+    services: Arc<super::super::NativeTaskServices>,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let previous = NATIVE_CONTEXT.with(|cell| {
+        let context = &mut *cell.borrow_mut();
+
+        (context.task.replace(services.handle()), context.services.replace(services))
+    });
+
+    let _scope = NativeTaskScope(previous);
+
+    callback()
+}
+
+struct NativeTaskScope((Option<NativeTaskHandle>, Option<Arc<super::super::NativeTaskServices>>));
 
 impl Drop for NativeTaskScope {
     fn drop(&mut self) {
         NATIVE_CONTEXT.with(|cell| {
             let context = &mut *cell.borrow_mut();
 
-            context.task = self.0
+            context.task = self.0.0;
+            context.services = self.0.1.take();
         });
     }
 }
-
-type NativeTask = TaskControlBlock<usize>;
 
 pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) thread: RuntimeThreadEntry,
@@ -244,9 +284,7 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) scheduler: Scheduler,
     pub(in crate::native) workers: super::super::workers::WorkerPool,
     pub(in crate::native) owners: AtomicUsize,
-    pub(in crate::native) tasks: Mutex<BTreeMap<NativeTaskHandle, NativeTaskSlot>>,
-    pub(in crate::native) task_capacity: NonZeroUsize,
-    pub(in crate::native) next_task: AtomicU64,
+    pub(in crate::native) identity: u64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
 }
 
@@ -303,12 +341,7 @@ mod tests {
                 assert_eq!(core.owners.load(Ordering::Acquire), 0);
                 assert!(core.workers.is_stopping());
 
-                assert!(
-                    core.tasks
-                        .lock()
-                        .expect("fixture mutex must not be poisoned")
-                        .is_empty()
-                );
+                assert_eq!(core.scheduler.task_count().expect("fixture scheduler is available"), 0);
             }
         }
     }
@@ -579,27 +612,27 @@ impl Deref for NativeRuntime {
     }
 }
 
+/// Borrows the native runtime whose final admission owner is retiring.
+/// Only the identity is transported; the native runtime layout stays private.
+#[repr(C)]
+pub(crate) struct RuntimeRetirement<'a> {
+    identity: u64,
+    scope: std::marker::PhantomData<&'a NativeRuntimeCore>,
+}
+
 impl NativeRuntimeCore {
     pub(in crate::native) const fn scheduler(&self) -> &Scheduler {
         &self.scheduler
     }
 
     fn clear_tasks(&self) {
-        let tasks = {
-            let mut tasks = self
-                .tasks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert_eq!(self.scheduler.task_count().expect("native scheduler is available"), 0,
+            "runtime retirement follows resolution of every source-owned task and result");
 
-            assert!(
-                tasks.values().all(NativeTaskSlot::can_destroy),
-                "runtime infrastructure retirement follows resolution of every source-owned task and result"
-            );
+        let context = RuntimeRetirement { identity: self.identity, scope: std::marker::PhantomData };
+        let status = crate::report_provider::bray_runtime_task_control_runtime_retirement(&context);
 
-            std::mem::take(&mut *tasks)
-        };
-
-        drop(tasks);
+        assert!(status.is_success(), "runtime retirement releases unstarted admissions");
     }
 
     fn retain_owner(&self) -> bool {
@@ -649,70 +682,6 @@ impl RetainedRuntime {
         }
 
         self.core.release_owner();
-    }
-}
-
-pub(in crate::native) enum NativeTaskSlot {
-    Allocated(crate::TaskAdmission),
-    Started(Arc<StartedTask>),
-    Terminal {
-        state: NativeRunState,
-        payload: usize,
-        _task: Arc<StartedTask>,
-    },
-}
-
-impl NativeTaskSlot {
-    pub(in crate::native) fn can_destroy(&self) -> bool {
-        match self {
-            Self::Allocated(_) => true,
-            Self::Started(_) => false,
-            Self::Terminal { _task, .. } => matches!(
-                *_task
-                    .retirement
-                    .lock()
-                    .expect("retirement state is available"),
-                Retirement::Released
-            ),
-        }
-    }
-}
-
-pub(in crate::native) struct StartedTask {
-    pub(in crate::native) task: Arc<NativeTask>,
-    pub(in crate::native) run: Arc<super::super::run::NativeRun>,
-    pub(in crate::native) registration: TaskRegistration,
-    pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
-    pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
-    pub(in crate::native) observation_claimed: AtomicBool,
-    pub(in crate::native) retirement: Mutex<Retirement>,
-}
-
-pub(in crate::native) enum Retirement {
-    Retained,
-    Requested(Option<crate::TaskWakeHandle>),
-    Released,
-}
-
-pub(in crate::native) enum SuspendedWait {
-    Event {
-        event: RuntimeEvent,
-        observed: RuntimeEventGeneration,
-        _registration: RuntimeEventRegistration,
-    },
-}
-
-impl SuspendedWait {
-    pub(in crate::native) fn is_ready(&self) -> bool {
-        match self {
-            Self::Event {
-                event, observed, ..
-            } => {
-                let (generation, closed) = event.observation();
-
-                closed || generation != *observed
-            }
-        }
     }
 }
 
@@ -773,13 +742,17 @@ fn initialize_with_capabilities(
         SchedulerLimits::new(task_capacity, timer_capacity),
     );
 
+    let identity = crate::report_provider::bray_runtime_task_control_creation();
+
+    if identity == 0 {
+        return NativeRuntimeStatus::RUNTIME_FAILURE;
+    }
+
     let core = Arc::new(NativeRuntimeCore {
         scheduler,
         workers: super::super::workers::WorkerPool::new(),
         owners: AtomicUsize::new(1),
-        tasks: Mutex::new(BTreeMap::new()),
-        task_capacity,
-        next_task: AtomicU64::new(1),
+        identity,
         cleanup_reports: CleanupReportSink::new(),
     });
 

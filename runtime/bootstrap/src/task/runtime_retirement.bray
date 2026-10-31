@@ -1,0 +1,200 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.target;
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+// The native runtime has released its last admission owner and stopped its
+// workers. Already resolved cells can remain pinned by returning callbacks.
+@copy
+@layout(c)
+internal struct RuntimeRetirementContext
+{
+    identity: u64;
+}
+
+trusted internal predicate runtime_retirement_entry(pointer: DataPointer<RuntimeRetirementContext>);
+
+internal struct RuntimeRetirementClaim
+{
+}
+
+internal struct ClosingRuntime
+{
+    acquisition: RuntimeRetirementClaim;
+    context: DataPointer<RuntimeRetirementContext>;
+    identity: u64;
+}
+
+trusted internal predicate runtime_closing(owner: &RuntimeRetirementClaim);
+
+// The native entry already owns its last runtime admission scope. Keep that
+// actual borrowed scope with its identity, rather than attaching authority to
+// a copied integer. No operation accepts this marker with a separate identity.
+trusted internal func closing_runtime(pos context: DataPointer<RuntimeRetirementContext>) -> ClosingRuntime
+    requires(trusted runtime_retirement_entry(pointer = context))
+    ensures(trusted runtime_closing(owner = &result.acquisition))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos context: DataPointer<RuntimeRetirementContext>)
+        requires(trusted runtime_retirement_entry(pointer = context))
+        ensures(
+            trusted core.memory.valid_read<RuntimeRetirementContext>(pointer = context, count = 1),
+            trusted core.memory.aligned_for<RuntimeRetirementContext>(pointer = context),
+            trusted core.memory.initialized_as<RuntimeRetirementContext>(pointer = context)
+        )
+        executes(pure, total) {};
+
+    trusted permit(context);
+
+    let value = trusted std.memory.read<RuntimeRetirementContext>(context);
+
+    return
+    {
+        acquisition = RuntimeRetirementClaim
+        {
+        },
+        context = context,
+        identity = value.identity
+    };
+}
+
+@abi(c)
+trusted internal func runtime_retirement(pos context: DataPointer<RuntimeRetirementContext>) -> u32
+    requires(
+        trusted runtime_retirement_entry(pointer = context),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let owner = trusted closing_runtime(context);
+
+    let limit: usize =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+        let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+        yield host.tasks.total;
+    };
+
+    let mut index: usize = 1;
+
+    while index <= limit
+    {
+        trusted retire_runtime_slot(&owner, index);
+
+        index += 1;
+    }
+
+    return 0;
+}
+
+trusted internal func retire_runtime_slot(pos owner: &ClosingRuntime, pos index: usize)
+    requires(trusted runtime_closing(owner = &owner.acquisition))
+    ensures(trusted runtime_closing(owner = &owner.acquisition))
+    uses(intrinsic)
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+    let slot = trusted slot_at(&mut host.tasks, index);
+
+    if slot.runtime != owner.identity || slot.control matches none
+    {
+        return;
+    }
+
+    // This view stays inside the actual resident acquisition. It borrows the
+    // pinned slot and owns no additional counted reference or source claim.
+    let issue_reference = trusted lambda(
+        pos lease: &bray.runtime.bootstrap.host.HostLease,
+        pos slot: &Slot,
+        pos index: usize
+    ) -> Reference
+        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+        ensures(
+            trusted retained(owner = &result),
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+            trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        )
+    {
+        return
+        {
+            pointer = std.memory.address_of<Slot>(slot),
+            runtime = slot.runtime,
+            handle = (std.numeric.truncate_to<u64, u32>(slot.generation) << 32) | std.numeric.truncate_to<u64, usize>(
+                index
+            )
+        };
+    };
+
+    let reference = trusted issue_reference(&lease, &slot, index);
+    let last = trusted close_runtime_admission(&lease, &reference, owner);
+
+    if last
+    {
+        // The closed cell owns no frame or result. Destroying
+        // its initialized lock cannot invoke a producer under this acquisition.
+        let mut recycling_anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        let retired = trusted take_released(&lease, &mut recycling_anchor, &reference);
+    }
+}
+
+trusted internal func close_runtime_admission(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos reference: &Reference,
+    pos owner: &ClosingRuntime
+) -> bool
+    requires(
+        trusted runtime_closing(owner = &owner.acquisition),
+        trusted retained(owner = reference),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+    ensures(
+        !result || trusted released(owner = reference),
+        trusted runtime_closing(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+    uses(intrinsic)
+{
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    if reference.runtime != owner.identity || !control.source_owner
+    {
+        return false;
+    }
+
+    if !(control.phase matches Phase.Admitted)
+    {
+        trusted core.target.abort();
+    }
+
+    control.source_owner = false;
+    control.phase = Phase.Resolved;
+    control.retired = true;
+
+    return trusted release(control);
+}

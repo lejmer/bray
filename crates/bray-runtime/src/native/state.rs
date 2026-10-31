@@ -8,10 +8,11 @@ pub(crate) use core::test_runtime_isolation;
 #[cfg(test)]
 pub(super) use core::with_current_task;
 pub(super) use core::{
-    NativeRuntimeCore, StartedTask, initialize, run_worker, shutdown,
+    NativeRuntimeCore, initialize, run_worker, shutdown,
+    current_reference_address, current_services,
     with_independent_execution_context, with_root_execution_context, with_runtime,
 };
-pub(crate) use core::{RetainedRuntime, retain_current_runtime, retain_runtime};
+pub(crate) use core::{RuntimeRetirement, RetainedRuntime, retain_current_runtime, retain_runtime};
 
 #[cfg(feature = "test-output")]
 pub(crate) use core::initialize_thread_context;

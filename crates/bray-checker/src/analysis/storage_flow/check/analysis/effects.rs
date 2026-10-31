@@ -117,8 +117,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             } => Some(invocation),
             AnalysisOperationKind::Bound(bray_bound_tree::AnyBoundNodeId::Expression(
                 expression,
-            ))
-            | AnalysisOperationKind::TaskOperation { expression, .. } => {
+            )) => {
                 // Calls without an abnormal edge complete in one graph operation.
                 let occurrence = expression.into();
 
