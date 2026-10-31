@@ -23,6 +23,45 @@ use std::sync::Arc;
 
 #[test]
 #[ignore = "tier:native"]
+fn static_roots_exclude_unused_trivial_aggregate_storage() {
+    let compilation = crate::test_support::compilation_with_product(
+        r#"
+        module app;
+        internal static TABLE: [[u8; 2]; 2] = [[1, 2], [3, 4]];
+        internal static PAIR: (u8, u16) = (5, 6);
+        func main() {}
+        "#,
+        ProductKind::Executable,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let cancellation = CancellationToken::new();
+
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .expect("target must validate");
+
+    let semantic = compilation
+        .product_semantics()
+        .expect("product semantics must resolve");
+
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, &cancellation)
+        .expect("trivial aggregates must not become roots");
+
+    assert_eq!(roots.len(), 1);
+    assert!(roots[0].instance().static_instance().is_none());
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     let source = concat!(
         "module app;\n",

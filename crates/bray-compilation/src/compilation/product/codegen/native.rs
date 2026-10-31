@@ -39,7 +39,10 @@ impl Compilation {
         reachability: Option<&ConcreteCodegenReachability>,
         cancellation: &CancellationToken,
     ) -> Result<
-        Vec<(bray_symbols::NativeLinkRequirement, bray_linker::LinkInputProvenance)>,
+        Vec<(
+            bray_symbols::NativeLinkRequirement,
+            bray_linker::LinkInputProvenance,
+        )>,
         NativeProductPlanningError,
     > {
         let mut links = self
@@ -53,7 +56,10 @@ impl Compilation {
             return Ok(links);
         };
 
-        let mut seen = links.iter().map(|(link, _)| link.clone()).collect::<BTreeSet<_>>();
+        let mut seen = links
+            .iter()
+            .map(|(link, _)| link.clone())
+            .collect::<BTreeSet<_>>();
 
         let graph = reachability.graph();
 
@@ -65,12 +71,16 @@ impl Compilation {
                 _ => None,
             })
             .chain(graph.instances().iter().flat_map(|instance| {
-                instance.mir().storages().iter().filter_map(|storage| match storage.kind() {
-                    bray_ir::MirStorageKind::NativeStatic(reference) => {
-                        Some(reference.template().declaration().into())
-                    }
-                    _ => None,
-                })
+                instance
+                    .mir()
+                    .storages()
+                    .iter()
+                    .filter_map(|storage| match storage.kind() {
+                        bray_ir::MirStorageKind::NativeStatic(reference) => {
+                            Some(reference.template().declaration().into())
+                        }
+                        _ => None,
+                    })
             }))
             .collect::<BTreeSet<_>>();
 
@@ -100,7 +110,10 @@ impl Compilation {
 
             for link in boundary.links() {
                 if seen.insert(link.clone()) {
-                    links.push((link.clone(), bray_linker::LinkInputProvenance::Package(package.clone())));
+                    links.push((
+                        link.clone(),
+                        bray_linker::LinkInputProvenance::Package(package.clone()),
+                    ));
                 }
             }
         }
@@ -336,13 +349,7 @@ impl Compilation {
                 )
             }));
 
-        let selected = libraries.select(
-            native_roots,
-            provided,
-            [],
-            runtime,
-            &native_links,
-        )?;
+        let selected = libraries.select(native_roots, provided, [], runtime, &native_links)?;
 
         demands.extend(
             libraries
@@ -691,7 +698,11 @@ impl NativeLibraries {
     ) -> BTreeSet<bray_runtime_interface::RuntimeAbiRole> {
         let mut roles = BTreeSet::new();
 
-        for &location in selection.units().iter().filter(|unit| unit.artifact < self.artifacts.len()) {
+        for &location in selection
+            .units()
+            .iter()
+            .filter(|unit| unit.artifact < self.artifacts.len())
+        {
             for reference in self.unit(location).summary().references() {
                 roles.extend(
                     bray_runtime_interface::RuntimeAbiRole::ALL

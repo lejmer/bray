@@ -50,6 +50,7 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     let manifest = read_manifest(bundle)?;
     let resolver = resolver(bundle)?;
 
+    verify_unicode_metadata(bundle, &manifest)?;
     verify_package_interfaces(&resolver, &manifest)?;
     verify_native_indexes(&resolver, &manifest)?;
     verify_configured_root(bundle)?;
@@ -57,6 +58,40 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     verify_missing_artifact_diagnostic(bundle, &scratch.join("missing-artifact"))?;
 
     verify_artifact_integrity(bundle, &scratch.join("corrupted-artifact"), &manifest)
+}
+
+fn verify_unicode_metadata(
+    bundle: &Path,
+    manifest: &StandardLibraryBundleManifest,
+) -> Result<(), BuildError> {
+    let root = crate::workspace::root().map_err(BuildError::Workspace)?;
+    let path = root.join("standard-library/targets/unicode/metadata.json");
+    let expected = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
+
+    for target in manifest.targets() {
+        let artifact = target
+            .artifacts()
+            .iter()
+            .find(|artifact| artifact.path().ends_with("/unicode-data.json"))
+            .ok_or_else(|| {
+                BuildError::conformance(
+                    "Unicode metadata",
+                    "target is missing Unicode dependency metadata",
+                )
+            })?;
+
+        let path = artifact.beneath(bundle);
+        let actual = fs::read(&path).map_err(|error| BuildError::read(&path, error))?;
+
+        if actual != expected {
+            return Err(BuildError::conformance(
+                "Unicode metadata",
+                "target Unicode metadata differs from the pinned generator output",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {

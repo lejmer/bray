@@ -51,6 +51,8 @@ For text output, pass string directly to print or print_line and handle their Io
 
 Use `string` methods for text: `length`, `is_empty`, `get`, `slice`, `characters`, and `as_bytes`. Construct validated text with `string.from_utf8`. Characters provide `code_point`, `char.from_code_point`, `encode_utf8`, and Unicode classification methods. `encode_utf8` returns `std.character.Utf8Encoding`. Borrow its initialized bytes with `as_slice`.
 
+Use `char.is_alphabetic`, `is_numeric`, and `is_whitespace` for allocation-free Unicode 17.0.0 classification. Results are independent of the host locale and target. Numeric classification includes Decimal, Digit and Numeric values. Construct a character from external integers with `char.from_code_point` and handle `none` for invalid scalars. See the authoritative [text and character contract](https://github.com/lejmer/bray/blob/develop/docs/language/core-data-standard-library.md#text-and-characters).
+
 Import `std.iteration.IteratorDefaultOperations` to use `first`, `nth`, `take`, `skip`, and `enumerate` as methods on any iterator. `OrderedSequence` supplies its search and sort algorithms as default members, and `std.numeric.Integer` supplies checked arithmetic from its required named `IntegerBounds` contract.
 
 For shared mutable state, use `std.sync` guards or `std.atomic` operations. Synchronous waits require `blocking_execution()` and defer pending cancellation to the next checkpoint. Use `std.channel.bounded<T>` for cancellation-safe async transfer with explicit backpressure, including capacity-zero rendezvous.
