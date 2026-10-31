@@ -64,7 +64,9 @@ the prepared compiler-test binaries. Local commands retain the normal test profi
 Cargo outputs and prepared LLVM toolchains are cached, including Cargo outputs after test failures. Prepared LLVM
 toolchains are cached before compiler tests and validated when restored. Download archives remain available for
 prepared-cache misses. See [LLVM provisioning](llvm.md) for the cache identity and reuse contract.
-Superseded PR runs are cancelled. The nightly run also refreshes the default branch's cache for subsequent PRs.
+Superseded PR runs are cancelled and skip Rust-cache publication and report upload. Report upload requires successful
+test preparation and still runs when tests fail. The nightly run also refreshes the default branch's cache for subsequent
+PRs.
 Nightly and manual full runs use a separate concurrency group. Cold-cache setup and
 compilation remain visible in the workflow's preparation steps and are separate from test execution times.
 
