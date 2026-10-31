@@ -21,6 +21,7 @@ pub(crate) fn verify_no_memory_work(
 
     let recorded = execute_observed(
         executable,
+        executable,
         output,
         output,
         0,
@@ -46,6 +47,7 @@ pub(crate) fn time_empty_program(
     let digest = super::command::expected_output_digest(super::corpus::ExpectedOutput::Empty)?;
 
     execute_timing_sample(
+        executable,
         executable,
         output,
         output,
