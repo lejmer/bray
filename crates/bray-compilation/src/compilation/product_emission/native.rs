@@ -559,7 +559,7 @@ fn native_contribution_unit(
         unit.digest(),
         unit.kind(),
         unit.summary().clone(),
-        native_links.iter().cloned(),
+        unit.native_links().iter().chain(native_links).cloned(),
     );
 
     Ok(Some((artifact.unit().clone(), unit, bytes)))
