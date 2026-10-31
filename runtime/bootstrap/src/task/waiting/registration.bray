@@ -1,0 +1,246 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+// One ordinary noncopy owner retains both the collection and callback target.
+// Directory links are bookkeeping under the resident acquisition. They do not
+// confer ownership or authorize source result observation.
+internal struct WaitRegistration
+{
+    target: Reference;
+    waiter: Reference;
+    retirement: u8;
+    mut previous: u64;
+    mut next: u64;
+}
+
+trusted internal predicate registration_owned(owner: &WaitRegistration);
+
+trusted internal predicate optional_registration(owner: &(WaitRegistration?));
+
+trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
+    requires(trusted registration_owned(owner = owner))
+    ensures(trusted retained(owner = result))
+    executes(pure, total)
+{
+    return &owner.target;
+}
+
+// The resident acquisition excludes notification commitment. The borrowed
+// native input keeps this observed cell live until checking returns.
+trusted internal func check_wait(pos observed: &Reference, pos retirement: u8) -> (u32, bool)
+    requires(trusted retained(owner = observed))
+{
+    let mut guard = trusted lock_cell(observed);
+    let child = trusted guard.get();
+
+    if !child.source_owner || child.phase matches Phase.Admitted
+    {
+        return (7, false);
+    }
+
+    if retirement == 0
+    {
+        return if child.phase matches Phase.Terminal | Phase.Resolved
+        {
+            yield (0, false);
+        }
+        else
+        {
+            yield (6, true);
+        };
+    }
+
+    if !(child.phase matches Phase.Resolved)
+    {
+        return (6, false);
+    }
+
+    if child.retired
+    {
+        return (0, false);
+    }
+
+    child.retiring = true;
+    return (6, true);
+}
+
+// Reuse resident retention instead of borrowing the native reference slots as
+// backing for a new registration. Each successful result already owns its cell.
+trusted internal func admit_wait(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos runtime: u64,
+    pos child: u64,
+    pos parent: u64,
+    pos retirement: u8
+) -> (WaitRegistration?, u32)
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted optional_registration(owner = &result.0),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    uses(intrinsic)
+{
+    let (observed_owner, status) = trusted retain_locked(lease, anchor, runtime, child);
+
+    if observed_owner matches none
+    {
+        return (none, status);
+    }
+
+    let observed = trusted take_retained(observed_owner);
+    let (waiter_owner, waiter_status) = trusted retain_waiter(lease, anchor, runtime, parent, &observed);
+
+    if waiter_owner matches none
+    {
+        // The native input still retains this cell. Rolling back this temporary
+        // count cannot dispose storage or invoke a callback.
+        let mut guard = trusted lock_cell(&observed);
+
+        if trusted release(trusted guard.get())
+        {
+            trusted core.target.abort();
+        }
+
+        return (none, waiter_status);
+    }
+
+    let waiter = trusted take_retained(waiter_owner);
+
+    let registration: WaitRegistration =
+    {
+        target = observed,
+        waiter = waiter,
+        retirement = retirement,
+        previous = 0,
+        next = 0
+    };
+
+    let owned: WaitRegistration? = registration;
+
+    return (owned, 6);
+}
+
+trusted internal func wait_slot(pos entries: &mut Entries, pos handle: u64) -> &mut Slot
+    uses(intrinsic)
+{
+    let index = std.numeric.truncate_to<usize, u64>(handle & 0xffffffff);
+    let generation = std.numeric.truncate_to<u32, u64>(handle >> 32);
+
+    if index == 0 || index > entries.total
+    {
+        trusted core.target.abort();
+    }
+
+    let slot = trusted slot_at(entries, index);
+
+    if slot.generation != generation || slot.control matches none
+    {
+        trusted core.target.abort();
+    }
+
+    return slot;
+}
+
+trusted internal func publish_wait(
+    pos mut registration: WaitRegistration,
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor
+) -> (u32, WaitRegistration?)
+    requires(
+        trusted registration_owned(owner = &registration),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(trusted optional_registration(owner = &result.1))
+    uses(intrinsic)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+    let mut entries = &mut host.tasks;
+    let parent = registration.waiter.handle;
+    let child = registration.target.handle;
+    let retirement = registration.retirement;
+
+    {
+        let slot = trusted wait_slot(&mut entries, parent);
+
+        if let ?existing = slot.registration
+        {
+            let status: u32 = if existing.target.handle == child && existing.retirement == retirement
+            {
+                yield 6;
+            }
+            else
+            {
+                yield 3;
+            };
+
+            let rejected: WaitRegistration? = registration;
+
+            return (status, rejected);
+        }
+    }
+
+    let head =
+    {
+        let slot = trusted wait_slot(&mut entries, child);
+
+        yield if retirement == 0
+        {
+            yield slot.terminal_waiters;
+        }
+        else
+        {
+            yield slot.retirement_waiters;
+        };
+    };
+
+    if head != 0
+    {
+        let slot = trusted wait_slot(&mut entries, head);
+
+        if let ?owner = slot.registration
+        {
+            owner.previous = parent;
+        }
+        else
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    registration.next = head;
+
+    (trusted wait_slot(&mut entries, parent)).registration = registration;
+
+    let slot = trusted wait_slot(&mut entries, child);
+
+    if retirement == 0
+    {
+        slot.terminal_waiters = parent;
+    }
+    else
+    {
+        slot.retirement_waiters = parent;
+    }
+
+    return (6, none);
+}

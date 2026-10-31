@@ -2,6 +2,9 @@ mod binding;
 mod core;
 mod execution;
 
+#[cfg(test)]
+pub(in crate::native) use core::with_task_services;
+
 pub(super) use binding::{current_native_task, runtime_failure, with_cleanup_runtime};
 #[cfg(test)]
 pub(crate) use core::test_runtime_isolation;

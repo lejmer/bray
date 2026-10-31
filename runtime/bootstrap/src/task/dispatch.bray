@@ -115,6 +115,11 @@ trusted internal func complete_dispatch(
     ensures(trusted dispatch_owner(owner = owner))
 {
     let reference = trusted dispatch_reference(owner);
+
+    // Lexical cleanup has returned. Close delivery before publishing the result;
+    // the exclusive dispatch claim still owns the terminal transition.
+    trusted close_cancellation(reference);
+
     let mut guard = trusted lock_cell(reference);
     let control = trusted guard.get();
 
@@ -185,10 +190,6 @@ trusted internal func advance_dispatch(
 
         if status == bray.runtime.bootstrap.activation.run.FINISHED
         {
-            // Keep cancellation shielded through result movement and retirement.
-            // The native service retains the shield with its registration.
-            _ = trusted control_dispatch(owner, 1);
-
             let execution = trusted frame_snapshot(owner, false);
 
             let outcome: bray.runtime.bootstrap.ReportOutcome =
@@ -211,7 +212,7 @@ trusted internal func advance_dispatch(
             return (progress, execution, 1);
         }
 
-        let cancellation = trusted control_dispatch(owner, 0) != 0;
+        let cancellation = trusted dispatch_cancellation(owner);
         let execution = trusted frame_snapshot(owner, cancellation);
 
         if status == bray.runtime.bootstrap.activation.run.DEFERRED
@@ -232,7 +233,7 @@ trusted internal func advance_dispatch(
         return (progress, execution, 0);
     }
 
-    let cancellation = trusted control_dispatch(owner, 0) != 0;
+    let cancellation = trusted dispatch_cancellation(owner);
     let execution = trusted frame_snapshot(owner, cancellation);
 
     trusted suspend_dispatch(owner, execution);
@@ -250,11 +251,13 @@ trusted internal func snapshot_dispatch(pos owner: &Dispatch) -> Snapshot
     return snapshot_value(&control);
 }
 
-trusted internal func control_dispatch(pos owner: &Dispatch, pos operation: u32) -> u32
+trusted internal func dispatch_cancellation(pos owner: &Dispatch) -> bool
     requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
     ensures(trusted dispatch_owner(owner = owner))
 {
-    return trusted control_service(trusted dispatch_services(owner), operation);
+    let reference = trusted dispatch_reference(owner);
+
+    return trusted cancellation_observable(reference);
 }
 
 trusted internal func transfer_dispatch(
@@ -289,7 +292,7 @@ trusted internal func step_dispatch(
     let services = trusted dispatch_services(owner);
     let (invoke, ready) = trusted activation_callbacks(services);
 
-    let cancellation = trusted control_dispatch(owner, 0) != 0;
+    let cancellation = trusted dispatch_cancellation(owner);
 
     return trusted bray.runtime.bootstrap.activation.run.step(trusted cursor(owner), invoke, ready, cancellation);
 }

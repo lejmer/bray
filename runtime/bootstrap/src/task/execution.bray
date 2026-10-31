@@ -194,7 +194,11 @@ trusted internal func dispatch_reference(pos owner: &Dispatch) -> &Reference
 }
 
 trusted internal func acquire_dispatch(pos reference: &Reference, pos services: &Services) -> Dispatch
-    requires(trusted retained(owner = reference), trusted native_services(owner = services))
+    requires(
+        trusted retained(owner = reference),
+        trusted native_services(owner = services),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     ensures(
         trusted retained(owner = reference),
         trusted dispatch_owner(owner = &result),
@@ -203,12 +207,14 @@ trusted internal func acquire_dispatch(pos reference: &Reference, pos services: 
     )
     uses(intrinsic)
 {
+    let available = trusted withdraw_wait(reference);
+
     let root =
     {
         let mut guard = trusted lock_cell(reference);
         let control = trusted guard.get();
 
-        if !trusted begin_dispatch(control)
+        if !available || !trusted begin_dispatch(control)
         {
             return
             {

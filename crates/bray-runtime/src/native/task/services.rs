@@ -4,19 +4,17 @@ use bray_runtime_abi::NativeTaskReference;
 
 use crate::context::{TaskOutput, current_task_output};
 use crate::{
-    CancellationContext, CancellationShield, RuntimeEvent, RuntimeEventGeneration,
+    CancellationContext, RuntimeEvent, RuntimeEventGeneration,
     RuntimeEventRegistration, TaskRegistration,
 };
 
 /// Native execution resources borrowed by the Source-owned task record.
 /// No frame, terminal payload, or source resolution claim is stored here.
 pub(crate) struct NativeTaskServices {
-    pub(in crate::native) control: NativeTaskReference,
     pub(in crate::native) cancellation: CancellationContext,
     pub(in crate::native) output: TaskOutput,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
-    pub(in crate::native) terminal_shield: Mutex<Option<CancellationShield>>,
 }
 
 impl std::fmt::Debug for NativeTaskServices {
@@ -28,18 +26,19 @@ impl std::fmt::Debug for NativeTaskServices {
 }
 
 impl NativeTaskServices {
+    pub(in crate::native) fn control(&self) -> &NativeTaskReference {
+        self.cancellation.native_reference()
+    }
+
     pub(in crate::native) fn new(
-        control: NativeTaskReference,
         cancellation: CancellationContext,
         registration: TaskRegistration,
     ) -> Self {
         Self {
-            control,
             cancellation,
             output: current_task_output(),
             registration,
             suspended_wait: Mutex::new(None),
-            terminal_shield: Mutex::new(None),
         }
     }
 }

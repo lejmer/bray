@@ -24,6 +24,10 @@ unsafe extern "C" {
         handle: u64,
         output: &mut bray_runtime_abi::NativeTaskReference,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_cancellation(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        operation: u32,
+    ) -> u32;
     pub(crate) safe fn bray_runtime_task_control_snapshot(
         reference: &bray_runtime_abi::NativeTaskReference,
         output: &mut bray_runtime_abi::NativeTaskSnapshot,

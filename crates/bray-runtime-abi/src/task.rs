@@ -108,8 +108,6 @@ pub struct NativeTaskDispatchServices {
     ),
     /// Checks the active execution lane without changing the frame.
     pub ready: extern "C" fn(&NativeActivationExecution) -> u32,
-    /// Queries observable cancellation (zero) or retains a terminal shield (one).
-    pub control: extern "C" fn(u32) -> u32,
     /// Transfers admitted incident records and releases unused records.
     pub transfer: extern "C" fn(
         &NativeActivationExecution,
@@ -122,7 +120,7 @@ pub struct NativeTaskDispatchServices {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeTaskReference, NativeTaskSnapshot, NativeTaskObservationGlue};
+    use super::{NativeTaskDispatchServices, NativeTaskReference, NativeTaskSnapshot, NativeTaskObservationGlue};
 
     #[test]
     fn observation_glue_matches_bray_metadata() {
@@ -158,6 +156,16 @@ mod tests {
             retired: 22,
             dispatching: 23,
             execution: 24,
+        });
+    }
+
+    #[test]
+    fn task_dispatch_services_match_bray_callbacks() {
+        assert_abi_layout!(NativeTaskDispatchServices, size: 32, align: 8, fields: {
+            invoke: 0,
+            ready: 8,
+            transfer: 16,
+            wake: 24,
         });
     }
 

@@ -65,25 +65,21 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         }
 
-        let cancellation = crate::CancellationContext::root();
         let identity = TaskId::from_bray_handle(handle);
+        let cancellation = crate::CancellationContext::native(reference, self.scheduler.task_wake(identity));
 
         let registration = match self.scheduler.register_task(identity, super::super::activation::execution(&initial), origin, &cancellation) {
             Ok(registration) => registration,
             Err(_) => {
-                report_provider::bray_runtime_task_control_reference_release(&reference);
-
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
         };
 
         if self.cleanup_workloads.get() && !self.main_thread_lane && registration.lane().is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_))) {
-            report_provider::bray_runtime_task_control_reference_release(&reference);
-
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
-        let task = Arc::new(NativeTaskServices::new(reference, cancellation, registration));
+        let task = Arc::new(NativeTaskServices::new(cancellation, registration));
 
         self.scheduler.install_native_task(Arc::clone(&task)).expect("a new registration accepts its admitted native resources");
 
@@ -95,7 +91,7 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         }
 
-        let status = report_provider::bray_runtime_task_control_publication(&task.control, root, &initial);
+        let status = report_provider::bray_runtime_task_control_publication(task.control(), root, &initial);
 
         assert!(status.is_success(), "activation publishes into its previously admitted control");
         task.registration.wake_handle().wake().expect("the newly published task accepts its first wake");
@@ -109,7 +105,7 @@ impl NativeRuntime {
         };
 
         report_provider::bray_runtime_task_control_composition(
-            &parent.control, frame, resume_state, self.thread.runtime().id().raw(), destination,
+            parent.control(), frame, resume_state, self.thread.runtime().id().raw(), destination,
             composition.code(), super::super::activation::admission,
         )
     }
@@ -356,9 +352,9 @@ impl NativeRuntime {
         };
 
         let status = if let Some(parent) = current_services() {
-            report_provider::bray_runtime_task_control_wait(&task.control, &parent.control, 1)
+            report_provider::bray_runtime_task_control_wait(task.control(), parent.control(), 1)
         } else {
-            report_provider::bray_runtime_task_control_retirement(&task.control)
+            report_provider::bray_runtime_task_control_retirement(task.control())
         };
 
         if status == NativeRuntimeStatus::PENDING {

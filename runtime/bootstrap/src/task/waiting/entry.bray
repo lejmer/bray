@@ -1,0 +1,92 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func wait(
+    pos child: DataPointer<Reference>,
+    pos parent: DataPointer<Reference>,
+    pos retirement: u8
+) -> u32
+    requires(
+        trusted wait_entry(child = child, parent = parent),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let rejected =
+    {
+        let lease = trusted wait_entry_access(child, parent);
+
+        if !lease.active
+        {
+            return 4;
+        }
+
+        let (status, coordinates) = trusted wait_coordinates(child, parent, retirement, &lease);
+
+        let (runtime, observed_identity, waiter_identity) = match coordinates
+        {
+            case ?identities { yield identities; }
+            case none { return status; }
+        };
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        let (prepared, admission_status) = trusted admit_wait(
+            &lease,
+            &mut anchor,
+            runtime,
+            observed_identity,
+            waiter_identity,
+            retirement
+        );
+
+        if prepared matches none
+        {
+            return admission_status;
+        }
+
+        let registration = trusted take_optional_registration(prepared);
+
+        yield trusted publish_wait(registration, &lease, &mut anchor);
+    };
+
+    // A repeated registration leaves the existing owner in place. The spare
+    // temporary references are released only after the collection unlocks.
+    return trusted release_rejected_wait(rejected);
+}
+
+trusted internal func release_rejected_wait(pos outcome: (u32, WaitRegistration?)) -> u32
+    requires(
+        trusted optional_registration(owner = &outcome.1),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let (status, owner) = outcome;
+
+    if owner matches none
+    {
+        return status;
+    }
+
+    let registration = trusted take_optional_registration(owner);
+
+    trusted release_wait(registration);
+    return status;
+}
+
+trusted internal func take_optional_registration(pos owner: WaitRegistration?) -> WaitRegistration
+    requires(owner matches ?_, trusted optional_registration(owner = &owner))
+    ensures(trusted registration_owned(owner = &result))
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?registration { yield registration; }
+        case none { yield trusted core.target.abort(); }
+    };
+}

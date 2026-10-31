@@ -28,11 +28,6 @@ internal struct Control
     mut resumable: bool;
     mut execution: bray.runtime.bootstrap.activation.requirements.Execution;
     mut outcome: bray.runtime.bootstrap.ReportOutcome;
-    mut terminal_waiters: Reference?;
-    mut retirement_waiters: Reference?;
-    mut next_waiter: Reference?;
-    mut waiting_on: u64;
-    mut waiting_retirement: u8;
     mut dispatching: bool;
     mut retiring: bool;
     mut retired: bool;
@@ -71,11 +66,6 @@ internal func prepare() -> Control
             origin = 0
         },
         outcome = empty_outcome(),
-        terminal_waiters = none,
-        retirement_waiters = none,
-        next_waiter = none,
-        waiting_on = 0,
-        waiting_retirement = 0,
         dispatching = false,
         retiring = false,
         retired = false

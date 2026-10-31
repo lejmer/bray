@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.task;
 
 using core.memory;
+using core.atomic;
 using core.target;
 using std.memory;
 using std.numeric;
@@ -116,6 +117,7 @@ trusted internal func admit_locked(
 
         slot.next = 0;
         slot.runtime = runtime;
+        core.atomic.store<usize, 4>(&slot.cancellation, 0);
 
         slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
             trusted std.sync.SpinLock<Control>(prepare())

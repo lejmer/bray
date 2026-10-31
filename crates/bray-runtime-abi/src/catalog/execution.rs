@@ -608,6 +608,16 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            TaskControlCancellation {
+                "Observe requests and transition cancellation shields in the retained Bray task.", "task_control_cancellation",
+                native: (TASK_CONTROL_CANCELLATION_SYMBOL = "bray_runtime_task_control_cancellation", [Pointer, U32] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.cancellation_control"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             TaskControlSnapshot {
                 "Read scheduling metadata while retaining the actual Bray cell.", "task_control_snapshot",
                 native: (TASK_CONTROL_SNAPSHOT_SYMBOL = "bray_runtime_task_control_snapshot", [Pointer, Pointer] -> U32),

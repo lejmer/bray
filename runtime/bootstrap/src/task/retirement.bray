@@ -125,7 +125,8 @@ trusted internal func take_released(
 
     let slot = trusted slot_at(&mut host.tasks, index);
 
-    if slot.generation != generation
+    if slot.generation != generation || slot.registration matches ?_ || slot.terminal_waiters != 0 ||
+        slot.retirement_waiters != 0
     {
         trusted core.target.abort();
     }

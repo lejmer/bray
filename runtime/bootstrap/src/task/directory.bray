@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.task;
 
 using core.memory;
+using core.atomic;
 using core.target;
 using std.memory;
 using std.numeric;
@@ -18,6 +19,10 @@ internal struct Slot
     mut generation: u32;
     mut next: usize;
     mut control: Uninit<std.sync.SpinLock<Control>>?;
+    cancellation: core.atomic.Atomic<usize>;
+    mut terminal_waiters: u64;
+    mut retirement_waiters: u64;
+    mut registration: WaitRegistration?;
 }
 
 internal struct Slab
@@ -177,6 +182,10 @@ trusted internal func grow(pos entries: &mut Entries, pos prepared: &mut Prepare
                         {
                             yield index - 1;
                         },
+                        terminal_waiters = 0,
+                        retirement_waiters = 0,
+                        registration = none,
+                        cancellation = core.atomic.initialize<usize>(0),
                         control = none
                     }
                 );

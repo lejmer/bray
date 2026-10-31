@@ -1,0 +1,176 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+// The detached chain owns the directory registrations until each is popped.
+// A parent cannot withdraw or reuse a committed link before that pop.
+internal struct Delivery
+{
+    next: u64;
+}
+
+trusted internal predicate delivery_owned(owner: &Delivery);
+
+trusted internal func take_waiters(pos owner: &Dispatch, pos retirement: u8) -> Delivery
+    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    ensures(trusted delivery_owned(owner = &result), trusted dispatch_acquired(owner = &owner.acquisition))
+    uses(intrinsic)
+{
+    let lease = trusted dispatch_wait_access(owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let reference = trusted dispatch_reference(owner);
+    let identity = reference.handle;
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+    let slot = trusted wait_slot(&mut host.tasks, identity);
+
+    let next = if retirement == 0
+    {
+        yield trusted std.memory.replace_value<u64>(&mut slot.terminal_waiters, 0);
+    }
+    else
+    {
+        yield trusted std.memory.replace_value<u64>(&mut slot.retirement_waiters, 0);
+    };
+
+    return
+    {
+        next = next
+    };
+}
+
+trusted internal func delivery_access(pos owner: &Delivery) -> bray.runtime.bootstrap.host.HostLease
+    requires(trusted delivery_owned(owner = owner))
+    ensures(
+        trusted delivery_owned(owner = owner),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+    )
+{
+    return trusted bray.runtime.bootstrap.host.host_access();
+}
+
+trusted internal func pop_delivery(pos owner: Delivery) -> (WaitRegistration, Delivery)
+    requires(owner.next != 0, trusted delivery_owned(owner = &owner))
+    ensures(trusted registration_owned(owner = &result.0), trusted delivery_owned(owner = &result.1))
+    uses(intrinsic)
+{
+    let lease = trusted delivery_access(&owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let identity = owner.next;
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+    let taken = trusted take_registration(&mut host.tasks, identity);
+
+    if !(taken matches ?_)
+    {
+        trusted core.target.abort();
+    }
+
+    let registration = trusted take_optional_registration(taken);
+
+    let remaining: Delivery =
+    {
+        next = registration.next
+    };
+
+    return (registration, remaining);
+}
+
+trusted internal func notify_waiters(pos owner: &Dispatch, pos retirement: u8)
+    requires(
+        trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let mut delivery = trusted take_waiters(owner, retirement);
+
+    while delivery.next != 0
+    {
+        delivery = trusted deliver_waiter(owner, delivery);
+    }
+}
+
+trusted internal func deliver_waiter(pos owner: &Dispatch, pos delivery: Delivery) -> Delivery
+    requires(
+        delivery.next != 0,
+        trusted delivery_owned(owner = &delivery),
+        trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted delivery_owned(owner = &result), trusted dispatch_acquired(owner = &owner.acquisition))
+{
+    let (registration, remaining) = trusted pop_delivery(delivery);
+    let next = trusted wake_waiter(owner, &registration, remaining);
+
+    trusted release_wait(registration);
+    return next;
+}
+
+// Callback reentrancy can register another wait in the now-vacant parent slot.
+// This independent noncopy owner still retains the old target through return.
+trusted internal func wake_waiter(
+    pos owner: &Dispatch,
+    pos registration: &WaitRegistration,
+    pos remaining: Delivery
+) -> Delivery
+    requires(
+        trusted registration_owned(owner = registration),
+        trusted delivery_owned(owner = &remaining),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted registration_owned(owner = registration),
+        trusted delivery_owned(owner = &result),
+        trusted dispatch_acquired(owner = &owner.acquisition)
+    )
+{
+    trusted wake_service(trusted dispatch_services(owner), registration.waiter.handle);
+    return remaining;
+}
+
+trusted internal func release_wait(pos owner: WaitRegistration)
+    requires(trusted registration_owned(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let release_target = trusted lambda(pos owner: WaitRegistration) -> Reference
+        requires(trusted registration_owned(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+        ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    {
+        let take = trusted lambda(pos owner: &WaitRegistration) -> Reference
+            requires(trusted registration_owned(owner = owner))
+            ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+        {
+            return
+            {
+                pointer = owner.target.pointer,
+                runtime = owner.target.runtime,
+                handle = owner.target.handle
+            };
+        };
+
+        _ = trusted dispose_reference(trusted take(&owner));
+
+        return
+        {
+            pointer = owner.waiter.pointer,
+            runtime = owner.waiter.runtime,
+            handle = owner.waiter.handle
+        };
+    };
+
+    _ = trusted dispose_reference(trusted release_target(owner));
+}

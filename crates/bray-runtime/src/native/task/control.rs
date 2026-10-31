@@ -8,7 +8,7 @@ use super::services::NativeTaskServices;
 
 impl NativeTaskServices {
     pub(in crate::native) fn handle(&self) -> NativeTaskHandle {
-        self.control.task()
+        self.control().task()
     }
 
     pub(crate) fn id(&self) -> TaskId {
@@ -19,7 +19,7 @@ impl NativeTaskServices {
         let mut snapshot = NativeTaskSnapshot::default();
 
         let status =
-            report_provider::bray_runtime_task_control_snapshot(&self.control, &mut snapshot);
+            report_provider::bray_runtime_task_control_snapshot(self.control(), &mut snapshot);
 
         assert!(status.is_success(), "a retained task cell remains readable");
 
@@ -34,7 +34,7 @@ impl NativeTaskServices {
         let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
         let status =
-            report_provider::bray_runtime_task_control_observation(&self.control, &mut outcome);
+            report_provider::bray_runtime_task_control_observation(self.control(), &mut outcome);
 
         if status.is_success() {
             Ok(outcome)
@@ -44,17 +44,6 @@ impl NativeTaskServices {
     }
 
     pub(in crate::native) fn resolve_source_owner(&self) -> NativeRuntimeStatus {
-        report_provider::bray_runtime_task_control_destruction(&self.control)
-    }
-}
-
-impl Drop for NativeTaskServices {
-    fn drop(&mut self) {
-        let status = report_provider::bray_runtime_task_control_reference_release(&self.control);
-
-        assert!(
-            status.is_success(),
-            "the last native service user releases its admitted cell reference"
-        );
+        report_provider::bray_runtime_task_control_destruction(self.control())
     }
 }

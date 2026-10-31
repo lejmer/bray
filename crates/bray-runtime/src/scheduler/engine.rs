@@ -114,6 +114,10 @@ impl Scheduler {
         }
     }
 
+    pub(crate) fn task_wake(&self, task: TaskId) -> TaskWakeHandle {
+        TaskWakeHandle { task, scheduler: Arc::downgrade(&self.data) }
+    }
+
     /// Registers one runtime-owned task without making it ready.
     pub fn register_task(
         &self,
@@ -161,7 +165,7 @@ impl Scheduler {
         let scheduler = Arc::downgrade(&self.data);
 
         let cancellation_wake = match cancellation
-            .register_wake(Arc::new(move || wake_cancelled_task(&scheduler, task)))
+            .register_wake(|| Arc::new(move || wake_cancelled_task(&scheduler, task)))
         {
             Ok(registration) => registration,
             Err(error) => {
@@ -370,7 +374,7 @@ pub struct TaskRegistration {
     pub(super) task: TaskId,
     origin: RuntimeThreadId,
     pub(super) scheduler: Weak<SchedulerData>,
-    _cancellation_wake: CancellationWakeRegistration,
+    _cancellation_wake: Option<CancellationWakeRegistration>,
 }
 
 impl TaskRegistration {
@@ -476,6 +480,14 @@ impl TaskWakeHandle {
     ///
     /// Returns whether this call added a new ready-queue entry.
     pub fn wake(&self) -> Result<bool, SchedulerError> {
+        self.wake_with_cause(TaskWakeCause::Explicit)
+    }
+
+    pub(crate) fn wake_cancellation(&self) -> Result<bool, SchedulerError> {
+        self.wake_with_cause(TaskWakeCause::Cancellation)
+    }
+
+    fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -485,7 +497,7 @@ impl TaskWakeHandle {
             .lock()
             .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
 
-        let changed = enqueue_task(&scheduler, &mut state, self.task, TaskWakeCause::Explicit)?;
+        let changed = enqueue_task(&scheduler, &mut state, self.task, cause)?;
 
         drop(state);
 
@@ -661,7 +673,7 @@ fn release_dispatch(
 
     let next = pending.or_else(|| {
         task.cancellation
-            .is_requested()
+            .recheck_dispatch()
             .then_some(TaskWakeCause::Cancellation)
     });
 
