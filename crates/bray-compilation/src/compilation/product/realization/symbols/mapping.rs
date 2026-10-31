@@ -304,8 +304,9 @@ fn append_frame_data_symbols(
         operations
             .iter()
             .flat_map(|mapping| mapping.helpers())
-            .filter_map(|helper| match helper.symbol() {
-                Some(CodegenSymbolKey::FrameFactory(instance)) => Some(instance.clone()),
+            .filter_map(|helper| match (helper.reference(), helper.symbol()) {
+                (_, Some(CodegenSymbolKey::FrameFactory(instance)))
+                | (bray_ir::MirHelperReference::LifecycleFrame { .. }, Some(CodegenSymbolKey::Instance(instance))) => Some(instance.clone()),
                 _ => None,
             }),
     );

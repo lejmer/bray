@@ -48,6 +48,21 @@ pub(super) fn smoke_test(
             0,
         ),
         (
+            "task-start-rejection",
+            include_str!("../../fixtures/native-execution/task-start-rejection.bray"),
+            0,
+        ),
+        (
+            "task-observation-retained-error",
+            include_str!("../../fixtures/native-execution/task-observation-retained-error.bray"),
+            0,
+        ),
+        (
+            "task-observation-async-capture",
+            include_str!("../../fixtures/native-execution/task-observation-async-capture.bray"),
+            0,
+        ),
+        (
             "async-tasks",
             include_str!("../../fixtures/native-execution/async-tasks.bray"),
             0,
@@ -75,7 +90,7 @@ pub(super) fn smoke_test(
             .with_native_link_inputs(
                 matches!(
                     name,
-                    "ordinary-finalization" | "scoped-cleanup" | "operation-cleanup"
+                    "ordinary-finalization" | "scoped-cleanup" | "operation-cleanup" | "task-observation-retained-error" | "task-start-rejection"
                 )
                 .then(|| probe.clone()),
             ),

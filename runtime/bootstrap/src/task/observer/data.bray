@@ -1,0 +1,104 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using internal bray.runtime.bootstrap;
+
+@copy
+@layout(c)
+internal struct Glue
+{
+    quiesce: DataPointer<u8>;
+    resolve: DataPointer<u8>;
+    broadcast: DataPointer<u8>;
+    destroy: DataPointer<u8>;
+    quiesce_storage: DataPointer<bray.runtime.bootstrap.storage.Descriptor>;
+    resolve_storage: DataPointer<bray.runtime.bootstrap.storage.Descriptor>;
+    requirements: bray.runtime.bootstrap.activation.requirements.State;
+    provider: usize;
+}
+
+// The descriptor and query metadata remain immutable. Only an exclusive frame
+// invocation can project the initialized protocol stored behind Uninit.
+@layout(c)
+internal struct Context
+{
+    descriptor: bray.runtime.bootstrap.activation.Descriptor;
+    requirements: bray.runtime.bootstrap.activation.requirements.State;
+    mut storage: Uninit<State>;
+    mut outcomes: Uninit<Outcomes>;
+}
+
+@layout(c)
+internal struct Outcomes
+{
+    mut collection: bray.runtime.bootstrap.ReportOutcome;
+    mut incoming: bray.runtime.bootstrap.ReportOutcome;
+}
+
+internal struct State
+{
+    lease: bray.runtime.bootstrap.storage.Lease;
+    layout: bray.runtime.bootstrap.task.result.Layout;
+    glue: Glue;
+    mut provider: bray.runtime.bootstrap.provider.Reference;
+    mut reference: bray.runtime.bootstrap.task.Reference;
+    result: usize;
+    header: usize;
+    mut request_cancellation: bool;
+    mut cancelling: bool;
+    mut phase: u32;
+    mut failure: usize;
+    mut disposition: u32;
+    mut helper: u32;
+    mut quiesce_admitted: bool;
+    mut resolve_admitted: bool;
+}
+
+internal const PENDING: u32 = 0;
+
+internal const READY: u32 = 1;
+
+internal const RETIRED: u32 = 2;
+
+internal const MOVED: u32 = 3;
+
+internal const QUIESCENT: u32 = 4;
+
+internal const DISPOSED: u32 = 5;
+
+internal const FAILED: u32 = 6;
+
+internal const FAILED_RETIRED: u32 = 7;
+
+// Only a whole callback owner can carry this acquisition. Projection APIs
+// accept that owner and derive its context. None accepts a detached claim.
+internal struct CallbackClaim
+{
+}
+
+internal struct Acquisition
+{
+    claim: CallbackClaim;
+    context: DataPointer<Context>;
+    operation: u32;
+}
+
+// The access-path anchor is disjoint from the immutable callback acquisition.
+// Mutating the protocol never mutates the authority that keeps its storage live.
+internal struct Projection
+{
+}
+
+internal struct Invocation
+{
+    acquisition: Acquisition;
+    mut projection: Projection;
+}
+
+// Issued by the selected activation producer for its exact live Context. The
+// operation owns the exclusive callback reservation, not just a matching address.
+trusted internal predicate callback_entry(context: usize, operation: u32);
+
+trusted internal predicate invoked(owner: &CallbackClaim);
+
+trusted internal predicate owned_state(owner: &State);

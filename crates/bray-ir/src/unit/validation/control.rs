@@ -337,6 +337,7 @@ fn validate_call_outcome_check(
         .last()
         .and_then(|operation| unit.operation(*operation))
         .is_some_and(|operation| match operation.kind() {
+            kind if kind.input_preserved_on_rejection().is_some() => true,
             crate::MirOperationKind::Call(call) => call.may_propagate_panic(),
             crate::MirOperationKind::Construct(construction) => matches!(
                 construction.target(),

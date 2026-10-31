@@ -9,7 +9,7 @@ use bray_runtime_abi::{
     NativeRuntimeStatus, NativeTaskHandle,
 };
 
-use crate::{ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, RunOutcome};
+use crate::{ExecutionLane, ExecutionLanePlacement, ExecutionWorkload};
 
 use super::core::{
     NativeRuntime, RetainedRuntime, current_runtime, current_task, with_bound_runtime,
@@ -110,14 +110,6 @@ impl Drop for CleanupWorkloadScope<'_> {
 
 pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
     current_task()
-}
-
-pub(in crate::native) fn task_outcome(outcome: RunOutcome<usize>) -> NativeRunOutcome {
-    match outcome {
-        RunOutcome::Completed(payload) => NativeRunOutcome::new(NativeRunState::COMPLETED, payload),
-        RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        RunOutcome::Panicked(panic) => NativeRunOutcome::panicked(panic.into_native()),
-    }
 }
 
 pub(in crate::native) fn lane_result(lane: ExecutionLane) -> NativeExecutionLaneResult {

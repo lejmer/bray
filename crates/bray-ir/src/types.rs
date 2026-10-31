@@ -371,7 +371,7 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
             MirFrameInitializer::Callable(call) => collect_call_types(call, types),
             MirFrameInitializer::TaskObservation { task, result, .. } => {
                 collect_operand_types(task, types);
-                types.insert(result.future_type());
+                types.extend([result.future_type(), result.completion_type()]);
             }
         },
         MirAsyncOperation::MoveInactiveFrame {

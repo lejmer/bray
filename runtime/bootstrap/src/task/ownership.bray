@@ -1,0 +1,101 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.host.product;
+
+// The compiler-bound caller holds the protected Task's single source claim.
+// An internal cell reference or a copied identity alone does not establish it.
+trusted internal predicate resolution_entry(reference: DataPointer<Reference>);
+
+// A successful observation transfers one actual terminal outcome into this slot.
+trusted internal predicate terminal_output(pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
+
+@abi(c)
+trusted internal func observation(
+    pos pointer: DataPointer<Reference>,
+    pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted resolution_entry(reference = pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(result != 0 || trusted terminal_output(pointer = output))
+{
+    let reference = trusted read_reference(pointer);
+
+    let outcome =
+    {
+        let mut guard = trusted lock_cell(&reference);
+        let control = trusted guard.get();
+
+        if !control.source_owner || control.phase matches Phase.Admitted | Phase.Resolved
+        {
+            return 7;
+        }
+
+        if !(control.phase matches Phase.Terminal)
+        {
+            return 6;
+        }
+
+        yield trusted observe(control);
+    };
+
+    // The release/acquire cell transition publishes body and cleanup effects.
+    // Only this moved outcome owns its report and terminal payload claim.
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(output, outcome);
+
+    return 0;
+}
+
+@abi(c)
+trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted resolution_entry(reference = pointer),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let reference = trusted read_reference(pointer);
+
+    {
+        let mut guard = trusted lock_cell(&reference);
+        let control = trusted guard.get();
+
+        if !control.source_owner
+        {
+            return 7;
+        }
+
+        if control.phase matches Phase.Admitted
+        {
+            // No frame has transferred. Its producer still owns the inactive
+            // input, including when low-level start admission was rejected.
+            control.phase = Phase.Resolved;
+
+            control.retired = true;
+        }
+
+        if !(control.phase matches Phase.Resolved) || !control.retired
+        {
+            return 6;
+        }
+
+        control.source_owner = false;
+
+        if trusted release(control)
+        {
+            // This call still borrows its independent native storage reference.
+            trusted core.target.abort();
+        }
+    }
+
+    return 0;
+}

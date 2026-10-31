@@ -81,6 +81,45 @@ fn protected_static_contents_preserve_relocations_without_implicit_cleanup() {
 
 #[test]
 #[ignore = "tier:native"]
+fn static_roots_exclude_unused_trivial_aggregate_storage() {
+    let compilation = crate::test_support::compilation_with_product(
+        r#"
+        module app;
+        internal static TABLE: [[u8; 2]; 2] = [[1, 2], [3, 4]];
+        internal static PAIR: (u8, u16) = (5, 6);
+        func main() {}
+        "#,
+        ProductKind::Executable,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    let cancellation = CancellationToken::new();
+
+    let target = compilation
+        .selected_target()
+        .target()
+        .codegen_target()
+        .expect("target must validate");
+
+    let semantic = compilation
+        .product_semantics()
+        .expect("product semantics must resolve");
+
+    let roots = compilation
+        .product_root_instances(semantic.value(), None, &target, &cancellation)
+        .expect("trivial aggregates must not become roots");
+
+    assert_eq!(roots.len(), 1);
+    assert!(roots[0].instance().static_instance().is_none());
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn library_preserves_main_thread_cleanup_without_selecting_a_runtime() {
     let source = concat!(
         "module app;\n",
@@ -595,6 +634,54 @@ fn static_admission_counts_repeated_constant_owners() {
 
 #[test]
 #[ignore = "tier:native"]
+fn uninit_static_payloads_preserve_relocations_without_cleanup_admission() {
+    let (_, plan) = runtime_native_plan(
+        r#"
+            module app;
+            using core.memory;
+
+            struct Resource
+            {
+                value: &i32;
+                destruct() {}
+            }
+
+            struct StaticSlot { contents: Uninit<Resource>; }
+
+            static NUMBER: i32 = 7;
+            static VALUE: StaticSlot = StaticSlot
+            {
+                contents = core.memory.uninit_from<Resource>(Resource { value = &NUMBER })
+            };
+
+            func main() { let storage = &VALUE; }
+        "#,
+    );
+
+    let mappings = plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .collect::<Vec<_>>();
+
+    assert!(
+        mappings
+            .iter()
+            .any(|mapping| !mapping.relocations().is_empty())
+    );
+    assert!(
+        mappings
+            .iter()
+            .all(|mapping| mapping.outgoing_requirements().is_empty())
+    );
+    assert!(
+        plan.product_host()
+            .is_none_or(|host| host.statics().is_empty())
+    );
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn static_host_orders_dependencies_reached_only_by_finalization() {
     for finalizer in ["", "impl Provider { finalize() {} }\n"] {
         let source = concat!(
@@ -908,6 +995,14 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
         .replace("DESTRUCTOR", destructor);
 
         let (backend, plan) = runtime_native_plan(&source);
+
+        assert!(
+            plan.executable_host()
+                .expect("static cleanup retains its executable host")
+                .requirements()
+                .roles()
+                .contains(&bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease)
+        );
 
         let artifacts = generated_artifacts_of_kind(
             &backend,

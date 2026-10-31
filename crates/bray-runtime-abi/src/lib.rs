@@ -19,7 +19,10 @@ mod runtime;
 mod signature;
 mod storage;
 pub mod symbols;
+mod task;
 mod temporal;
+
+pub use task::{NativeTaskObservationGlue, NativeValueCleanupFactory};
 
 pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
 pub use numeric::{NativeComplexBits, NativeRealBits};
@@ -74,6 +77,7 @@ pub use symbols::{
     MEMORY_OBSERVATION_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
     PERFORMANCE_INTERVAL_END_SYMBOL,
 };
+pub use task::{NativeTaskDispatchServices, NativeTaskReference, NativeTaskSnapshot};
 pub use temporal::{
     NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,
     NativePlatformTemporalValue,

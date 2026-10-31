@@ -1071,6 +1071,21 @@ func main() {}
     }
 
     #[test]
+    fn recovered_static_construction_preserves_its_binding_diagnostic() {
+        let compilation = compilation(
+            r#"
+                module app;
+                struct Value { number: i32; }
+                static VALUE: Value = { number = missing() };
+            "#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_eq!(diagnostic_kinds(diagnostics), [DiagnosticKind::BindingUnresolvedName]);
+    }
+
+    #[test]
     fn static_initializers_do_not_prevent_constant_pattern_analysis() {
         let compilation = compilation(concat!(
             "module app;\n",

@@ -1558,3 +1558,99 @@ fn entry_cleanup_panic_preserves_completion_or_appends_after_the_body_panic() {
 
     super::support::linker::run_native_caller(&backend, &plan, &caller);
 }
+
+#[test]
+#[ignore = "tier:native"]
+fn task_observation_callbacks_retain_the_existing_execution_boundary() {
+    let source = r#"
+        trusted module app;
+
+        trusted predicate invocation(context: usize);
+
+        @copy
+        @layout(c)
+        struct State
+        {
+            affinity: u32;
+            lanes: u32;
+        }
+
+        @abi(c)
+        trusted internal func resume(pos output: DataPointer<u8>, pos context: usize)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func cancel(pos output: DataPointer<u8>, pos context: usize)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func broadcast(pos output: DataPointer<u8>, pos context: usize)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func resolve(pos output: DataPointer<u8>, pos context: usize, pos disposition: u32)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func move_completion(pos context: usize, pos destination: usize)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func destroy(pos context: usize)
+            requires(trusted invocation(context = context)) {}
+
+        @abi(c)
+        trusted internal func query(pos context: usize, pos state: u32, pos operation: u32, pos argument: usize) -> State
+            requires(trusted invocation(context = context))
+        {
+            return { affinity = 0, lanes = 0 };
+        }
+
+        @abi(c)
+        public func ordinary() {}
+    "#;
+
+    let roles = [
+        (RuntimeAbiRole::TaskObservationResume, "app.resume"),
+        (RuntimeAbiRole::TaskObservationCancel, "app.cancel"),
+        (RuntimeAbiRole::TaskObservationBroadcast, "app.broadcast"),
+        (RuntimeAbiRole::TaskObservationResolve, "app.resolve"),
+        (RuntimeAbiRole::TaskObservationMove, "app.move_completion"),
+        (RuntimeAbiRole::TaskObservationDestroy, "app.destroy"),
+        (RuntimeAbiRole::TaskObservationQuery, "app.query"),
+    ];
+
+    for target in bray_target::NativeTarget::ALL {
+        let bindings = roles.map(|(role, name)| {
+            bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, name)
+                .expect("observer callback source binding is valid")
+        });
+
+        let (backend, plan) = runtime_native_plan_with_source_roles(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::for_native(target),
+            bindings,
+        );
+
+        for (role, _) in roles {
+            let symbol = role.native_symbol().expect("callback role has a native symbol");
+
+            let mapping = plan.mappings().iter()
+                .flat_map(bray_codegen::CodegenMappings::symbols)
+                .find(|mapping| mapping.name().as_str() == symbol)
+                .expect("callback binding retains its native body");
+
+            assert!(mapping.native_entry().is_none(), "{target:?}: {role:?}");
+            assert!(!mapping.signature().has_panic_report_context());
+        }
+
+        assert!(plan.mappings().iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .any(|mapping| mapping.native_entry().is_some_and(|entry| {
+                entry.kind() == bray_runtime_interface::NativeEntryKind::ForeignCallback
+            })));
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+}

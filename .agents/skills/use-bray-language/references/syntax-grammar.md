@@ -9,6 +9,7 @@ Consult the syntax grammar for parsing, formatting, syntax recovery, and propose
 - The grammar uses EBNF. Double quotes mark terminals, lowercase hyphenated names mark non-terminals, `|` selects alternatives, brackets make syntax optional, braces repeat syntax, and parentheses group productions.
 - Lexical spelling is defined separately. Read the lexical grammar when the question concerns token boundaries, identifiers, literals, comments, or invalid characters.
 - Grammar acceptance establishes source shape, not semantic validity. Type rules, ownership, contracts, modifier compatibility, duplicate restrictions, and availability are checked separately.
+- Named directive values admit the `static` keyword as a selector atom, as in `@link(name = "native", kind = static)`. It remains reserved outside that value position.
 - Package products, selected source and dependency graphs, package identity, and target profiles are semantic inputs rather than source syntax.
 - A source-unit module declaration can be followed by unbraced module items and then braced module declarations. Once the braced suffix begins, every remaining top-level declaration is another braced module declaration.
 - `expression` accepts every expression form, while restricted expression roots deliberately accept less in particular contexts so the parser can produce a precise tree.

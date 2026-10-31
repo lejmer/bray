@@ -231,8 +231,8 @@ pub fn mapped_runtime_references(
 fn operation_runtime_references(
     operation: &MirOperationKind,
     abi: bray_runtime_interface::RuntimeAbiVersion,
-) -> [Option<MirRuntimeReference>; 3] {
-    match operation {
+) -> impl Iterator<Item = Option<MirRuntimeReference>> {
+    let references = match operation {
         MirOperationKind::TakeIncomingReport { .. } => [None, None, None],
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
@@ -295,7 +295,14 @@ fn operation_runtime_references(
         ],
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
-        }) => [Some(*allocation), Some(*start), None],
+        }) => [
+            Some(*allocation),
+            Some(*start),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::TaskAdmissionFailure,
+                abi,
+            )),
+        ],
         MirOperationKind::Async(MirAsyncOperation::CreateFrame {
             initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
             ..
@@ -358,7 +365,21 @@ fn operation_runtime_references(
             | MirAsyncOperation::ObserveFrameCancellation
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => [None, None, None],
-    }
+    };
+
+    let owner_release = match operation {
+        MirOperationKind::Async(MirAsyncOperation::StartTask { .. }) => {
+            Some(RuntimeAbiRole::TaskDestruction)
+        }
+        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { .. }) => {
+            Some(RuntimeAbiRole::ProviderReferenceRelease)
+        }
+        _ => None,
+    };
+
+    references
+        .into_iter()
+        .chain(owner_release.map(|role| Some(MirRuntimeReference::new(role, abi))))
 }
 
 fn terminator_runtime_references(

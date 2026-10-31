@@ -113,10 +113,9 @@ impl Compilation {
             let native_export =
                 native_direction == Some(bray_symbols::ForeignCallableDirection::Export);
 
-            if native_export
-                || !template.value().lifecycle_obligations().is_empty()
-                || !self.codegen_cleanup_is_trivial(ty, cancellation)?
-            {
+            // Initializer behavior includes conservative cleanup of aggregate temporaries.
+            // The concrete stored type determines whether unused storage has cleanup work.
+            if native_export || !self.codegen_cleanup_is_trivial(ty, cancellation)? {
                 let reason = if native_export {
                     NativeDemandReason::NativeExport
                 } else {

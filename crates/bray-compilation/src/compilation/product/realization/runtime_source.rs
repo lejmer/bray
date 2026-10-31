@@ -78,6 +78,10 @@ macro_rules! define_runtime_source_fields {
     (@field Pointer) => { AbiField::NativePointer };
     (@field PanicReportPointer) => { AbiField::NativePointer };
     (@field PanicReport) => { PANIC_REPORT };
+    (@field FrameState) => { AbiField::Struct(&[U32, U32]) };
+    (@field InactiveFrame) => { AbiField::Struct(&[
+        AbiField::Struct(&[USIZE, USIZE, USIZE, U64, USIZE]), AbiField::NativePointer,
+    ]) };
     (@result Void) => { None };
     (@result Never) => { None };
     (@result $kind:ident) => { Some(define_runtime_source_fields!(@field $kind)) };

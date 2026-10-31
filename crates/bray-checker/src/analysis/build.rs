@@ -815,18 +815,6 @@ where
         }
     }
 
-    pub(super) fn push_task_operation(
-        &mut self,
-        block: AnalysisBlockId,
-        expression: BoundExpressionId,
-        kind: super::model::AnalysisTaskOperationKind,
-    ) {
-        match self.view.node_is_recovered(expression.into()) {
-            Some(false) => self.storage.push_task_operation(block, expression, kind),
-            Some(true) | None => self.storage.push_recovery(block, expression.into()),
-        }
-    }
-
     pub(super) fn push_edge(
         &mut self,
         source: AnalysisBlockId,
@@ -897,7 +885,7 @@ mod tests {
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
-        AnalysisSuspensionKind, AnalysisTaskOperationKind,
+        AnalysisSuspensionKind,
     };
     use crate::test_support::{
         TestCheckerContext, available_compiler_known_symbols, callable_entry, callable_key,
@@ -1252,7 +1240,7 @@ mod tests {
     }
 
     #[test]
-    fn compiler_known_task_calls_use_distinct_callees_and_retain_their_execution_roles() {
+    fn compiler_known_task_calls_use_distinct_callees_and_publish_normal_completions() {
         let key = callable_key();
         let unit = BoundUnitId::new(11);
         let origin = BoundNodeOrigin::source(key.source());
@@ -1278,25 +1266,15 @@ mod tests {
 
         let graph = graph(&tree, &key, root);
 
-        let operations = graph
-            .operations()
-            .iter()
-            .filter_map(|operation| match operation.kind() {
-                AnalysisOperationKind::TaskOperation { expression, kind } => {
-                    Some((expression, kind))
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
+        let operations = graph.operations().iter().filter_map(|operation| match operation.kind() {
+            AnalysisOperationKind::Call {
+                invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
+                phase: super::AnalysisCallPhase::Completion,
+            } if [start, join, cancel].contains(&expression) => Some(expression),
+            _ => None,
+        }).collect::<Vec<_>>();
 
-        assert_eq!(
-            operations,
-            [
-                (start, AnalysisTaskOperationKind::Start),
-                (join, AnalysisTaskOperationKind::Join),
-                (cancel, AnalysisTaskOperationKind::Cancel),
-            ]
-        );
+        assert_eq!(operations, [start, join, cancel]);
     }
 
     #[test]

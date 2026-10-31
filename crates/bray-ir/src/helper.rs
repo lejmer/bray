@@ -313,16 +313,24 @@ impl MirOperationKind {
                 }
 
                 if let MirFrameInitializer::TaskObservation { result, .. } = initializer {
-                    for phase in [
-                        MirCleanupPhase::TaskCancellation,
-                        MirCleanupPhase::LifecycleResolution,
-                    ] {
-                        helpers.push(MirHelperReference::Cleanup {
-                            phase,
-                            ty: result.completion_type(),
-                        });
-                    }
+                    let ty = result.completion_type();
 
+                    helpers.push(MirHelperReference::Cleanup {
+                        phase: MirCleanupPhase::TaskCancellation,
+                        ty,
+                    });
+
+                    helpers.push(MirHelperReference::LifecycleFrame {
+                        role: crate::MirGeneratedLifecycleRole::Quiesce,
+                        ty,
+                    });
+
+                    helpers.push(MirHelperReference::LifecycleFrame {
+                        role: crate::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution),
+                        ty,
+                    });
+
+                    helpers.push(MirHelperReference::Destroy(ty, MirDestructionDisposition::Abandoned));
                     helpers.push(MirHelperReference::CreateFrame(*frame));
                 }
             }

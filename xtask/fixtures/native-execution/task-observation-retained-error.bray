@@ -1,0 +1,252 @@
+@link(name = "bray_allocation_probe")
+trusted module task_observation_retained_error;
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_begin")
+extern trusted func deny_allocation() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_end")
+extern trusted func restore_allocation(pos before: u32) -> u32
+    uses(foreign_call);
+
+using core.atomic;
+using std.memory;
+using std.task;
+
+static ALLOCATIONS: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+static OWNERS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static ERRORS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static BODIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static CAPTURES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Capture
+{
+    destruct()
+    {
+        assert(core.atomic.load<usize, 1>(&ERRORS) == 1, "capture escaped its retained observer");
+
+        _ = core.atomic.fetch_add<usize, 0>(&CAPTURES, value = 1);
+    }
+}
+
+async func inactive(pos capture: Capture)
+{
+    _ = core.atomic.fetch_add<usize, 0>(&BODIES, value = 1);
+
+    panic("retained result future executed its body");
+}
+
+union Child
+{
+    Completed;
+    Panicked;
+    Cancelled;
+}
+
+async func prepare(pos outcome: Child) -> Future<unit>
+    requires(main_thread_execution())
+{
+    if outcome matches Child.Panicked
+    {
+        panic("");
+    }
+
+    if outcome matches Child.Cancelled
+    {
+        loop
+        {
+            await std.task.yield_now();
+        }
+    }
+
+    return inactive(
+        Capture
+        {
+        }
+    );
+}
+
+struct Failure
+{
+    pending: Future<RunResult<Future<unit>>>;
+
+    destruct()
+    {
+        assert(core.atomic.load<usize, 1>(&OWNERS) == 1, "error escaped its owner");
+        assert(core.atomic.load<usize, 1>(&CAPTURES) == 0, "quiescence destroyed the returned future");
+
+        _ = core.atomic.fetch_add<usize, 0>(&ERRORS, value = 1);
+    }
+}
+
+struct Owner
+{
+    mut pending: Future<RunResult<Future<unit>>>?;
+
+    async finalize() -> Result<unit, Failure>
+    {
+        let pending = std.memory.replace_value(&mut self.pending, none);
+
+        match consume pending
+        {
+            case ?observation
+            {
+                return Error(
+                    Failure
+                    {
+                        pending = observation
+                    }
+                );
+            }
+            case none { panic("observation moved twice"); }
+        }
+    }
+
+    destruct()
+    {
+        _ = core.atomic.fetch_add<usize, 0>(&OWNERS, value = 1);
+    }
+}
+
+struct Scope
+{
+    mut pending: Future<RunResult<Future<unit>>>?;
+
+    async consume mut enter() -> Future<RunResult<Future<unit>>>
+    {
+        match consume std.memory.replace_value(&mut self.pending, none)
+        {
+            case ?pending { return pending; }
+            case none { panic("scope entered twice"); }
+        }
+    }
+
+    async exit(pos pending: Future<RunResult<Future<unit>>>) -> Result<unit, Failure>
+    {
+        return Error(
+            Failure
+            {
+                pending = pending
+            }
+        );
+    }
+
+    destruct()
+    {
+        _ = core.atomic.fetch_add<usize, 0>(&OWNERS, value = 1);
+    }
+}
+
+trusted async func fail(pos outcome: Child, pos cancellation: bool, pos denied: bool, pos scoped: bool)
+    requires(main_thread_execution())
+    uses(foreign_call)
+{
+    let task = prepare(outcome).start();
+
+    await std.task.yield_now();
+
+    let observation = if cancellation
+    {
+        yield task.cancel();
+    }
+    else
+    {
+        yield task.join();
+    };
+
+    if scoped
+    {
+        let scope = Scope
+        {
+            pending = observation
+        };
+
+        _ = with pending = scope
+        {
+            if denied
+            {
+                core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+            }
+
+            panic("");
+        };
+
+        return;
+    }
+
+    let owner = Owner
+    {
+        pending = observation
+    };
+
+    if denied
+    {
+        core.atomic.store<u32, 4>(&ALLOCATIONS, trusted deny_allocation());
+    }
+
+    panic("");
+}
+
+trusted async func handle_failure(pos outcome: Child, pos cancellation: bool, pos denied: bool, pos scoped: bool)
+    requires(main_thread_execution())
+{
+    _ = catch
+    {
+        await trusted fail(outcome, cancellation, denied, scoped);
+        yield unit;
+    };
+}
+
+trusted async func verify(pos outcome: Child, pos cancellation: bool, pos denied: bool, pos scoped: bool)
+    requires(main_thread_execution())
+    uses(foreign_call)
+{
+    core.atomic.store<usize, 4>(&OWNERS, 0);
+    core.atomic.store<usize, 4>(&ERRORS, 0);
+    core.atomic.store<usize, 4>(&BODIES, 0);
+    core.atomic.store<usize, 4>(&CAPTURES, 0);
+
+    let captures: usize = if outcome matches Child.Completed
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+
+    await trusted handle_failure(outcome, cancellation, denied, scoped);
+
+    if denied
+    {
+        let attempts = trusted restore_allocation(core.atomic.load<u32, 1>(&ALLOCATIONS));
+
+        assert(attempts == 0, "retained observation cleanup requested fresh backing");
+    }
+
+    assert(core.atomic.load<usize, 1>(&BODIES) == 0, "quiescence entered the returned future body");
+    assert(core.atomic.load<usize, 1>(&OWNERS) == 1, "owner was not destroyed once");
+    assert(core.atomic.load<usize, 1>(&ERRORS) == 1, "error was not destroyed once");
+    assert(core.atomic.load<usize, 1>(&CAPTURES) == captures, "returned future was not destroyed once");
+}
+
+trusted async func main()
+    requires(main_thread_execution())
+{
+    for mode in 0..8
+    {
+        let scoped = mode >= 4;
+        let denied = mode % 4 >= 2;
+        let cancellation = mode % 2 == 1;
+
+        await trusted verify(Child.Completed, cancellation, denied, scoped);
+        await trusted verify(Child.Panicked, cancellation, denied, scoped);
+        await trusted verify(Child.Cancelled, cancellation, denied, scoped);
+    }
+}

@@ -827,6 +827,7 @@ impl Compilation {
                     }
                 };
 
+                // Each owned constant child retains its local allowance independently.
                 outgoing_calls.extend(local.iter().cloned());
             }
 

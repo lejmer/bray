@@ -654,28 +654,6 @@ where
     }
 }
 
-impl<T, F> JoinWaitRegistration<T, F>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    pub(crate) fn is_pending(&self) -> bool {
-        let Some(identity) = self.identity else {
-            return false;
-        };
-
-        let Some(task) = self.task.upgrade() else {
-            return false;
-        };
-
-        let data = task
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        data.join_waiters.contains_key(&identity)
-    }
-}
-
 struct ResumeGuard<'task>(&'task AtomicBool);
 
 impl<'task> ResumeGuard<'task> {

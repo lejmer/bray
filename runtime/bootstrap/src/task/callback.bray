@@ -1,0 +1,100 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation.requirements;
+using internal bray.runtime.bootstrap.host.product;
+
+// The current native producer invocation retains its exact checked frame and
+// disjoint metadata slot. This permission is independent of numeric frame IDs.
+trusted internal predicate callback_invocation(
+    reference: DataPointer<Reference>,
+    execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+);
+
+@abi(c)
+trusted internal func callback_enter(
+    pos pointer: DataPointer<Reference>,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos resumable: u8,
+    pos previous_resumable: DataPointer<u8>
+) -> usize
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted callback_invocation(reference = pointer, execution = execution),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    uses(raw_memory, intrinsic)
+{
+    let permit = trusted lambda(
+        pos pointer: DataPointer<Reference>,
+        pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+    )
+        requires(trusted callback_invocation(reference = pointer, execution = execution))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution
+            ),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer, execution);
+
+    let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
+    let reference = trusted read_reference(pointer);
+
+    let (previous, was_resumable) =
+    {
+        let mut guard = trusted lock_cell(&reference);
+        let control = trusted guard.get();
+
+        if value.address == 0 || (resumable != 0 && (!control.dispatching || control.callback != 0))
+        {
+            trusted core.target.abort();
+        }
+
+        let previous = control.callback;
+        let was_resumable = flag(control.resumable);
+
+        // Nested synchronous cleanup masks the outer callback's permission to
+        // compose. Exit restores the exact previous callback, including zero.
+        control.callback = value.address;
+
+        control.resumable = resumable != 0;
+
+        yield (previous, was_resumable);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<u8>(previous_resumable, was_resumable);
+    return previous;
+}
+
+trusted internal predicate callback_restoration(reference: DataPointer<Reference>);
+
+@abi(c)
+trusted internal func callback_exit(pos pointer: DataPointer<Reference>, pos previous: usize, pos was_resumable: u8)
+    requires(trusted reference_slot(pointer = pointer), trusted callback_restoration(reference = pointer))
+    uses(intrinsic)
+{
+    let reference = trusted read_reference(pointer);
+    let mut guard = trusted lock_cell(&reference);
+    let control = trusted guard.get();
+
+    if control.callback == 0
+    {
+        trusted core.target.abort();
+    }
+
+    control.callback = previous;
+    control.resumable = was_resumable != 0;
+}

@@ -19,10 +19,6 @@ pub(crate) enum AnalysisOperationKind {
         occurrence: bray_bound_tree::BoundExecutionSite,
         kind: AnalysisSuspensionKind,
     },
-    TaskOperation {
-        expression: BoundExpressionId,
-        kind: AnalysisTaskOperationKind,
-    },
     ScopeExit {
         scope: bray_bound_tree::StorageScope,
         exit: AnyBoundNodeId,
@@ -68,7 +64,7 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::TaskOperation { expression, .. } | Self::Result { expression, .. } => {
+            Self::Result { expression, .. } => {
                 AnyBoundNodeId::Expression(expression)
             }
             Self::ScopeExit { scope, .. } => scope.node(),

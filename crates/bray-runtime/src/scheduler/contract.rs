@@ -17,7 +17,7 @@ impl SchedulerLimits {
         Self { tasks, timers }
     }
 
-    /// Returns the maximum registered task count.
+    /// Returns the maximum number of simultaneously executing tasks.
     pub const fn tasks(self) -> NonZeroUsize {
         self.tasks
     }
@@ -31,8 +31,8 @@ impl SchedulerLimits {
 /// A scheduler operation that could not preserve its runtime contract.
 #[derive(Debug)]
 pub enum SchedulerError {
-    /// The hard registered-task capacity was reached.
-    TaskCapacityReached,
+    /// Mandatory ready-queue backing could not be admitted before registration.
+    ReadyStorageUnavailable(std::collections::TryReserveError),
     /// The hard timer capacity was reached.
     TimerCapacityReached,
     /// Pending timer identities cannot be represented.

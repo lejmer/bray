@@ -125,6 +125,15 @@ impl SyntaxToken {
         Self::new(SyntaxKind::InvalidToken, range)
     }
 
+    /// Reclassifies a token for a contextual syntax role while preserving its source and trivia.
+    ///
+    /// Panics when `kind` is not a token kind.
+    pub fn with_kind(self, kind: SyntaxKind) -> Self {
+        assert!(kind.is_token());
+
+        Self { kind, ..self }
+    }
+
     /// Replaces the token's leading trivia.
     pub fn with_leading_trivia(self, trivia: impl IntoIterator<Item = SyntaxTrivia>) -> Self {
         let leading_trivia = shared_slice(trivia);
@@ -264,6 +273,29 @@ mod tests {
 
     use super::{SyntaxToken, SyntaxTokenPresence};
     use crate::{SyntaxKind, SyntaxTrivia};
+
+    #[test]
+    fn contextual_reclassification_preserves_source_and_trivia() {
+        let leading = SyntaxTrivia::whitespace(TextRange::new(TextSize::new(0), TextSize::new(1)));
+        let trailing = SyntaxTrivia::whitespace(TextRange::new(TextSize::new(7), TextSize::new(8)));
+        let range = TextRange::new(TextSize::new(1), TextSize::new(7));
+
+        let original = SyntaxToken::with_trivia(
+            SyntaxKind::StaticKeyword,
+            range,
+            [leading.clone()],
+            [trailing.clone()],
+        );
+
+        let contextual = original.clone().with_kind(SyntaxKind::IdentifierToken);
+
+        assert_eq!(
+            contextual,
+            SyntaxToken::with_trivia(SyntaxKind::IdentifierToken, range, [leading], [trailing])
+        );
+
+        assert_eq!(original.kind(), SyntaxKind::StaticKeyword);
+    }
 
     #[test]
     fn tokens_carry_kind_range_and_trivia() {

@@ -205,16 +205,6 @@ where
                     .and_modify(|previous| previous.merge_path(&suspension))
                     .or_insert(suspension);
             }
-            AnalysisOperationKind::TaskOperation { expression, kind } => {
-                add_task_operation(
-                    request,
-                    execution,
-                    expression,
-                    kind,
-                    &mut task_operations,
-                    &mut diagnostics,
-                );
-            }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
             AnalysisOperationKind::Result { .. }
             | AnalysisOperationKind::Bound(_)
@@ -424,7 +414,7 @@ fn check_selected_async_operations<C>(
     }
 
     for entry in selections.entries() {
-        let Some(analysis_kind) = selected_task_operation(request, entry.selection()) else {
+        let Some(analysis_kind) = selected_task_operation(entry.selection()) else {
             continue;
         };
 
@@ -609,24 +599,12 @@ const fn task_operation_kind(kind: AnalysisTaskOperationKind) -> AsyncTaskOperat
     }
 }
 
-fn selected_task_operation<C>(
-    request: CheckerUnitView<'_, C>,
-    selection: &SemanticSelection,
-) -> Option<AnalysisTaskOperationKind>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+fn selected_task_operation(selection: &SemanticSelection) -> Option<AnalysisTaskOperationKind> {
     let SemanticSelection::Call(call) = selection else {
         return None;
     };
 
-    let target = call.target().declaration()?;
-
-    let hook = request
-        .available_compiler_known_symbols()
-        .symbol_implementation(target.symbol())?;
-
-    AnalysisTaskOperationKind::from_implementation_hook(hook)
+    call.implementation_hook().and_then(AnalysisTaskOperationKind::from_implementation_hook)
 }
 
 fn add_task_context_diagnostic<C>(
@@ -763,10 +741,11 @@ mod tests {
                 None,
                 [],
                 [],
-            ));
+            ).with_implementation_hook(request.available_compiler_known_symbols()
+                .symbol_implementation(symbol)));
 
             assert_eq!(
-                selected_task_operation(request, &selection),
+                selected_task_operation(&selection),
                 Some(expected),
                 "{key}"
             );
