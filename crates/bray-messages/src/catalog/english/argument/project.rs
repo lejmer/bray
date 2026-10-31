@@ -1,6 +1,8 @@
 mod command;
 mod dependency;
+mod generator;
 mod manifest;
+pub(super) use generator::format_english_project_generator_failure;
 mod selection;
 
 pub(super) use command::format_english_project_command_failure;

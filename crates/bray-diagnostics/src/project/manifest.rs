@@ -59,6 +59,18 @@ pub enum DiagnosticProjectManifestField {
     TargetName,
     /// Target identity.
     TargetIdentity,
+    /// package generators.
+    PackageGenerators,
+    /// generator name.
+    GeneratorName,
+    /// generator tool.
+    GeneratorTool,
+    /// generator inputs.
+    GeneratorInputs,
+    /// generator outputs.
+    GeneratorOutputs,
+    /// product generated sources.
+    ProductGeneratedSources,
     /// Target-predicate property and value.
     TargetPredicate,
 }
@@ -96,6 +108,12 @@ impl DiagnosticProjectManifestField {
             Self::SourceRootPath => "source_root_path",
             Self::TargetName => "target_name",
             Self::TargetIdentity => "target_identity",
+            Self::PackageGenerators => "package_generators",
+            Self::GeneratorName => "generator_name",
+            Self::GeneratorTool => "generator_tool",
+            Self::GeneratorInputs => "generator_inputs",
+            Self::GeneratorOutputs => "generator_outputs",
+            Self::ProductGeneratedSources => "product_generated_sources",
             Self::TargetPredicate => "target_predicate",
         }
     }

@@ -143,7 +143,8 @@ rule covers features, source roots, products, and workspace target names. Every 
 
 ### Source roots
 
-Source roots are package-relative named directories. Products select one or more roots by name. During graph loading,
+Source roots are package-relative named directories. Products select roots by name or select declared generators through
+`generated_sources`. A product may use generated source alone. During graph loading,
 every regular file with the exact `.bray` extension beneath a selected declared root becomes a source node. Directory
 traversal and resulting source paths are sorted deterministically. Other regular files are ignored.
 
@@ -218,6 +219,26 @@ environment. The revision-1 permission object has the single required boolean fi
 network access, while `true` explicitly grants it. A product cannot select a generator whose tool or execution contract
 is unavailable on the compiler host.
 
+The host supplies exact executable bytes and the producing toolchain's content identity to
+`bray-project::load_project_graph_with_generators`. Its injected `SandboxedGeneratorExecutor` receives a closed request
+containing immutable input snapshots, the complete selected target profile, exact environment values, and declared
+permissions. Input and output identities occupy separate sandbox namespaces. The executor must enforce filesystem
+isolation and the selected network policy before execution and report every output write. It must fail before execution
+when the required isolation cannot be enforced. Loading a workspace with selected generators through the ordinary
+loader reports that no sandbox executor was supplied.
+
+The graph's cross-target build order includes host-tool products and generated-source dependencies. Generated snapshots
+retain their package, generator, target, output identity, source text, and invocation cache identity. Products select
+snapshots separately from source-tree files, so a generated output cannot impersonate an ordinary source path. Equal
+output paths belonging to different generator identities occupy different namespaces.
+
+Cache identity covers schema revision, normalized declaration, exact executable bytes, toolchain identity, ordered input
+identities and bytes, environment, complete target profile, permissions, and sandbox implementation and policy identity.
+Hosts must change the policy identity whenever observable sandbox behavior changes. Cache reuse preserves immutable
+snapshots. Verification mode executes again and treats different output for an equal invocation identity as an invariant
+failure. Failure or cancellation publishes neither a graph nor new cache entries, including results of earlier generators
+in the same load.
+
 ### Dependencies
 
 Each product dependency edge names one exact package identity and one exact library product. The selected package must
@@ -265,7 +286,7 @@ Product `kind` is one of:
 - `library`,
 - or `test`.
 
-A product selects one or more declared source roots, one or more workspace target configurations, and one or more
+A product selects declared source roots or generated sources, one or more workspace target configurations, and one or more
 external output categories. Output category names correspond to `bray-emitter`'s stable external artifact taxonomy:
 
 - `assembly`,

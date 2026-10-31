@@ -401,6 +401,18 @@ impl DiagnosticKind {
                 &[ProjectSelectionProblem],
                 primary_components!(&[ProjectSelectionProblem]),
             ),
+            Self::ProjectGeneratorFailed => Self::quality_external(
+                &[
+                    FilePath,
+                    ReferencedName,
+                    DiagnosticArgName::ProjectGeneratorFailure,
+                ],
+                primary_components!(&[
+                    FilePath,
+                    ReferencedName,
+                    DiagnosticArgName::ProjectGeneratorFailure
+                ]),
+            ),
             Self::ProjectCommandFailed => Self::quality_external(
                 &[ProjectCommandFailure],
                 primary_components!(&[ProjectCommandFailure]),

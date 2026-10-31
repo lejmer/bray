@@ -36,8 +36,8 @@ pub(in crate::output::diagnostic::json) use path::DiagnosticPathJson;
 pub(in crate::output::diagnostic::json) use project::{
     DiagnosticExternalToolExitJson, DiagnosticLinkerDriverIdentityJson,
     DiagnosticProjectCommandFailureJson, DiagnosticProjectDependencyCycleMemberJson,
-    DiagnosticProjectSelectionJson, DiagnosticSourceInputJson,
-    DiagnosticUnsupportedEmissionReasonJson,
+    DiagnosticProjectGeneratorFailureJson, DiagnosticProjectSelectionJson,
+    DiagnosticSourceInputJson, DiagnosticUnsupportedEmissionReasonJson,
 };
 pub(super) use report::write_json_diagnostic_groups;
 pub(crate) use report::write_json_diagnostics;

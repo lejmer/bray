@@ -26,7 +26,8 @@ use super::native::{
 };
 use super::project::{
     format_english_project_command_failure, format_english_project_dependency_cycle_member,
-    format_english_project_manifest_field, format_english_project_selection_problem,
+    format_english_project_generator_failure, format_english_project_manifest_field,
+    format_english_project_selection_problem,
 };
 use super::selection::{
     format_english_alignment_kind, format_english_callable_abi,
@@ -153,6 +154,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::ProjectSelectionProblem(problem) => {
             format_english_project_selection_problem(problem)
+        }
+        DiagnosticArgValue::ProjectGeneratorFailure(failure) => {
+            format_english_project_generator_failure(failure)
         }
         DiagnosticArgValue::ProjectCommandFailure(failure) => {
             format_english_project_command_failure(failure)

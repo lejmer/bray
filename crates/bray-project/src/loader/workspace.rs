@@ -3,13 +3,13 @@ use std::sync::Arc;
 
 use bray_diagnostics::DiagnosticProjectManifestField as Field;
 use bray_standard_library::{PackageSourceAuthority, is_public_standard_library_package};
-use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
+use bray_symbols::{PackageVersion, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
 
 use crate::manifest::{TargetManifest, WorkspacePackageManifest, decode_workspace_manifest};
 use crate::{
-    ProjectGraph, ProjectLoadError, ProjectPackage, ProjectPath, ProjectProduct, ProjectTarget,
-    ProjectTargetBuildPlan, WORKSPACE_MANIFEST_FILE_NAME,
+    ProjectGraph, ProjectLoadError, ProjectPackage, ProjectPath, ProjectTarget,
+    WORKSPACE_MANIFEST_FILE_NAME,
 };
 
 use super::package::{PendingPackage, load_package};
@@ -21,7 +21,7 @@ use super::validation::{local_name, paths_overlap, project_path, read_manifest_s
 /// workspace's explicit package inventory, and `.bray` files beneath declared
 /// source roots. It performs no search, acquisition, registry access, or network I/O.
 pub fn load_project_graph(workspace_root: &Path) -> Result<ProjectGraph, ProjectLoadError> {
-    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::Ordinary)
+    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::Ordinary, None)
 }
 
 /// Loads one toolchain-owned standard library workspace.
@@ -31,12 +31,40 @@ pub fn load_project_graph(workspace_root: &Path) -> Result<ProjectGraph, Project
 pub fn load_standard_library_project_graph(
     workspace_root: &Path,
 ) -> Result<ProjectGraph, ProjectLoadError> {
-    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::StandardLibrary)
+    load_project_graph_with_authority(
+        workspace_root,
+        PackageSourceAuthority::StandardLibrary,
+        None,
+    )
+}
+
+/// Loads an ordinary workspace and executes selected generators through the supplied sandbox host.
+/// Failure or cancellation publishes neither a graph nor new cache entries.
+/// Supplied executable artifacts must implement the declared workspace products.
+pub fn load_project_graph_with_generators(
+    workspace_root: &Path,
+    host: &mut crate::GeneratorHost<'_>,
+) -> Result<ProjectGraph, ProjectLoadError> {
+    load_project_graph_with_authority(workspace_root, PackageSourceAuthority::Ordinary, Some(host))
+}
+
+/// Loads a toolchain-owned standard-library workspace with an explicit sandbox host.
+/// Every package must use the reserved standard-library namespace.
+pub fn load_standard_library_project_graph_with_generators(
+    workspace_root: &Path,
+    host: &mut crate::GeneratorHost<'_>,
+) -> Result<ProjectGraph, ProjectLoadError> {
+    load_project_graph_with_authority(
+        workspace_root,
+        PackageSourceAuthority::StandardLibrary,
+        Some(host),
+    )
 }
 
 fn load_project_graph_with_authority(
     workspace_root: &Path,
     source_authority: PackageSourceAuthority,
+    host: Option<&mut crate::GeneratorHost<'_>>,
 ) -> Result<ProjectGraph, ProjectLoadError> {
     let workspace_manifest_path = workspace_root.join(WORKSPACE_MANIFEST_FILE_NAME);
     let manifest_source = read_manifest_source(&workspace_manifest_path)?;
@@ -68,7 +96,7 @@ fn load_project_graph_with_authority(
 
     let targets = load_targets(manifest.targets, &workspace_manifest_path)?;
 
-    let (packages, build_plans) = load_packages(
+    let packages = load_packages(
         workspace_root,
         manifest.packages,
         &targets,
@@ -78,14 +106,18 @@ fn load_project_graph_with_authority(
         source_authority,
     )?;
 
-    Ok(ProjectGraph::new(
+    let mut graph = ProjectGraph::new(
         source_authority,
         formatter_configuration,
         output_root,
         targets,
         packages,
-        build_plans,
-    ))
+    );
+
+    (graph.build_order, graph.build_plans) = super::generation::plan_project(&graph)?;
+    graph.generated_sources = super::generation::generate_sources(workspace_root, &graph, host)?;
+
+    Ok(graph)
 }
 
 fn load_targets(
@@ -155,8 +187,6 @@ fn load_targets(
     Ok(targets.into())
 }
 
-type LoadedPackages = (Arc<[ProjectPackage]>, Arc<[ProjectTargetBuildPlan]>);
-
 fn load_packages(
     workspace_root: &Path,
     mut selections: Vec<WorkspacePackageManifest>,
@@ -165,7 +195,7 @@ fn load_packages(
     workspace_manifest_path: &Path,
     workspace_package_version: Option<&PackageVersion>,
     source_authority: PackageSourceAuthority,
-) -> Result<LoadedPackages, ProjectLoadError> {
+) -> Result<Arc<[ProjectPackage]>, ProjectLoadError> {
     if selections.is_empty() {
         return Err(ProjectLoadError::missing_selection(
             workspace_manifest_path.to_path_buf(),
@@ -240,10 +270,7 @@ fn load_packages(
     validate_source_ownership(&packages)?;
     validate_dependencies(&packages)?;
 
-    let build_plans = build_plans(&packages, targets)?;
-    let packages = packages.into_iter().map(PendingPackage::finish).collect();
-
-    Ok((packages, build_plans))
+    Ok(packages.into_iter().map(PendingPackage::finish).collect())
 }
 
 fn workspace_package_version(
@@ -361,167 +388,4 @@ fn validate_dependencies(packages: &[PendingPackage]) -> Result<(), ProjectLoadE
     }
 
     Ok(())
-}
-
-fn build_plans(
-    packages: &[PendingPackage],
-    targets: &[ProjectTarget],
-) -> Result<Arc<[ProjectTargetBuildPlan]>, ProjectLoadError> {
-    targets
-        .iter()
-        .map(|target| build_plan(packages, target.identity()))
-        .collect::<Result<Vec<_>, _>>()
-        .map(Arc::from)
-}
-
-fn build_plan(
-    packages: &[PendingPackage],
-    target: &TargetIdentity,
-) -> Result<ProjectTargetBuildPlan, ProjectLoadError> {
-    let active_packages = packages
-        .iter()
-        .filter(|package| {
-            package
-                .products
-                .iter()
-                .any(|product| product.targets().contains(target))
-        })
-        .collect::<Vec<_>>();
-
-    let active_products = packages
-        .iter()
-        .flat_map(|package| {
-            package
-                .products
-                .iter()
-                .map(move |product| (package, product))
-        })
-        .filter(|(_, product)| product.targets().contains(target))
-        .collect::<Vec<_>>();
-
-    let package_order = dependency_first_package_order(&active_packages, target)?;
-    let product_order = dependency_first_product_order(&active_products, target)?;
-
-    Ok(ProjectTargetBuildPlan::new(
-        target.clone(),
-        package_order.into(),
-        product_order.into(),
-    ))
-}
-
-fn dependency_first_package_order(
-    packages: &[&PendingPackage],
-    target: &TargetIdentity,
-) -> Result<Vec<PackageIdentity>, ProjectLoadError> {
-    let mut emitted = vec![false; packages.len()];
-    let mut order = Vec::with_capacity(packages.len());
-
-    while order.len() < packages.len() {
-        let candidate = packages
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !emitted[*index])
-            .find(|(_, package)| {
-                active_package_dependencies(package, target).all(|dependency| {
-                    packages
-                        .iter()
-                        .position(|candidate| candidate.identity == *dependency)
-                        .is_some_and(|index| emitted[index])
-                })
-            })
-            .map(|(index, _)| index);
-
-        let Some(index) = candidate else {
-            let Some(package) = packages
-                .iter()
-                .enumerate()
-                .find(|(index, _)| !emitted[*index])
-                .map(|(_, package)| *package)
-            else {
-                return Ok(order);
-            };
-
-            return Err(ProjectLoadError::dependency_cycle_package(
-                package.manifest_path.to_path_buf(),
-                Field::ProductDependencies,
-                package.identity.clone(),
-            ));
-        };
-
-        emitted[index] = true;
-        order.push(packages[index].identity.clone());
-    }
-
-    Ok(order)
-}
-
-fn active_package_dependencies<'package>(
-    package: &'package PendingPackage,
-    target: &'package TargetIdentity,
-) -> impl Iterator<Item = &'package PackageIdentity> {
-    package
-        .products
-        .iter()
-        .filter(move |product| product.targets().contains(target))
-        .flat_map(ProjectProduct::dependencies)
-        .filter(move |dependency| dependency.is_active_for(target))
-        .map(|dependency| dependency.product().package())
-}
-
-fn dependency_first_product_order(
-    products: &[(&PendingPackage, &ProjectProduct)],
-    target: &TargetIdentity,
-) -> Result<Vec<ProductIdentity>, ProjectLoadError> {
-    let mut emitted = vec![false; products.len()];
-    let mut order = Vec::with_capacity(products.len());
-
-    while order.len() < products.len() {
-        let candidate = products
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| !emitted[*index])
-            .find(|(_, (_, product))| {
-                active_product_dependencies(product, target).all(|dependency| {
-                    products
-                        .iter()
-                        .position(|(_, candidate)| candidate.identity() == dependency)
-                        .is_some_and(|index| emitted[index])
-                })
-            })
-            .map(|(index, _)| index);
-
-        let Some(index) = candidate else {
-            let Some((package, product)) = products
-                .iter()
-                .enumerate()
-                .find(|(index, _)| !emitted[*index])
-                .map(|(_, product)| *product)
-            else {
-                return Ok(order);
-            };
-
-            return Err(ProjectLoadError::dependency_cycle_product(
-                package.manifest_path.to_path_buf(),
-                Field::ProductDependencies,
-                product.identity().clone(),
-            ));
-        };
-
-        emitted[index] = true;
-        order.push(products[index].1.identity().clone());
-    }
-
-    Ok(order)
-}
-
-fn active_product_dependencies<'product>(
-    product: &'product ProjectProduct,
-    target: &'product TargetIdentity,
-) -> impl Iterator<Item = &'product ProductIdentity> {
-    product
-        .dependencies()
-        .iter()
-        .filter(move |dependency| dependency.is_active_for(target))
-        .map(|dependency| dependency.product())
-        .chain(product.tested_library())
 }

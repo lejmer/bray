@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -77,6 +78,8 @@ pub(crate) struct PackageManifest {
     #[serde(default)]
     pub features: Vec<String>,
     pub source_roots: Vec<SourceRootManifest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generators: Vec<GeneratorManifest>,
     pub products: Vec<ProductManifest>,
 }
 
@@ -102,6 +105,39 @@ pub(crate) struct SourceRootManifest {
 
 #[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct GeneratorManifest {
+    pub name: String,
+    pub tool: GeneratorToolManifest,
+    pub inputs: Vec<String>,
+    pub generated_inputs: Vec<GeneratedInputManifest>,
+    pub outputs: Vec<String>,
+    pub environment: BTreeMap<String, String>,
+    pub permissions: GeneratorPermissionsManifest,
+}
+
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GeneratorToolManifest {
+    pub package: String,
+    pub product: String,
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GeneratedInputManifest {
+    pub generator: String,
+    pub output: String,
+}
+
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GeneratorPermissionsManifest {
+    pub network: bool,
+}
+
+#[derive(Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct DependencyManifest {
     pub package: String,
     pub product: String,
@@ -117,6 +153,8 @@ pub(crate) struct ProductManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tested_library: Option<String>,
     pub source_roots: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated_sources: Vec<String>,
     pub targets: Vec<String>,
     #[serde(default)]
     pub dependencies: Vec<DependencyManifest>,
@@ -325,6 +363,12 @@ impl PackageManifest {
         self.features.dedup();
         self.source_roots.sort_unstable();
 
+        for generator in &mut self.generators {
+            generator.outputs.sort_unstable();
+        }
+
+        self.generators.sort_unstable();
+
         for product in &mut self.products {
             product.normalize();
         }
@@ -337,6 +381,8 @@ impl ProductManifest {
     fn normalize(&mut self) {
         self.source_roots.sort_unstable();
         self.source_roots.dedup();
+        self.generated_sources.sort_unstable();
+        self.generated_sources.dedup();
         self.targets.sort_unstable();
         self.targets.dedup();
         self.outputs.sort_unstable();

@@ -6,7 +6,10 @@ use bray_standard_library::PackageSourceAuthority;
 use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
 use bray_target::{TargetIdentity, TargetOutputKind, TargetProfile, TargetPropertyKind};
 
-use crate::{ProjectPath, TargetPredicate};
+use crate::{
+    GeneratedSource, GeneratorIdentity, ProjectBuildNode, ProjectGenerator, ProjectPath,
+    TargetPredicate,
+};
 
 /// A canonical package feature name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -160,6 +163,7 @@ pub struct ProjectProduct {
     targets: Arc<[TargetIdentity]>,
     outputs: Arc<[TargetOutputKind]>,
     platform_services: Arc<[PlatformServiceBinding]>,
+    generated_sources: Arc<[GeneratorIdentity]>,
 }
 
 impl ProjectProduct {
@@ -176,6 +180,7 @@ impl ProjectProduct {
         targets: Arc<[TargetIdentity]>,
         outputs: Arc<[TargetOutputKind]>,
         platform_services: Arc<[PlatformServiceBinding]>,
+        generated_sources: Arc<[GeneratorIdentity]>,
     ) -> Self {
         Self {
             identity,
@@ -186,6 +191,7 @@ impl ProjectProduct {
             targets,
             outputs,
             platform_services,
+            generated_sources,
         }
     }
 
@@ -214,6 +220,11 @@ impl ProjectProduct {
         &self.sources
     }
 
+    /// Returns selected generators in stable identity order.
+    pub fn generated_sources(&self) -> &[GeneratorIdentity] {
+        &self.generated_sources
+    }
+
     /// Returns selected compiler target identities in canonical order.
     pub fn targets(&self) -> &[TargetIdentity] {
         &self.targets
@@ -240,6 +251,7 @@ pub struct ProjectPackage {
     declared_features: Arc<[FeatureName]>,
     enabled_features: Arc<[FeatureName]>,
     source_roots: Arc<[ProjectSourceRoot]>,
+    generators: Arc<[ProjectGenerator]>,
     products: Arc<[ProjectProduct]>,
 }
 
@@ -293,6 +305,7 @@ impl ProjectPackage {
         declared_features: Arc<[FeatureName]>,
         enabled_features: Arc<[FeatureName]>,
         source_roots: Arc<[ProjectSourceRoot]>,
+        generators: Arc<[ProjectGenerator]>,
         products: Arc<[ProjectProduct]>,
     ) -> Self {
         Self {
@@ -303,6 +316,7 @@ impl ProjectPackage {
             declared_features,
             enabled_features,
             source_roots,
+            generators,
             products,
         }
     }
@@ -342,6 +356,11 @@ impl ProjectPackage {
         &self.source_roots
     }
 
+    /// Returns normalized generator declarations in stable name order.
+    pub fn generators(&self) -> &[ProjectGenerator] {
+        &self.generators
+    }
+
     /// Returns products in canonical product-name order.
     pub fn products(&self) -> &[ProjectProduct] {
         &self.products
@@ -356,7 +375,9 @@ pub struct ProjectGraph {
     output_root: ProjectPath,
     targets: Arc<[ProjectTarget]>,
     packages: Arc<[ProjectPackage]>,
-    build_plans: Arc<[ProjectTargetBuildPlan]>,
+    pub(crate) build_plans: Arc<[ProjectTargetBuildPlan]>,
+    pub(crate) generated_sources: Arc<[GeneratedSource]>,
+    pub(crate) build_order: Arc<[ProjectBuildNode]>,
 }
 
 impl ProjectGraph {
@@ -366,7 +387,6 @@ impl ProjectGraph {
         output_root: ProjectPath,
         targets: Arc<[ProjectTarget]>,
         packages: Arc<[ProjectPackage]>,
-        build_plans: Arc<[ProjectTargetBuildPlan]>,
     ) -> Self {
         Self {
             source_authority,
@@ -374,7 +394,9 @@ impl ProjectGraph {
             output_root,
             targets,
             packages,
-            build_plans,
+            build_plans: Arc::from([]),
+            generated_sources: Arc::from([]),
+            build_order: Arc::from([]),
         }
     }
 
@@ -406,6 +428,28 @@ impl ProjectGraph {
     /// Returns per-target dependency-first build plans in workspace target order.
     pub fn build_plans(&self) -> &[ProjectTargetBuildPlan] {
         &self.build_plans
+    }
+
+    /// Returns immutable generated snapshots in dependency-first generation order.
+    pub fn generated_sources(&self) -> &[GeneratedSource] {
+        &self.generated_sources
+    }
+
+    /// Returns the selected product's generated sources for one declared target.
+    /// Generated inputs used only by a generator are excluded unless selected by the product itself.
+    pub fn product_generated_sources<'graph>(
+        &'graph self,
+        product: &'graph ProjectProduct,
+        target: &'graph TargetIdentity,
+    ) -> impl Iterator<Item = &'graph GeneratedSource> {
+        self.generated_sources.iter().filter(move |source| {
+            source.target() == target && product.generated_sources().contains(source.generator())
+        })
+    }
+
+    /// Returns cross-target product and generator work in dependency-first order.
+    pub fn build_order(&self) -> &[ProjectBuildNode] {
+        &self.build_order
     }
 
     /// Finds the dependency-first build plan for one target.

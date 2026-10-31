@@ -180,6 +180,8 @@ pub enum DiagnosticArgName {
     ProjectSelectionProblem,
     /// Exact structured project command failure.
     ProjectCommandFailure,
+    /// Exact source-generator failure.
+    ProjectGeneratorFailure,
     /// Exact workspace or package manifest field.
     ProjectManifestField,
     /// Exact package or product identity participating in a project dependency cycle.
@@ -375,6 +377,7 @@ impl DiagnosticArgName {
             Self::InterfaceSemanticProblem => "interface_semantic_problem",
             Self::InterfaceValidationFailure => "interface_validation_failure",
             Self::ProjectSelectionProblem => "project_selection_problem",
+            Self::ProjectGeneratorFailure => "project_generator_failure",
             Self::ProjectCommandFailure => "project_command_failure",
             Self::ProjectManifestField => "project_manifest_field",
             Self::ProjectDependencyCycleMember => "project_dependency_cycle_member",
@@ -489,6 +492,8 @@ pub enum DiagnosticArgValue {
     ProjectSelectionProblem(crate::DiagnosticProjectSelectionProblem),
     /// Exact structured project command failure.
     ProjectCommandFailure(crate::DiagnosticProjectCommandFailure),
+    /// Exact source-generator failure.
+    ProjectGeneratorFailure(crate::DiagnosticProjectGeneratorFailure),
     ProjectManifestField(crate::DiagnosticProjectManifestField),
     /// Exact package or product identity participating in a project dependency cycle.
     ProjectDependencyCycleMember(crate::DiagnosticProjectDependencyCycleMember),

@@ -18,26 +18,30 @@ pub(super) fn collect_sources(
     manifest_path: &Path,
 ) -> Result<Box<[ProjectPath]>, ProjectLoadError> {
     let workspace_source_path = package_path.joined(source_path);
-    let source_directory = workspace_source_path.beneath(workspace_root);
+    let mut source_directory = package_path.beneath(workspace_root);
 
-    let metadata = fs::symlink_metadata(&source_directory).map_err(|_| {
-        invalid_source_root(
-            manifest_path,
-            SourcePathProblem::Invalid,
-            source_directory.to_path_buf(),
-        )
-    })?;
+    for component in source_path.as_str().split('/') {
+        source_directory.push(component);
 
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(invalid_source_root(
-            manifest_path,
-            if metadata.file_type().is_symlink() {
-                SourcePathProblem::Symlink
-            } else {
-                SourcePathProblem::Invalid
-            },
-            source_directory,
-        ));
+        let metadata = fs::symlink_metadata(&source_directory).map_err(|_| {
+            invalid_source_root(
+                manifest_path,
+                SourcePathProblem::Invalid,
+                source_directory.to_path_buf(),
+            )
+        })?;
+
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(invalid_source_root(
+                manifest_path,
+                if metadata.file_type().is_symlink() {
+                    SourcePathProblem::Symlink
+                } else {
+                    SourcePathProblem::Invalid
+                },
+                source_directory,
+            ));
+        }
     }
 
     let mut sources = Vec::new();

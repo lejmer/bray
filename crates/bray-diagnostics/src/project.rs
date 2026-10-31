@@ -1,5 +1,7 @@
 mod command;
+mod generator;
 mod manifest;
+pub use generator::DiagnosticProjectGeneratorFailure;
 
 pub use command::{
     DiagnosticPathRequirement, DiagnosticProfileComparisonProblem, DiagnosticProfileContext,

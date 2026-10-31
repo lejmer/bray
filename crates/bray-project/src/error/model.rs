@@ -268,6 +268,15 @@ impl ProjectManifestProblem {
 /// A structured project graph loading failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProjectLoadError {
+    /// A generator declaration, input, execution, or output violates its closed contract.
+    Generator {
+        /// Owning package manifest.
+        path: PathBuf,
+        /// Package-qualified generator or product selection.
+        generator: String,
+        /// Specific locale-neutral failure with its known context.
+        failure: bray_diagnostics::DiagnosticProjectGeneratorFailure,
+    },
     /// A required workspace or package manifest could not be read.
     ReadManifest {
         /// Manifest path.
@@ -630,6 +639,18 @@ impl ProjectLoadError {
     /// Converts this project-boundary failure into a locale-neutral diagnostic.
     pub fn into_diagnostic(self, id: DiagnosticId) -> Diagnostic {
         match self {
+            Self::Generator {
+                path,
+                generator,
+                failure,
+            } => Diagnostic::new(
+                id,
+                DiagnosticKind::ProjectGeneratorFailed,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::file_path(path))
+            .with_arg(DiagnosticArg::referenced_name(generator))
+            .with_arg(DiagnosticArg::project_generator_failure(failure)),
             Self::ReadManifest { path, kind } => Diagnostic::new(
                 id,
                 DiagnosticKind::ProjectManifestReadFailed,
