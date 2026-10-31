@@ -1,0 +1,19 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using internal bray.runtime.bootstrap;
+
+// The checked source invocation still owns its inactive input after native
+// admission rejects. Its failure edge resolves that input through typed cleanup.
+@abi(c)
+trusted internal func admission_failure(pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
+    requires(
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+        outcome,
+        trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())
+    );
+}

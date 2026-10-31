@@ -1,0 +1,204 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+
+// These operations borrow the native task context for one dispatch. They
+// transport cancellation shielding, incidents and wake delivery. The Bray
+// record remains the only owner of task state and terminal disposition.
+internal callable ControlService = @abi(c) trusted func(pos operation: u32) -> u32;
+
+internal callable WakeService = @abi(c) trusted func(pos task: u64);
+
+internal callable TransferService = @abi(c) trusted func(
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>,
+    pos unused: DataPointer<bray.runtime.bootstrap.ReportRecords>,
+    pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>
+)
+    requires(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution,
+            count = 1
+        ),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = execution),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+            pointer = execution
+        ),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = unused, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = unused, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = unused),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = unused),
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = incidents, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = incidents, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportRecords>(pointer = incidents),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = incidents)
+    );
+
+@copy
+@layout(c)
+internal struct Services
+{
+    invoke: FunctionPointer<bray.runtime.bootstrap.activation.callback.Invoke>;
+    ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>;
+    control: FunctionPointer<ControlService>;
+    transfer: FunctionPointer<TransferService>;
+    wake: FunctionPointer<WakeService>;
+}
+
+// The native caller retains the whole table, its context and code providers
+// through dispatch and notification return. Scalar callback fields grant none
+// of that lifetime on their own.
+trusted internal predicate service_slot(pointer: DataPointer<Services>);
+
+trusted internal predicate native_services(owner: &Services);
+
+trusted internal func read_services(pos pointer: DataPointer<Services>) -> Services
+    requires(trusted service_slot(pointer = pointer))
+    ensures(trusted native_services(owner = &result))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Services>)
+        requires(trusted service_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Services>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Services>(pointer = pointer),
+            trusted core.memory.initialized_as<Services>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Services>(pointer);
+}
+
+trusted internal func activation_callbacks(
+    pos owner: &Services
+) -> (bray.runtime.bootstrap.activation.callback.Invoke, bray.runtime.bootstrap.activation.callback.Ready)
+    requires(trusted native_services(owner = owner))
+    ensures(trusted native_services(owner = owner))
+    uses(layout_reinterpret)
+{
+    let permit = trusted lambda(pos owner: &Services)
+        requires(trusted native_services(owner = owner))
+        ensures(
+            trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Invoke>(
+                pointer = owner.invoke
+            ),
+            trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(
+                pointer = owner.ready
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner);
+
+    return (
+        trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Invoke>(owner.invoke),
+        trusted std.memory.callable_from_pointer<bray.runtime.bootstrap.activation.callback.Ready>(owner.ready)
+    );
+}
+
+trusted internal func control_service(pos owner: &Services, pos operation: u32) -> u32
+    requires(trusted native_services(owner = owner))
+    ensures(trusted native_services(owner = owner))
+    uses(layout_reinterpret, foreign_call)
+{
+    let permit = trusted lambda(pos owner: &Services)
+        requires(trusted native_services(owner = owner))
+        ensures(trusted core.memory.callable_address_valid<ControlService>(pointer = owner.control))
+        executes(pure, total) {};
+
+    trusted permit(owner);
+
+    let invoke = trusted std.memory.callable_from_pointer<ControlService>(owner.control);
+
+    return trusted invoke(operation);
+}
+
+trusted internal func transfer_service(
+    pos owner: &Services,
+    pos execution: &bray.runtime.bootstrap.activation.requirements.Execution,
+    pos unused: &mut bray.runtime.bootstrap.ReportRecords,
+    pos incidents: &mut bray.runtime.bootstrap.ReportRecords
+)
+    requires(trusted native_services(owner = owner))
+    ensures(trusted native_services(owner = owner))
+    uses(layout_reinterpret, foreign_call)
+{
+    if unused.count == 0 && incidents.count == 0
+    {
+        return;
+    }
+
+    let permit = trusted lambda(pos owner: &Services)
+        requires(trusted native_services(owner = owner))
+        ensures(trusted core.memory.callable_address_valid<TransferService>(pointer = owner.transfer))
+        executes(pure, total) {};
+
+    trusted permit(owner);
+
+    let invoke = trusted std.memory.callable_from_pointer<TransferService>(owner.transfer);
+
+    trusted invoke(
+        std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(execution),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(unused),
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(incidents)
+    );
+}
+
+trusted internal func wake_service(pos owner: &Services, pos task: u64)
+    requires(trusted native_services(owner = owner))
+    ensures(trusted native_services(owner = owner))
+    uses(layout_reinterpret, foreign_call)
+{
+    let permit = trusted lambda(pos owner: &Services)
+        requires(trusted native_services(owner = owner))
+        ensures(trusted core.memory.callable_address_valid<WakeService>(pointer = owner.wake))
+        executes(pure, total) {};
+
+    trusted permit(owner);
+
+    let invoke = trusted std.memory.callable_from_pointer<WakeService>(owner.wake);
+
+    trusted invoke(task);
+}
+
+// One native dispatch lends both disjoint inputs and keeps their whole owners
+// and providers live. Reading one borrowed wire value cannot consume the other.
+trusted internal predicate dispatch_entry(reference: DataPointer<Reference>, services: DataPointer<Services>);
+
+trusted internal func read_dispatch_inputs(
+    pos reference: DataPointer<Reference>,
+    pos services: DataPointer<Services>
+) -> (Reference, Services)
+    requires(trusted dispatch_entry(reference = reference, services = services))
+    ensures(trusted retained(owner = &result.0), trusted native_services(owner = &result.1))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos reference: DataPointer<Reference>, pos services: DataPointer<Services>)
+        requires(trusted dispatch_entry(reference = reference, services = services))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = reference, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = reference),
+            trusted core.memory.initialized_as<Reference>(pointer = reference),
+            trusted core.memory.valid_read<Services>(pointer = services, count = 1),
+            trusted core.memory.aligned_for<Services>(pointer = services),
+            trusted core.memory.initialized_as<Services>(pointer = services),
+            trusted core.memory.non_overlapping<u8>(
+                left = std.memory.byte_address<Reference>(reference),
+                left_count = std.memory.size_of<Reference>(),
+                right = std.memory.byte_address<Services>(services),
+                right_count = std.memory.size_of<Services>()
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(reference, services);
+
+    let native_callbacks = trusted std.memory.read<Services>(services);
+    let native_reference = trusted std.memory.read<Reference>(reference);
+
+    return (native_reference, native_callbacks);
+}

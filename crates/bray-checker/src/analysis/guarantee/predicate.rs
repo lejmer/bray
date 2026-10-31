@@ -201,9 +201,22 @@ fn static_storage_is_address_only<C: CheckerRequestContext + ?Sized>(
     flow: &bray_bound_tree::StorageFlow,
     plan: bray_bound_tree::StorageAccessPlan,
 ) -> bool {
+    let access = storage
+        .access(plan.access())
+        .expect("static-initializer occurrence retains its planned access");
+
+    if access.is_recovered() {
+        return false;
+    }
+
     let root = storage
         .root_identity(plan.access())
-        .expect("checked access retains its root");
+        .unwrap_or_else(|| {
+            panic!(
+                "checked static-initializer access retains its root: {plan:?}, access {:?}",
+                storage.access(plan.access())
+            )
+        });
 
     let direct = matches!(
         storage.identity(root),

@@ -19,6 +19,10 @@ use super::error::NativeProductPlanningError;
 use crate::fact::CancellationToken;
 
 impl Compilation {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "product residency combines source and native storage with the selected host role implementations"
+    )]
     pub(super) fn codegen_product_host_mapping(
         &self,
         product: &ProductIdentity,
@@ -26,6 +30,7 @@ impl Compilation {
         entries: &[super::super::realization::ProductStaticHostEntry],
         native_statics: &[bray_native_artifact::NativeStatic],
         execution: Option<bray_symbols::CallableExecution>,
+        executable_host: Option<&ExecutableHostContract>,
         mut runtime_dependencies: BTreeMap<
             bray_runtime_abi::NativeStaticIdentity,
             Vec<bray_runtime_abi::NativeStaticIdentity>,
@@ -49,7 +54,10 @@ impl Compilation {
                     return false;
                 };
 
-                publishes_native_report(runtime.role())
+                requires_native_product_host(runtime.role())
+                    && !executable_host
+                        .and_then(|host| host.role_binding(runtime.role()))
+                        .is_some_and(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering)
             });
 
         if entries.is_empty() && native_statics.is_empty() && !foreign_entry && !publishes_value {
@@ -361,6 +369,8 @@ impl Compilation {
             runtime_roles.insert(RuntimeAbiRole::CleanupIncidentReporting);
         }
 
+        retain_report_host_control(&mut runtime_roles);
+
         let requirements =
             self.product_runtime_requirements(runtime, target, &runtime_roles, capabilities)?;
 
@@ -535,6 +545,14 @@ pub(super) fn publishes_native_report(role: RuntimeAbiRole) -> bool {
         })
 }
 
+fn requires_native_product_host(role: RuntimeAbiRole) -> bool {
+    publishes_native_report(role) || role.contract().effects().iter().any(|effect| matches!(
+        effect,
+        bray_runtime_interface::RuntimeRoleContractEffect::ReportPanic
+            | bray_runtime_interface::RuntimeRoleContractEffect::ReportEntryFailure
+    ))
+}
+
 pub(super) fn native_static_host_entries(
     kind: ProductKind,
     native_statics: &[bray_native_artifact::NativeStatic],
@@ -692,6 +710,7 @@ pub(super) fn native_host_runtime_roles(
         roles.extend([
             RuntimeAbiRole::CleanupStorageRelease,
             RuntimeAbiRole::CleanupStorageClaim,
+            RuntimeAbiRole::ProviderReferenceRelease,
         ]);
     }
 
@@ -708,7 +727,15 @@ pub(super) fn native_host_runtime_roles(
         ]);
     }
 
+    retain_report_host_control(&mut roles);
+
     roles
+}
+
+fn retain_report_host_control(roles: &mut BTreeSet<RuntimeAbiRole>) {
+    if roles.iter().copied().any(requires_native_product_host) {
+        roles.insert(RuntimeAbiRole::ProductHostControl);
+    }
 }
 
 pub(super) fn product_execution(

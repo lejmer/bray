@@ -1,0 +1,316 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func continue_observation(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    if (trusted read_state(&owner)).helper != 0
+    {
+        return trusted finish_helper(owner);
+    }
+
+    if (trusted read_state(&owner)).phase == QUIESCENT || (trusted read_state(&owner)).phase == DISPOSED ||
+        (trusted read_state(&owner)).phase == MOVED
+    {
+        return trusted cleanup_result(owner);
+    }
+
+    let disposition = (trusted read_state(&owner)).disposition;
+    let polled = trusted poll(owner);
+
+    if polled.kind == 0 || disposition == 0
+    {
+        return polled;
+    }
+
+    return trusted cleanup_result(owner);
+}
+
+trusted internal func cleanup_result(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    if (trusted read_state(&owner)).phase == FAILED_RETIRED
+    {
+        trusted set_phase(owner, DISPOSED);
+        return progress(1);
+    }
+
+    if (trusted read_state(&owner)).phase == DISPOSED || (trusted read_state(&owner)).phase == MOVED ||
+        ((trusted read_state(&owner)).phase == QUIESCENT && (trusted read_state(&owner)).disposition == 4)
+    {
+        return progress(1);
+    }
+
+    if (trusted read_state(&owner)).phase == QUIESCENT || (trusted read_state(&owner)).disposition == 5 ||
+        (trusted read_state(&owner)).disposition == 6
+    {
+        trusted set_phase(owner, DISPOSED);
+        return trusted synchronous_cleanup(owner, true);
+    }
+
+    return trusted begin_helper(owner);
+}
+
+@abi(c)
+trusted internal func resume(pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>, pos context: usize)
+    requires(trusted callback_entry(context = context, operation = 0))
+{
+    let mut invocation = trusted acquire_invocation(context, 0);
+    let owner = &mut invocation;
+    let cancelling = (trusted read_state(&owner)).cancelling;
+    let completed = trusted continue_observation(owner);
+    let result = trusted body_progress(cancelling, completed);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        output,
+        result
+    );
+}
+
+@abi(c)
+trusted internal func cancel(pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>, pos context: usize)
+    requires(trusted callback_entry(context = context, operation = 1))
+{
+    let mut invocation = trusted acquire_invocation(context, 1);
+    let owner = &mut invocation;
+
+    trusted set_cancelling(owner);
+    trusted request_cancel(owner);
+
+    let completed = trusted continue_observation(owner);
+    let result = trusted body_progress(true, completed);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        output,
+        result
+    );
+}
+
+@abi(c)
+trusted internal func broadcast(pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>, pos context: usize)
+    requires(trusted callback_entry(context = context, operation = 2))
+{
+    let mut invocation = trusted acquire_invocation(context, 2);
+    let owner = &mut invocation;
+
+    trusted request_cancel(owner);
+
+    // An active typed helper broadcasts its own retained graph. The parent must
+    // not project that value while the helper owns its mutable borrow.
+    let result = if (trusted read_state(&owner)).helper == 0 && ((trusted read_state(&owner)).phase == RETIRED ||
+        (trusted read_state(&owner)).phase == QUIESCENT)
+    {
+        yield trusted synchronous_cleanup(owner, false);
+    }
+    else
+    {
+        yield progress(1);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        output,
+        result
+    );
+}
+
+@abi(c)
+trusted internal func resolve(
+    pos output: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos context: usize,
+    pos disposition: u32
+)
+    requires(trusted callback_entry(context = context, operation = 3))
+{
+    let mut invocation = trusted acquire_invocation(context, 3);
+    let owner = &mut invocation;
+
+    if disposition == 0
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+            output,
+            progress(1)
+        );
+
+        return;
+    }
+
+    trusted set_disposition(owner, disposition);
+
+    if (trusted read_state(&owner)).phase == PENDING
+    {
+        trusted set_request_cancellation(owner, true);
+    }
+
+    let result = trusted continue_observation(owner);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        output,
+        result
+    );
+}
+
+// The selected mover owns a destination with this exact result layout.
+// Executable roots already use the admitted result slot as that destination.
+// It transfers all represented dependencies before releasing the source slot.
+trusted internal predicate completion_entry(context: usize, destination: usize);
+
+@abi(c)
+trusted internal func move_completion(pos context: usize, pos destination: usize)
+    requires(
+        trusted callback_entry(context = context, operation = 4),
+        trusted completion_entry(context = context, destination = destination)
+    )
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let mut invocation = trusted acquire_invocation(context, 4);
+    let owner = &mut invocation;
+
+    if (trusted read_state(&owner)).phase != RETIRED || (trusted read_state(&owner)).helper != 0 || (trusted read_state(
+        &owner
+    )).disposition != 0
+    {
+        trusted core.target.abort();
+    }
+
+    trusted set_phase(owner, MOVED);
+
+    let address = (trusted read_state(&owner)).result;
+    let bytes = trusted result_size(&owner);
+
+    if address == destination
+    {
+        return;
+    }
+
+    let source = trusted core.target.from_exposed_address<Uninit<u8>>(address = address);
+    let target_slot = trusted core.target.from_exposed_address<Uninit<u8>>(address = destination);
+
+    let permit = trusted lambda(
+        pos owner: &Invocation,
+        pos context: usize,
+        pos destination: usize,
+        pos source: DataPointer<Uninit<u8>>,
+        pos target_slot: DataPointer<Uninit<u8>>,
+        pos bytes: usize
+    )
+        requires(
+            trusted invoked(owner = &owner.acquisition.claim),
+            trusted completion_entry(context = context, destination = destination)
+        )
+        ensures(
+            trusted core.memory.valid_read<Uninit<u8>>(pointer = source, count = bytes),
+            trusted core.memory.initialized_range_as<Uninit<u8>>(pointer = source, count = bytes),
+            trusted core.memory.valid_write<Uninit<u8>>(pointer = target_slot, count = bytes),
+            trusted core.memory.non_overlapping<Uninit<u8>>(
+                left = source,
+                left_count = bytes,
+                right = target_slot,
+                right_count = bytes
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner, context, destination, source, target_slot, bytes);
+    trusted std.memory.copy<Uninit<u8>>(source, target_slot, count = bytes);
+}
+
+@abi(c)
+trusted internal func destroy(pos context: usize)
+    requires(trusted callback_entry(context = context, operation = 5))
+    uses(intrinsic)
+{
+    let mut invocation = trusted acquire_invocation(context, 5);
+
+    trusted discharge_helper(&mut invocation, true);
+    trusted discharge_helper(&mut invocation, false);
+
+    trusted destroy_child(&invocation);
+
+    let mut owner = trusted take_state(invocation);
+
+    if (owner.phase != MOVED && owner.phase != DISPOSED) || owner.helper != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let lease = owner.lease;
+
+    trusted release_state_reference(&mut owner);
+
+    let provider = trusted take_state_provider(&mut owner);
+
+    trusted bray.runtime.bootstrap.provider.release_owned(provider);
+
+    // All captures and provider callbacks have returned. No context projection
+    // remains when this final operation returns its backing to the pool.
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if !trusted bray.runtime.bootstrap.storage.release_value(guard.get(), &lease)
+    {
+        trusted core.target.abort();
+    }
+}
+
+trusted internal func body_progress(
+    pos cancelling: bool,
+    pos mut returned: bray.runtime.bootstrap.activation.Progress
+) -> bray.runtime.bootstrap.activation.Progress
+    requires(trusted bray.runtime.bootstrap.native_report_callbacks(report = &returned.report))
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
+    let kind = if returned.kind == 1 && cancelling
+    {
+        yield 2;
+    }
+    else
+    {
+        yield returned.kind;
+    };
+
+    returned.kind = kind;
+
+    return returned;
+}
+
+trusted internal func destroy_child(pos owner: &Invocation)
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        owner.acquisition.operation == 5,
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(foreign_call, intrinsic)
+{
+    if trusted native_destroy((trusted read_state(owner)).reference.handle) != 0
+    {
+        trusted core.target.abort();
+    }
+}
+
+trusted internal func release_state_reference(pos owner: &mut State)
+    requires(trusted owned_state(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted owned_state(owner = &owner))
+    uses(intrinsic)
+{
+    let reference = trusted take_state_reference(owner);
+
+    if trusted bray.runtime.bootstrap.task.dispose_reference(reference) != 0
+    {
+        trusted core.target.abort();
+    }
+}

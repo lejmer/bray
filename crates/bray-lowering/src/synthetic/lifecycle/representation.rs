@@ -91,14 +91,26 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                             self.push_lifecycle_operation(builder, block, source, retirement)?;
                         }
 
-                        return self.compose_cleanup_frame(
-                            builder,
-                            block,
-                            source,
-                            MirOperand::Move(place),
-                            bray_ir::MirFrameComposition::Abandon,
-                            &outcome,
-                        );
+                        if self.frame.is_some() {
+                            return self.compose_cleanup_frame(
+                                builder,
+                                block,
+                                source,
+                                MirOperand::Move(place),
+                                bray_ir::MirFrameComposition::Abandon,
+                                &outcome,
+                            );
+                        }
+
+                        // Synchronous represented-part helpers inherit the caller's
+                        // checked admission of synchronous inactive captures.
+                        bray_ir::MirAsyncOperation::ResolveInactiveFrame {
+                            frame: MirOperand::Move(place),
+                            runtime: MirRuntimeReference::new(
+                                RuntimeAbiRole::InactiveFrameResolution,
+                                runtime_abi,
+                            ),
+                        }
                     }
                     bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::TaskCancellation,

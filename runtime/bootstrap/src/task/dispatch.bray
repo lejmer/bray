@@ -1,0 +1,295 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.activation.run;
+using internal bray.runtime.bootstrap.activation.requirements;
+using internal bray.runtime.bootstrap.entry;
+using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func dispatch(
+    pos pointer: DataPointer<Reference>,
+    pos service_pointer: DataPointer<Services>,
+    pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+) -> u32
+    requires(
+        trusted dispatch_entry(reference = pointer, services = service_pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let (reference, services) = trusted read_dispatch_inputs(pointer, service_pointer);
+
+    let (returned, final_execution, kind) =
+    {
+        let claim = trusted acquire_dispatch(&reference, &services);
+
+        if !claim.active
+        {
+            return 6;
+        }
+
+        yield trusted advance_dispatch(&claim);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        progress,
+        returned
+    );
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<
+        bray.runtime.bootstrap.activation.requirements.Execution
+    >(execution, final_execution);
+
+    return kind;
+}
+
+trusted internal func frame_snapshot(
+    pos owner: &Dispatch,
+    pos cancellation: bool
+) -> bray.runtime.bootstrap.activation.requirements.Execution
+    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+    uses(intrinsic)
+{
+    let mut output: bray.runtime.bootstrap.activation.requirements.Execution =
+    {
+        address = 0,
+        identity = [0; 32],
+        state = 0,
+        requirements =
+        {
+            affinity = 0,
+            lanes = 0
+        },
+        origin = 0
+    };
+
+    let root = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = owner.root);
+    let destination = std.memory.address_of_mut<bray.runtime.bootstrap.activation.requirements.Execution>(&mut output);
+
+    let permit = trusted lambda(
+        pos owner: &Dispatch,
+        pos root: DataPointer<bray.runtime.bootstrap.activation.Header>,
+        pos output: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+    )
+        requires(owner.active, trusted dispatch_owner(owner = owner))
+        ensures(
+            trusted bray.runtime.bootstrap.activation.run.owned(root = root),
+            trusted bray.runtime.bootstrap.activation.run.snapshot_destination(root = root, output = output)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, root, destination);
+    trusted bray.runtime.bootstrap.activation.run.snapshot(root, flag(cancellation), destination);
+    return output;
+}
+
+trusted internal func suspend_dispatch(
+    pos owner: &Dispatch,
+    pos execution: bray.runtime.bootstrap.activation.requirements.Execution
+)
+    requires(owner.active, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    let reference = trusted dispatch_reference(owner);
+    let mut guard = trusted lock_cell(reference);
+
+    trusted suspend(trusted guard.get(), execution);
+}
+
+trusted internal func complete_dispatch(
+    pos owner: &Dispatch,
+    pos execution: bray.runtime.bootstrap.activation.requirements.Execution,
+    pos outcome: bray.runtime.bootstrap.ReportOutcome
+)
+    requires(owner.active, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    let reference = trusted dispatch_reference(owner);
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    control.execution = execution;
+    trusted complete(control, outcome);
+}
+
+internal func yielded(pos state: u32) -> bray.runtime.bootstrap.activation.Progress
+{
+    return
+    {
+        kind = 5,
+        state = state,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+}
+
+// A dispatch runs outside the cell lock. Producer code may wake, observe or
+// resolve other tasks, while this noncopy claim excludes another dispatcher.
+// Zero means suspended, one means terminal, and three means no producer work.
+trusted internal func advance_dispatch(
+    pos owner: &Dispatch
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32)
+    requires(
+        owner.active,
+        owner.root != 0,
+        trusted dispatch_owner(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let initial = trusted snapshot_dispatch(owner);
+
+    if initial.phase == 4 || initial.phase == 5
+    {
+        if initial.phase == 5 && initial.retiring != 0
+        {
+            let status = trusted retire_dispatch(owner);
+
+            return (yielded(initial.execution.state), initial.execution, status);
+        }
+
+        return (bray.runtime.bootstrap.activation.empty_progress(), initial.execution, 3);
+    }
+
+    let mut transitions: usize = 0;
+
+    while transitions < 256
+    {
+        transitions += 1;
+
+        let (mut progress, mut unused, mut incidents, status) = trusted step_dispatch(owner);
+
+        if unused.count != 0 || incidents.count != 0
+        {
+            let execution = trusted frame_snapshot(owner, false);
+
+            trusted transfer_dispatch(owner, &execution, &mut unused, &mut incidents);
+        }
+
+        if status == bray.runtime.bootstrap.activation.run.CONTINUE
+        {
+            continue;
+        }
+
+        if status == bray.runtime.bootstrap.activation.run.FINISHED
+        {
+            // Keep cancellation shielded through result movement and retirement.
+            // The native service retains the shield with its registration.
+            _ = trusted control_dispatch(owner, 1);
+
+            let execution = trusted frame_snapshot(owner, false);
+
+            let outcome: bray.runtime.bootstrap.ReportOutcome =
+            {
+                state = progress.kind - 1,
+                payload = progress.payload,
+                report = trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+                    &mut progress.report,
+                    bray.runtime.bootstrap.empty_panic_report()
+                )
+            };
+
+            trusted complete_dispatch(owner, execution, outcome);
+
+            // Only Control owns the terminal payload/report. Native scheduling
+            // receives completion metadata without another transferable result.
+            progress.payload = 0;
+
+            trusted notify_waiters(owner, 0);
+            return (progress, execution, 1);
+        }
+
+        let cancellation = trusted control_dispatch(owner, 0) != 0;
+        let execution = trusted frame_snapshot(owner, cancellation);
+
+        if status == bray.runtime.bootstrap.activation.run.DEFERRED
+        {
+            if progress.payload != 6
+            {
+                trusted core.target.abort();
+            }
+
+            progress = yielded(execution.state);
+        }
+        else if status != bray.runtime.bootstrap.activation.run.SUSPEND
+        {
+            trusted core.target.abort();
+        }
+
+        trusted suspend_dispatch(owner, execution);
+        return (progress, execution, 0);
+    }
+
+    let cancellation = trusted control_dispatch(owner, 0) != 0;
+    let execution = trusted frame_snapshot(owner, cancellation);
+
+    trusted suspend_dispatch(owner, execution);
+    return (yielded(execution.state), execution, 0);
+}
+
+trusted internal func snapshot_dispatch(pos owner: &Dispatch) -> Snapshot
+    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    let reference = trusted dispatch_reference(owner);
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    return snapshot_value(&control);
+}
+
+trusted internal func control_dispatch(pos owner: &Dispatch, pos operation: u32) -> u32
+    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    return trusted control_service(trusted dispatch_services(owner), operation);
+}
+
+trusted internal func transfer_dispatch(
+    pos owner: &Dispatch,
+    pos execution: &bray.runtime.bootstrap.activation.requirements.Execution,
+    pos unused: &mut bray.runtime.bootstrap.ReportRecords,
+    pos incidents: &mut bray.runtime.bootstrap.ReportRecords
+)
+    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    trusted transfer_service(trusted dispatch_services(owner), execution, unused, incidents);
+}
+
+trusted internal func step_dispatch(
+    pos owner: &Dispatch
+) -> (
+        bray.runtime.bootstrap.activation.Progress,
+        bray.runtime.bootstrap.ReportRecords,
+        bray.runtime.bootstrap.ReportRecords,
+        u32
+    )
+    requires(
+        owner.active,
+        owner.root != 0,
+        trusted dispatch_owner(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted dispatch_owner(owner = owner))
+{
+    let services = trusted dispatch_services(owner);
+    let (invoke, ready) = trusted activation_callbacks(services);
+
+    let cancellation = trusted control_dispatch(owner, 0) != 0;
+
+    return trusted bray.runtime.bootstrap.activation.run.step(trusted cursor(owner), invoke, ready, cancellation);
+}

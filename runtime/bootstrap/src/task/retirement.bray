@@ -1,0 +1,173 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+// The native owner transfers exactly one internal storage reference. A borrowed
+// view or a source Task identity cannot satisfy this consumption contract.
+trusted internal predicate reference_disposal(pointer: DataPointer<Reference>);
+
+trusted internal predicate released(owner: &Reference);
+
+trusted internal func recycling_access(pos owner: &Reference) -> bray.runtime.bootstrap.host.HostLease
+    requires(trusted released(owner = owner))
+    ensures(
+        trusted released(owner = owner),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+    )
+{
+    return trusted bray.runtime.bootstrap.host.host_access();
+}
+
+trusted internal predicate retired_storage(storage: &Uninit<std.sync.SpinLock<Control>>);
+
+trusted internal func last_reference(pos owner: &Reference) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(!result || trusted released(owner = owner))
+{
+    let mut guard = trusted lock_cell(owner);
+
+    return trusted release(trusted guard.get());
+}
+
+@abi(c)
+trusted internal func reference_release(pos pointer: DataPointer<Reference>) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted reference_disposal(pointer = pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let reference = trusted read_disposing_reference(pointer);
+
+    return trusted dispose_reference(reference);
+}
+
+trusted internal predicate owned_reference(owner: &Reference);
+
+trusted internal func read_disposing_reference(pos pointer: DataPointer<Reference>) -> Reference
+    requires(trusted reference_slot(pointer = pointer), trusted reference_disposal(pointer = pointer))
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+{
+    return trusted read_reference(pointer);
+}
+
+trusted internal func dispose_reference(pos reference: Reference) -> u32
+    requires(
+        trusted retained(owner = &reference),
+        trusted owned_reference(owner = &reference),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    uses(intrinsic)
+{
+    if !trusted last_reference(&reference)
+    {
+        return 0;
+    }
+
+    // Move the initialized lock out before publishing this slot for reuse.
+    // Its ordinary destruction happens after the resident acquisition retires.
+    let retired =
+    {
+        let lease = trusted recycling_access(&reference);
+
+        if !lease.active
+        {
+            trusted core.target.abort();
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted take_released(&lease, &mut anchor, &reference);
+    };
+
+    _ = retired;
+
+    return 0;
+}
+
+trusted internal func take_released(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos reference: &Reference
+) -> std.sync.SpinLock<Control>
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease),
+        trusted released(owner = reference)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted std.sync.spin_lock.valid(&result.prepared.instance)
+    )
+    uses(intrinsic)
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+    let index = std.numeric.truncate_to<usize, u64>(reference.handle & 0xffffffff);
+    let generation = std.numeric.truncate_to<u32, u64>(reference.handle >> 32);
+
+    if index == 0 || index > host.tasks.total || generation == 0 || host.tasks.active == 0
+    {
+        trusted core.target.abort();
+    }
+
+    let slot = trusted slot_at(&mut host.tasks, index);
+
+    if slot.generation != generation
+    {
+        trusted core.target.abort();
+    }
+
+    let take = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos slot: &mut Slot) -> Uninit<
+        std.sync.SpinLock<Control>
+    >
+        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+        ensures(trusted retired_storage(storage = &result))
+        uses(intrinsic)
+    {
+        let removed = trusted std.memory.replace_value<(Uninit<std.sync.SpinLock<Control>>?)>(&mut slot.control, none);
+
+        return match consume removed
+        {
+            case ?storage { yield storage; }
+            case none { yield trusted core.target.abort(); }
+        };
+    };
+
+    let storage = trusted take(lease, slot);
+
+    let materialize = trusted lambda(pos storage: Uninit<std.sync.SpinLock<Control>>) -> std.sync.SpinLock<Control>
+        requires(trusted retired_storage(storage = &storage))
+        ensures(trusted std.sync.spin_lock.valid(&result.prepared.instance))
+        uses(unchecked_init)
+    {
+        let initialized = trusted lambda(pos storage: &Uninit<std.sync.SpinLock<Control>>)
+            requires(trusted retired_storage(storage = storage))
+            ensures(trusted core.memory.uninit_initialized<std.sync.SpinLock<Control>>(storage = storage))
+            executes(pure, total) {};
+
+        trusted initialized(&storage);
+        return trusted std.memory.assume_initialized<std.sync.SpinLock<Control>>(storage);
+    };
+
+    let retired = trusted materialize(storage);
+
+    slot.runtime = 0;
+    slot.next = host.tasks.free;
+    host.tasks.free = index;
+    host.tasks.active -= 1;
+
+    return retired;
+}
