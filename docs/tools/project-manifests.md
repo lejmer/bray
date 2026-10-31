@@ -156,9 +156,10 @@ generator name, the exact tool artifact and toolchain identity, ordered source, 
 dependencies, declared output identities, and a closed permission set. Generated outputs use the exact `.bray` extension
 and cannot overlap another output from the same generated-source graph.
 
-A generator receives only declared inputs, environment values, and permissions. Network access is forbidden. Outputs
-must match the declared inventory and become immutable source inputs. Equal inputs must produce equal output bytes.
-Failure or cancellation publishes no generated source.
+A generator receives only declared inputs, environment values, and permissions. Network access is denied unless
+`permissions.network` is explicitly `true`. A network grant does not permit discovery of undeclared inputs. Outputs must
+match the declared inventory and become immutable source inputs. Equal inputs must produce equal output bytes. Failure
+or cancellation publishes no generated source.
 
 Package manifests declare generators and products select them explicitly:
 
@@ -213,9 +214,9 @@ dependency graph determines execution order. `outputs` are exact generator-relat
 globs, directories, or workspace paths. The graph identifies an output by package, generator, selected target, and
 output identity, and execution writes it only beneath a private managed generator root. Generated source never mutates
 or impersonates a source-tree file. `environment` maps names to exact UTF-8 values rather than reading the host
-environment. The revision-1 permission object has the single required field `network`, whose only valid value for a
-source generator is `false`. A product cannot select a generator whose tool or execution contract is unavailable on the
-compiler host.
+environment. The revision-1 permission object has the single required boolean field `network`. The value `false` denies
+network access, while `true` explicitly grants it. A product cannot select a generator whose tool or execution contract
+is unavailable on the compiler host.
 
 ### Dependencies
 
