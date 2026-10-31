@@ -1,0 +1,268 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+
+trusted internal func progress(
+    pos kind: u32,
+    pos state: u32 = 0,
+    pos payload: usize = 0
+) -> bray.runtime.bootstrap.activation.Progress
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    executes(pure, total)
+{
+    return
+    {
+        kind = kind,
+        state = state,
+        payload = payload,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+}
+
+trusted internal func transport(pos owner: &Invocation, pos operation: u32) -> u32
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(foreign_call)
+{
+    let mut output: u64 = 0;
+
+    return trusted native_service(
+        (trusted read_state(&owner)).reference.handle,
+        operation,
+        std.memory.address_of_mut<u64>(&mut output)
+    );
+}
+
+trusted internal func request_cancel(pos owner: &mut Invocation)
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(foreign_call, intrinsic)
+{
+    trusted set_request_cancellation(owner, false);
+
+    if trusted native_cancel((trusted read_state(&owner)).reference.handle) != 0
+    {
+        trusted core.target.abort();
+    }
+}
+
+trusted internal func wait_terminal(pos owner: &Invocation) -> u32
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic)
+{
+    let (status, output) = trusted parent_reference(owner);
+
+    if status != 0
+    {
+        return status;
+    }
+
+    // The cached native execution owner lends this reference for the enclosing
+    // producer invocation, including nested native callbacks.
+    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.task.Reference>(
+        address = std.numeric.truncate_to<usize, u64>(output)
+    );
+
+    let child = std.memory.address_of<bray.runtime.bootstrap.task.Reference>(&(trusted read_state(&owner)).reference);
+
+    let permit = trusted lambda(
+        pos owner: &Invocation,
+        pos child: DataPointer<bray.runtime.bootstrap.task.Reference>,
+        pos parent: DataPointer<bray.runtime.bootstrap.task.Reference>
+    )
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(trusted bray.runtime.bootstrap.task.wait_entry(child = child, parent = parent))
+        executes(pure, total) {};
+
+    trusted permit(owner, child, parent);
+    return trusted bray.runtime.bootstrap.task.wait(child, parent, 0);
+}
+
+trusted internal func stage(
+    pos owner: &Invocation,
+    pos source: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.task.terminal_output(pointer = source)
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic)
+{
+    let destination = trusted core.target.from_exposed_address<u8>(address = (trusted read_state(owner)).result);
+    let layout = std.memory.address_of<bray.runtime.bootstrap.task.result.Layout>(&(trusted read_state(owner)).layout);
+
+    let permit = trusted lambda(
+        pos owner: &Invocation,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos destination: DataPointer<u8>,
+        pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+    )
+        requires(
+            trusted invoked(owner = &owner.acquisition.claim),
+            trusted bray.runtime.bootstrap.task.terminal_output(pointer = outcome)
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.task.result.transfer_entry(
+                outcome = outcome,
+                destination = destination,
+                layout = layout
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, source, destination, layout);
+
+    return trusted bray.runtime.bootstrap.task.result.transfer(source, destination, layout);
+}
+
+trusted internal func observe_into(
+    pos owner: &Invocation,
+    pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        result != 0 || trusted bray.runtime.bootstrap.task.terminal_output(pointer = output)
+    )
+{
+    return trusted bray.runtime.bootstrap.task.observation(trusted task_pointer(owner), output);
+}
+
+trusted internal func observe(pos owner: &mut Invocation) -> bool
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic)
+{
+    let mut outcome = bray.runtime.bootstrap.task.empty_outcome();
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+    let status = trusted observe_into(&owner, output);
+
+    if status == 6
+    {
+        return false;
+    }
+
+    if status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    // Move into the observation's stable result before child frame retirement.
+    let transfer = trusted stage(&owner, output);
+
+    if transfer != 0 && transfer != 4
+    {
+        trusted core.target.abort();
+    }
+
+    trusted set_observed(owner, transfer, outcome.payload);
+    return true;
+}
+
+trusted internal func poll(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+    uses(intrinsic)
+{
+    if (trusted read_state(&owner)).phase == PENDING
+    {
+        if (trusted read_state(&owner)).request_cancellation
+        {
+            trusted request_cancel(owner);
+        }
+
+        while !trusted observe(owner)
+        {
+            let status = trusted wait_terminal(&owner);
+
+            if status == 6
+            {
+                return progress(0);
+            }
+
+            if status != 0
+            {
+                trusted core.target.abort();
+            }
+        }
+    }
+
+    if (trusted read_state(&owner)).phase == READY || (trusted read_state(&owner)).phase == FAILED
+    {
+        let status = trusted transport(&owner, 2);
+
+        if status == 6
+        {
+            return progress(0);
+        }
+
+        if status != 0
+        {
+            trusted core.target.abort();
+        }
+
+        let phase: u32 = if (trusted read_state(&owner)).phase == FAILED
+        {
+            yield FAILED_RETIRED;
+        }
+        else
+        {
+            yield RETIRED;
+        };
+
+        trusted set_phase(owner, phase);
+    }
+
+    if (trusted read_state(&owner)).phase == FAILED_RETIRED
+    {
+        return progress(4, payload = (trusted read_state(&owner)).failure);
+    }
+
+    return progress(1, payload = (trusted read_state(&owner)).result);
+}
+
+trusted internal func parent_reference(pos owner: &Invocation) -> (u32, u64)
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(foreign_call)
+{
+    let mut output: u64 = 0;
+
+    let status = trusted native_service(
+        (trusted read_state(owner)).reference.handle,
+        1,
+        std.memory.address_of_mut<u64>(&mut output)
+    );
+
+    return (status, output);
+}

@@ -1,0 +1,429 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.result;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal std.memory;
+using internal bray.runtime.bootstrap;
+
+// The compiler describes the concrete RunResult<T>. These fields describe
+// representation and never establish ownership of its source or destination.
+@copy
+@layout(c)
+internal struct Layout
+{
+    size: usize;
+    alignment: usize;
+    tag_size: usize;
+    completed_tag: u64;
+    completed_offset: usize;
+    completed_size: usize;
+    completed_alignment: usize;
+    panicked_tag: u64;
+    panicked_offset: usize;
+    cancelled_tag: u64;
+}
+
+internal func power_of_two(pos value: usize) -> bool
+{
+    return value != 0 && value & (value - 1) == 0;
+}
+
+internal func valid_layout(pos layout: &Layout) -> bool
+{
+    if !power_of_two(layout.alignment) || layout.alignment < std.memory.align_of<usize>() || !(layout.tag_size == 1 ||
+        layout.tag_size == 2 || layout.tag_size == 4 || layout.tag_size == 8)
+    {
+        return false;
+    }
+
+    let maximum: u64 = match layout.tag_size
+    {
+        case 1 { yield 0xff; }
+        case 2 { yield 0xffff; }
+        case 4 { yield 0xffffffff; }
+        case _ { yield std.numeric.U64_MAX; }
+    };
+
+    if layout.completed_tag > maximum || layout.panicked_tag > maximum || layout.cancelled_tag > maximum ||
+        layout.completed_tag == layout.panicked_tag || layout.completed_tag == layout.cancelled_tag ||
+        layout.panicked_tag == layout.cancelled_tag
+    {
+        return false;
+    }
+
+    if layout.tag_size > layout.size || layout.completed_offset < layout.tag_size || layout.completed_offset >
+        layout.size || layout.completed_size > layout.size - layout.completed_offset || !power_of_two(
+        layout.completed_alignment
+    ) || layout.completed_alignment > layout.alignment || layout.completed_offset % layout.completed_alignment != 0 ||
+        layout.panicked_offset < layout.tag_size || layout.panicked_offset > layout.size || layout.panicked_offset %
+        std.memory.align_of<bray.runtime.bootstrap.PanicReportData>() != 0
+    {
+        return false;
+    }
+
+    return std.memory.size_of<bray.runtime.bootstrap.PanicReportData>() <= layout.size - layout.panicked_offset;
+}
+
+// A native caller transfers its sole terminal outcome while retaining the
+// exact completion storage through return. The compiler-bound destination is a
+// distinct uninitialized RunResult<T>, or the same already staged payload.
+trusted internal predicate transfer_entry(
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    destination: DataPointer<u8>,
+    layout: DataPointer<Layout>
+);
+
+internal struct Transfer
+{
+    source: DataPointer<bray.runtime.bootstrap.ReportOutcome>;
+    mut outcome: bray.runtime.bootstrap.ReportOutcome;
+    destination: DataPointer<u8>;
+    destination_address: usize;
+    layout: Layout;
+}
+
+trusted internal predicate transferred(owner: &Transfer);
+
+@abi(c)
+trusted internal func transfer(
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: DataPointer<u8>,
+    pos layout_pointer: DataPointer<Layout>
+) -> u32
+    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout_pointer))
+{
+    let owner = trusted take_transfer(outcome, destination, layout_pointer);
+
+    if std.memory.is_null<u8>(owner.destination) || !valid_layout(&owner.layout)
+    {
+        return trusted restore(owner, 3);
+    }
+
+    if owner.outcome.state == 4
+    {
+        return trusted restore(owner, 6);
+    }
+
+    if owner.outcome.state == 3
+    {
+        return trusted restore(owner, 4);
+    }
+
+    if owner.outcome.state > 2 || (owner.outcome.state == 0 && owner.layout.completed_size != 0 &&
+        owner.outcome.payload == 0)
+    {
+        return trusted restore(owner, 3);
+    }
+
+    trusted write_result(owner);
+    return 0;
+}
+
+// Read the actual owned native slots in the producer. Callers cannot substitute
+// another outcome or a separately supplied layout when forming this carrier.
+trusted internal func take_transfer(
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: DataPointer<u8>,
+    pos layout_pointer: DataPointer<Layout>
+) -> Transfer
+    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout_pointer))
+    ensures(
+        trusted transferred(owner = &result),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.outcome.report)
+    )
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let permit = trusted lambda(
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos destination: DataPointer<u8>,
+        pos layout: DataPointer<Layout>
+    )
+        requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+            trusted core.memory.valid_read<Layout>(pointer = layout, count = 1),
+            trusted core.memory.aligned_for<Layout>(pointer = layout),
+            trusted core.memory.initialized_as<Layout>(pointer = layout)
+        )
+        executes(pure, total) {};
+
+    let layout = trusted read_layout(outcome, destination, layout_pointer);
+
+    trusted permit(outcome, destination, layout_pointer);
+
+    let value = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
+        outcome,
+        {
+            state = 4,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        }
+    );
+
+    return
+    {
+        source = outcome,
+        outcome = value,
+        destination = destination,
+        destination_address = trusted core.target.expose_address<u8>(destination),
+        layout = layout
+    };
+}
+
+trusted internal func read_layout(
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: DataPointer<u8>,
+    pos pointer: DataPointer<Layout>
+) -> Layout
+    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
+    ensures(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos destination: DataPointer<u8>,
+        pos pointer: DataPointer<Layout>
+    )
+        requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
+        ensures(
+            trusted core.memory.valid_read<Layout>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Layout>(pointer = pointer),
+            trusted core.memory.initialized_as<Layout>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(outcome, destination, pointer);
+    return trusted std.memory.read<Layout>(pointer);
+}
+
+// The sender's native slot is independent of the moved report owner. Split
+// both resources before projecting either, so restoring one cannot borrow it.
+trusted internal func restoration_parts(
+    pos mut owner: Transfer
+) -> (DataPointer<bray.runtime.bootstrap.ReportOutcome>, bray.runtime.bootstrap.ReportOutcome)
+    requires(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    ensures(
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1.report)
+    )
+{
+    let state = owner.outcome.state;
+    let payload = owner.outcome.payload;
+    let source = owner.source;
+
+    let report = trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+        &mut owner.outcome.report,
+        bray.runtime.bootstrap.empty_panic_report()
+    );
+
+    return (
+        source,
+        {
+            state = state,
+            payload = payload,
+            report = report
+        }
+    );
+}
+
+trusted internal func restore(pos owner: Transfer, pos status: u32) -> u32
+    requires(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let (destination, outcome) = trusted restoration_parts(owner);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(destination, outcome);
+    return status;
+}
+
+trusted internal func clear_destination(pos owner: &Transfer)
+    requires(
+        trusted transferred(owner = owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    ensures(
+        trusted transferred(owner = owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    trusted internal std.memory.byte_buffer_fill(
+        trusted result_destination(owner),
+        value = 0,
+        count = owner.layout.size
+    );
+}
+
+trusted internal func take_report(pos mut owner: Transfer) -> bray.runtime.bootstrap.PanicReportData
+    requires(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
+{
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+        &mut owner.outcome.report,
+        bray.runtime.bootstrap.empty_panic_report()
+    );
+}
+
+trusted internal func write_result(pos owner: Transfer)
+    requires(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let staged = owner.outcome.state == 0 && owner.destination_address + owner.layout.completed_offset ==
+        owner.outcome.payload;
+
+    if !staged
+    {
+        trusted clear_destination(&owner);
+    }
+
+    trusted write_tag(&owner);
+
+    let staged_value = owner.destination_address + owner.layout.completed_offset == owner.outcome.payload;
+
+    if !staged_value && owner.outcome.state == 0 && owner.layout.completed_size != 0
+    {
+        let (source, byte_destination) = trusted completed_bytes(&owner);
+
+        // Padding is representation storage, not initialized u8 values.
+        trusted std.memory.copy<Uninit<u8>>(source, byte_destination, count = owner.layout.completed_size);
+    }
+    else if !staged && owner.outcome.state == 2
+    {
+        let byte_destination = trusted panic_destination(&owner);
+        let report = trusted take_report(owner);
+
+        trusted std.memory.write<bray.runtime.bootstrap.PanicReportData>(byte_destination, report);
+    }
+}
+
+trusted internal func write_tag(pos owner: &Transfer)
+    requires(
+        trusted transferred(owner = owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    ensures(
+        trusted transferred(owner = owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let tag = if owner.outcome.state == 0
+    {
+        yield owner.layout.completed_tag;
+    }
+    else if owner.outcome.state == 2
+    {
+        yield owner.layout.panicked_tag;
+    }
+    else
+    {
+        yield owner.layout.cancelled_tag;
+    };
+
+    match owner.layout.tag_size
+    {
+        case 1
+        {
+            trusted std.memory.write<u8>(trusted tag_destination<u8>(owner), std.numeric.truncate_to<u8, u64>(tag));
+        }
+        case 2
+        {
+            trusted std.memory.write<u16>(trusted tag_destination<u16>(owner), std.numeric.truncate_to<u16, u64>(tag));
+        }
+        case 4
+        {
+            trusted std.memory.write<u32>(trusted tag_destination<u32>(owner), std.numeric.truncate_to<u32, u64>(tag));
+        }
+        case _ { trusted std.memory.write<u64>(trusted tag_destination<u64>(owner), tag); }
+    }
+}
+
+trusted internal func result_destination(pos owner: &Transfer) -> DataPointer<u8>
+    requires(trusted transferred(owner = owner))
+    ensures(
+        trusted transferred(owner = owner),
+        trusted core.memory.valid_write<u8>(pointer = result, count = owner.layout.size)
+    )
+    executes(pure, total)
+{
+    return owner.destination;
+}
+
+trusted internal func tag_destination<T>(pos owner: &Transfer) -> DataPointer<T>
+    requires(
+        trusted transferred(owner = owner),
+        std.memory.size_of<T>() <= owner.layout.tag_size,
+        std.memory.align_of<T>() <= owner.layout.alignment
+    )
+    ensures(
+        trusted transferred(owner = owner),
+        trusted core.memory.valid_write<T>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<T>(pointer = result)
+    )
+    uses(layout_reinterpret)
+{
+    return trusted std.memory.reinterpret<T, u8>(owner.destination);
+}
+
+trusted internal func completed_bytes(pos owner: &Transfer) -> (DataPointer<Uninit<u8>>, DataPointer<Uninit<u8>>)
+    requires(
+        trusted transferred(owner = owner),
+        owner.outcome.state == 0,
+        owner.destination_address + owner.layout.completed_offset != owner.outcome.payload
+    )
+    ensures(
+        trusted transferred(owner = owner),
+        trusted core.memory.valid_read<Uninit<u8>>(pointer = result.0, count = owner.layout.completed_size),
+        trusted core.memory.initialized_range_as<Uninit<u8>>(pointer = result.0, count = owner.layout.completed_size),
+        trusted core.memory.valid_write<Uninit<u8>>(pointer = result.1, count = owner.layout.completed_size),
+        trusted core.memory.non_overlapping<Uninit<u8>>(
+            left = result.0,
+            left_count = owner.layout.completed_size,
+            right = result.1,
+            right_count = owner.layout.completed_size
+        )
+    )
+    uses(intrinsic)
+{
+    return (
+        trusted core.target.from_exposed_address<Uninit<u8>>(address = owner.outcome.payload),
+        trusted core.target.from_exposed_address<Uninit<u8>>(
+            address = owner.destination_address + owner.layout.completed_offset
+        )
+    );
+}
+
+trusted internal func panic_destination(pos owner: &Transfer) -> DataPointer<bray.runtime.bootstrap.PanicReportData>
+    requires(trusted transferred(owner = owner))
+    ensures(
+        trusted transferred(owner = owner),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.PanicReportData>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.PanicReportData>(pointer = result)
+    )
+    uses(intrinsic)
+{
+    return trusted core.target.from_exposed_address<bray.runtime.bootstrap.PanicReportData>(
+        address = trusted core.target.expose_address<u8>(owner.destination) + owner.layout.panicked_offset
+    );
+}

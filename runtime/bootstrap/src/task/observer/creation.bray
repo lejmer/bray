@@ -1,0 +1,281 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func prepare(pos input: Input, pos shape: bray.runtime.bootstrap.storage.Descriptor) -> Prepared
+    requires(trusted input_owner(owner = &input), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted prepared(owner = &result))
+    uses(intrinsic)
+{
+    let mut destination = bray.runtime.bootstrap.storage.empty_lease();
+
+    let lease = trusted bray.runtime.bootstrap.storage.admit_value(
+        shape,
+        std.memory.address_of_mut<bray.runtime.bootstrap.storage.Lease>(&mut destination)
+    );
+
+    if lease.slot != 0
+    {
+        let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+        let address = trusted bray.runtime.bootstrap.storage.activate_value(guard.get(), &lease, &shape);
+
+        if std.memory.is_null<u8>(address)
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    return
+    {
+        input = input,
+        lease = lease,
+        records = bray.runtime.bootstrap.empty_records(),
+        quiesce = false,
+        resolve = false,
+        provider = trusted bray.runtime.bootstrap.provider.resident_reference()
+    };
+}
+
+trusted internal func prepared_access(pos owner: &Prepared)
+    requires(trusted prepared(owner = owner))
+    ensures(
+        trusted prepared(owner = owner),
+        trusted input_owner(owner = &owner.input),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &owner.provider)
+    )
+    executes(pure, total) {}
+
+trusted internal func reserve_helper(pos owner: &mut Prepared, pos quiescence: bool) -> bool
+    requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted prepared(owner = &owner))
+{
+    let pointer = if quiescence
+    {
+        yield owner.input.glue.quiesce_storage;
+    }
+    else
+    {
+        yield owner.input.glue.resolve_storage;
+    };
+
+    if std.memory.is_null<bray.runtime.bootstrap.storage.Descriptor>(pointer)
+    {
+        return true;
+    }
+
+    trusted prepared_access(&owner);
+
+    let shapes = [trusted input_shape(&owner.input, pointer)];
+
+    let bundle: bray.runtime.bootstrap.storage.Bundle =
+    {
+        records = 1,
+        descriptors = &shapes[..]
+    };
+
+    let permit = trusted lambda(pos owner: &Prepared)
+        requires(trusted prepared(owner = owner))
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(
+                pointer = owner.input.outcome,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = owner.input.outcome)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner);
+
+    if !trusted bray.runtime.bootstrap.outgoing.accept(bundle, owner.input.outcome)
+    {
+        return false;
+    }
+
+    if quiescence
+    {
+        owner.quiesce = true;
+    }
+    else
+    {
+        owner.resolve = true;
+    }
+
+    return true;
+}
+
+trusted internal func reserve_records(pos owner: &mut Prepared) -> bool
+    requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted prepared(owner = &owner))
+{
+    return trusted bray.runtime.bootstrap.report_records_admit(
+        4,
+        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut owner.records)
+    ) == 0;
+}
+
+trusted internal func acquire_provider(pos owner: &mut Prepared) -> bool
+    requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted prepared(owner = &owner))
+{
+    return trusted bray.runtime.bootstrap.provider.acquire(
+        owner.input.glue.provider,
+        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut owner.provider)
+    ) == 0;
+}
+
+trusted internal func failure(pos input: Input) -> bray.runtime.bootstrap.activation.Inactive
+    requires(
+        trusted input_owner(owner = &input),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+        input.outcome,
+        trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())
+    );
+
+    return empty_token();
+}
+
+trusted internal func reject(pos owner: Prepared) -> bray.runtime.bootstrap.activation.Inactive
+    requires(
+        trusted prepared(owner = &owner),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    // Keep the independent native outcome slot before rolling back the attempt.
+    let output = owner.input.outcome;
+
+    trusted release_prepared(owner);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+        output,
+        trusted bray.runtime.bootstrap.allocation_failure(trusted bray.runtime.bootstrap.consume_address())
+    );
+
+    return empty_token();
+}
+
+@abi(c)
+trusted internal func create(
+    pos task: u64,
+    pos cancellation: u8,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>,
+    pos glue: DataPointer<Glue>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> bray.runtime.bootstrap.activation.Inactive
+    requires(
+        trusted creation_entry(task = task, layout = layout, glue = glue, outcome = outcome),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+{
+    let input = trusted read_input(task, layout, glue, outcome);
+
+    let (shape, header, result) = match consume storage_shape(&input.layout)
+    {
+        case ?selected { yield selected; }
+        case none { return trusted failure(input); }
+    };
+
+    let mut owner = trusted prepare(input, shape);
+
+    if owner.lease.slot == 0 || !(trusted reserve_records(&mut owner)) || !(trusted reserve_helper(&mut owner, true)) ||
+        !(trusted reserve_helper(&mut owner, false)) || !(trusted acquire_provider(&mut owner))
+    {
+        return trusted reject(owner);
+    }
+
+    let mut runtime: u64 = 0;
+
+    if trusted prepared_runtime(&owner, &mut runtime) != 0
+    {
+        return trusted reject(owner);
+    }
+
+    let mut reference_destination: bray.runtime.bootstrap.task.Reference =
+    {
+        pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
+        runtime = 0,
+        handle = 0
+    };
+
+    let pointer = std.memory.address_of_mut<bray.runtime.bootstrap.task.Reference>(&mut reference_destination);
+
+    if trusted prepared_reference(&owner, runtime, pointer) != 0
+    {
+        return trusted reject(owner);
+    }
+
+    // Successful retention has acquired a counted reference to this actual cell.
+    // Reading the initialized destination consumes that acquired reference once.
+    let retained = trusted lambda(
+        pos owner: &Prepared,
+        pos pointer: DataPointer<bray.runtime.bootstrap.task.Reference>
+    ) -> bray.runtime.bootstrap.task.Reference
+        requires(trusted prepared(owner = owner))
+        ensures(
+            trusted bray.runtime.bootstrap.task.retained(owner = &result),
+            trusted bray.runtime.bootstrap.task.owned_reference(owner = &result)
+        )
+    {
+        let permit = trusted lambda(
+            pos owner: &Prepared,
+            pos pointer: DataPointer<bray.runtime.bootstrap.task.Reference>
+        )
+            requires(trusted prepared(owner = owner))
+            ensures(
+                trusted bray.runtime.bootstrap.task.reference_slot(pointer = pointer),
+                trusted bray.runtime.bootstrap.task.reference_disposal(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(owner, pointer);
+        return trusted bray.runtime.bootstrap.task.read_disposing_reference(pointer);
+    };
+
+    let reference = trusted retained(&owner, pointer);
+
+    return trusted initialize(owner, reference, shape, header, result, cancellation != 0);
+}
+
+trusted internal func prepared_runtime(pos owner: &Prepared, pos output: &mut u64) -> u32
+    requires(trusted prepared(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted prepared(owner = owner))
+    uses(foreign_call)
+{
+    return trusted native_service(owner.input.task, 0, std.memory.address_of_mut<u64>(output));
+}
+
+trusted internal func prepared_reference(
+    pos owner: &Prepared,
+    pos runtime: u64,
+    pos output: DataPointer<bray.runtime.bootstrap.task.Reference>
+) -> u32
+    requires(trusted prepared(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted prepared(owner = owner))
+{
+    return trusted bray.runtime.bootstrap.task.retention(runtime, owner.input.task, output);
+}
+
+trusted internal func take_provider(pos owner: &mut Prepared) -> bray.runtime.bootstrap.provider.Reference
+    requires(
+        trusted prepared(owner = &owner),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &owner.provider)
+    )
+    ensures(
+        trusted prepared(owner = &owner),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result)
+    )
+{
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
+        &mut owner.provider,
+        trusted bray.runtime.bootstrap.provider.resident_reference()
+    );
+}

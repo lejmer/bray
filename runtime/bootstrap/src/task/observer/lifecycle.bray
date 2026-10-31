@@ -1,0 +1,602 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal bray.runtime.bootstrap;
+
+// The compiler's factory borrows the retained value and persistent collection.
+// Its constructor claims preadmitted backing without executing cleanup work.
+trusted internal predicate factory_entry(
+    value: DataPointer<u8>,
+    collection: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+trusted internal predicate factory_returned(
+    token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+trusted internal predicate cleanup_returned(outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
+
+internal callable Factory = @abi(c) trusted func(
+    pos value: DataPointer<u8>,
+    pos collection: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(trusted factory_entry(value = value, collection = collection, token = token, outcome = outcome))
+    ensures(trusted factory_returned(token = token, outcome = outcome));
+
+trusted internal predicate cleanup_entry(
+    value: DataPointer<u8>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+internal callable Cleanup = @abi(c) trusted func(
+    pos value: DataPointer<u8>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+)
+    requires(trusted cleanup_entry(value = value, outcome = outcome))
+    ensures(trusted cleanup_returned(outcome = outcome));
+
+trusted internal func cleanup_shape(
+    pos owner: &Invocation,
+    pos pointer: DataPointer<bray.runtime.bootstrap.storage.Descriptor>
+) -> bray.runtime.bootstrap.storage.Descriptor
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(
+        pos owner: &Invocation,
+        pos pointer: DataPointer<bray.runtime.bootstrap.storage.Descriptor>
+    )
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.read<bray.runtime.bootstrap.storage.Descriptor>(pointer);
+}
+
+trusted internal func discharge_helper(pos owner: &mut Invocation, pos quiescence: bool)
+    requires(trusted invoked(owner = &owner.acquisition.claim), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let admitted = if quiescence
+    {
+        yield (trusted read_state(&owner)).quiesce_admitted;
+    }
+    else
+    {
+        yield (trusted read_state(&owner)).resolve_admitted;
+    };
+
+    if !admitted
+    {
+        return;
+    }
+
+    let pointer = if quiescence
+    {
+        yield (trusted read_state(&owner)).glue.quiesce_storage;
+    }
+    else
+    {
+        yield (trusted read_state(&owner)).glue.resolve_storage;
+    };
+
+    let shapes = [trusted cleanup_shape(&owner, pointer)];
+
+    let bundle: bray.runtime.bootstrap.storage.Bundle =
+    {
+        records = 1,
+        descriptors = &shapes[..]
+    };
+
+    if quiescence
+    {
+        trusted set_quiesce_admitted(owner, false);
+    }
+    else
+    {
+        trusted set_resolve_admitted(owner, false);
+    }
+
+    trusted bray.runtime.bootstrap.outgoing.discharge(
+        std.memory.address_of<bray.runtime.bootstrap.storage.Bundle>(&bundle)
+    );
+}
+
+trusted internal func synchronous_cleanup(
+    pos owner: &mut Invocation,
+    pos destruction: bool
+) -> bray.runtime.bootstrap.activation.Progress
+    requires(trusted invoked(owner = &owner.acquisition.claim), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+    uses(intrinsic, layout_reinterpret, foreign_call)
+{
+    let pointer = if destruction
+    {
+        yield (trusted read_state(&owner)).glue.destroy;
+    }
+    else
+    {
+        yield (trusted read_state(&owner)).glue.broadcast;
+    };
+
+    if std.memory.is_null<u8>(pointer)
+    {
+        return progress(1);
+    }
+
+    let mut outcome = bray.runtime.bootstrap.task.empty_outcome();
+
+    outcome.state = 0;
+
+    let value = trusted core.target.from_exposed_address<u8>(address = (trusted read_state(&owner)).result);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+    let authorize = trusted lambda(
+        pos owner: &Invocation,
+        pos callback: DataPointer<u8>,
+        pos value: DataPointer<u8>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    ) -> FunctionPointer<Cleanup>
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(
+            trusted core.memory.callable_address_valid<Cleanup>(pointer = result),
+            trusted cleanup_entry(value = value, outcome = outcome)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<Cleanup>(callback);
+    };
+
+    let callback = trusted std.memory.callable_from_pointer<Cleanup>(trusted authorize(&owner, pointer, value, output));
+
+    trusted callback(value, output);
+
+    return trusted cleanup_output(output);
+}
+
+// The callable producer owns this actual output slot. Reading it moves the
+// report before clearing the sender, rather than certifying a decoded argument.
+trusted internal func cleanup_output(
+    pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> bray.runtime.bootstrap.activation.Progress
+    requires(trusted cleanup_returned(outcome = output))
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    uses(raw_memory, unchecked_init)
+{
+    let permit = trusted lambda(pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
+        requires(trusted cleanup_returned(outcome = output))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = output, count = 1),
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = output, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = output),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = output)
+        )
+        executes(pure, total) {};
+
+    trusted permit(output);
+
+    let outcome = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(output);
+
+    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
+        output,
+        {
+            state = 0,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        }
+    );
+
+    return
+    {
+        kind = outcome.state + 1,
+        state = 0,
+        payload = 0,
+        report = outcome.report
+    };
+}
+
+trusted internal func begin_helper(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    uses(foreign_call, intrinsic)
+{
+    let quiescence = (trusted read_state(&owner)).disposition == 4;
+
+    let pointer = if quiescence
+    {
+        yield (trusted read_state(&owner)).glue.quiesce;
+    }
+    else
+    {
+        yield (trusted read_state(&owner)).glue.resolve;
+    };
+
+    if std.memory.is_null<u8>(pointer)
+    {
+        trusted set_phase(
+            owner,
+            if quiescence
+            {
+                yield QUIESCENT;
+            }
+            else
+            {
+                yield DISPOSED;
+            }
+        );
+
+        return progress(1);
+    }
+
+    trusted shield(&owner, true);
+
+    let token = trusted construct_helper(&owner, quiescence);
+
+    trusted discharge_helper(owner, quiescence);
+
+    trusted set_helper(
+        owner,
+        if quiescence
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 2;
+        }
+    );
+
+    let destination = trusted core.target.expose_address<bray.runtime.bootstrap.ReportOutcome>(
+        trusted outcome_pointer(&owner, true)
+    );
+
+    trusted native_compose(token, 1, destination, 0);
+    return progress(0, state = 1);
+}
+
+trusted internal func finish_helper(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(trusted invoked(owner = &owner.acquisition.claim), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+{
+    trusted receive_helper(&owner);
+    trusted shield(&owner, false);
+
+    let phase: u32 = if (trusted read_state(&owner)).helper == 1
+    {
+        yield QUIESCENT;
+    }
+    else
+    {
+        yield DISPOSED;
+    };
+
+    trusted set_phase(owner, phase);
+    trusted set_helper(owner, 0);
+
+    return trusted collected(owner);
+}
+
+trusted internal func collected(pos owner: &mut Invocation) -> bray.runtime.bootstrap.activation.Progress
+    requires(trusted invoked(owner = &owner.acquisition.claim), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+{
+    let mut outcomes = trusted take_outcomes(owner);
+    let report = trusted take_collected_report(&mut outcomes, false);
+    let incoming = trusted take_collected_report(&mut outcomes, true);
+
+    let kind: u32 = if outcomes.collection.state == 3 || outcomes.incoming.state == 2
+    {
+        yield 3;
+    }
+    else if outcomes.collection.state == 2 || outcomes.incoming.state == 1
+    {
+        yield 2;
+    }
+    else
+    {
+        yield 1;
+    };
+
+    return
+    {
+        kind = kind,
+        state = 1,
+        payload = 0,
+        report = trusted bray.runtime.bootstrap.suppress_report(report, incoming)
+    };
+}
+
+// This projection computes positions only. Actual collection access is confined
+// to factory formation and delivery after the composed child has retired.
+trusted internal func outcome_pointer(
+    pos owner: &Invocation,
+    pos incoming: bool
+) -> DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic)
+{
+    let base = trusted core.target.expose_address<Outcomes>(trusted outcomes_pointer(&owner.acquisition));
+
+    return trusted core.target.from_exposed_address<bray.runtime.bootstrap.ReportOutcome>(
+        address = base + if incoming
+        {
+            yield std.memory.size_of<bray.runtime.bootstrap.ReportOutcome>();
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+}
+
+trusted internal predicate collected_outcomes(owner: &Outcomes);
+
+trusted internal func take_outcomes(pos owner: &mut Invocation) -> Outcomes
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim), trusted collected_outcomes(owner = &result))
+{
+    let empty = empty_outcomes();
+    let outcomes = trusted access_outcomes(owner);
+
+    return trusted std.memory.replace_value<Outcomes>(outcomes, empty);
+}
+
+trusted internal func access_outcomes(pos owner: &mut Invocation) -> &mut Outcomes
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic, raw_memory, unchecked_alias)
+{
+    if (trusted read_state(&owner)).helper != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let pointer = trusted outcomes_pointer(&owner.acquisition);
+
+    let permit = trusted lambda(pos owner: &Invocation, pos pointer: DataPointer<Outcomes>)
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(
+            trusted core.memory.valid_write<Outcomes>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Outcomes>(pointer = pointer),
+            trusted core.memory.aligned_for<Outcomes>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<Outcomes>(pointer = pointer),
+            trusted core.memory.epoch_current<Outcomes>(pointer = pointer),
+            trusted core.memory.synchronized_access<Outcomes>(pointer = pointer),
+            trusted core.memory.movement_stable<Outcomes>(pointer = pointer),
+            trusted core.memory.finalization_pending<Outcomes>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&owner, pointer);
+    return trusted std.memory.borrow_mut_from<Outcomes, Projection>(&mut owner.projection, pointer);
+}
+
+trusted internal func take_collected_report(
+    pos owner: &mut Outcomes,
+    pos incoming: bool
+) -> bray.runtime.bootstrap.PanicReportData
+    requires(trusted collected_outcomes(owner = &owner))
+    ensures(
+        trusted collected_outcomes(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result)
+    )
+{
+    if incoming
+    {
+        return trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+            &mut owner.incoming.report,
+            bray.runtime.bootstrap.empty_panic_report()
+        );
+    }
+
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
+        &mut owner.collection.report,
+        bray.runtime.bootstrap.empty_panic_report()
+    );
+}
+
+internal func empty_outcomes() -> Outcomes
+    executes(pure, total)
+{
+    return
+    {
+        collection =
+        {
+            state = 0,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        },
+        incoming =
+        {
+            state = 0,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        }
+    };
+}
+
+trusted internal func shield(pos owner: &Invocation, pos entering: bool)
+    requires(trusted invoked(owner = &owner.acquisition.claim), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    if entering
+    {
+        trusted bray.runtime.bootstrap.entry.control.enter_cleanup();
+    }
+    else
+    {
+        trusted bray.runtime.bootstrap.entry.control.leave_cleanup();
+    }
+}
+
+// The native invocation keeps the coallocated borrow live while this actual
+// constructor consumes its preadmitted shape and writes its result slots.
+trusted internal func construct_helper(
+    pos owner: &Invocation,
+    pos quiescence: bool
+) -> bray.runtime.bootstrap.activation.Inactive
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.activation.producer(token = &result)
+    )
+    uses(intrinsic, layout_reinterpret, foreign_call)
+{
+    let pointer = if quiescence
+    {
+        yield (trusted read_state(owner)).glue.quiesce;
+    }
+    else
+    {
+        yield (trusted read_state(owner)).glue.resolve;
+    };
+
+    let mut token = empty_token();
+
+    let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = 0,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
+
+    let value = trusted core.target.from_exposed_address<u8>(address = (trusted read_state(owner)).result);
+    let collection = trusted outcome_pointer(owner, false);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.activation.Inactive>(&mut token);
+    let result = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+
+    let authorize = trusted lambda(
+        pos owner: &Invocation,
+        pos callback: DataPointer<u8>,
+        pos value: DataPointer<u8>,
+        pos collection: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    ) -> FunctionPointer<Factory>
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(
+            trusted core.memory.callable_address_valid<Factory>(pointer = result),
+            trusted factory_entry(value = value, collection = collection, token = token, outcome = outcome)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.function.from_data<Factory>(callback);
+    };
+
+    let callback = trusted std.memory.callable_from_pointer<Factory>(
+        trusted authorize(owner, pointer, value, collection, output, result)
+    );
+
+    trusted callback(value, collection, output, result);
+
+    return trusted constructed_token(output, result);
+}
+
+trusted internal func constructed_token(
+    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> bray.runtime.bootstrap.activation.Inactive
+    requires(trusted factory_returned(token = token, outcome = outcome))
+    ensures(trusted bray.runtime.bootstrap.activation.producer(token = &result))
+    uses(raw_memory, intrinsic)
+{
+    if trusted construction_status(token, outcome) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let permit = trusted lambda(
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted factory_returned(token = token, outcome = outcome))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = token, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = token),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = token)
+        )
+        executes(pure, total) {};
+
+    trusted permit(token, outcome);
+    return trusted std.memory.read<bray.runtime.bootstrap.activation.Inactive>(token);
+}
+
+trusted internal func construction_status(
+    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(trusted factory_returned(token = token, outcome = outcome))
+    ensures(trusted factory_returned(token = token, outcome = outcome))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted factory_returned(token = token, outcome = outcome))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome)
+        )
+        executes(pure, total) {};
+
+    trusted permit(token, outcome);
+    return (trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome)).state;
+}
+
+trusted internal func receive_helper(pos owner: &Invocation)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    uses(intrinsic)
+{
+    let header = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+        address = (trusted read_state(owner)).header
+    );
+
+    let output = trusted outcome_pointer(owner, true);
+
+    let permit = trusted lambda(
+        pos owner: &Invocation,
+        pos header: DataPointer<bray.runtime.bootstrap.activation.Header>,
+        pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(
+            trusted bray.runtime.bootstrap.activation.execution.owned(pointer = header),
+            trusted bray.runtime.bootstrap.activation.completion.destination(pointer = header, outcome = output)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, header, output);
+    trusted bray.runtime.bootstrap.activation.completion.take(header, output);
+}

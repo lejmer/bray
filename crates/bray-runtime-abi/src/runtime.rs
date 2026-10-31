@@ -54,7 +54,7 @@ pub struct NativeRuntimeConfiguration {
 }
 
 impl NativeRuntimeConfiguration {
-    /// Creates explicit capacities for registered tasks and pending timers.
+    /// Creates explicit limits for simultaneous task execution and pending timers.
     pub const fn new(task_capacity: usize, timer_capacity: usize) -> Self {
         Self {
             task_capacity,
@@ -62,7 +62,7 @@ impl NativeRuntimeConfiguration {
         }
     }
 
-    /// Returns the maximum registered-task count.
+    /// Returns the maximum simultaneously executing task count.
     pub const fn task_capacity(self) -> usize {
         self.task_capacity
     }

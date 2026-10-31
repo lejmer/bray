@@ -1,0 +1,214 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func retention(pos runtime: u64, pos handle: u64, pos output: DataPointer<Reference>) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let acquisition_result =
+    {
+        let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+        if !lease.active
+        {
+            return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
+        }
+
+        let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+
+        yield trusted retain_locked(&lease, &mut anchor, runtime, handle);
+    };
+
+    match consume acquisition_result
+    {
+        case Error(status) { return status; }
+        case Ok(reference)
+        {
+            trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, reference);
+            return 0;
+        }
+    }
+}
+
+trusted internal func retain_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
+    pos runtime: u64,
+    pos handle: u64
+) -> Result<Reference, u32>
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
+{
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+    let index = std.numeric.truncate_to<usize, u64>(handle & 0xffffffff);
+    let generation = std.numeric.truncate_to<u32, u64>(handle >> 32);
+
+    if index == 0 || index > host.tasks.total || generation == 0
+    {
+        return Error(7);
+    }
+
+    let slot = trusted slot_at(&mut host.tasks, index);
+
+    if slot.generation != generation || slot.runtime != runtime || slot.control matches none
+    {
+        return Error(7);
+    }
+
+    // The actual resident acquisition pins this exact cell while a storage
+    // reference is admitted. Numerical field equality alone grants no lifetime.
+    let issue = trusted lambda(
+        pos lease: &bray.runtime.bootstrap.host.HostLease,
+        pos slot: &Slot,
+        pos runtime: u64,
+        pos handle: u64
+    ) -> Reference
+        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+        ensures(
+            trusted retained(owner = &result),
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+        )
+        executes(total)
+        uses(intrinsic)
+    {
+        return
+        {
+            pointer = std.memory.address_of<Slot>(slot),
+            runtime = runtime,
+            handle = handle
+        };
+    };
+
+    let reference = trusted issue(lease, &slot, runtime, handle);
+
+    {
+        let mut guard = trusted lock_cell(&reference);
+        let control = trusted guard.get();
+
+        if !trusted retain(control)
+        {
+            return Error(7);
+        }
+    }
+
+    return Ok(reference);
+}
+
+// This carrier is issued after retaining an actual resident cell. It names
+// storage, not a second source resolution owner. Copying these fields cannot
+// copy the carried lifetime or authorize observing the terminal payload.
+@layout(c)
+internal struct Reference
+{
+    pointer: DataPointer<Slot>;
+    runtime: u64;
+    handle: u64;
+}
+
+trusted internal predicate retained(owner: &Reference);
+
+// The native caller lends its retained reference for this whole callback. It
+// keeps the corresponding host/provider and cell allocation alive through return.
+trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+
+trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
+    requires(trusted reference_slot(pointer = pointer))
+    ensures(trusted retained(owner = &result))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = pointer),
+            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Reference>(pointer);
+}
+
+trusted internal func cell(pos owner: &Reference) -> &Slot
+    requires(trusted retained(owner = owner))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted lambda(pos owner: &Reference) -> DataPointer<Slot>
+        requires(trusted retained(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Slot>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Slot>(pointer = result),
+            trusted core.memory.initialized_as<Slot>(pointer = result),
+            trusted core.memory.shared_alias_valid<Slot>(pointer = result),
+            trusted core.memory.epoch_current<Slot>(pointer = result),
+            trusted core.memory.synchronized_access<Slot>(pointer = result),
+            trusted core.memory.movement_stable<Slot>(pointer = result),
+            trusted core.memory.finalization_pending<Slot>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return owner.pointer;
+    };
+
+    return trusted std.memory.borrow_from<Slot, Reference>(owner, trusted pointer(owner));
+}
+
+trusted internal func lock_cell(pos owner: &Reference) -> std.sync.SpinLockGuard<Control>
+    requires(trusted retained(owner = owner))
+    ensures(trusted std.sync.spin_lock.acquired(&result.acquisition), trusted retained(owner = owner))
+    uses(intrinsic, raw_memory, unchecked_alias)
+{
+    let value = trusted cell(owner);
+
+    if let ?storage = value.control
+    {
+        let pointer = std.memory.uninit_pointer<std.sync.SpinLock<Control>>(&storage);
+
+        let permit = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<std.sync.SpinLock<Control>>)
+            requires(trusted retained(owner = owner))
+            ensures(
+                trusted core.memory.valid_read<std.sync.SpinLock<Control>>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.initialized_as<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.shared_alias_valid<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.epoch_current<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.synchronized_access<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.movement_stable<std.sync.SpinLock<Control>>(pointer = pointer),
+                trusted core.memory.finalization_pending<std.sync.SpinLock<Control>>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(owner, pointer);
+
+        let lock = trusted std.memory.borrow_from<std.sync.SpinLock<Control>, Reference>(owner, pointer);
+
+        let initialized = trusted lambda(pos owner: &Reference, pos lock: &std.sync.SpinLock<Control>)
+            requires(trusted retained(owner = owner))
+            ensures(trusted std.sync.spin_lock.valid(&lock.prepared.instance))
+            executes(pure, total) {};
+
+        trusted initialized(owner, lock);
+        return trusted lock.lock();
+    }
+
+    trusted core.target.abort();
+}

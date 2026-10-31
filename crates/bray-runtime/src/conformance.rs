@@ -500,17 +500,20 @@ impl RuntimeConformance for BrayRuntime {
         let second =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
-        let _first_registration = register_task(&scheduler, &first, runtime.runtime().id());
+        let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
+        let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
-        matches!(
-            scheduler.register_task(
-                second.id(),
-                second.execution_state(),
-                runtime.runtime().id(),
-                second.cancellation_context(),
-            ),
-            Err(SchedulerError::TaskCapacityReached)
-        )
+        first_registration.wake_handle().wake().expect("first task wakes");
+        second_registration.wake_handle().wake().expect("second task wakes");
+
+        let running = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds");
+
+        let bounded = running.is_some() && scheduler.take_ready(cooperative_lane())
+            .expect("quota remains available").is_none();
+
+        drop(running);
+
+        bounded && scheduler.take_ready(cooperative_lane()).expect("released capacity admits queued work").is_some()
     }
 
     fn run_structured_shutdown(&self) -> ShutdownObservation {
@@ -612,7 +615,7 @@ fn runtime_thread() -> RuntimeThreadScope {
 
 fn scheduler(main_thread: bray_platform::RuntimeThreadId, task_limit: usize) -> Scheduler {
     Scheduler::new(
-        [RuntimeCapability::CooperativeExecution],
+        [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
         main_thread,
         SchedulerLimits::new(nonzero(task_limit), nonzero(4)),
     )

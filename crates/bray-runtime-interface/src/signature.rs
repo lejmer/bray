@@ -31,6 +31,8 @@ pub enum RuntimeAbiType {
     InactiveFrame,
     /// Frame progress kind, state and payload.
     FrameProgress,
+    /// Frame affinity and required execution lanes.
+    FrameState,
     /// Lane-selection status and lane identity.
     LaneResult,
 }

@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
 use bray_runtime_model::ProtectedFrameStateDescriptor;
@@ -8,10 +6,10 @@ use bray_runtime_model::ProtectedFrameStateDescriptor;
 use crate::lane::select_execution_lane;
 use crate::{
     ExecutionLane, ScheduledTaskSnapshot, ScheduledTaskState, SchedulerSnapshot, TaskId,
-    TaskWakeCause,
 };
 
 use super::contract::SchedulerError;
+use super::queue;
 use super::engine::{DispatchState, ReadyTask, RegisteredTask, SchedulerData, SchedulerState};
 
 pub(super) fn select_state_lane(
@@ -34,34 +32,30 @@ pub(super) fn pop_ready(
     state: &mut SchedulerState,
     lane: ExecutionLane,
 ) -> Option<ReadyTask> {
-    loop {
-        let queued = state.queues.get_mut(&lane)?.pop_front()?;
-
-        let Some(task) = state.tasks.get_mut(&queued.task) else {
-            continue;
-        };
-
-        if task.dispatch != DispatchState::Queued(queued.state) {
-            continue;
-        }
-
-        task.dispatch = DispatchState::Running {
-            state: queued.state,
-            pending: None,
-        };
-
-        return Some(ReadyTask {
-            task: queued.task,
-            execution: task.execution.clone(),
-            lane,
-            wake_cause: queued.cause,
-            queue_latency: queued
-                .queued_at
-                .map(|queued_at| MonotonicClock.now().elapsed_since(queued_at)),
-            scheduler: Arc::downgrade(scheduler),
-            released: false,
-        });
+    if state.running_count == scheduler.limits.tasks().get() {
+        return None;
     }
+
+    let (identity, queued) = queue::pop(state, lane)?;
+
+    let task = state.tasks.get_mut(&identity).expect("a ready link retains its registered task");
+
+    assert_eq!(task.dispatch, DispatchState::Queued(queued.state), "ready links match the registered continuation");
+
+    task.dispatch = DispatchState::Running { state: queued.state, pending: None };
+    task.execution_slot = true;
+    state.running_count += 1;
+
+    Some(ReadyTask {
+        task: identity,
+        execution: task.execution.clone(),
+        lane,
+        wake_cause: queued.cause,
+        queue_latency: queued.queued_at.map(|queued_at| MonotonicClock.now().elapsed_since(queued_at)),
+        scheduler: Arc::downgrade(scheduler),
+        released: false,
+        native: task.native.as_ref().map(Arc::clone),
+    })
 }
 
 pub(super) fn scheduler_snapshot(
@@ -69,13 +63,12 @@ pub(super) fn scheduler_snapshot(
     state: &SchedulerState,
 ) -> Result<SchedulerSnapshot, SchedulerError> {
     let now = scheduler.observe_queue_time.then(|| MonotonicClock.now());
-    let queued = queued_observations(state, now);
 
     let tasks = state
         .tasks
         .iter()
         .map(|(&task_id, task)| {
-            scheduled_task_snapshot(scheduler, task_id, task, queued.get(&task_id).copied())
+            scheduled_task_snapshot(scheduler, task_id, task, now)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -97,42 +90,17 @@ pub(super) fn earliest_deadline(
     }
 }
 
-#[derive(Clone, Copy)]
-struct QueuedObservation {
-    cause: TaskWakeCause,
-    age: Option<Duration>,
-}
-
-fn queued_observations(
-    state: &SchedulerState,
-    now: Option<MonotonicInstant>,
-) -> BTreeMap<TaskId, QueuedObservation> {
-    state
-        .queues
-        .values()
-        .flatten()
-        .map(|queued| {
-            let age = now
-                .zip(queued.queued_at)
-                .map(|(now, queued_at)| now.elapsed_since(queued_at));
-
-            (
-                queued.task,
-                QueuedObservation {
-                    cause: queued.cause,
-                    age,
-                },
-            )
-        })
-        .collect()
-}
-
 fn scheduled_task_snapshot(
     scheduler: &SchedulerData,
     task_id: TaskId,
     task: &RegisteredTask,
-    queued: Option<QueuedObservation>,
+    now: Option<MonotonicInstant>,
 ) -> Result<ScheduledTaskSnapshot, SchedulerError> {
+    let queued = task.queued.as_ref();
+
+    let latency = queued.and_then(|queued| queued.queued_at).zip(now)
+        .map(|(queued_at, now)| now.elapsed_since(queued_at));
+
     let (dispatch, wake_cause) = match task.dispatch {
         DispatchState::Idle(_) => (ScheduledTaskState::Idle, None),
         DispatchState::Queued(_) => (
@@ -152,7 +120,7 @@ fn scheduled_task_snapshot(
         lane,
         task.wake_count,
         wake_cause,
-        queued.and_then(|queued| queued.age),
+        latency,
         task.cancellation.observation(),
     ))
 }

@@ -1,0 +1,175 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func initialize(
+    pos mut owner: Prepared,
+    pos reference: bray.runtime.bootstrap.task.Reference,
+    pos shape: bray.runtime.bootstrap.storage.Descriptor,
+    pos header: usize,
+    pos completion: usize,
+    pos cancellation: bool
+) -> bray.runtime.bootstrap.activation.Inactive
+    requires(
+        trusted prepared(owner = &owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = &reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &reference),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted bray.runtime.bootstrap.activation.producer(token = &result))
+    uses(intrinsic)
+{
+    let description = trusted describe_observer(shape, header, completion, owner.input.layout);
+    let context = owner.lease.address;
+
+    let token: bray.runtime.bootstrap.activation.Inactive =
+    {
+        lease = owner.lease,
+        descriptor = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Descriptor>(
+            address = context
+        )
+    };
+
+    let records = owner.records;
+    let protocol = trusted form_state(owner, reference, header, completion, cancellation);
+
+    trusted place_state(protocol, description);
+
+    // This producer just initialized its exact coallocated protocol. The source
+    // task claim and provider now live there, before the header is published.
+    let initialized = trusted lambda(pos token: &bray.runtime.bootstrap.activation.Inactive, pos context: usize)
+        ensures(trusted bray.runtime.bootstrap.activation.provider.constructing(token = token, context = context))
+        executes(pure, total) {};
+
+    trusted initialized(&token, context);
+    trusted bray.runtime.bootstrap.activation.provider.initialize_owned(&token, context, records);
+
+    if trusted bray.runtime.bootstrap.activation.publish(&token) != 0
+    {
+        trusted core.target.abort();
+    }
+
+    return
+    {
+        lease = token.lease,
+        descriptor = token.descriptor
+    };
+}
+
+trusted internal func take_state(pos owner: Invocation) -> State
+    requires(trusted invoked(owner = &owner.acquisition.claim), owner.acquisition.operation == 5)
+    ensures(trusted owned_state(owner = &result))
+    uses(raw_memory)
+{
+    return trusted std.memory.read<State>(trusted state_pointer(&owner.acquisition));
+}
+
+// Formation consumes the actual counted reference and retained provider. The
+// resulting owner keeps the initialized context and every represented resource.
+trusted internal func form_state(
+    pos mut owner: Prepared,
+    pos reference: bray.runtime.bootstrap.task.Reference,
+    pos header: usize,
+    pos completion: usize,
+    pos cancellation: bool
+) -> State
+    requires(
+        trusted prepared(owner = &owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = &reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &reference)
+    )
+    ensures(trusted owned_state(owner = &result))
+{
+    trusted prepared_access(&owner);
+
+    let provider = trusted take_provider(&mut owner);
+
+    return
+    {
+        lease = owner.lease,
+        layout = owner.input.layout,
+        glue = owner.input.glue,
+        provider = provider,
+        reference = reference,
+        result = owner.lease.address + completion,
+        header = owner.lease.address + header,
+        request_cancellation = cancellation,
+        cancelling = false,
+        phase = PENDING,
+        failure = 0,
+        disposition = 0,
+        helper = 0,
+        quiesce_admitted = owner.quiesce,
+        resolve_admitted = owner.resolve
+    };
+}
+
+// The admission owner initializes the entire coallocated context in one move.
+// No partially initialized State is projected or published to another caller.
+trusted internal func place_state(pos state: State, pos descriptor: bray.runtime.bootstrap.activation.Descriptor)
+    requires(trusted owned_state(owner = &state))
+    uses(intrinsic, raw_memory, unchecked_init)
+{
+    let pointer = trusted core.target.from_exposed_address<Context>(address = state.lease.address);
+
+    let permit = trusted lambda(pos state: &State, pos pointer: DataPointer<Context>)
+        requires(trusted owned_state(owner = state))
+        ensures(
+            trusted core.memory.valid_write<Context>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Context>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(&state, pointer);
+
+    trusted std.memory.write<Context>(
+        pointer,
+        {
+            descriptor = descriptor,
+            requirements = state.glue.requirements,
+            storage = std.memory.uninit_from<State>(state),
+            outcomes = std.memory.uninit_from<Outcomes>(empty_outcomes())
+        }
+    );
+}
+
+trusted internal func take_state_reference(pos owner: &mut State) -> bray.runtime.bootstrap.task.Reference
+    requires(trusted owned_state(owner = &owner))
+    ensures(
+        trusted owned_state(owner = &owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = &result),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result)
+    )
+    uses(intrinsic)
+{
+    if owner.reference.handle == 0
+    {
+        trusted core.target.abort();
+    }
+
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.task.Reference>(
+        &mut owner.reference,
+        {
+            pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
+            runtime = 0,
+            handle = 0
+        }
+    );
+}
+
+trusted internal func take_state_provider(pos owner: &mut State) -> bray.runtime.bootstrap.provider.Reference
+    requires(trusted owned_state(owner = &owner))
+    ensures(
+        trusted owned_state(owner = &owner),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result)
+    )
+{
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
+        &mut owner.provider,
+        trusted bray.runtime.bootstrap.provider.resident_reference()
+    );
+}

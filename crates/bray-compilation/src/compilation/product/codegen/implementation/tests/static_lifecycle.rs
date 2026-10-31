@@ -537,6 +537,40 @@ fn static_admission_counts_repeated_constant_owners() {
 
 #[test]
 #[ignore = "tier:native"]
+fn uninit_static_payloads_preserve_relocations_without_cleanup_admission() {
+    let (_, plan) = runtime_native_plan(
+        r#"
+            module app;
+            using core.memory;
+
+            struct Resource
+            {
+                value: &i32;
+                destruct() {}
+            }
+
+            struct StaticSlot { contents: Uninit<Resource>; }
+
+            static NUMBER: i32 = 7;
+            static VALUE: StaticSlot = StaticSlot
+            {
+                contents = core.memory.uninit_from<Resource>(Resource { value = &NUMBER })
+            };
+
+            func main() { let storage = &VALUE; }
+        "#,
+    );
+
+    let mappings = plan.mappings().iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages).collect::<Vec<_>>();
+
+    assert!(mappings.iter().any(|mapping| !mapping.relocations().is_empty()));
+    assert!(mappings.iter().all(|mapping| mapping.outgoing_requirements().is_empty()));
+    assert!(plan.product_host().is_none_or(|host| host.statics().is_empty()));
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn static_host_orders_dependencies_reached_only_by_finalization() {
     for finalizer in ["", "impl Provider { finalize() {} }\n"] {
         let source = concat!(
@@ -850,6 +884,10 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
         .replace("DESTRUCTOR", destructor);
 
         let (backend, plan) = runtime_native_plan(&source);
+
+        assert!(plan.executable_host().expect("static cleanup retains its executable host")
+            .requirements().roles()
+            .contains(&bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease));
 
         let artifacts = generated_artifacts_of_kind(
             &backend,

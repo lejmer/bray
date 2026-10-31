@@ -1560,7 +1560,14 @@ impl Lowerer<'_> {
             .expression()
             .expect("checked value operation has its source owner");
 
-        let may_propagate_panic = matches!(
+        let preserved = operation.input_preserved_on_rejection().and_then(|operand| match operand {
+            MirOperand::Move(place) => Some(Self::retained_place(place)),
+            _ => None,
+        });
+
+        let admission = operation.input_preserved_on_rejection().is_some();
+
+        let may_propagate_panic = admission || matches!(
             &operation,
             MirOperationKind::Call(call) if call.may_propagate_panic()
         );
@@ -1573,7 +1580,7 @@ impl Lowerer<'_> {
             result_type,
         )?;
 
-        if may_propagate_panic {
+        let (completed, value) = if may_propagate_panic {
             self.finish_typed_call_panic_check(
                 occurrence,
                 current,
@@ -1581,16 +1588,26 @@ impl Lowerer<'_> {
                 &value,
                 result_type,
                 None,
-                crate::lowering::expression::CallOutcome::Selected,
-            )
+                if admission {
+                    crate::lowering::expression::CallOutcome::Runtime
+                } else {
+                    crate::lowering::expression::CallOutcome::Selected
+                },
+            )?
         } else {
             let mut value = Some(value);
 
             let completed =
                 self.take_completion_report(occurrence, current, &source, &mut value)?;
 
-            Ok((completed, value.expect("normal call retains its result")))
+            (completed, value.expect("normal call retains its result"))
+        };
+
+        if let Some(place) = preserved {
+            self.set_storage_initialized(completed, &source, &place, false)?;
         }
+
+        Ok((completed, value))
     }
 
     pub(in crate::lowering) fn expression_type(&self, expression: BoundExpressionId) -> TypeId {

@@ -1,0 +1,88 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+// Protocol writes retain the independent native callback acquisition. Each
+// projection ends before the next producer or external callback is entered.
+
+trusted internal func set_phase(pos owner: &mut Invocation, pos value: u32)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.phase = value;
+}
+
+trusted internal func set_disposition(pos owner: &mut Invocation, pos value: u32)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.disposition = value;
+}
+
+trusted internal func set_helper(pos owner: &mut Invocation, pos value: u32)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.helper = value;
+}
+
+trusted internal func set_request_cancellation(pos owner: &mut Invocation, pos value: bool)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.request_cancellation = value;
+}
+
+trusted internal func set_quiesce_admitted(pos owner: &mut Invocation, pos value: bool)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.quiesce_admitted = value;
+}
+
+trusted internal func set_resolve_admitted(pos owner: &mut Invocation, pos value: bool)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.resolve_admitted = value;
+}
+
+trusted internal func set_cancelling(pos owner: &mut Invocation)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.cancelling = true;
+    protocol.disposition = 1;
+}
+
+// Commit the observed status and its failure payload in one protocol update.
+trusted internal func set_observed(pos owner: &mut Invocation, pos transfer: u32, pos failure: usize)
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+{
+    let protocol = trusted access_state(owner);
+
+    protocol.failure = failure;
+
+    protocol.phase = if transfer == 0
+    {
+        yield READY;
+    }
+    else
+    {
+        yield FAILED;
+    };
+}

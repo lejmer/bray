@@ -52,15 +52,19 @@ impl Lowerer<'_> {
         .with_completion_cleanup(self.completion_cleanup.is_some()))
     }
 
+    pub(in crate::lowering) fn cleanup_suspension(&self) -> Option<BoundExecutionSite> {
+        self.cleanup_occurrence.filter(|occurrence| {
+            self.input.unit_kind().protected_frame().is_some()
+                && (self.completion_cleanup.is_some()
+                    || self.input.suspension(*occurrence).is_some())
+        })
+    }
+
     pub(in crate::lowering) fn cleanup_retention(
         &mut self,
         source: &MirSourceAnchor,
     ) -> Result<Option<std::sync::Arc<bray_ir::MirFrameRetention>>, LoweringError> {
-        let Some(occurrence) = self.cleanup_occurrence.filter(|occurrence| {
-            self.input.unit_kind().protected_frame().is_some()
-                && (self.completion_cleanup.is_some()
-                    || self.input.suspension(*occurrence).is_some())
-        }) else {
+        let Some(occurrence) = self.cleanup_suspension() else {
             return Ok(None);
         };
 

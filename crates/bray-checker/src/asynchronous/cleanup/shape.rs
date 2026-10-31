@@ -49,12 +49,7 @@ impl CleanupShape {
 
     pub(in crate::asynchronous) fn opaque(role: RepresentationRole) -> Option<Self> {
         match role {
-            RepresentationRole::Future => Some(Self::BOTH),
-            RepresentationRole::Task => Some(Self {
-                suspending: false,
-                quiescence: false,
-                ..Self::BOTH
-            }),
+            RepresentationRole::Future | RepresentationRole::Task => Some(Self::BOTH),
             RepresentationRole::String | RepresentationRole::PanicReport => Some(Self::LIFECYCLE),
             _ => None,
         }

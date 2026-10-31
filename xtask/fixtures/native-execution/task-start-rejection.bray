@@ -1,0 +1,103 @@
+@link(name = "bray_allocation_probe")
+trusted module task_start_rejection;
+
+using core.atomic;
+using std.memory;
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_begin")
+extern trusted func deny_allocation() -> u32
+    uses(foreign_call);
+
+@abi(c)
+@symbol(name = "bray_allocation_probe_end")
+extern trusted func restore_allocation(pos before: u32) -> u32
+    uses(foreign_call);
+
+static BODIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static CAPTURES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Capture
+{
+    destruct()
+    {
+        _ = core.atomic.fetch_add<usize, 0>(&CAPTURES, value = 1);
+    }
+}
+
+async func complete(pos capture: Capture)
+    requires(main_thread_execution())
+{
+    _ = core.atomic.fetch_add<usize, 0>(&BODIES, value = 1);
+}
+
+trusted async func main()
+    requires(main_thread_execution())
+    uses(foreign_call)
+{
+    let mut tasks: [Task<unit>?; 32] = [
+        each _ in 0..32
+        {
+            yield none;
+        }
+    ];
+
+    let mut rejected: usize = 0;
+    let mut index: usize = 0;
+
+    while index < 32
+    {
+        // Prepare the inactive owner before denying the independent start.
+        // Successful registrations stay live to force control-slab growth.
+        let pending = complete(
+            Capture
+            {
+            }
+        );
+
+        let before = trusted deny_allocation();
+        let acquired = catch pending.start();
+        _ = trusted restore_allocation(before);
+
+        match consume acquired
+        {
+            case Ok(task) { tasks[index] = task; }
+            case Error(report) { rejected += 1; }
+        }
+
+        index += 1;
+    }
+
+    assert(rejected > 0, "start admission did not encounter denied backing");
+    assert(core.atomic.load<usize, 1>(&BODIES) == 0, "rejection entered an inactive body");
+    assert(core.atomic.load<usize, 1>(&CAPTURES) == rejected, "rejected start did not dispose its capture once");
+
+    let mut completed: usize = 0;
+
+    index = 0;
+
+    while index < 32
+    {
+        let selected = std.memory.replace_value(&mut tasks[index], none);
+
+        match consume selected
+        {
+            case ?task
+            {
+                match consume await task.cancel()
+                {
+                    case Completed(value) { completed += 1; }
+                    case Cancelled {}
+                    case Panicked(report) { panic("admitted task panicked"); }
+                }
+            }
+            case none {}
+        }
+
+        index += 1;
+    }
+
+    assert(core.atomic.load<usize, 1>(&BODIES) == completed, "a rejected task became runnable");
+    assert(core.atomic.load<usize, 1>(&CAPTURES) == 32, "a task capture was leaked or disposed twice");
+}

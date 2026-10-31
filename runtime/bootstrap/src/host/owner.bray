@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.host;
 
 using internal bray.runtime.bootstrap.domain;
+using internal bray.runtime.bootstrap.task;
 using std.numeric;
 using core.target;
 using core.atomic;
@@ -35,6 +36,7 @@ internal struct HostOwner
     mut next_identity: u64;
     mut transitioning: bool;
     mut callbacks_ready: bool;
+    mut tasks: bray.runtime.bootstrap.task.Entries;
 }
 
 internal struct HostStorage
@@ -68,7 +70,14 @@ internal static HOST_OWNER: Uninit<HostOwner> = core.memory.uninit_from<HostOwne
         products = none,
         next_identity = 1,
         transitioning = false,
-        callbacks_ready = false
+        callbacks_ready = false,
+        tasks =
+        {
+            slabs = none,
+            free = 0,
+            total = 0,
+            active = 0
+        }
     }
 );
 
@@ -536,7 +545,7 @@ trusted internal func shutdown_host() -> u32
 
             let host: &mut HostOwner = trusted host_value(lease, anchor);
 
-            if host.transitioning || retired matches ?_
+            if host.transitioning || retired matches ?_ || host.tasks.active != 0
             {
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
@@ -645,7 +654,8 @@ trusted internal func shutdown_host() -> u32
         pos lease: &HostLease,
         pos anchor: &mut HostAnchor,
         pos retired: &mut(HostStorage?),
-        pos products: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?)
+        pos products: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>?),
+        pos tasks: &mut bray.runtime.bootstrap.task.Entries
     ) -> u32
         requires(
             trusted prepared_host_storage(owner = &retired),
@@ -699,6 +709,10 @@ trusted internal func shutdown_host() -> u32
             products
         );
 
+        // Empty task slabs remain resident for reuse. Release their allocations
+        // outside the host acquisition after the directory has no live owners.
+        trusted internal std.memory.swap_values<bray.runtime.bootstrap.task.Entries>(&mut host.tasks, tasks);
+
         host.transitioning = false;
         return bray.runtime.bootstrap.STATUS_SUCCESS;
     };
@@ -717,12 +731,20 @@ trusted internal func shutdown_host() -> u32
 
     let mut products: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.Product>? = none;
 
+    let mut tasks: bray.runtime.bootstrap.task.Entries =
+    {
+        slabs = none,
+        free = 0,
+        total = 0,
+        active = 0
+    };
+
     let status =
     {
         let lease: HostLease = trusted access_prepared_host(&retired);
         let mut anchor: HostAnchor = trusted host_anchor(&lease);
 
-        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products);
+        yield trusted finish_host_shutdown_locked(&lease, &mut anchor, &mut retired, &mut products, &mut tasks);
     };
 
     // The caught report remains owned until the transition has been resolved.

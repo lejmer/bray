@@ -3,8 +3,17 @@ use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
     NativeInactiveFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
     NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeValueCleanupCallback, NativeWakeCallback,
 };
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_task_observation_service(
+        task: NativeTaskHandle,
+        operation: u32,
+        output: &mut u64,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_task_observation_service(task, operation, output)
+    }
+}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(
@@ -41,26 +50,6 @@ native_adapter! {
         frame: NativeInactiveFrame,
     ) -> NativeRuntimeStatus {
         implementation::bray_runtime_task_start(task, frame)
-    }
-}
-
-native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_task_observation_creation(
-        task: NativeTaskHandle,
-        request_cancellation: u8,
-        layout: *const NativeRunResultLayout,
-        cancellation: Option<NativeValueCleanupCallback>,
-        lifecycle: Option<NativeValueCleanupCallback>,
-        requirements: u32,
-    ) -> NativeInactiveFrame {
-        implementation::bray_runtime_task_observation_creation(
-            task,
-            request_cancellation,
-            layout,
-            cancellation,
-            lifecycle,
-            requirements,
-        )
     }
 }
 
@@ -122,16 +111,6 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
         implementation::bray_runtime_wake(task)
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_join_registration(
-        task: NativeTaskHandle,
-        callback: NativeWakeCallback,
-        context: usize,
-    ) -> NativeRunOutcome {
-        implementation::bray_runtime_join_registration(task, callback, context)
     }
 }
 

@@ -886,6 +886,18 @@ impl MirOperation {
 }
 
 impl MirOperationKind {
+    /// Returns the input retained by the caller until a task admission succeeds.
+    /// Rejection leaves that owner available to the checked failure cleanup edge.
+    pub fn input_preserved_on_rejection(&self) -> Option<&MirOperand> {
+        match self {
+            Self::Async(MirAsyncOperation::StartTask { value, .. }) => Some(value),
+            Self::Async(MirAsyncOperation::CreateFrame {
+                initializer: MirFrameInitializer::TaskObservation { task, .. }, ..
+            }) => Some(task),
+            _ => None,
+        }
+    }
+
     /// Whether this operation introduces an owning cleanup boundary, including retained incident destruction.
     pub fn owns_cleanup_collection(&self) -> bool {
         match self {
