@@ -41,7 +41,7 @@ pub struct NativeTaskObservationGlue {
 /// One resident Bray task-cell reference transported through the native bridge.
 ///
 /// Only the Bray producer initializes this carrier after retaining its cell.
-/// Moving it preserves that reference; releasing it uses the Bray protocol.
+/// Moving it preserves that reference. Releasing it uses the Bray protocol.
 /// It retains storage independently of the sole source resolution owner.
 #[repr(C)]
 #[derive(Debug)]
@@ -52,7 +52,7 @@ pub struct NativeTaskReference {
 }
 
 impl NativeTaskReference {
-    /// Creates an empty destination for a Bray producer; it owns no cell.
+    /// Creates an empty destination for a Bray producer. It owns no cell.
     pub const fn empty() -> Self {
         Self {
             address: 0,

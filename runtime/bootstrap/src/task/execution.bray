@@ -96,7 +96,7 @@ trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: 
 
 // Publication transfers the producer's successfully activated root. The producer
 // has retained its frame, immutable description and callback provider through
-// final retirement; rejection before this point keeps the inactive input owner.
+// final retirement. Rejection before this point keeps the inactive input owner.
 trusted internal predicate publication_entry(
     reference: DataPointer<Reference>,
     root: usize,
@@ -146,11 +146,11 @@ trusted internal func publication(
 }
 
 // A dispatch keeps its own cell reference until all producer and notification
-// callbacks have returned. The active bit is only a branch condition; the
+// callbacks have returned. The active bit is only a branch condition. The
 // producer-issued contract on the complete carrier supplies authority.
 // Like a lock acquisition, this noncopy marker is issued only after acquiring
-// the actual cell reservation. It stays within the complete Dispatch carrier;
-// no operation accepts it with an independently supplied storage pointer.
+// the actual cell reservation. It stays within the complete Dispatch carrier.
+// No operation accepts it with an independently supplied storage pointer.
 internal struct DispatchClaim
 {
 }

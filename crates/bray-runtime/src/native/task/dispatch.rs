@@ -104,6 +104,6 @@ extern "C" fn wake(identity: u64) {
     let task = NativeTaskHandle::new(identity).expect("an admitted waiter has a nonzero task identity");
 
     // A resolved parent can unregister before the last notification returns.
-    // Its Bray link still owns storage; a stale native wake has no frame claim.
+    // Its Bray link still owns storage. A stale native wake has no frame claim.
     let _ = state::with_runtime(|runtime| runtime.wake(task));
 }

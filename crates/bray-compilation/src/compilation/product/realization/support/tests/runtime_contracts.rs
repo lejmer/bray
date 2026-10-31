@@ -1,10 +1,11 @@
 use bray_codegen::{
-    CodegenInstance, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
+    CodegenCallableSignature, CodegenInstance, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
     CodegenTypeKind, TargetAddressSpaceKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirFrameReference, MirHelperReference, MirRuntimeReference};
-use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole};
+use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole, RuntimeAbiType};
+use bray_symbols::CallableAbi;
 use bray_testing::test_mir_unit;
 
 use super::targets::codegen_target;
@@ -12,6 +13,54 @@ use super::type_fixtures::realized_types;
 
 use crate::compilation::product::realization::support::direct_helper_symbol;
 use crate::test_support::compilation;
+
+#[test]
+fn task_control_compiler_signatures_match_their_native_contracts() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            func main()
+            {
+            }
+        "#,
+    );
+
+    let ty = |kind| match kind {
+        RuntimeAbiType::Pointer => compilation.codegen_opaque_pointer_type()
+            .expect("task control pointers have their opaque representation"),
+        RuntimeAbiType::U8 => compilation.codegen_representation_type(RepresentationRole::ScalarU8)
+            .expect("task control byte representation resolves"),
+        RuntimeAbiType::U32 => compilation.codegen_representation_type(RepresentationRole::ScalarU32)
+            .expect("task control status representation resolves"),
+        RuntimeAbiType::U64 => compilation.codegen_representation_type(RepresentationRole::ScalarU64)
+            .expect("task control identity representation resolves"),
+        RuntimeAbiType::Usize => compilation.codegen_representation_type(RepresentationRole::ScalarUsize)
+            .expect("task control address representation resolves"),
+        kind => panic!("task control uses scalar or pointer ABI values: {kind:?}"),
+    };
+
+    for role in RuntimeAbiRole::ALL.into_iter()
+        .filter(|role| role.as_str().starts_with("task_control_"))
+    {
+        let native = role.native_signature().expect("task control has a native boundary");
+
+        let parameters = native.parameters().iter()
+            .map(|kind| CodegenParameterMapping::direct(ty(*kind), None, []));
+
+        let result = match native.result() {
+            RuntimeAbiType::Void => CodegenResultMapping::Void,
+            kind => CodegenResultMapping::direct(ty(kind), None, []),
+        };
+
+        let expected = CodegenCallableSignature::new(parameters, result, CallableAbi::C, false);
+
+        let actual = compilation.codegen_runtime_signature(role)
+            .unwrap_or_else(|error| panic!("{role:?} compiler contract realizes: {error:?}"));
+
+        assert_eq!(actual, expected, "{role:?}");
+    }
+}
 
 #[test]
 fn generated_helpers_map_to_exact_runtime_and_frame_roles() {

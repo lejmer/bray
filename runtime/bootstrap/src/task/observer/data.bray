@@ -71,7 +71,7 @@ internal const FAILED: u32 = 6;
 internal const FAILED_RETIRED: u32 = 7;
 
 // Only a whole callback owner can carry this acquisition. Projection APIs
-// accept that owner and derive its context; none accepts a detached claim.
+// accept that owner and derive its context. None accepts a detached claim.
 internal struct CallbackClaim
 {
 }

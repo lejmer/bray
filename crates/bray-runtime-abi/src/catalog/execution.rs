@@ -593,7 +593,7 @@ macro_rules! runtime_role_catalog {
                 native: (TASK_CONTROL_ADMISSION_SYMBOL = "bray_runtime_task_control_admission", [U64] -> U64),
                 service: Execution,
                 call_hook: (),
-                compiler: C [U64, Pointer] -> U64,
+                compiler: C [U64] -> U64,
                 owner: Host, availability: All, bootstrap: ("task.admission"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AllocateTask, AdmitCleanupStorage]

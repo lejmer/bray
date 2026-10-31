@@ -193,7 +193,7 @@ impl Drop for NativeExecutionContextScope {
             .expect("native execution context scope must restore exactly once");
 
         // A callback can initialize its own runtime. Retire that owner before
-        // restoring the caller; borrowed cleanup bindings carry no owner count.
+        // restoring the caller. Borrowed cleanup bindings carry no owner count.
         let runtime = replace_runtime(None);
 
         let cleanup =
@@ -613,7 +613,7 @@ impl Deref for NativeRuntime {
 }
 
 /// Borrows the native runtime whose final admission owner is retiring.
-/// Only the identity is transported; the native runtime layout stays private.
+/// Only the identity is transported. The native runtime layout stays private.
 #[repr(C)]
 pub(crate) struct RuntimeRetirement<'a> {
     identity: u64,

@@ -306,7 +306,7 @@ trusted internal func deliver_waiter(pos owner: &Dispatch, pos chain: Reference?
     return remaining;
 }
 
-// The native callback borrows the selected node; this function retains both
+// The native callback borrows the selected node. This function retains both
 // the selected reference and the rest of the owned chain through its return.
 trusted internal func wake_waiter(pos owner: &Dispatch, pos node: &Reference, pos remaining: Reference?) -> Reference?
     requires(
