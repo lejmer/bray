@@ -36,7 +36,7 @@ const USAGE: &str = "usage: cargo xtask standard-library \
         [--profile <summary|trace> --profile-output <directory>] | \
     os-bindings <generate [--check] | probe [--target <triple>] --sdk-root <path> [--compiler-root <path>]> | \
     unicode <generate [--check]> | \
-    test [--part <provider-retention|interoperability|api|outcomes>] [--profile-output <directory>] | verify>";
+    test [--part <unicode|provider-retention|interoperability|api|outcomes>] [--profile-output <directory>] | verify>";
 
 pub(crate) fn run(mut arguments: impl Iterator<Item = String>) -> ExitCode {
     let result = match arguments.next().as_deref() {
@@ -192,7 +192,8 @@ pub(super) fn build_selected_targets(
     target: Option<NativeTarget>,
     profile: Option<&BuildProfileOptions>,
 ) -> Result<PathBuf, BuildError> {
-    crate::standard_library::unicode_data::verify().map_err(BuildError::UnicodeData)?;
+    crate::standard_library::unicode_data::verify_source(source)
+        .map_err(BuildError::UnicodeData)?;
 
     let graph = load_standard_library_project_graph(source)
         .map_err(|error| BuildError::Project(format!("{error:?}")))?;

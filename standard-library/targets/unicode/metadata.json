@@ -2,6 +2,15 @@
   "format": 1,
   "unicode_version": "17.0.0",
   "generator_revision": 1,
+  "generator_sha256": "055da2566fa7b5199b892fe464ca8693e955ddfd843597536347d5f4c623a6ce",
+  "tables_sha256": "f3ed3470accdec69e6cbc31234c457359cbf56d40ff9e0eaa9bc14e858c6949e",
+  "table_bytes": {
+    "alphabetic": 1556,
+    "branches": 5248,
+    "numeric": 1556,
+    "root": 2176,
+    "whitespace": 1556
+  },
   "inputs": [
     {
       "name": "DerivedCoreProperties.txt",

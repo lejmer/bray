@@ -4,7 +4,7 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 use super::model::{
     AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisExit,
     AnalysisExitKind, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
-    AnalysisScopeExitPhase, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
+    AnalysisScopeExitPhase, AnalysisSuspensionKind, ControlFlowGraph,
 };
 
 pub(super) struct ControlFlowGraphAssembler {
@@ -85,18 +85,6 @@ impl ControlFlowGraphAssembler {
         self.push_operation(
             block,
             AnalysisOperationKind::Suspension { occurrence, kind },
-        );
-    }
-
-    pub(super) fn push_task_operation(
-        &mut self,
-        block: AnalysisBlockId,
-        expression: bray_bound_tree::BoundExpressionId,
-        kind: AnalysisTaskOperationKind,
-    ) {
-        self.push_operation(
-            block,
-            AnalysisOperationKind::TaskOperation { expression, kind },
         );
     }
 

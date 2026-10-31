@@ -11,9 +11,7 @@ use bray_runtime_interface::{
 };
 use bray_source::{SourceIdentity, SourceInput};
 use bray_standard_library::StandardLibraryRoot;
-use bray_symbols::{
-    NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductIdentity, ProductKind,
-};
+use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use bray_tooling::load_llvm_compilation;
 use sha2::{Digest, Sha256};
@@ -163,21 +161,10 @@ fn runtime_with_provider(
     let summary = scan_object_unit_summary(&object_bytes)
         .map_err(|error| BuildError::conformance(CHECK, format!("provider object: {error}")))?;
 
-    // The override calls C string routines independently of the replaced providers.
-    let library = match target {
-        NativeTarget::X86_64WindowsMsvc | NativeTarget::Aarch64WindowsMsvc => "ucrt",
-        NativeTarget::X86_64LinuxGnu
-        | NativeTarget::Aarch64LinuxGnu
-        | NativeTarget::X86_64MacOs
-        | NativeTarget::Aarch64MacOs => "c",
-    };
+    let links = super::native_links(&target.identity())
+        .map_err(|error| BuildError::conformance(CHECK, error))?;
 
-    let link = NativeLinkRequirement::new(
-        bray_base::NonEmptySharedStr::try_new(library).expect("C runtime name is nonempty"),
-        NativeLinkKind::System,
-    );
-
-    let unit = NativeUnit::new(digest, NativeUnitKind::Object, summary, [link]);
+    let unit = NativeUnit::new(digest, NativeUnitKind::Object, summary, links);
 
     let mut revised = NativeArtifactIndex::try_new(
         target,

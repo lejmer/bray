@@ -1,0 +1,141 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+trusted internal func acquire_invocation(pos context: usize, pos operation: u32) -> Invocation
+    requires(trusted callback_entry(context = context, operation = operation))
+    ensures(
+        trusted invoked(owner = &result.acquisition.claim),
+        result.acquisition.operation == operation,
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
+    uses(intrinsic)
+{
+    return
+    {
+        acquisition =
+        {
+            claim = CallbackClaim
+            {
+            },
+            context = trusted core.target.from_exposed_address<Context>(address = context),
+            operation = operation
+        },
+        projection = Projection
+        {
+        }
+    };
+}
+
+trusted internal func context_pointer(pos owner: &Acquisition) -> DataPointer<Context>
+    requires(trusted invoked(owner = &owner.claim))
+    ensures(
+        trusted invoked(owner = &owner.claim),
+        trusted core.memory.valid_read<Context>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<Context>(pointer = result),
+        trusted core.memory.initialized_as<Context>(pointer = result),
+        trusted core.memory.shared_alias_valid<Context>(pointer = result),
+        trusted core.memory.epoch_current<Context>(pointer = result),
+        trusted core.memory.synchronized_access<Context>(pointer = result),
+        trusted core.memory.movement_stable<Context>(pointer = result),
+        trusted core.memory.finalization_pending<Context>(pointer = result)
+    )
+    executes(pure, total)
+{
+    return owner.context;
+}
+
+trusted internal func state_pointer(pos owner: &Acquisition) -> DataPointer<State>
+    requires(trusted invoked(owner = &owner.claim))
+    ensures(
+        trusted invoked(owner = &owner.claim),
+        trusted core.memory.valid_read<State>(pointer = result, count = 1),
+        trusted core.memory.valid_write<State>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<State>(pointer = result),
+        trusted core.memory.initialized_as<State>(pointer = result),
+        trusted core.memory.exclusive_alias_valid<State>(pointer = result),
+        trusted core.memory.epoch_current<State>(pointer = result),
+        trusted core.memory.synchronized_access<State>(pointer = result),
+        trusted core.memory.movement_stable<State>(pointer = result),
+        trusted core.memory.finalization_pending<State>(pointer = result)
+    )
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let context = trusted std.memory.borrow_from<Context, Acquisition>(owner, trusted context_pointer(owner));
+
+    return std.memory.uninit_pointer<State>(&context.storage);
+}
+
+trusted internal func access_state(pos owner: &mut Invocation) -> &mut State
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.task.retained(owner = &result.reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result.reference),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result.provider)
+    )
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted state_pointer(&owner.acquisition);
+
+    return trusted std.memory.borrow_mut_from<State, Projection>(&mut owner.projection, pointer);
+}
+
+// Polling borrows the one source claim retained by the observation. Its cell
+// reference independently pins storage and cannot create another source owner.
+trusted internal func task_pointer(pos owner: &Invocation) -> DataPointer<bray.runtime.bootstrap.task.Reference>
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(
+        trusted invoked(owner = &owner.acquisition.claim),
+        trusted bray.runtime.bootstrap.task.reference_slot(pointer = result),
+        trusted bray.runtime.bootstrap.task.resolution_entry(reference = result)
+    )
+{
+    return std.memory.address_of<bray.runtime.bootstrap.task.Reference>(&(trusted read_state(owner)).reference);
+}
+
+trusted internal func read_state(pos owner: &Invocation) -> &State
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted state_pointer(&owner.acquisition);
+
+    let permit = trusted lambda(pos owner: &Invocation, pos pointer: DataPointer<State>)
+        requires(trusted invoked(owner = &owner.acquisition.claim))
+        ensures(trusted core.memory.shared_alias_valid<State>(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<State, Projection>(&owner.projection, pointer);
+}
+
+// The collection occupies a distinct Uninit region in the actual callback's
+// retained context, so a helper borrow cannot alias mutable task protocol.
+trusted internal func outcomes_pointer(pos owner: &Acquisition) -> DataPointer<Outcomes>
+    requires(trusted invoked(owner = &owner.claim))
+    ensures(trusted invoked(owner = &owner.claim))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let context = trusted std.memory.borrow_from<Context, Acquisition>(owner, trusted context_pointer(owner));
+
+    return std.memory.uninit_pointer<Outcomes>(&context.outcomes);
+}
+
+trusted internal func result_size(pos owner: &Invocation) -> usize
+    requires(trusted invoked(owner = &owner.acquisition.claim))
+    ensures(trusted invoked(owner = &owner.acquisition.claim))
+    executes(pure, total)
+{
+    return (trusted read_state(owner)).layout.size;
+}

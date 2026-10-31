@@ -68,7 +68,7 @@ impl Lowerer<'_> {
             && self.type_representation(owner)
                 == Some(bray_compiler_known::RepresentationRole::Future)
         {
-            return if self.input.unit_kind().protected_frame().is_some() {
+            return if self.cleanup_suspension().is_some() {
                 self.push_inactive_cleanup(block, source, place)
             } else {
                 // Checking admits the selected captures at this synchronous boundary,

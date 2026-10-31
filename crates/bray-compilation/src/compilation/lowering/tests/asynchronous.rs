@@ -368,6 +368,35 @@ fn task_operations_retain_normal_completion_before_await() {
             MirOperationKind::Async(bray_ir::MirAsyncOperation::StartTask { .. })
         )));
 
+        let admissions = mir.blocks().iter().filter(|block| {
+            block.operations().iter().any(|id| {
+                mir.operation(*id).expect("task operation belongs to its block")
+                    .kind().input_preserved_on_rejection().is_some()
+            })
+        }).collect::<Vec<_>>();
+
+        assert_eq!(admissions.len(), 2, "start and observation both admit owned inputs");
+
+        assert!(admissions.iter().all(|block| matches!(
+            block.terminator().kind(), MirTerminatorKind::CheckCallOutcome { .. }
+        )), "rejected admission must enter typed input cleanup: {mir:?}");
+
+        let observed_operation = mir.operations().iter().find(|operation| matches!(
+            operation.kind(), MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::TaskObservation { .. }, ..
+            })
+        )).expect("join and cancel construct lazy observations");
+
+        let helpers = observed_operation.kind().helper_references();
+
+        assert!(helpers.iter().any(|helper| matches!(helper,
+            bray_ir::MirHelperReference::LifecycleFrame { role: bray_ir::MirGeneratedLifecycleRole::Quiesce, .. }
+        )), "retained observation quiesces its represented result");
+
+        assert!(helpers.iter().any(|helper| matches!(helper,
+            bray_ir::MirHelperReference::Destroy(_, bray_ir::MirDestructionDisposition::Abandoned)
+        )), "later retained disposal destroys its already quiescent result");
+
         assert!(
             mir.operations().iter().any(|operation| matches!(
                 operation.kind(),

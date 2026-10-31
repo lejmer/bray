@@ -224,6 +224,7 @@ impl Compilation {
                     &host_statics,
                     &native_statics,
                     execution,
+                    host.as_ref(),
                     runtime_dependencies,
                     &target,
                 )

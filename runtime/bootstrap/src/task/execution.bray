@@ -1,0 +1,277 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.activation.run;
+using internal bray.runtime.bootstrap.host.product;
+
+// Native scheduling consumes a metadata view. These fields grant neither a
+// dispatch claim nor another source result owner.
+@layout(c)
+internal struct Snapshot
+{
+    root: usize;
+    callback: usize;
+    phase: u32;
+    resumable: u8;
+    retiring: u8;
+    retired: u8;
+    dispatching: u8;
+    execution: bray.runtime.bootstrap.activation.requirements.Execution;
+}
+
+internal func execution_value(pos owner: &Control) -> bray.runtime.bootstrap.activation.requirements.Execution
+{
+    return
+    {
+        address = owner.execution.address,
+        identity = owner.execution.identity,
+        state = owner.execution.state,
+        requirements = owner.execution.requirements,
+        origin = owner.execution.origin
+    };
+}
+
+internal func snapshot_value(pos owner: &Control) -> Snapshot
+{
+    let phase: u32 = match owner.phase
+    {
+        case Phase.Admitted { yield 0; }
+        case Phase.Ready { yield 1; }
+        case Phase.Running { yield 2; }
+        case Phase.Waiting { yield 3; }
+        case Phase.Terminal { yield 4; }
+        case Phase.Resolved { yield 5; }
+    };
+
+    return
+    {
+        root = owner.root,
+        callback = owner.callback,
+        phase = phase,
+        resumable = flag(owner.resumable),
+        retiring = flag(owner.retiring),
+        retired = flag(owner.retired),
+        dispatching = flag(owner.dispatching),
+        execution = execution_value(owner)
+    };
+}
+
+internal func flag(pos value: bool) -> u8
+    executes(pure, total)
+{
+    return if value
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+@abi(c)
+trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: DataPointer<Snapshot>) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let reference = trusted read_reference(pointer);
+
+    let value =
+    {
+        let mut guard = trusted lock_cell(&reference);
+        let control = trusted guard.get();
+
+        yield snapshot_value(&control);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Snapshot>(output, value);
+    return 0;
+}
+
+// Publication transfers the producer's successfully activated root. The producer
+// has retained its frame, immutable description and callback provider through
+// final retirement. Rejection before this point keeps the inactive input owner.
+trusted internal predicate publication_entry(
+    reference: DataPointer<Reference>,
+    root: usize,
+    execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+);
+
+@abi(c)
+trusted internal func publication(
+    pos pointer: DataPointer<Reference>,
+    pos root: usize,
+    pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted publication_entry(reference = pointer, root = root, execution = execution)
+    )
+    uses(raw_memory)
+{
+    let permit = trusted lambda(
+        pos pointer: DataPointer<Reference>,
+        pos root: usize,
+        pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
+    )
+        requires(trusted publication_entry(reference = pointer, root = root, execution = execution))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution,
+                count = 1
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution
+            ),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = execution
+            )
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer, root, execution);
+
+    let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
+    let reference = trusted read_reference(pointer);
+    let mut guard = trusted lock_cell(&reference);
+
+    trusted publish(trusted guard.get(), root, value);
+    return 0;
+}
+
+// A dispatch keeps its own cell reference until all producer and notification
+// callbacks have returned. The active bit is only a branch condition. The
+// producer-issued contract on the complete carrier supplies authority.
+// Like a lock acquisition, this noncopy marker is issued only after acquiring
+// the actual cell reservation. It stays within the complete Dispatch carrier.
+// No operation accepts it with an independently supplied storage pointer.
+internal struct DispatchClaim
+{
+}
+
+trusted internal predicate dispatch_acquired(owner: &DispatchClaim);
+
+internal struct Dispatch
+{
+    acquisition: DispatchClaim;
+    reference: Reference;
+    services: &Services;
+    root: usize;
+    active: bool;
+
+    trusted destruct()
+        requires(trusted dispatch_acquired(owner = &self.acquisition))
+        uses(intrinsic)
+    {
+        if self.active
+        {
+            let reference = trusted dispatch_reference(&self);
+            let mut guard = trusted lock_cell(reference);
+
+            if trusted end_dispatch(trusted guard.get())
+            {
+                // The enclosing native reference remains owned through return.
+                trusted core.target.abort();
+            }
+        }
+    }
+}
+
+trusted internal predicate dispatch_owner(owner: &Dispatch);
+
+trusted internal func dispatch_reference(pos owner: &Dispatch) -> &Reference
+    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    ensures(trusted retained(owner = result))
+    executes(pure, total)
+{
+    return &owner.reference;
+}
+
+trusted internal func acquire_dispatch(pos reference: &Reference, pos services: &Services) -> Dispatch
+    requires(trusted retained(owner = reference), trusted native_services(owner = services))
+    ensures(
+        trusted retained(owner = reference),
+        trusted dispatch_owner(owner = &result),
+        trusted dispatch_acquired(owner = &result.acquisition),
+        !result.active || result.root != 0
+    )
+    uses(intrinsic)
+{
+    let root =
+    {
+        let mut guard = trusted lock_cell(reference);
+        let control = trusted guard.get();
+
+        if !trusted begin_dispatch(control)
+        {
+            return
+            {
+                acquisition = DispatchClaim
+                {
+                },
+                reference =
+                {
+                    pointer = reference.pointer,
+                    runtime = reference.runtime,
+                    handle = reference.handle
+                },
+                services = services,
+                root = 0,
+                active = false
+            };
+        }
+
+        yield control.root;
+    };
+
+    if root == 0
+    {
+        trusted core.target.abort();
+    }
+
+    return
+    {
+        acquisition = DispatchClaim
+        {
+        },
+        reference =
+        {
+            pointer = reference.pointer,
+            runtime = reference.runtime,
+            handle = reference.handle
+        },
+        services = services,
+        root = root,
+        active = true
+    };
+}
+
+trusted internal func cursor(pos owner: &Dispatch) -> bray.runtime.bootstrap.activation.run.Cursor
+    requires(owner.active, owner.root != 0, trusted dispatch_owner(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result))
+    uses(intrinsic)
+{
+    let pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
+        address = owner.root
+    );
+
+    return
+    {
+        root = pointer,
+        pointer = pointer
+    };
+}
+
+trusted internal func dispatch_services(pos owner: &Dispatch) -> &Services
+    requires(trusted dispatch_owner(owner = owner) || trusted dispatch_acquired(owner = &owner.acquisition))
+    ensures(trusted native_services(owner = result))
+    executes(pure, total)
+{
+    return owner.services;
+}

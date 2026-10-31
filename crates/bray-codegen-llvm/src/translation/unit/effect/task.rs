@@ -106,47 +106,64 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.set_pending_call_context(outcome)
     }
 
-    pub(super) fn allocate_native_task(
-        &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let allocation = self
-            .invoke_native_runtime(runtime, &[])?
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let status = extract_value(&self.builder, allocation, 0)?;
-
-        crate::translation::require_runtime_success(
-            self.module,
-            self.types.context(),
-            &self.builder,
-            status,
-            "task.allocation",
-        )?;
-
-        Ok(int_value(extract_value(&self.builder, allocation, 1)?)
-            .expect("task allocation runtime must return an integer task handle"))
-    }
-
     pub(super) fn start_native_task(
         &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-        task: inkwell::values::IntValue<'context>,
+        allocation: bray_ir::MirRuntimeReference,
+        start: bray_ir::MirRuntimeReference,
         frame: BasicValueEnum<'context>,
-    ) -> Result<(), CodegenFailure> {
-        let status = self
-            .invoke_native_runtime(runtime, &[task.into(), frame])?
-            .expect("checked MIR effect translation requires an established mapping or value");
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        let allocated = self.invoke_native_runtime(allocation, &[])?
+            .expect("task allocation returns its admitted identity or rejection");
+
+        let status = extract_value(&self.builder, allocated, 0)?.into_int_value();
+        let task = extract_value(&self.builder, allocated, 1)?.into_int_value();
+        let context = self.checked_call_panic_report_context()?;
+        let llvm_context = self.types.context();
+        let starting = llvm_context.append_basic_block(self.function, "task.starting");
+        let rejected = llvm_context.append_basic_block(self.function, "task.rejected");
+        let failed = llvm_context.append_basic_block(self.function, "task.failed");
+        let completed = llvm_context.append_basic_block(self.function, "task.admission.completed");
+
+        let accepted = llvm(self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ, status, status.get_type().const_zero(), "task.allocated",
+        ))?;
+
+        llvm(self.builder.build_conditional_branch(accepted, starting, failed))?;
+        self.builder.position_at_end(starting);
+
+        let status = self.invoke_native_runtime(start, &[task.into(), frame])?
+            .expect("task start returns its ownership transition status").into_int_value();
+
+        let accepted = llvm(self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ, status, status.get_type().const_zero(), "task.started",
+        ))?;
+
+        llvm(self.builder.build_conditional_branch(accepted, completed, rejected))?;
+        self.builder.position_at_end(rejected);
+
+        let destruction = bray_ir::MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::TaskDestruction, allocation.abi_version(),
+        );
+
+        let status = self.invoke_native_runtime(destruction, &[task.into()])?
+            .expect("rejected start releases its unstarted task control");
 
         crate::translation::require_runtime_success(
-            self.module,
-            self.types.context(),
-            &self.builder,
-            status,
-            "task.start",
+            self.module, llvm_context, &self.builder, status, "task.rejection.retirement",
         )?;
 
-        Ok(())
+        llvm(self.builder.build_unconditional_branch(failed))?;
+        self.builder.position_at_end(failed);
+
+        self.invoke_native_runtime(bray_ir::MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::TaskAdmissionFailure, allocation.abi_version(),
+        ), &[context.into()])?;
+
+        llvm(self.builder.build_unconditional_branch(completed))?;
+        self.builder.position_at_end(completed);
+        self.set_pending_call_context(context)?;
+
+        Ok(task)
     }
 
     #[expect(
@@ -157,11 +174,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         creation: &CodegenHelperMapping,
         task: BasicValueEnum<'context>,
+        future_type: bray_symbols::TypeId,
         request_cancellation: bool,
         result: bray_symbols::TypeId,
         variants: MirRunResultVariants,
         cancellation: &CodegenHelperMapping,
+        quiesce: &CodegenHelperMapping,
         lifecycle: &CodegenHelperMapping,
+        destruction: &CodegenHelperMapping,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let Some(CodegenSymbolKey::Runtime(runtime)) = creation.symbol() else {
             panic!("checked MIR effect translation violated an established compiler contract");
@@ -184,7 +204,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ptr_type(inkwell::AddressSpace::default());
 
         let requirements = bray_runtime_interface::ExecutionLaneRequirement::set(
-            [cancellation, lifecycle].into_iter().flat_map(|helper| {
+            [cancellation, destruction].into_iter().flat_map(|helper| {
                 helper
                     .execution_requirements()
                     .expect("observation cleanup has concrete checked execution requirements")
@@ -206,26 +226,61 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?
         .unwrap_or_else(|| callback_type.const_null());
 
-        let lifecycle = crate::mapping::frame::cleanup_callback(
-            self.module,
-            self.request.mappings(),
-            lifecycle,
-            self.types,
-        )?
-        .unwrap_or_else(|| callback_type.const_null());
+        let destruction = crate::mapping::frame::cleanup_callback(
+            self.module, self.request.mappings(), destruction, self.types,
+        )?.unwrap_or_else(|| callback_type.const_null());
 
-        let arguments = [
-            task.into(),
-            boolean.into(),
-            layout.into(),
-            cancellation.into(),
-            lifecycle.into(),
-            requirements.into(),
+        let (quiesce, quiesce_storage) = crate::mapping::frame::lifecycle_factory_callback(
+            self.module, self.request.mappings(), quiesce, self.types,
+        )?.unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
+
+        let (lifecycle, lifecycle_storage) = crate::mapping::frame::lifecycle_factory_callback(
+            self.module, self.request.mappings(), lifecycle, self.types,
+        )?.unwrap_or_else(|| (callback_type.const_null(), callback_type.const_null()));
+
+        let context = self.types.context();
+        let state_type = context.struct_type(&[context.i32_type().into(); 2], false);
+
+        let glue_type = context.struct_type(&[
+            callback_type.into(), callback_type.into(), callback_type.into(), callback_type.into(),
+            callback_type.into(), callback_type.into(), state_type.into(), self.pointer_integer_type().into(),
+        ], false);
+
+        let glue = self.allocate_temporary(glue_type, "observation.glue")?;
+
+        let affinity = llvm(self.builder.build_select(
+            llvm(self.builder.build_int_compare(
+                inkwell::IntPredicate::NE,
+                llvm(self.builder.build_and(requirements, context.i32_type().const_int(4, false), "observation.main"))?,
+                context.i32_type().const_zero(), "observation.main.required",
+            ))?,
+            context.i32_type().const_int(2, false), context.i32_type().const_zero(), "observation.affinity",
+        ))?;
+
+        let state = llvm(self.builder.build_insert_value(state_type.const_zero(), affinity, 0, "observation.affinity.state"))?;
+        let state = llvm(self.builder.build_insert_value(state, requirements, 1, "observation.requirements"))?;
+        let provider = crate::mapping::provider::key(self.module, &self.builder, self.types)?;
+        let mut value = glue_type.const_zero();
+
+        let fields: [BasicValueEnum<'context>; 8] = [
+            quiesce.into(), lifecycle.into(), cancellation.into(), destruction.into(),
+            quiesce_storage.into(), lifecycle_storage.into(), state.into_struct_value().into(), provider.into(),
         ];
+
+        for (index, field) in fields.into_iter().enumerate() {
+            value = llvm(self.builder.build_insert_value(value, field, u32::try_from(index).expect("glue fields fit u32"), "observation.glue.field"))?.into_struct_value();
+        }
+
+        llvm(self.builder.build_store(glue, value))?;
+
+        let outcome = self.checked_call_panic_report_context()?;
+        let arguments = [task.into(), boolean.into(), layout.into(), glue.into(), outcome.into()];
 
         let token = self
             .invoke_native_runtime(*runtime, &arguments)?
             .expect("task-observation creation runtime must return its owned inactive token");
+
+        self.set_pending_call_context(outcome)?;
 
         let lease = extract_value(&self.builder, token, 0)?;
         let address = extract_value(&self.builder, lease, 4)?.into_int_value();
@@ -238,11 +293,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let descriptor = extract_value(&self.builder, token, 1)?;
 
-        let future = self
-            .types
-            .context()
-            .struct_type(&[callback_type.into(), callback_type.into()], false)
-            .const_zero();
+        let future = self.types.map(future_type)?.into_struct_type().const_zero();
 
         let future =
             llvm(
@@ -451,6 +502,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 request_cancellation,
                 ..
             } => {
+                let future_type = self.operation_result_type(
+                    self.unit.operation(operation_id)
+                        .expect("task-observation creation retains its MIR operation"),
+                );
+
                 let cancellation = next_helper(
                     &mut helpers,
                     &MirHelperReference::Cleanup {
@@ -459,12 +515,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     },
                 );
 
-                let lifecycle = next_helper(
+                let quiesce = next_helper(
                     &mut helpers,
-                    &MirHelperReference::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    &MirHelperReference::LifecycleFrame {
+                        role: bray_ir::MirGeneratedLifecycleRole::Quiesce,
                         ty: result.completion_type(),
                     },
+                );
+
+                let lifecycle = next_helper(
+                    &mut helpers,
+                    &MirHelperReference::LifecycleFrame {
+                        role: bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution),
+                        ty: result.completion_type(),
+                    },
+                );
+
+                let destruction = next_helper(
+                    &mut helpers,
+                    &MirHelperReference::Destroy(result.completion_type(), bray_ir::MirDestructionDisposition::Abandoned),
                 );
 
                 let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame));
@@ -474,11 +543,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let result = self.create_task_observation_frame(
                     creation,
                     task,
+                    future_type,
                     *request_cancellation,
                     result.completion_type(),
                     *variants,
                     cancellation,
+                    quiesce,
                     lifecycle,
+                    destruction,
                 )?;
 
                 if helpers.next().is_some() {

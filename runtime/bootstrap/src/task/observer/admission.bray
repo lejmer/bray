@@ -1,0 +1,276 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+
+// The protected Task adapter lends its unique source claim, immutable concrete
+// layout and provider-backed glue, and a disjoint checked-call outcome slot.
+trusted internal predicate creation_entry(
+    task: u64,
+    layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>,
+    glue: DataPointer<Glue>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+internal struct Input
+{
+    task: u64;
+    layout: bray.runtime.bootstrap.task.result.Layout;
+    glue: Glue;
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>;
+}
+
+trusted internal predicate input_owner(owner: &Input);
+
+trusted internal func read_input(
+    pos task: u64,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>,
+    pos glue: DataPointer<Glue>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> Input
+    requires(trusted creation_entry(task = task, layout = layout, glue = glue, outcome = outcome))
+    ensures(trusted input_owner(owner = &result))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(
+        pos task: u64,
+        pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>,
+        pos glue: DataPointer<Glue>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted creation_entry(task = task, layout = layout, glue = glue, outcome = outcome))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.task.result.Layout>(pointer = layout, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.task.result.Layout>(pointer = layout),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.task.result.Layout>(pointer = layout),
+            trusted core.memory.valid_read<Glue>(pointer = glue, count = 1),
+            trusted core.memory.initialized_as<Glue>(pointer = glue),
+            trusted core.memory.aligned_for<Glue>(pointer = glue)
+        )
+        executes(pure, total) {};
+
+    trusted permit(task, layout, glue, outcome);
+
+    return
+    {
+        task = task,
+        layout = trusted std.memory.read<bray.runtime.bootstrap.task.result.Layout>(layout),
+        glue = trusted std.memory.read<Glue>(glue),
+        outcome = outcome
+    };
+}
+
+internal func empty_token() -> bray.runtime.bootstrap.activation.Inactive
+    executes(pure, total)
+{
+    return
+    {
+        lease = bray.runtime.bootstrap.storage.empty_lease(),
+        descriptor = std.memory.null<bray.runtime.bootstrap.activation.Descriptor>()
+    };
+}
+
+// All additions are bounded before alignment. One resident allocation contains
+// the immutable context, protocol, activation header and concrete RunResult<T>.
+internal func storage_shape(
+    pos layout: &bray.runtime.bootstrap.task.result.Layout
+) -> (bray.runtime.bootstrap.storage.Descriptor, usize, usize)?
+{
+    let header_align = std.memory.align_of<bray.runtime.bootstrap.activation.Header>();
+    let header = (std.memory.size_of<Context>() + header_align - 1) & ~(header_align - 1);
+    let after_header = header + std.memory.size_of<bray.runtime.bootstrap.activation.Header>();
+    let maximum = std.numeric.USIZE_MAX >> 1;
+
+    if !bray.runtime.bootstrap.task.result.valid_layout(layout) || layout.alignment > maximum || layout.alignment - 1 >
+        maximum - after_header
+    {
+        return none;
+    }
+
+    let result = (after_header + layout.alignment - 1) & ~(layout.alignment - 1);
+
+    if layout.size > maximum - result
+    {
+        return none;
+    }
+
+    let context_alignment = if header_align > std.memory.align_of<Context>()
+    {
+        yield header_align;
+    }
+    else
+    {
+        yield std.memory.align_of<Context>();
+    };
+
+    let alignment = if layout.alignment > context_alignment
+    {
+        yield layout.alignment;
+    }
+    else
+    {
+        yield context_alignment;
+    };
+
+    let bytes = result + layout.size;
+
+    // Observer slots are reusable across result types with the same physical
+    // shape. Encode size and alignment exactly instead of hashing a type graph.
+    let mut identity: [u8; 32] = [
+        98,
+        114,
+        97,
+        121,
+        46,
+        111,
+        98,
+        115,
+        101,
+        114,
+        118,
+        101,
+        114,
+        46,
+        118,
+        49,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+    ];
+
+    let mut index: usize = 0;
+
+    while index < 8
+    {
+        identity[16 + index] = std.numeric.truncate_to<u8, usize>(bytes >> (index * 8));
+        identity[24 + index] = std.numeric.truncate_to<u8, usize>(alignment >> (index * 8));
+        index += 1;
+    }
+
+    let descriptor: bray.runtime.bootstrap.storage.Descriptor =
+    {
+        identity = identity,
+        bytes = bytes,
+        align = alignment
+    };
+
+    return (descriptor, header, result);
+}
+
+// Admission has not transferred the source Task. Rollback releases only the
+// backing and helper reservations acquired by this attempt.
+internal struct Prepared
+{
+    input: Input;
+    lease: bray.runtime.bootstrap.storage.Lease;
+    mut records: bray.runtime.bootstrap.ReportRecords;
+    mut quiesce: bool;
+    mut resolve: bool;
+    mut provider: bray.runtime.bootstrap.provider.Reference;
+}
+
+trusted internal predicate prepared(owner: &Prepared);
+
+trusted internal func input_shape(
+    pos owner: &Input,
+    pos descriptor: DataPointer<bray.runtime.bootstrap.storage.Descriptor>
+) -> bray.runtime.bootstrap.storage.Descriptor
+    requires(trusted input_owner(owner = owner))
+    ensures(trusted input_owner(owner = owner))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos owner: &Input, pos pointer: DataPointer<bray.runtime.bootstrap.storage.Descriptor>)
+        requires(trusted input_owner(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.storage.Descriptor>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, descriptor);
+    return trusted std.memory.read<bray.runtime.bootstrap.storage.Descriptor>(descriptor);
+}
+
+trusted internal func release_prepared(pos mut owner: Prepared)
+    requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(intrinsic)
+{
+    trusted prepared_access(&owner);
+
+    trusted discharge_prepared(&owner, true);
+    trusted discharge_prepared(&owner, false);
+    trusted prepared_access(&owner);
+
+    let provider = trusted take_provider(&mut owner);
+
+    trusted bray.runtime.bootstrap.provider.release_owned(provider);
+
+    _ = trusted bray.runtime.bootstrap.consume_record_values(owner.records, 0);
+
+    let mut guard = trusted bray.runtime.bootstrap.pool.lock();
+
+    if owner.lease.slot != 0 && !trusted bray.runtime.bootstrap.storage.release_value(guard.get(), &owner.lease)
+    {
+        trusted core.target.abort();
+    }
+}
+
+trusted internal func discharge_prepared(pos owner: &Prepared, pos quiescence: bool)
+    requires(trusted prepared(owner = owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted prepared(owner = owner))
+{
+    let admitted = if quiescence
+    {
+        yield owner.quiesce;
+    }
+    else
+    {
+        yield owner.resolve;
+    };
+
+    if !admitted
+    {
+        return;
+    }
+
+    trusted prepared_access(owner);
+
+    let pointer = if quiescence
+    {
+        yield owner.input.glue.quiesce_storage;
+    }
+    else
+    {
+        yield owner.input.glue.resolve_storage;
+    };
+
+    let shapes = [trusted input_shape(&owner.input, pointer)];
+
+    let bundle: bray.runtime.bootstrap.storage.Bundle =
+    {
+        records = 1,
+        descriptors = &shapes[..]
+    };
+
+    trusted bray.runtime.bootstrap.outgoing.discharge(
+        std.memory.address_of<bray.runtime.bootstrap.storage.Bundle>(&bundle)
+    );
+}

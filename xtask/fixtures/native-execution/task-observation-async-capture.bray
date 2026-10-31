@@ -1,0 +1,55 @@
+module returned_future_async_capture;
+
+using core.atomic;
+using std.task;
+
+static FINISHED: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static DESTROYED: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static BODIES: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Capture
+{
+    async finalize()
+    {
+        await std.task.yield_now();
+
+        _ = core.atomic.fetch_add<usize, 0>(&FINISHED, value = 1);
+    }
+
+    destruct()
+    {
+        assert(core.atomic.load<usize, 1>(&FINISHED) == 1, "capture destruction preceded async finalization");
+
+        _ = core.atomic.fetch_add<usize, 0>(&DESTROYED, value = 1);
+    }
+}
+
+async func inactive(pos capture: Capture)
+{
+    _ = core.atomic.fetch_add<usize, 0>(&BODIES, value = 1);
+}
+
+async func child() -> Future<unit>
+{
+    return inactive(
+        Capture
+        {
+        }
+    );
+}
+
+async func observe()
+{
+    let result = await child().start().join();
+}
+
+async func main()
+{
+    await observe();
+
+    assert(core.atomic.load<usize, 1>(&BODIES) == 0, "returned future body ran during cleanup");
+    assert(core.atomic.load<usize, 1>(&FINISHED) == 1, "capture async finalization was skipped");
+    assert(core.atomic.load<usize, 1>(&DESTROYED) == 1, "capture was not destroyed once");
+}

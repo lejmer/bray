@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 #[test]
 #[ignore = "tier:native"]
-fn resident_executables_without_hosted_statics_omit_product_control() {
+fn compiler_lowered_roots_do_not_select_a_product_report_provider() {
     for source in [
         r#"
         module application;
@@ -36,15 +36,51 @@ fn resident_executables_without_hosted_statics_omit_product_control() {
 
         func main()
         {
+        }
+        "#,
+    ] {
+        let (_, plan) = runtime_native_plan(source);
+
+        assert!(plan.product_host().is_none());
+        assert!(
+            !plan
+                .executable_host()
+                .expect("the executable retains its root")
+                .requirements()
+                .requires_role(RuntimeAbiRole::ProductHostControl)
+        );
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn synchronous_report_publishers_retain_their_product_host_control() {
+    for source in [
+        r#"
+        module application;
+
+        func main() -> Result<unit, unit>
+        {
+            return Ok(unit);
+        }
+        "#,
+        r#"
+        module application;
+
+        func main()
+        {
             panic("resident report");
         }
         "#,
     ] {
         let (_, plan) = runtime_native_plan(source);
 
+        assert!(plan.product_host().is_some());
         assert!(
-            plan.product_host()
-                .is_none_or(|host| !host.requires_control())
+            plan.executable_host()
+                .expect("the executable retains its root")
+                .requirements()
+                .requires_role(RuntimeAbiRole::ProductHostControl)
         );
     }
 }

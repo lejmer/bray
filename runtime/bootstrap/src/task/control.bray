@@ -1,0 +1,126 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.target;
+using std.numeric;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+
+// Every transition executes under the cell acquisition. Callback execution
+// happens after releasing it and holds an independent admitted storage reference.
+trusted internal func retain(pos owner: &mut Control) -> bool
+{
+    if owner.references == 0 || owner.references == std.numeric.USIZE_MAX
+    {
+        return false;
+    }
+
+    owner.references += 1;
+    return true;
+}
+
+trusted internal func release(pos owner: &mut Control) -> bool
+    uses(intrinsic)
+{
+    if owner.references == 0
+    {
+        trusted core.target.abort();
+    }
+
+    owner.references -= 1;
+
+    if owner.references == 0 && (!(owner.phase matches Phase.Resolved) || !owner.retired)
+    {
+        trusted core.target.abort();
+    }
+
+    return owner.references == 0;
+}
+
+trusted internal func end_dispatch(pos owner: &mut Control) -> bool
+    uses(intrinsic)
+{
+    if !owner.dispatching || owner.callback != 0 || owner.phase matches Phase.Running
+    {
+        trusted core.target.abort();
+    }
+
+    owner.dispatching = false;
+    return trusted release(owner);
+}
+
+trusted internal func publish(
+    pos owner: &mut Control,
+    pos root: usize,
+    pos execution: bray.runtime.bootstrap.activation.requirements.Execution
+)
+    uses(intrinsic)
+{
+    if !(owner.phase matches Phase.Admitted) || root == 0
+    {
+        trusted core.target.abort();
+    }
+
+    owner.root = root;
+    owner.execution = execution;
+    owner.phase = Phase.Ready;
+}
+
+trusted internal func begin_dispatch(pos owner: &mut Control) -> bool
+{
+    if owner.phase matches Phase.Admitted || owner.dispatching || owner.retired || !trusted retain(owner)
+    {
+        return false;
+    }
+
+    owner.dispatching = true;
+
+    if !(owner.phase matches Phase.Terminal) && !(owner.phase matches Phase.Resolved)
+    {
+        owner.phase = Phase.Running;
+    }
+
+    return true;
+}
+
+trusted internal func suspend(
+    pos owner: &mut Control,
+    pos execution: bray.runtime.bootstrap.activation.requirements.Execution
+)
+    uses(intrinsic)
+{
+    if !(owner.phase matches Phase.Running) || !owner.dispatching || owner.callback != 0
+    {
+        trusted core.target.abort();
+    }
+
+    owner.execution = execution;
+    owner.phase = Phase.Waiting;
+}
+
+// The activation driver calls this only after lexical cleanup. Moving a Task or
+// requesting cancellation never publishes completion or its visibility edge.
+trusted internal func complete(pos owner: &mut Control, pos outcome: bray.runtime.bootstrap.ReportOutcome)
+    uses(intrinsic)
+{
+    if !(owner.phase matches Phase.Running) || !owner.dispatching || outcome.state > 3 || owner.callback != 0
+    {
+        trusted core.target.abort();
+    }
+
+    owner.outcome = outcome;
+    owner.phase = Phase.Terminal;
+}
+
+trusted internal func observe(pos owner: &mut Control) -> bray.runtime.bootstrap.ReportOutcome
+{
+    if !(owner.phase matches Phase.Terminal)
+    {
+        return empty_outcome();
+    }
+
+    owner.phase = Phase.Resolved;
+
+    return trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(&mut owner.outcome, empty_outcome());
+}

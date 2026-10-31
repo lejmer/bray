@@ -16,7 +16,7 @@ pub(in crate::native) fn execution_lane(
     let task = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
     with_runtime(|runtime| {
-        runtime.retained_task(task, true).map(|task| {
+        runtime.retained_task(task).map(|task| {
             task.registration
                 .execution_lane(execution)
                 .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
@@ -128,16 +128,6 @@ pub(super) fn with_execution<T>(
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
 pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecution) -> u32 {
-    let task = current_native_task().expect("activation readiness retains its registered task");
-
-    with_runtime(|runtime| {
-        runtime
-            .retained_task(task, true)
-            .map(|task| task.run.publish(snapshot))
-    })
-    .expect("activation readiness retains its runtime")
-    .expect("activation readiness retains its task");
-
     bray_runtime_activation_action_readiness(snapshot)
 }
 

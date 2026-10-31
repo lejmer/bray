@@ -178,7 +178,7 @@ See [layout contracts](https://github.com/lejmer/bray/blob/develop/docs/language
 `@abi(c)` and `@abi(system)` select callable contracts, not data layout. A foreign callable boundary uses ABI-representable values, an exact external symbol, a declared link dependency, and explicit `foreign_call` trust. An exported Bray function has a body and is not `extern`.
 
 ```bray
-@link(name = "native_math", kind = dynamic)
+@link(name = "native_math", kind = static)
 trusted module native_math
 {
     using std.ffi.c;

@@ -62,8 +62,8 @@ Compiler libraries and installed Bray tools.
     - The source-correlated high-level intermediate representation and durable typed semantic analyses.
 
 - `bray-numeric`
-    - Deterministic IEEE real powers, complex multiplication and division, and principal complex powers shared by
-      constant evaluation and native helpers.
+    - Deterministic IEEE real powers and complex arithmetic for constant evaluation and native conformance test vectors.
+      Native numeric execution is implemented in the Bray bootstrap runtime.
 
 - `bray-checker`
     - Focused type, ownership, control-flow, effect, and related semantic checker services.

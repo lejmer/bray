@@ -1,0 +1,129 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using std.sync;
+using internal std.memory;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func creation() -> u64
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+    if !lease.active
+    {
+        return 0;
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+    if host.next_identity == std.numeric.U64_MAX
+    {
+        return 0;
+    }
+
+    let identity = host.next_identity;
+
+    host.next_identity += 1;
+    return identity;
+}
+
+// Admission creates the source claim before an inactive frame transfers.
+@abi(c)
+trusted internal func admission(pos runtime: u64) -> u64
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let mut prepared: Prepared =
+    {
+        slabs = none,
+        slots = none
+    };
+
+    while true
+    {
+        let request =
+        {
+            let lease = trusted bray.runtime.bootstrap.host.host_access();
+
+            if !lease.active
+            {
+                return 0;
+            }
+
+            let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+            let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+
+            yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, runtime)
+            {
+                case Ok(handle) { return handle; }
+                case Error(request) { yield request; }
+            };
+        };
+
+        if !trusted prepare_growth(&mut prepared, request)
+        {
+            return 0;
+        }
+    }
+}
+
+trusted internal func admit_locked(
+    pos entries: &mut Entries,
+    pos prepared: &mut Prepared,
+    pos runtime: u64
+) -> Result<u64, Growth>
+{
+    while true
+    {
+        match consume trusted grow(entries, prepared)
+        {
+            case Ok(ready)
+            {
+                if !ready
+                {
+                    return Ok(0);
+                }
+            }
+            case Error(request) { return Error(request); }
+        }
+
+        let index = entries.free;
+        let slot = trusted slot_at(entries, index);
+
+        if slot.generation == 0x7fffffff
+        {
+            // Exhausted cells are never reused, so an old handle cannot
+            // become current after generation wraparound.
+            entries.free = slot.next;
+
+            continue;
+        }
+
+        slot.generation += 1;
+
+        let generation = slot.generation;
+        let next = slot.next;
+
+        slot.next = 0;
+        slot.runtime = runtime;
+
+        slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
+            trusted std.sync.SpinLock<Control>(prepare())
+        );
+
+        entries.free = next;
+        entries.active += 1;
+
+        return Ok((std.numeric.truncate_to<u64, u32>(generation) << 32) | std.numeric.truncate_to<u64, usize>(index));
+    }
+}

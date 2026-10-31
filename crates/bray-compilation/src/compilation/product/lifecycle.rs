@@ -124,6 +124,7 @@ impl Compilation {
         if !matches!(
             role,
             MirGeneratedLifecycleRole::Quiesce
+                | MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution)
                 | MirGeneratedLifecycleRole::ReleaseBuffer
                 | MirGeneratedLifecycleRole::Destroy(
                     bray_ir::MirDestructionDisposition::Ordinary

@@ -1,0 +1,139 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task;
+
+using core.target;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.activation.run;
+using internal bray.runtime.bootstrap.activation.execution;
+
+// Retirement consumes frame access while retaining the independent cell claim.
+// No path projects the old header after its producer's destroy callback.
+trusted internal func retire_dispatch(pos owner: &Dispatch) -> u32
+    requires(
+        owner.active,
+        owner.root != 0,
+        trusted dispatch_owner(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(intrinsic)
+{
+    let (mut progress, mut unused, mut incidents, status, mut outcome) = trusted retire_frame(owner);
+
+    if status == 6
+    {
+        return 0;
+    }
+
+    if status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let collect_reports = trusted lambda(
+        pos incidents: &mut bray.runtime.bootstrap.ReportRecords,
+        pos mut first: bray.runtime.bootstrap.activation.Progress,
+        pos second: bray.runtime.bootstrap.activation.Progress
+    ) -> bray.runtime.bootstrap.activation.Progress
+        requires(
+            trusted bray.runtime.bootstrap.pool.protocol_access(),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &first.report),
+            trusted bray.runtime.bootstrap.native_report_callbacks(report = &second.report)
+        )
+        ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    {
+        trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+            incidents,
+            trusted bray.runtime.bootstrap.activation.execution.take_report(&mut first)
+        );
+
+        return second;
+    };
+
+    let mut incident = trusted collect_reports(&mut incidents, progress, outcome);
+
+    trusted bray.runtime.bootstrap.activation.execution.retain_incident(
+        &mut incidents,
+        trusted bray.runtime.bootstrap.activation.execution.take_report(&mut incident)
+    );
+
+    let reference = trusted dispatch_reference(owner);
+
+    let execution =
+    {
+        let mut guard = trusted lock_cell(reference);
+
+        let control = trusted guard.get();
+
+        yield execution_value(&control);
+    };
+
+    trusted transfer_service(trusted dispatch_services(owner), &execution, &mut unused, &mut incidents);
+    trusted finish_retirement(owner);
+    trusted notify_waiters(owner, 1);
+    return 3;
+}
+
+trusted internal func retire_frame(
+    pos owner: &Dispatch
+) -> (
+        bray.runtime.bootstrap.activation.Progress,
+        bray.runtime.bootstrap.ReportRecords,
+        bray.runtime.bootstrap.ReportRecords,
+        u32,
+        bray.runtime.bootstrap.activation.Progress
+    )
+    requires(
+        owner.active,
+        owner.root != 0,
+        trusted dispatch_owner(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.4.report)
+    )
+{
+    let services = trusted dispatch_services(owner);
+    let (invoke, ready) = trusted activation_callbacks(services);
+    let mut selected = trusted cursor(owner);
+
+    let permit = trusted lambda(pos owner: &Dispatch, pos selected: &mut bray.runtime.bootstrap.activation.run.Cursor)
+        requires(
+            trusted dispatch_owner(owner = owner),
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &selected)
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &selected),
+            trusted bray.runtime.bootstrap.activation.execution.retiring(pointer = selected.pointer),
+            trusted bray.runtime.bootstrap.activation.execution.observed(pointer = selected.pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, &mut selected);
+
+    return trusted bray.runtime.bootstrap.activation.execution.invoke(&mut selected, invoke, ready, 5, 0);
+}
+
+trusted internal func finish_retirement(pos owner: &Dispatch)
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
+    ensures(trusted dispatch_acquired(owner = &owner.acquisition))
+    uses(intrinsic)
+{
+    let reference = trusted dispatch_reference(owner);
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
+
+    if !(control.phase matches Phase.Resolved) || !control.retiring || !control.dispatching || control.callback != 0
+    {
+        trusted core.target.abort();
+    }
+
+    control.root = 0;
+    control.retired = true;
+}

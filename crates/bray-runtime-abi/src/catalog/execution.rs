@@ -578,6 +578,156 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [RequestCancellation]
             }
+            TaskControlCreation {
+                "Create the runtime identity for resident Bray task control.", "task_control_creation",
+                native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),
+                service: Execution,
+                call_hook: (),
+                compiler: C [] -> U64,
+                owner: Host, availability: All, bootstrap: ("task.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [AllocateTask]
+            }
+            TaskControlAdmission {
+                "Admit a Bray control cell before transferring an inactive frame.", "task_control_admission",
+                native: (TASK_CONTROL_ADMISSION_SYMBOL = "bray_runtime_task_control_admission", [U64] -> U64),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64] -> U64,
+                owner: Host, availability: All, bootstrap: ("task.admission"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [AllocateTask, AdmitCleanupStorage]
+            }
+            TaskControlRetention {
+                "Retain a resident cell independently of the source resolution owner.", "task_control_retention",
+                native: (TASK_CONTROL_RETENTION_SYMBOL = "bray_runtime_task_control_retention", [U64, U64, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, U64, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.retention"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            TaskControlSnapshot {
+                "Read scheduling metadata while retaining the actual Bray cell.", "task_control_snapshot",
+                native: (TASK_CONTROL_SNAPSHOT_SYMBOL = "bray_runtime_task_control_snapshot", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.snapshot"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            TaskControlPublication {
+                "Transfer an activated frame into its admitted Bray control record.", "task_control_publication",
+                native: (TASK_CONTROL_PUBLICATION_SYMBOL = "bray_runtime_task_control_publication", [Pointer, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.publication"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [TransferFrame, PublishWork]
+            }
+            TaskControlDispatch {
+                "Drive one exclusively claimed Bray task outside its cell lock.", "task_control_dispatch",
+                native: (TASK_CONTROL_DISPATCH_SYMBOL = "bray_runtime_task_control_dispatch", [Pointer, Pointer, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.dispatch"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ExecuteCallbackRoot, PublishTerminalState]
+            }
+            TaskControlObservation {
+                "Move one terminal outcome from the sole Bray source claim.", "task_control_observation",
+                native: (TASK_CONTROL_OBSERVATION_SYMBOL = "bray_runtime_task_control_observation", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.observation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [AcquireTerminalState, EstablishVisibility]
+            }
+            TaskControlDestruction {
+                "Resolve the sole source claim after frame retirement.", "task_control_destruction",
+                native: (TASK_CONTROL_DESTRUCTION_SYMBOL = "bray_runtime_task_control_destruction", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ReleaseCleanupStorage]
+            }
+            TaskControlReferenceRelease {
+                "Release one storage reference and recycle the cell after its last user.", "task_control_reference_release",
+                native: (TASK_CONTROL_REFERENCE_RELEASE_SYMBOL = "bray_runtime_task_control_reference_release", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.reference_release"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ReleaseCleanupStorage]
+            }
+            TaskControlCallbackEntry {
+                "Enter the exact producer callback while retaining its dispatch context.", "task_control_callback_entry",
+                native: (TASK_CONTROL_CALLBACK_ENTRY_SYMBOL = "bray_runtime_task_control_callback_entry", [Pointer, Pointer, U8, Pointer] -> Usize),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, U8, Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("task.callback_enter"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            TaskControlCallbackExit {
+                "Restore the prior producer callback after native return.", "task_control_callback_exit",
+                native: (TASK_CONTROL_CALLBACK_EXIT_SYMBOL = "bray_runtime_task_control_callback_exit", [Pointer, Usize, U8] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Usize, U8] -> Void,
+                owner: Host, availability: All, bootstrap: ("task.callback_exit"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            TaskControlWait {
+                "Register an admitted parent cell for terminal or retirement delivery.", "task_control_wait",
+                native: (TASK_CONTROL_WAIT_SYMBOL = "bray_runtime_task_control_wait", [Pointer, Pointer, U8] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, U8] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.wait"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [RegisterContinuation]
+            }
+            TaskControlRetirement {
+                "Request retirement after the sole outcome has moved.", "task_control_retirement",
+                native: (TASK_CONTROL_RETIREMENT_SYMBOL = "bray_runtime_task_control_retirement", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.request_retirement"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ReleaseCleanupStorage]
+            }
+            TaskControlRuntimeRetirement {
+                "Release unstarted admissions after the runtime closes.", "task_control_runtime_retirement",
+                native: (TASK_CONTROL_RUNTIME_RETIREMENT_SYMBOL = "bray_runtime_task_control_runtime_retirement", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.runtime_retirement"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ReleaseCleanupStorage]
+            }
+            TaskControlComposition {
+                "Compose beneath the current authentic producer callback.", "task_control_composition",
+                native: (TASK_CONTROL_COMPOSITION_SYMBOL = "bray_runtime_task_control_composition", [Pointer, Pointer, U32, U64, Usize, U8, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, U32, U64, Usize, U8, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("task.composition"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [TransferFrame]
+            }
             TaskAllocation {
                 "Allocate stable task-owned storage.", "task_allocation",
                 native: (TASK_ALLOCATION_SYMBOL = "bray_runtime_task_allocation", [] -> TaskAllocation),
@@ -587,6 +737,15 @@ macro_rules! runtime_role_catalog {
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AllocateTask]
+            }
+            TaskAdmissionFailure {
+                "Publish the checked failure of task admission.", "task_admission_failure",
+                native: (TASK_ADMISSION_FAILURE_SYMBOL = "bray_runtime_task_admission_failure", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("task.admission_failure"), host_control: false,
+                capabilities: [],
+                effects: [ConstructPanicReport]
             }
             TaskStart {
                 "Publish a newly initialized task for execution.", "task_start",
@@ -667,25 +826,87 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
-            JoinRegistration {
-                "Register one observer for a task terminal state.", "join_registration",
-                native: (JOIN_REGISTRATION_SYMBOL = "bray_runtime_join_registration", [U64, Pointer, Usize] -> RunOutcome),
-                service: Execution,
-                call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [CooperativeExecution],
-                effects: [RegisterContinuation, AcquireTerminalState, EstablishVisibility]
-            }
             TaskObservationCreation {
                 "Create one lazy task-observation frame.", "task_observation_creation",
-                native: (TASK_OBSERVATION_CREATION_SYMBOL = "bray_runtime_task_observation_creation", [U64, U8, Pointer, Pointer, Pointer, U32] -> InactiveFrame),
-                service: Execution,
+                native: (TASK_OBSERVATION_CREATION_SYMBOL = "bray_runtime_task_observation_creation", [U64, U8, Pointer, Pointer, Pointer] -> InactiveFrame),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.create"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [CreateFrame]
+            }
+            TaskObservationResume {
+                "Resume one task observation within its active protected execution.", "task_observation_resume",
+                native: (TASK_OBSERVATION_RESUME_SYMBOL = "bray_runtime_task_observation_resume", [Pointer, Usize] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.resume"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationCancel {
+                "Cancel one task observation within its active protected execution.", "task_observation_cancel",
+                native: (TASK_OBSERVATION_CANCEL_SYMBOL = "bray_runtime_task_observation_cancel", [Pointer, Usize] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.cancel"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationBroadcast {
+                "Broadcast cancellation to one retained task observation.", "task_observation_broadcast",
+                native: (TASK_OBSERVATION_BROADCAST_SYMBOL = "bray_runtime_task_observation_broadcast", [Pointer, Usize] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.broadcast"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationResolve {
+                "Resolve one retained task observation.", "task_observation_resolve",
+                native: (TASK_OBSERVATION_RESOLVE_SYMBOL = "bray_runtime_task_observation_resolve", [Pointer, Usize, U32] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.resolve"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationMove {
+                "Move one resolved task observation completion.", "task_observation_move",
+                native: (TASK_OBSERVATION_MOVE_SYMBOL = "bray_runtime_task_observation_move", [Usize, Usize] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.move_completion"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationDestroy {
+                "Destroy one resolved task observation.", "task_observation_destroy",
+                native: (TASK_OBSERVATION_DESTROY_SYMBOL = "bray_runtime_task_observation_destroy", [Usize] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.destroy"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationQuery {
+                "Query one task observation execution requirement.", "task_observation_query",
+                native: (TASK_OBSERVATION_QUERY_SYMBOL = "bray_runtime_task_observation_query", [Usize, U32, U32, Usize] -> FrameState),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: ("task.observer.query_requirements"), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            TaskObservationService {
+                "Borrow the current native execution context for a Bray observation.", "task_observation_service",
+                native: (TASK_OBSERVATION_SERVICE_SYMBOL = "bray_runtime_task_observation_service", [U64, U32, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, U32, Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
             }
             TaskResolution {
                 "Resolve one task to its terminal result.", "task_resolution",
@@ -696,6 +917,15 @@ macro_rules! runtime_role_catalog {
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AcquireTerminalState, EstablishVisibility]
+            }
+            TaskResultTransfer {
+                "Move one owned terminal outcome into its compiler-described result.", "task_result_transfer",
+                native: (TASK_RESULT_TRANSFER_SYMBOL = "bray_runtime_task_result_transfer", [Pointer, Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: ("task.result.transfer"), host_control: false,
+                capabilities: [],
+                effects: [MoveCompletion]
             }
             TerminalPublication {
                 "Publish one terminal run outcome.", "terminal_publication",

@@ -120,6 +120,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
                 AnalysisCallPhase::Attempt => {
+                    let source = invocation.expression()
+                        .and_then(|expression| self.task_effect_source(state, expression));
+
                     let observed = match invocation {
                         Site::Node(AnyBoundNodeId::Expression(expression)) => {
                             self.observed_call_result(state, expression)
@@ -144,6 +147,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         self.expression(state, expression, invalidation, assignment_place);
 
                         if let Some(value) = state.expressions.remove(&expression) {
+                            if let Some(source) = source
+                                && value != ExecutionCondition::Unknown
+                            {
+                                // Both completion publication and latent effects retain
+                                // this immutable condition and its shared substructure.
+                                state.deferred_invocations.insert(value.clone(), source);
+                            }
+
                             state.pending_results.insert(expression, value);
                         }
 

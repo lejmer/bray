@@ -185,11 +185,6 @@ impl Parser {
         self.cursor
             .skip_current_and_until_balanced_close_brace_or_recovery(recovery_set)
     }
-
-    pub(super) fn scan_until_balanced_close_paren(&mut self, stop_kinds: &[SyntaxKind]) {
-        self.cursor
-            .skip_until_balanced_close_paren(crate::cursor::RecoverySet::new(stop_kinds));
-    }
 }
 
 #[cfg(test)]
