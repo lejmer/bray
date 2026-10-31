@@ -126,6 +126,49 @@ fn terminal_delivery_between_registration_and_suspension_retains_the_wake() {
 }
 
 #[test]
+fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
+    extern "C" fn reenter_dispatch(identity: u64) {
+        let Some(waiter) = CALLBACK_ADMISSION.take() else { return; };
+
+        assert_ne!(identity, waiter.raw());
+
+        let parent = state::with_runtime(|runtime| runtime.retained_task(waiter))
+            .expect("delivery retains its runtime").expect("the unpopped waiter remains live");
+
+        // Another notification is already committed to this parent. Its
+        // registration must survive this attempted resumption until its pop.
+        let (status, _, _) = parent.dispatch();
+
+        assert_eq!(status, NativeRuntimeStatus::PENDING.code());
+        assert_eq!(parent.snapshot().phase, 3);
+    }
+
+    startup();
+
+    let child = start();
+    let parents = [start(), start()];
+
+    for _ in 0..3 {
+        assert_eq!(implementation::bray_runtime_main_thread_lane_drive(), NativeRuntimeStatus::SUCCESS);
+    }
+
+    for parent in &parents {
+        assert_eq!(report_provider::bray_runtime_task_control_wait(child.control(), parent.control(), 0), NativeRuntimeStatus::PENDING);
+    }
+
+    CALLBACK_ADMISSION.set(Some(parents[0].handle()));
+    assert!(child.cancellation.request());
+    drive_with_wake(&child, reenter_dispatch);
+    assert!(CALLBACK_ADMISSION.get().is_none());
+
+    for parent in &parents { finish(parent); }
+    finish(&child);
+    drop(parents);
+    drop(child);
+    assert_eq!(implementation::bray_runtime_execution_shutdown(), NativeRuntimeStatus::SUCCESS);
+}
+
+#[test]
 fn unobserved_retirement_does_not_claim_the_parents_wait_link() {
     startup();
 
