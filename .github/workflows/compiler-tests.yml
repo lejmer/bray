@@ -29,11 +29,25 @@ jobs:
         with:
           cache-workspace-crates: true
           cache-on-failure: true
-      - uses: actions/cache@v4
+      - name: Restore prepared LLVM toolchain
+        id: llvm
+        uses: actions/cache/restore@v4
+        with:
+          path: target/toolchains/llvm/active
+          key: llvm-prepared-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json', 'tools/llvm-toolchain/**', 'crates/bray-base/**') }}
+      - name: Restore LLVM downloads on a prepared-cache miss
+        if: ${{ steps.llvm.outputs.cache-hit != 'true' }}
+        uses: actions/cache@v4
         with:
           path: target/toolchains/llvm/downloads
           key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json') }}
       - run: cargo llvm fetch
+      - name: Save prepared LLVM toolchain
+        if: ${{ steps.llvm.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: target/toolchains/llvm/active
+          key: ${{ steps.llvm.outputs.cache-primary-key }}
       - name: Prepare compiler tests and dependency-light runner
         id: prepare
         run: |
