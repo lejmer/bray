@@ -34,6 +34,7 @@ pub(super) struct PendingPackage {
     pub declared_features: Arc<[FeatureName]>,
     pub enabled_features: Arc<[FeatureName]>,
     pub source_roots: Arc<[ProjectSourceRoot]>,
+    pub generators: Arc<[crate::ProjectGenerator]>,
     pub products: Arc<[ProjectProduct]>,
 }
 
@@ -47,6 +48,7 @@ impl PendingPackage {
             self.declared_features,
             self.enabled_features,
             self.source_roots,
+            self.generators,
             self.products,
         )
     }
@@ -125,6 +127,14 @@ pub(super) fn load_package(
         &manifest_path,
     )?;
 
+    let generators = super::generation::normalize_generators(
+        manifest.generators,
+        &identity,
+        targets,
+        &manifest_path,
+        source_authority,
+    )?;
+
     let products = load_products(
         &identity,
         manifest.products,
@@ -148,6 +158,7 @@ pub(super) fn load_package(
         declared_features,
         enabled_features,
         source_roots,
+        generators,
         products,
     })
 }
@@ -191,10 +202,6 @@ fn load_source_roots(
     output_root: &ProjectPath,
     manifest_path: &Path,
 ) -> Result<Arc<[ProjectSourceRoot]>, ProjectLoadError> {
-    if manifests.is_empty() {
-        return Err(missing_selection(manifest_path, Field::PackageSourceRoots));
-    }
-
     let mut roots = manifests
         .into_iter()
         .map(|root| {
@@ -353,6 +360,22 @@ fn load_product(
         })
         .transpose()?;
 
+    let generated_sources = sorted_unique_names(
+        manifest.generated_sources,
+        manifest_path,
+        Field::ProductGeneratedSources,
+    )?
+    .iter()
+    .map(|name| crate::GeneratorIdentity {
+        package: package.clone(),
+        name: Arc::clone(name),
+    })
+    .collect::<Arc<[_]>>();
+
+    if manifest.source_roots.is_empty() && generated_sources.is_empty() {
+        return Err(missing_selection(manifest_path, Field::ProductSourceRoots));
+    }
+
     let sources = select_sources(manifest.source_roots, source_roots, manifest_path)?;
     let selected_targets = select_targets(manifest.targets, targets, manifest_path)?;
 
@@ -376,6 +399,7 @@ fn load_product(
         selected_targets,
         outputs,
         platform_services,
+        generated_sources,
     ))
 }
 
@@ -424,7 +448,7 @@ fn select_sources(
     roots: &[ProjectSourceRoot],
     manifest_path: &Path,
 ) -> Result<Arc<[ProjectPath]>, ProjectLoadError> {
-    let names = require_names(selections, manifest_path, Field::ProductSourceRoots)?;
+    let names = sorted_unique_names(selections, manifest_path, Field::ProductSourceRoots)?;
     let mut sources = Vec::new();
 
     for name in names.iter() {

@@ -83,6 +83,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("project/dependency.rs"),
     ),
     (
+        "argument/project/generator.rs",
+        include_str!("project/generator.rs"),
+    ),
+    (
         "argument/project/manifest.rs",
         include_str!("project/manifest.rs"),
     ),

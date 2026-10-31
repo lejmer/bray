@@ -120,9 +120,10 @@ pub use project::{
     DiagnosticPathRequirement, DiagnosticProfileComparisonProblem, DiagnosticProfileContext,
     DiagnosticProfileDescriptorKind, DiagnosticProfileValidationProblem,
     DiagnosticProjectCommandFailure, DiagnosticProjectDependencyCycleMember,
-    DiagnosticProjectManifestField, DiagnosticProjectOperation, DiagnosticProjectProcessFailure,
-    DiagnosticProjectSelectionProblem, DiagnosticReusableBuildIdentityPart,
-    DiagnosticTestExecutionPlanProblem, DiagnosticTestSchedulingProblem, DiagnosticToolStream,
+    DiagnosticProjectGeneratorFailure, DiagnosticProjectManifestField, DiagnosticProjectOperation,
+    DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
+    DiagnosticReusableBuildIdentityPart, DiagnosticTestExecutionPlanProblem,
+    DiagnosticTestSchedulingProblem, DiagnosticToolStream,
 };
 pub use quality::{DiagnosticQualityContract, DiagnosticQualityIssue};
 pub use related::{DiagnosticRelatedLocation, DiagnosticRelatedLocationKind};

@@ -100,6 +100,7 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/project.rs",
     "output/diagnostic/json/project/command.rs",
     "output/diagnostic/json/project/execution.rs",
+    "output/diagnostic/json/project/generator.rs",
     "output/diagnostic/json/project/inspection.rs",
     "output/diagnostic/json/report.rs",
     "output/diagnostic/json/runtime.rs",

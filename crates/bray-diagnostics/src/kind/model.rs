@@ -63,6 +63,8 @@ define_diagnostic_kinds! {
     RuntimeArtifactAbiMismatch,
     /// A required Bray project manifest could not be read.
     ProjectManifestReadFailed,
+    /// A declared source generator could not produce its exact source inventory.
+    ProjectGeneratorFailed,
     /// A Bray project manifest does not match the serialized schema.
     ProjectManifestParseFailed,
     /// A Bray project manifest selects an unsupported format revision.
@@ -717,6 +719,7 @@ impl DiagnosticKind {
             Self::StandardLibraryTargetUnavailable => 1113,
             Self::StandardLibraryRuntimeAbiMismatch => 1114,
             Self::ProjectManifestReadFailed => 1201,
+            Self::ProjectGeneratorFailed => 1238,
             Self::ProjectManifestParseFailed => 1202,
             Self::ProjectManifestUnsupportedFormat => 1220,
             Self::ProjectManifestInvalidPath => 1221,
@@ -1067,6 +1070,7 @@ impl DiagnosticKind {
             Self::RuntimeArtifactTargetMismatch => "runtime_artifact_target_mismatch",
             Self::RuntimeArtifactAbiMismatch => "runtime_artifact_abi_mismatch",
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
+            Self::ProjectGeneratorFailed => "project_generator_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestUnsupportedFormat => "project_manifest_unsupported_format",
             Self::ProjectManifestInvalidPath => "project_manifest_invalid_path",

@@ -522,6 +522,15 @@ const PROJECT_COMMAND_SELECTION_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ProjectSelectionProblem),
 ];
 
+const PROJECT_GENERATOR_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("source generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" in "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" failed: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ProjectGeneratorFailure),
+];
+
 const PROJECT_COMMAND_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("project command failed: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ProjectCommandFailure),
@@ -2237,6 +2246,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::ProjectCommandSelectionInvalid => {
             MessageTemplate::new(PROJECT_COMMAND_SELECTION_INVALID)
         }
+        DiagnosticKind::ProjectGeneratorFailed => MessageTemplate::new(PROJECT_GENERATOR_FAILED),
         DiagnosticKind::ProjectCommandFailed => MessageTemplate::new(PROJECT_COMMAND_FAILED),
         DiagnosticKind::ProjectInitializationIdentityInvalid => {
             MessageTemplate::new(PROJECT_INITIALIZATION_IDENTITY_INVALID)

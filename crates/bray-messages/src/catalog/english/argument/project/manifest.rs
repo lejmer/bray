@@ -35,6 +35,12 @@ pub(crate) const fn format_english_project_manifest_field(
         DiagnosticProjectManifestField::SourceRootPath => "source-root path",
         DiagnosticProjectManifestField::TargetName => "target name",
         DiagnosticProjectManifestField::TargetIdentity => "target identity",
+        DiagnosticProjectManifestField::PackageGenerators => "package generators",
+        DiagnosticProjectManifestField::GeneratorName => "generator name",
+        DiagnosticProjectManifestField::GeneratorTool => "generator tool",
+        DiagnosticProjectManifestField::GeneratorInputs => "generator inputs",
+        DiagnosticProjectManifestField::GeneratorOutputs => "generator outputs",
+        DiagnosticProjectManifestField::ProductGeneratedSources => "product generated sources",
         DiagnosticProjectManifestField::TargetPredicate => "target predicate",
     }
 }

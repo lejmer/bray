@@ -1,6 +1,8 @@
 mod command;
 mod execution;
+mod generator;
 mod inspection;
+pub(super) use generator::DiagnosticProjectGeneratorFailureJson;
 
 pub(super) use command::{
     DiagnosticExternalToolExitJson, DiagnosticLinkerDriverIdentityJson,

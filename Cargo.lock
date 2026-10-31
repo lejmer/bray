@@ -592,6 +592,7 @@ dependencies = [
  "bray-testing",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

@@ -81,6 +81,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     InterfaceValidationFailure(DiagnosticProblemJson),
     ProjectSelectionProblem(DiagnosticProjectSelectionJson),
     ProjectCommandFailure(DiagnosticProjectCommandFailureJson),
+    ProjectGeneratorFailure(super::DiagnosticProjectGeneratorFailureJson),
     ProjectManifestField(&'static str),
     ProjectDependencyCycleMember(DiagnosticProjectDependencyCycleMemberJson),
     TargetPredicateValueKind(&'static str),
@@ -230,6 +231,9 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::ProjectSelectionProblem(problem) => {
                 Self::ProjectSelectionProblem(DiagnosticProjectSelectionJson::from_problem(problem))
             }
+            DiagnosticArgValue::ProjectGeneratorFailure(failure) => Self::ProjectGeneratorFailure(
+                super::DiagnosticProjectGeneratorFailureJson::from(failure),
+            ),
             DiagnosticArgValue::ProjectCommandFailure(failure) => Self::ProjectCommandFailure(
                 DiagnosticProjectCommandFailureJson::from_failure(failure),
             ),
