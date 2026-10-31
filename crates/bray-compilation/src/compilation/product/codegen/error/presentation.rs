@@ -1,6 +1,6 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticNativeProductFailureKind,
-    SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 use bray_symbols::ProductIdentity;
 
@@ -17,14 +17,25 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     product: &ProductIdentity,
     target: &str,
 ) -> Diagnostic {
-    Diagnostic::new(
+    let missing_standard_library =
+        failure == DiagnosticNativeProductFailureKind::MissingStandardLibrary;
+
+    let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::NativeProductPreparationFailed,
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target))
-    .with_arg(DiagnosticArg::native_product_failure_kind(failure))
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
+
+    if missing_standard_library {
+        diagnostic.with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::StandardLibraryDependencyRequired,
+        ))
+    } else {
+        diagnostic
+    }
 }
 
 pub(super) fn native_product_failure_kind(

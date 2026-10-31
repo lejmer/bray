@@ -201,13 +201,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let context = self.types.context();
 
-        let observation = crate::translation::product::control(
+        let Some(observation) = crate::translation::product::control(
             context,
             self.module,
             self.request,
             &self.builder,
             bray_runtime_abi::NativeProductHostOperation::ACQUIRE_ENTRY,
-        )?;
+        )?
+        else {
+            return Ok(());
+        };
 
         let status =
             crate::translation::unit::support::extract_value(&self.builder, observation, 0)?
@@ -243,13 +246,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let context = self.types.context();
 
-        let released = crate::translation::product::control(
+        let Some(released) = crate::translation::product::control(
             context,
             self.module,
             self.request,
             &self.builder,
             bray_runtime_abi::NativeProductHostOperation::RELEASE_ENTRY,
-        )?;
+        )?
+        else {
+            return Ok(());
+        };
 
         let release_status =
             crate::translation::unit::support::extract_value(&self.builder, released, 0)?
@@ -271,7 +277,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.request,
             &self.builder,
             bray_runtime_abi::NativeProductHostOperation::FINISH_ROOT,
-        )?;
+        )?
+        .expect("selected product closure requires control");
 
         let status = int_value(crate::translation::unit::support::extract_value(
             &self.builder,

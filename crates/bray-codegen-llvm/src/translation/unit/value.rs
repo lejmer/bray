@@ -226,7 +226,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder.position_at_end(*block);
 
             for field in variant.fields() {
-                let field_pointer = self.constant_offset_pointer(storage, field.offset_bytes())?;
+                let field_pointer =
+                    self.representation_offset_pointer(storage, field.offset_bytes())?;
 
                 let field_value =
                     self.place_value(field_pointer, field.ty(), "copy.union.field")?;
@@ -477,7 +478,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             if let Some(storage) = storage {
                 let destination =
-                    self.constant_offset_pointer(storage, fields[0].offset_bytes())?;
+                    self.representation_offset_pointer(storage, fields[0].offset_bytes())?;
 
                 self.store_value(destination, tag, fields[0].ty())?;
             } else {
@@ -492,7 +493,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         if let Some(storage) = storage {
             let destination =
-                self.constant_offset_pointer(storage, fields[payload].offset_bytes())?;
+                self.representation_offset_pointer(storage, fields[payload].offset_bytes())?;
 
             self.store_value(destination, child, fields[payload].ty())?;
 
@@ -653,8 +654,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let llvm_type = self.types.map(ty)?;
         let storage = self.allocate_temporary(llvm_type, "constant.union")?;
 
-        llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
-
+        // Only the tag and active fields form the initialized union value. Clearing
+        // inactive payload storage makes small variants pay for the largest variant.
         self.store_union_tag(storage, *tag, variant.tag())?;
 
         for field in fields {
@@ -662,7 +663,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .payload_field(*field.field())
                 .expect("checked MIR value translation requires an established mapping or value");
 
-            let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, layout.offset_bytes())?;
             let value = self.constant(*field.value())?;
 
             self.store_value(destination, value, layout.ty())?;
@@ -671,11 +672,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.place_value(storage, ty, "constant.union.value")
     }
 
-    pub(super) fn constant_offset_pointer(
+    pub(super) fn representation_offset_pointer(
         &self,
         pointer: PointerValue<'context>,
         offset: u64,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
+        if offset == 0 {
+            return Ok(pointer);
+        }
+
+        // These offsets project fields or elements of checked physical storage, never a
+        // separate lifetime anchor. Preserve that allocation identity for scalar replacement.
+        if let Ok(bytes) = u32::try_from(offset) {
+            let byte = self.types.context().i8_type();
+
+            let layout = self
+                .types
+                .context()
+                .struct_type(&[byte.array_type(bytes).into(), byte.into()], true);
+
+            return llvm(
+                self.builder
+                    .build_struct_gep(layout, pointer, 1, "representation.field"),
+            );
+        }
+
+        // LLVM's safe array construction API has u32 extents; larger layouts retain
+        // the same numerical address without imposing another source layout limit.
         let integer_type = self
             .types
             .context()

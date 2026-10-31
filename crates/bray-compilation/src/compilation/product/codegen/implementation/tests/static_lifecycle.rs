@@ -23,6 +23,64 @@ use std::sync::Arc;
 
 #[test]
 #[ignore = "tier:native"]
+fn protected_static_contents_preserve_relocations_without_implicit_cleanup() {
+    let source = r#"
+        trusted module app;
+
+        using core.memory;
+
+        struct Resource
+        {
+            pointer: &i32;
+
+            finalize() -> Result<unit, i32>
+            {
+                return Error(7);
+            }
+        }
+
+        static VALUE: i32 = 73;
+        static PROTECTED: Uninit<Resource> = core.memory.uninit_from<Resource>(
+            Resource { pointer = &VALUE }
+        );
+
+        func main()
+        {
+            _ = &PROTECTED;
+        }
+    "#;
+
+    let (backend, plan) = runtime_native_plan(source);
+
+    let statics = plan
+        .mappings()
+        .iter()
+        .flat_map(|mapping| mapping.static_storages())
+        .filter(|storage| storage.defines_storage())
+        .collect::<Vec<_>>();
+
+    assert!(
+        statics
+            .iter()
+            .all(|storage| storage.outgoing_requirements().is_empty())
+    );
+
+    assert!(
+        statics
+            .iter()
+            .any(|storage| !storage.relocations().is_empty())
+    );
+
+    assert!(
+        plan.product_host()
+            .is_none_or(|host| !host.requires_control())
+    );
+
+    assert!(!generated_artifacts(&backend, &plan).is_empty());
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn static_roots_exclude_unused_trivial_aggregate_storage() {
     let compilation = crate::test_support::compilation_with_product(
         r#"
@@ -600,12 +658,28 @@ fn uninit_static_payloads_preserve_relocations_without_cleanup_admission() {
         "#,
     );
 
-    let mappings = plan.mappings().iter()
-        .flat_map(bray_codegen::CodegenMappings::static_storages).collect::<Vec<_>>();
+    let mappings = plan
+        .mappings()
+        .iter()
+        .flat_map(bray_codegen::CodegenMappings::static_storages)
+        .collect::<Vec<_>>();
 
-    assert!(mappings.iter().any(|mapping| !mapping.relocations().is_empty()));
-    assert!(mappings.iter().all(|mapping| mapping.outgoing_requirements().is_empty()));
-    assert!(plan.product_host().is_none_or(|host| host.statics().is_empty()));
+    assert!(
+        mappings
+            .iter()
+            .any(|mapping| !mapping.relocations().is_empty())
+    );
+
+    assert!(
+        mappings
+            .iter()
+            .all(|mapping| mapping.outgoing_requirements().is_empty())
+    );
+
+    assert!(
+        plan.product_host()
+            .is_none_or(|host| host.statics().is_empty())
+    );
 }
 
 #[test]
@@ -924,9 +998,13 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
 
         let (backend, plan) = runtime_native_plan(&source);
 
-        assert!(plan.executable_host().expect("static cleanup retains its executable host")
-            .requirements().roles()
-            .contains(&bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease));
+        assert!(
+            plan.executable_host()
+                .expect("static cleanup retains its executable host")
+                .requirements()
+                .roles()
+                .contains(&bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease)
+        );
 
         let artifacts = generated_artifacts_of_kind(
             &backend,
@@ -954,6 +1032,11 @@ fn static_incident_destroyer_initializes_both_outcomes_before_calling_cleanup() 
             .iter()
             .map(|artifact| String::from_utf8_lossy(artifact))
             .collect::<String>();
+
+        assert!(
+            !ir.contains("@bray_runtime_provider_reference_release"),
+            "{ir}"
+        );
 
         let callback = ir
             .split("\ndefine ")

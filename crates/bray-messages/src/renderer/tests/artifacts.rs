@@ -11,6 +11,44 @@ use crate::catalog::forbidden_ordinary_diagnostic_term;
 use crate::renderer::DiagnosticRenderer;
 
 #[test]
+fn required_standard_library_diagnostic_names_the_product_and_recovery() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity("example.output"))
+    .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        bray_diagnostics::DiagnosticNativeProductFailureKind::MissingStandardLibrary,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::StandardLibraryDependencyRequired,
+    ));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert!(rendered.message().contains("example.output"));
+    assert!(rendered.message().contains("compiled 'std' package"));
+
+    assert!(
+        rendered
+            .message()
+            .contains("no standard-library dependency")
+    );
+
+    assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+
+    let [note] = rendered.notes() else {
+        panic!("the missing dependency has one recovery note");
+    };
+
+    assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+    assert!(note.message().contains("standard-library bundle"));
+    assert!(note.message().contains("selected target"));
+}
+
+#[test]
 fn native_artifact_read_failures_identify_output_and_io_cause() {
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(10),

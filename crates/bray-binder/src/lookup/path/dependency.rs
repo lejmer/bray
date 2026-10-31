@@ -100,6 +100,14 @@ pub(crate) fn lookup_dependency_declared(
         .module(module)
         .expect("dependency scope has a module identity");
 
+    // Catalog contracts bind their explicit references within the same closed
+    // compiler-owned environment; they have no source using declarations.
+    if current.origin() == bray_symbols::SymbolOrigin::CompilerKnown
+        && namespace.owner() == current.owner()
+    {
+        return true;
+    }
+
     let current_length = current.path().segments().len();
 
     if namespace.owner() != current.owner()
@@ -153,6 +161,21 @@ mod tests {
             &lookup,
         ));
 
+        let target = symbols
+            .module_by_path(
+                owner,
+                &ModulePathKey::try_new(["core", "target"]).expect("target module path is valid"),
+            )
+            .expect("target control catalog module");
+
+        assert!(lookup_dependency_declared(
+            symbols,
+            context.declarations(),
+            target.id(),
+            &["core", "memory", "valid_read"],
+            &lookup,
+        ));
+
         let source = symbols
             .modules()
             .iter()
@@ -165,6 +188,16 @@ mod tests {
             source.id(),
             &["core", "memory", "owned_allocation"],
             &lookup,
+        ));
+
+        let source_lookup = MemberLookupResult::Found(ResolvedName::Surface(source.id().into()));
+
+        assert!(!lookup_dependency_declared(
+            symbols,
+            context.declarations(),
+            target.id(),
+            &["source", "module"],
+            &source_lookup,
         ));
     }
 }

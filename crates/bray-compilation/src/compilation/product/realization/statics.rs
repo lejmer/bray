@@ -674,7 +674,7 @@ impl Compilation {
             let callable =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?;
 
-            let source = match callable {
+            let source = match &callable {
                 Some(callable) => {
                     self.callable_body_key(callable.callable.definition())?
                         .map(|key| {
@@ -686,7 +686,7 @@ impl Compilation {
                 None => None,
             };
 
-            let (execution, result, error_type_identity) = callable.map_or_else(
+            let (execution, result, error_type_identity) = callable.as_ref().map_or_else(
                 || {
                     Ok((
                         CallableExecution::Synchronous,
@@ -831,14 +831,15 @@ impl Compilation {
                 outgoing_calls.extend(local.iter().cloned());
             }
 
-            // Uninit stores representation bytes without owning the represented
-            // value's lifecycle. Still visit its bytes for static relocations.
-            let owns_children = owns_cleanup && !matches!(
-                values.type_data(data.ty()).as_ref(),
-                TypeData::Named { definition, .. }
-                    if super::super::super::foreign::compiler_known_representation(self, *definition)
-                        == Some(bray_compiler_known::RepresentationRole::Uninit)
-            );
+            // Protected storage retains representation and relocations, but its
+            // initialized contents do not acquire an implicit enclosing lifecycle.
+            let owns_children = owns_cleanup
+                && !matches!(
+                    values.type_data(data.ty()).as_ref(),
+                    TypeData::Named { definition, .. }
+                        if super::super::super::foreign::compiler_known_representation(self, *definition)
+                            == Some(RepresentationRole::Uninit)
+                );
 
             match data.kind() {
                 bray_symbols::ConstantValueKind::Borrowed(_) => {
@@ -862,7 +863,9 @@ impl Compilation {
                         );
                     }
                 }
-                bray_symbols::ConstantValueKind::NullablePresent(child) => pending.push((*child, owns_children)),
+                bray_symbols::ConstantValueKind::NullablePresent(child) => {
+                    pending.push((*child, owns_children));
+                }
                 bray_symbols::ConstantValueKind::Tuple(children)
                 | bray_symbols::ConstantValueKind::Array(children) => {
                     pending.extend(children.iter().map(|child| (*child, owns_children)));

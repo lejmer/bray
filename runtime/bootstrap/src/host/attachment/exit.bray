@@ -186,10 +186,7 @@ internal struct AttachmentExit
 
             let mut retired_domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>? = none;
 
-            if trusted bray.runtime.bootstrap.entry.bridge.store_control(
-                core.atomic.load<u64, 1>(&synchronization.control_key),
-                none
-            ) != 0
+            if trusted bray.runtime.bootstrap.entry.bridge.store_control(synchronization, none) != 0
             {
                 trusted core.target.abort();
             }
@@ -498,10 +495,7 @@ trusted internal func select_attachment_slot(
                 _ = trusted internal std.thread.platform_thread_storage_store(key, std.memory.null<u8>());
                 _ = trusted internal std.thread.platform_thread_storage_store(cleanup_key, std.memory.null<u8>());
 
-                if trusted bray.runtime.bootstrap.entry.bridge.store_control(
-                    core.atomic.load<u64, 1>(&synchronization.control_key),
-                    none
-                ) != 0
+                if trusted bray.runtime.bootstrap.entry.bridge.store_control(synchronization, none) != 0
                 {
                     return rejected;
                 }

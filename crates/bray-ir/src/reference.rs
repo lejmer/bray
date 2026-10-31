@@ -362,6 +362,7 @@ impl MirCall {
                     *ty = mappings.ty(*ty);
                 }
             }
+            MirCallTarget::Lifecycle { ty, .. } => *ty = mappings.ty(*ty),
             _ => {}
         }
 
@@ -384,9 +385,27 @@ impl MirCall {
         self
     }
 
+    /// Retains the checked signature behavior of a compiler-selected protocol invocation.
+    pub fn with_phase_behaviors(mut self, behavior: Arc<CallablePhaseBehaviors>) -> Self {
+        self.phase_behaviors = Some(behavior);
+
+        self
+    }
+
     /// Returns whether this invocation consumes a local action's outgoing allowance.
     pub const fn is_cleanup(&self) -> bool {
         self.cleanup
+    }
+
+    /// Returns whether checked invocation behavior excludes panic and cancellation.
+    pub fn has_non_unwinding_invocation(&self) -> bool {
+        self.phase_behaviors().is_some_and(|behavior| {
+            !behavior.invocation().may_unwind()
+                || behavior
+                    .invocation()
+                    .execution_properties()
+                    .contains(&bray_symbols::ExecutionProperty::Total)
+        })
     }
 
     /// Returns whether this call can propagate a panic through the synchronous Bray ABI.
@@ -395,13 +414,7 @@ impl MirCall {
             && !matches!(self.target, MirCallTarget::Runtime(_))
             && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
-            && !self.phase_behaviors().is_some_and(|behavior| {
-                !behavior.invocation().may_unwind()
-                    || behavior
-                        .invocation()
-                        .execution_properties()
-                        .contains(&bray_symbols::ExecutionProperty::Total)
-            })
+            && !self.has_non_unwinding_invocation()
     }
 
     /// Creates a checked call reconstructed from a compiled dependency.

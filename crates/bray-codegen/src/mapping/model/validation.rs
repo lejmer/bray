@@ -233,6 +233,7 @@ fn operation_runtime_references(
     abi: bray_runtime_interface::RuntimeAbiVersion,
 ) -> impl Iterator<Item = Option<MirRuntimeReference>> {
     let references = match operation {
+        MirOperationKind::TakeIncomingReport { .. } => [None, None, None],
         MirOperationKind::AdmitOutgoing { runtime, .. }
         | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
         MirOperationKind::Async(
@@ -294,7 +295,14 @@ fn operation_runtime_references(
         ],
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
-        }) => [Some(*allocation), Some(*start), Some(MirRuntimeReference::new(RuntimeAbiRole::TaskAdmissionFailure, abi))],
+        }) => [
+            Some(*allocation),
+            Some(*start),
+            Some(MirRuntimeReference::new(
+                RuntimeAbiRole::TaskAdmissionFailure,
+                abi,
+            )),
+        ],
         MirOperationKind::Async(MirAsyncOperation::CreateFrame {
             initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
             ..
@@ -369,7 +377,9 @@ fn operation_runtime_references(
         _ => None,
     };
 
-    references.into_iter().chain(owner_release.map(|role| Some(MirRuntimeReference::new(role, abi))))
+    references
+        .into_iter()
+        .chain(owner_release.map(|role| Some(MirRuntimeReference::new(role, abi))))
 }
 
 fn terminator_runtime_references(

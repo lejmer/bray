@@ -4,7 +4,7 @@ use super::support::compilation::{
 };
 use super::support::dependencies::{GenericDependencyFixture, generic_dependency_from_fixture};
 use super::support::linker::{test_linked_product, test_linker};
-use super::support::runtime::runtime_artifact;
+use super::support::runtime::{runtime_artifact, runtime_native_plan};
 use super::support::specialization::CONCRETE_GENERIC_SOURCE;
 use crate::{
     CancellationToken, CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
@@ -21,28 +21,69 @@ use std::sync::Arc;
 
 #[test]
 #[ignore = "tier:native"]
-fn compiler_lowered_unit_roots_do_not_select_a_product_report_provider() {
-    let (_, plan) = super::support::runtime::runtime_native_plan("module app; func main() {}");
+fn compiler_lowered_roots_do_not_select_a_product_report_provider() {
+    for source in [
+        r#"
+        module application;
 
-    assert!(plan.product_host().is_none());
+        func main() -> i32
+        {
+            return 0;
+        }
+        "#,
+        r#"
+        module application;
 
-    assert!(!plan.executable_host().expect("the executable retains its root")
-        .requirements().requires_role(RuntimeAbiRole::ProductHostControl));
+        func main()
+        {
+        }
+        "#,
+    ] {
+        let (_, plan) = runtime_native_plan(source);
+
+        assert!(plan.product_host().is_none());
+
+        assert!(
+            !plan
+                .executable_host()
+                .expect("the executable retains its root")
+                .requirements()
+                .requires_role(RuntimeAbiRole::ProductHostControl)
+        );
+    }
 }
 
 #[test]
 #[ignore = "tier:native"]
 fn synchronous_report_publishers_retain_their_product_host_control() {
     for source in [
-        "module app; func main() -> Result<unit, unit> { return Ok(unit); }",
-        "module app; func main() { panic(\"\"); }",
+        r#"
+        module application;
+
+        func main() -> Result<unit, unit>
+        {
+            return Ok(unit);
+        }
+        "#,
+        r#"
+        module application;
+
+        func main()
+        {
+            panic("resident report");
+        }
+        "#,
     ] {
-        let (_, plan) = super::support::runtime::runtime_native_plan(source);
+        let (_, plan) = runtime_native_plan(source);
 
         assert!(plan.product_host().is_some());
 
-        assert!(plan.executable_host().expect("the executable retains its root")
-            .requirements().requires_role(RuntimeAbiRole::ProductHostControl));
+        assert!(
+            plan.executable_host()
+                .expect("the executable retains its root")
+                .requirements()
+                .requires_role(RuntimeAbiRole::ProductHostControl)
+        );
     }
 }
 

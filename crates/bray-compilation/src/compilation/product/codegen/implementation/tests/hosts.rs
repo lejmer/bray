@@ -490,6 +490,29 @@ fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
     assert!(callback.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL));
     assert!(callback.contains("performance.iteration"));
     assert!(callback.contains("root.performance.succeeded"));
+    assert!(callback.contains("root.performance.state.value"));
+
+    let interval_end = callback
+        .find(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL)
+        .expect("timed callback ends its interval");
+
+    let result_stores = callback
+        .match_indices("store i32 ")
+        .filter(|(offset, _)| {
+            callback[*offset..]
+                .lines()
+                .next()
+                .is_some_and(|line| line.contains("ptr %root.result.storage,"))
+        })
+        .map(|(offset, _)| offset)
+        .collect::<Vec<_>>();
+
+    assert!(!result_stores.is_empty(), "{callback}");
+
+    assert!(
+        result_stores.iter().all(|offset| *offset > interval_end),
+        "{callback}"
+    );
 
     let root_execution_symbol = RuntimeAbiRole::SynchronousRootExecution
         .native_symbol()

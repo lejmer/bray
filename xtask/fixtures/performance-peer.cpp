@@ -1,6 +1,10 @@
 #include <cstddef>
 #include <cstdint>
 
+#if BRAY_WORKLOAD == 15
+#include <algorithm>
+#endif
+
 #if !defined(BRAY_INNER_ITERATIONS)
 #define BRAY_INNER_ITERATIONS 1
 #endif
@@ -100,7 +104,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 25)
+    || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 15 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 25)
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -855,15 +859,32 @@ bool workload()
     return true;
 }
 #elif BRAY_WORKLOAD == 15
+std::uint8_t const* opaque_capture_pointer(std::uint8_t const* pointer)
+{
+    __asm__("" : "+r"(pointer));
+
+    return pointer;
+}
+
+std::size_t retained_capture_length(std::uint8_t const* pointer, std::size_t length)
+{
+    using CaptureRange = std::uint8_t[4096];
+    __asm__("" : "+r"(length) : "m"(*reinterpret_cast<CaptureRange const*>(pointer)));
+
+    return length;
+}
+
 bool workload()
 {
     std::vector<std::uint8_t> output;
     output.reserve(4096);
 
-    std::uint8_t bytes[4096] = {};
-    output.insert(output.end(), bytes, bytes + 4096);
+    std::uint8_t bytes[4096];
+    std::fill_n(bytes, 4096, std::uint8_t{120});
+    auto const* source = opaque_capture_pointer(bytes);
+    output.insert(output.end(), source, source + 4096);
 
-    return output.size() == 4096;
+    return retained_capture_length(output.data(), output.size()) == 4096;
 }
 #elif BRAY_WORKLOAD == 17
 bool workload()

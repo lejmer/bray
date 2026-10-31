@@ -671,6 +671,7 @@ impl ExecutionState {
         &mut self,
         values: &[ExecutionCondition],
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+        preserved: &BTreeSet<ExecutionCondition>,
     ) {
         if values.is_empty() {
             return;
@@ -682,7 +683,8 @@ impl ExecutionState {
                 condition => condition,
             };
 
-            !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+            !preserved.contains(condition)
+                && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 && values.iter().any(|value| condition.observes(value))
         };
 

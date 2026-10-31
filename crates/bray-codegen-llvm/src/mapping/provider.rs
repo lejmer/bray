@@ -18,7 +18,7 @@ pub(crate) fn key<'context>(
         return Ok(usize.const_zero());
     };
 
-    if host.is_final_image() && !host.is_independent() {
+    if !host.requires_provider_reference() {
         return Ok(usize.const_zero());
     }
 

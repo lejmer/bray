@@ -477,6 +477,17 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         operation: &MirOperationKind,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         match operation {
+            MirOperationKind::TakeIncomingReport {
+                destination,
+                normal_report,
+            } if self.purpose == EncodingPurpose::CodegenContent => {
+                self.wire.write_u32(31);
+                self.place(destination)?;
+                self.optional_operand(normal_report.as_ref())?;
+            }
+            MirOperationKind::TakeIncomingReport { .. } => {
+                return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+            }
             MirOperationKind::AnonymousCallable(reference) => {
                 self.wire.write_u32(20);
 

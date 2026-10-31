@@ -5,11 +5,24 @@ use bray_ir::{MirBinaryOperator, MirHelperReference};
 use bray_runtime_abi::NativeRunState;
 use bray_symbols::{IntegerConstant, IntegerSign, RealConstantBits};
 use inkwell::builder::{Builder, BuilderError};
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::{AggregateValueEnum, BasicValueEnum, IntValue, PointerValue};
 use inkwell::{FloatPredicate, IntPredicate};
 
 pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailure> {
     result.map_err(CodegenFailure::backend_library)
+}
+
+pub(super) fn undefined_value<'context>(ty: BasicTypeEnum<'context>) -> BasicValueEnum<'context> {
+    match ty {
+        BasicTypeEnum::ArrayType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::FloatType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::IntType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::PointerType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::StructType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::VectorType(ty) => ty.get_undef().into(),
+        BasicTypeEnum::ScalableVectorType(ty) => ty.get_undef().into(),
+    }
 }
 
 pub(in crate::translation) fn nonzero_integer<'context>(

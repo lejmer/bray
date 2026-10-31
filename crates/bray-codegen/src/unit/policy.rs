@@ -329,6 +329,7 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         | MirOperationKind::Quiesce { .. }
         | MirOperationKind::Destroy { .. } => 2,
         MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::TakeIncomingReport { .. }
         | MirOperationKind::DischargeOutgoing { .. }
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)

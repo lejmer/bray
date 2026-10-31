@@ -93,6 +93,55 @@ fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
 
 #[test]
 #[ignore = "tier:native"]
+fn timed_callable_reuse_matches_ordinary_bindings_while_memory_observation_keeps_mir() {
+    for optimization in [OptimizationLevel::None, OptimizationLevel::Full] {
+        let ordinary = CodegenOptions::default().with_optimization(optimization);
+
+        let dependency = dependency_from_fixture_with_native(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: "module templates; public func hot(pos value: i32) -> i32 { return value + 1; }",
+                runtime_frames: &[],
+                executable_templates: 1,
+                platform_service: None,
+            },
+            Some((ordinary, false, false, None)),
+        );
+
+        for observation in [
+            bray_codegen::RuntimeObservationMode::None,
+            bray_codegen::RuntimeObservationMode::PerformanceInterval {
+                inner_iterations: std::num::NonZeroU64::new(7).expect("nonzero iterations"),
+            },
+            bray_codegen::RuntimeObservationMode::Memory,
+        ] {
+            // Each immutable compilation borrows the same authenticated dependency bytes.
+            let compilation =
+                native_fixture_compilation(dependency.clone(), ProductKind::Executable, None);
+
+            let options = CodegenOptions::new(
+                ordinary.optimization(),
+                ordinary.size_preference(),
+                ordinary.debug_information(),
+                ordinary.reproducibility(),
+                observation,
+            );
+
+            let reachability = native_fixture_reachability_with_options(&compilation, options)
+                .expect("observed callable must close its exact native or MIR demand");
+
+            assert_eq!(
+                reachability.selected_native_units().count(),
+                usize::from(observation != bray_codegen::RuntimeObservationMode::Memory),
+                "{optimization:?} {observation:?}",
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn native_reuse_defers_optional_executable_body_decoding() {
     let fixture = GenericDependencyFixture {
         source: r#"
@@ -537,6 +586,14 @@ fn native_fixture_reachability_for_product_with_codegen(
     codegen: Option<CodegenConfiguration>,
 ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
     let compilation = native_fixture_compilation(dependency, product_kind, codegen);
+
+    native_fixture_reachability_with_options(&compilation, CodegenOptions::default())
+}
+
+fn native_fixture_reachability_with_options(
+    compilation: &crate::Compilation,
+    options: CodegenOptions,
+) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
     let cancellation = CancellationToken::new();
 
     let target = compilation
@@ -550,14 +607,7 @@ fn native_fixture_reachability_for_product_with_codegen(
     let roots =
         compilation.product_root_instances(semantic.value(), None, &target, &cancellation)?;
 
-    compilation.codegen_reachability(
-        roots,
-        None,
-        &target,
-        CodegenOptions::default(),
-        false,
-        &cancellation,
-    )
+    compilation.codegen_reachability(roots, None, &target, options, false, &cancellation)
 }
 
 fn native_fixture_payloads(

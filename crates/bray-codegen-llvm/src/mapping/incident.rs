@@ -282,20 +282,26 @@ pub(crate) fn declare_destroyer<'context>(
 
     builder.position_at_end(completed);
 
-    let provider = builder
-        .build_struct_gep(incident_type, incident, 6, "incident.provider")
-        .map_err(CodegenFailure::backend_library)?;
+    if types
+        .mappings()
+        .product_host()
+        .is_some_and(bray_codegen::CodegenProductHostMapping::requires_provider_reference)
+    {
+        let provider = builder
+            .build_struct_gep(incident_type, incident, 6, "incident.provider")
+            .map_err(CodegenFailure::backend_library)?;
 
-    let release_provider = crate::native::declare_runtime_function(
-        module,
-        context,
-        types.target(),
-        bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease,
-    )?;
+        let release_provider = crate::native::declare_runtime_function(
+            module,
+            context,
+            types.target(),
+            bray_runtime_interface::RuntimeAbiRole::ProviderReferenceRelease,
+        )?;
 
-    builder
-        .build_call(release_provider, &[provider.into()], "")
-        .map_err(CodegenFailure::backend_library)?;
+        builder
+            .build_call(release_provider, &[provider.into()], "")
+            .map_err(CodegenFailure::backend_library)?;
+    }
 
     builder
         .build_return(None)

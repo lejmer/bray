@@ -1,10 +1,10 @@
-use super::support::artifacts::unoptimized_library_ir;
+use super::support::artifacts::library_ir;
 use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 #[test]
 #[ignore = "tier:native"]
 fn borrowed_trait_view_emits_async_runtime_dispatch() {
-    let ir = unoptimized_library_ir(
+    let ir = library_ir(
         r#"
         module app;
 
@@ -44,6 +44,7 @@ fn borrowed_trait_view_emits_async_runtime_dispatch() {
             let result = await selected.read();
         }
         "#,
+        bray_codegen::OptimizationLevel::None,
     );
 
     assert!(ir.contains("view.witness"), "{ir}");

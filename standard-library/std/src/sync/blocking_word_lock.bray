@@ -25,6 +25,7 @@ trusted func acquire_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
 
 /// Releases a runtime lock previously acquired by the calling execution.
 trusted func release_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
+    executes(total)
 {
     let previous: u32 = core.atomic.exchange<u32, 2>(lock, value = 0);
 

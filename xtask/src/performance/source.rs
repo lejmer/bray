@@ -128,8 +128,11 @@ func output_path() -> std.path.Path
 
 pub(super) const CAPTURED_OUTPUT: &str = r#"module captured_output;
 
+using core.target;
+using core.memory;
 using std.bytes;
 using std.io;
+using std.memory;
 
 struct CapturedOutput
 {
@@ -171,21 +174,83 @@ func main() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
-    try output.write_all(&bytes[..]);
-    assert(std.bytes.length(&output.bytes) == 4096);
+    let source: &[u8; 4096] = trusted opaque_array(&bytes);
+
+    try output.write_all(&source[..]);
+    assert(trusted retain_bytes(output.bytes.as_slice()) == 4096);
 
     return Ok(unit);
+}
+
+trusted func retain_bytes(pos bytes: &[u8]) -> usize
+    requires(bytes.length() == 4096)
+    uses(device_memory, intrinsic, layout_reinterpret, raw_memory, unchecked_alias, unchecked_init)
+{
+    let pointer: DataPointer<u8> = trusted internal std.memory.slice_pointer<u8>(bytes, count = 4096);
+    let region: DataPointer<[u8; 4096]> = trusted std.memory.reinterpret<[u8; 4096], u8>(pointer);
+
+    let observed: (usize,) = trusted core.target.assembly<(usize, DataPointer<[u8; 4096]>), (usize,)>(
+        template = "",
+        constraints = "+reg,m",
+        clobbers = "",
+        features = "",
+        options = 1,
+        inputs = (bytes.length(), region),
+    );
+
+    return observed.0;
+}
+
+trusted func opaque_array(pos bytes: &[u8; 4096]) -> &[u8; 4096]
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer: DataPointer<[u8; 4096]> = std.memory.address_of<[u8; 4096]>(bytes);
+    let observed: DataPointer<[u8; 4096]> = trusted opaque_array_pointer(pointer);
+
+    return trusted std.memory.borrow_from<[u8; 4096], [u8; 4096]>(bytes, observed);
+}
+
+// The empty tied register operand preserves the exact pointer and its existing access authority.
+trusted func opaque_array_pointer(pos pointer: DataPointer<[u8; 4096]>) -> DataPointer<[u8; 4096]>
+    requires(
+        trusted core.memory.valid_read<[u8; 4096]>(pointer = pointer, count = 1),
+        trusted core.memory.aligned_for<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.initialized_as<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.shared_alias_valid<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.epoch_current<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.synchronized_access<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.movement_stable<[u8; 4096]>(pointer = pointer),
+        trusted core.memory.finalization_pending<[u8; 4096]>(pointer = pointer),
+    )
+    ensures(
+        trusted core.memory.valid_read<[u8; 4096]>(pointer = result, count = 1),
+        trusted core.memory.aligned_for<[u8; 4096]>(pointer = result),
+        trusted core.memory.initialized_as<[u8; 4096]>(pointer = result),
+        trusted core.memory.shared_alias_valid<[u8; 4096]>(pointer = result),
+        trusted core.memory.epoch_current<[u8; 4096]>(pointer = result),
+        trusted core.memory.synchronized_access<[u8; 4096]>(pointer = result),
+        trusted core.memory.movement_stable<[u8; 4096]>(pointer = result),
+        trusted core.memory.finalization_pending<[u8; 4096]>(pointer = result),
+    )
+    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+{
+    let observed: (DataPointer<[u8; 4096]>,) = trusted core.target.assembly<
+        (DataPointer<[u8; 4096]>,),
+        (DataPointer<[u8; 4096]>,),
+    >(template = "", constraints = "+reg", clobbers = "", features = "", options = 1, inputs = (pointer,));
+
+    return observed.0;
 }
 "#;
 
 pub(super) const PROCESS_PIPE_TRANSFER: &str = r#"module process_pipe_transfer;
 
-using std.fs;
 using std.io;
 using internal std.io.StandardInputReader;
 using std.path;
 using std.process;
 using internal std.process.ChildInputWriter;
+using std.testing;
 
 func main() -> Result<unit, std.io.IoError>
     requires(blocking_execution())
@@ -246,32 +311,10 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance child command must be created"); }
     };
 
-    let observation_name: string = "bray-performance-pipe-child-observations";
-
-    let observation_key: std.path.NativeText = match consume std.path.NativeText.from_string(
-        &"BRAY_PERFORMANCE_OBSERVATION_PATH"
-    )
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("performance observation key must be valid"); }
-    };
-
-    let observation_value: std.path.NativeText = match consume std.path.NativeText.from_string(&observation_name)
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("performance child observation path must be valid"); }
-    };
-
     match command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
     {
         case Ok(_) {}
         case Error(_) { panic("performance child environment must be isolated"); }
-    }
-
-    match command.set_environment(observation_key, observation_value)
-    {
-        case Ok(_) {}
-        case Error(_) { panic("performance child observation path must be configured"); }
     }
 
     let child_argument: std.path.NativeText = match consume std.path.NativeText.from_string(&"pipe-child")
@@ -296,17 +339,20 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance child must be started"); }
     };
 
-    let mut input: std.process.ChildInput = match consume child.take_standard_input()
     {
-        case ?stream { yield stream; }
-        case none { panic("performance child input must be piped"); }
-    };
+        let mut input: std.process.ChildInput = match consume child.take_standard_input()
+        {
+            case ?stream { yield stream; }
+            case none { panic("performance child input must be piped"); }
+        };
 
-    let bytes: [u8; 4096] = [120; 4096];
+        let bytes: [u8; 4096] = [120; 4096];
 
-    try input.write_all(&bytes[..]);
-    try input(std.io.Writer).flush();
-    try input.close();
+        std.testing.assert_ok<unit, std.io.IoError>(input.write_all(&bytes[..]));
+        std.testing.assert_ok<unit, std.io.IoError>(input(std.io.Writer).flush());
+        std.testing.assert_ok<unit, std.io.IoError>(input.close());
+        assert(input.is_complete());
+    }
 
     let status: std.process.ExitStatus = match consume child.wait()
     {
@@ -314,22 +360,12 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance child must be joined"); }
     };
 
+    assert(child.is_complete());
+
     match status
     {
         case std.process.ExitStatus.Code(0) {}
         case _ { panic("performance child must exit successfully"); }
-    }
-
-    let observation_path: std.path.Path = match consume std.path.Path.from_string(&observation_name)
-    {
-        case Ok(path) { yield path; }
-        case Error(_) { panic("performance child observation path must be valid"); }
-    };
-
-    match std.fs.remove_file(&observation_path)
-    {
-        case Ok(_) {}
-        case Error(_) {}
     }
 
     return Ok(unit);

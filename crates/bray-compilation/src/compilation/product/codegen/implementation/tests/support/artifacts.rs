@@ -7,7 +7,10 @@ use bray_codegen::{
 };
 use bray_symbols::ProductKind;
 
-pub(in super::super) fn unoptimized_library_ir(source: &str) -> String {
+pub(in super::super) fn library_ir(
+    source: &str,
+    optimization: bray_codegen::OptimizationLevel,
+) -> String {
     let (backend, compilation) = codegen_compilation(source_request_with_runtime(
         &[source],
         CompilationOptions::new(
@@ -27,9 +30,7 @@ pub(in super::super) fn unoptimized_library_ir(source: &str) -> String {
         )
         .expect("test library must reach native lowering");
 
-    let options = plan
-        .options()
-        .with_optimization(bray_codegen::OptimizationLevel::None);
+    let options = plan.options().with_optimization(optimization);
 
     generated_artifacts_of_kind_with_options(
         &backend,

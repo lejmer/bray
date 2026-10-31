@@ -9,25 +9,31 @@ pub(crate) fn control<'context>(
     request: CodegenRequest<'_>,
     builder: &Builder<'context>,
     operation: NativeProductHostOperation,
-) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
     let host = request
         .mappings()
         .product_host()
         .expect("product control requires the selected product host mapping");
 
+    if !host.requires_control() {
+        return Ok(None);
+    }
+
     let descriptor = module
         .get_global(host.descriptor_symbol().as_str())
         .expect("product control requires the emitted descriptor");
 
-    Ok(crate::native::invoke_product_control(
-        context,
-        module,
-        builder,
-        request.target(),
-        descriptor.as_pointer_value(),
-        context
-            .i32_type()
-            .const_int(u64::from(operation.code()), false),
-    )?
-    .into())
+    Ok(Some(
+        crate::native::invoke_product_control(
+            context,
+            module,
+            builder,
+            request.target(),
+            descriptor.as_pointer_value(),
+            context
+                .i32_type()
+                .const_int(u64::from(operation.code()), false),
+        )?
+        .into(),
+    ))
 }

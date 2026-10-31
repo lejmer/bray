@@ -19,6 +19,487 @@ use super::fixtures::{
 };
 
 #[test]
+fn disjoint_raw_slot_moves_still_invalidate_opaque_reachable_observations() {
+    let provider = compilation(
+        r"
+        trusted module api;
+        using core.memory;
+        struct Header { value: usize; }
+        trusted predicate observed(pointer: DataPointer<Header>);
+        trusted func inspect(pos pointer: DataPointer<Header>)
+            requires(trusted observed(pointer = pointer)) {}
+        trusted func read_both(pos primary: DataPointer<Header>, pos incident: DataPointer<Header>) -> usize
+            requires(
+                trusted observed(pointer = incident),
+                trusted core.memory.valid_read<Header>(pointer = primary, count = 1),
+                trusted core.memory.aligned_for<Header>(pointer = primary),
+                trusted core.memory.initialized_as<Header>(pointer = primary),
+                trusted core.memory.valid_read<Header>(pointer = incident, count = 1),
+                trusted core.memory.aligned_for<Header>(pointer = incident),
+                trusted core.memory.initialized_as<Header>(pointer = incident),
+                trusted core.memory.non_overlapping<Header>(left = primary, left_count = 1, right = incident, right_count = 1),
+            )
+            uses(raw_memory)
+        {
+            let first = trusted core.memory.read<Header>(primary);
+            trusted inspect(incident);
+            let second = trusted core.memory.read<Header>(incident);
+            return first.value + second.value;
+        }
+    ",
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        provider.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+    );
+}
+
+#[test]
+fn raw_slot_moves_preserve_only_live_disjoint_initialization() {
+    for (non_overlapping, second, valid) in [
+        (
+            "trusted core.memory.non_overlapping<Header>(left = primary, left_count = 1, right = incident, right_count = 1),",
+            "incident",
+            true,
+        ),
+        (
+            "trusted core.memory.non_overlapping<Header>(left = incident, left_count = 1, right = primary, right_count = 1),",
+            "incident",
+            true,
+        ),
+        ("", "incident", false),
+        (
+            "trusted core.memory.non_overlapping<Header>(left = primary, left_count = 0, right = incident, right_count = 1),",
+            "incident",
+            false,
+        ),
+        (
+            "trusted core.memory.non_overlapping<Header>(left = primary, left_count = 1, right = incident, right_count = 1),",
+            "primary",
+            false,
+        ),
+    ] {
+        let provider = compilation(&format!(
+            r"
+            trusted module api;
+            using core.memory;
+            public struct Header {{ value: usize; }}
+            public trusted func read_both(pos primary: DataPointer<Header>, pos incident: DataPointer<Header>) -> usize
+                requires(
+                    trusted core.memory.valid_read<Header>(pointer = primary, count = 1),
+                    trusted core.memory.aligned_for<Header>(pointer = primary),
+                    trusted core.memory.initialized_as<Header>(pointer = primary),
+                    trusted core.memory.valid_read<Header>(pointer = incident, count = 1),
+                    trusted core.memory.aligned_for<Header>(pointer = incident),
+                    trusted core.memory.initialized_as<Header>(pointer = incident),
+                    {non_overlapping}
+                )
+                uses(raw_memory)
+            {{
+                let first = trusted core.memory.read<Header>(primary);
+                let second = trusted core.memory.read<Header>({second});
+                return first.value + second.value;
+            }}
+        "
+        ));
+
+        let diagnostics = provider.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{non_overlapping} {second}: {diagnostics:?}"
+        );
+
+        if valid {
+            let consumer_source = r"
+                trusted module app;
+                using core.memory;
+                using example.package.api;
+                trusted func forward(pos primary: DataPointer<example.package.api.Header>, pos incident: DataPointer<example.package.api.Header>) -> usize
+                    requires(
+                        trusted core.memory.valid_read<example.package.api.Header>(pointer = primary, count = 1),
+                        trusted core.memory.aligned_for<example.package.api.Header>(pointer = primary),
+                        trusted core.memory.initialized_as<example.package.api.Header>(pointer = primary),
+                        trusted core.memory.valid_read<example.package.api.Header>(pointer = incident, count = 1),
+                        trusted core.memory.aligned_for<example.package.api.Header>(pointer = incident),
+                        trusted core.memory.initialized_as<example.package.api.Header>(pointer = incident),
+                        CONTRACT
+                    )
+                { return trusted example.package.api.read_both(primary, incident); }
+            "
+            .replace(
+                "CONTRACT",
+                &non_overlapping.replace("<Header>", "<example.package.api.Header>"),
+            );
+
+            let consumer = execution_consumer(&provider, &consumer_source);
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{non_overlapping}: {:?}",
+                consumer.check_diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
+fn spare_capacity_proofs_keep_contract_only_scalar_input_types() {
+    let provider = compilation(
+        r"
+        module api;
+        public func accepted(pos initialized: usize, pos count: usize, pos capacity: usize) -> usize
+            requires(initialized <= capacity, count <= capacity - initialized)
+            ensures(result <= capacity)
+            executes(pure, total)
+        { return initialized + count; }
+    ",
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r"
+        module app;
+        using example.package.api;
+        func forward(pos initialized: usize, pos count: usize, pos capacity: usize) -> usize
+            requires(initialized <= capacity, count <= capacity - initialized)
+            ensures(result <= capacity)
+            executes(pure, total)
+        { return example.package.api.accepted(initialized, count, capacity); }
+    ",
+    );
+
+    assert!(
+        !consumer.check_diagnostics().has_errors(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+}
+
+#[test]
+fn relational_slice_bounds_use_live_count_facts_in_source_and_imports() {
+    for (requirement, mutation, valid) in [
+        ("count > 0, count <= values.length()", "", true),
+        ("count >= 0, count <= values.length()", "", false),
+        (
+            "count > 0, count <= values.length()",
+            "values = &empty[..];",
+            false,
+        ),
+    ] {
+        let provider = compilation(&format!(
+            r"
+            module api;
+            public func first(pos mut values: &[u8], pos count: usize) -> u8
+                requires({requirement})
+                executes(pure, total)
+            {{
+                let empty: [u8; 0] = [0; 0];
+                {mutation}
+                return values[0];
+            }}
+        "
+        ));
+
+        let diagnostics = provider.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{mutation}: {diagnostics:?}"
+        );
+
+        if valid {
+            let consumer = execution_consumer(
+                &provider,
+                r"
+                module app;
+                using example.package.api;
+                func forward(pos values: &[u8], pos count: usize) -> u8
+                    requires(count > 0, count <= values.length())
+                    executes(pure, total)
+                { return example.package.api.first(values, count); }
+            ",
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
+fn integer_precondition_proofs_use_current_entry_values() {
+    for (mutation, valid) in [("", true), ("selection.address = 0;", false)] {
+        let provider = compilation(&format!(
+            r"
+            module api;
+            struct Selection {{ mut address: usize; }}
+            func selected(pos value: usize) -> Selection
+                requires(value > 0)
+                ensures(result.address > 0)
+                executes(pure, total)
+            {{ return {{ address = value }}; }}
+            func read(pos selection: &Selection) -> usize
+                requires(selection.address > 1)
+                ensures(result == selection.address)
+                executes(pure, total)
+            {{ return selection.address; }}
+            public func narrow(pos value: usize) -> usize
+                requires(value > 0)
+                ensures(result > 1)
+                executes(pure, total)
+            {{
+                let mut selection = selected(value);
+                if selection.address == 1 {{ return 2; }}
+                {mutation}
+                return read(&selection);
+            }}
+        "
+        ));
+
+        let diagnostics = provider.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{mutation}: {diagnostics:?}"
+        );
+
+        if valid {
+            let consumer = execution_consumer(
+                &provider,
+                r"
+                module app;
+                using example.package.api;
+                func forward(pos value: usize) -> usize
+                    requires(value > 0)
+                    ensures(result > 1)
+                    executes(pure, total)
+                { return example.package.api.narrow(value); }
+            ",
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn positive_scalar_and_field_bounds_survive_excluded_endpoints() {
+    for projection in ["value", "selection.address"] {
+        let provider = compilation(&format!(
+            r"
+            module api;
+            struct Selection {{ address: usize; }}
+            func selected(pos value: usize) -> Selection
+                requires(value > 0)
+                ensures(result.address > 0)
+                executes(pure, total)
+            {{ return {{ address = value }}; }}
+            public func narrow(pos value: usize) -> usize
+                requires(value > 0)
+                ensures(result > 1)
+                executes(pure, total)
+            {{
+                let selection = selected(value);
+                if {projection} == 1 {{ return 2; }}
+                return {projection};
+            }}
+        "
+        ));
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{:?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            r"
+            module app;
+            using example.package.api;
+            func forward(pos value: usize) -> usize
+                requires(value > 0)
+                ensures(result > 1)
+                executes(pure, total)
+            { return example.package.api.narrow(value); }
+        ",
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn strong_compare_exchange_preserves_its_observed_value_relationship() {
+    for (operation, scalar, initial, mutation, valid) in [
+        ("compare_exchange", "usize", 0, "", true),
+        ("compare_exchange", "usize", 0, "expected = 1;", true),
+        (
+            "compare_exchange",
+            "usize",
+            0,
+            "core.atomic.store<usize, 0>(binding, 0);",
+            true,
+        ),
+        ("compare_exchange", "usize", 1, "expected = 0;", false),
+        ("compare_exchange_weak", "usize", 0, "", false),
+        ("compare_exchange", "isize", 0, "", false),
+    ] {
+        let source = format!(
+            r"
+            module api;
+            using core.atomic;
+            public func select(pos binding: &core.atomic.Atomic<{scalar}>) -> {scalar}
+                ensures(result > 0)
+                executes(total)
+            {{
+                let mut expected: {scalar} = {initial};
+                let (previous, acquired) = core.atomic.{operation}<{scalar}, 3, 1>(binding, expected = expected, desired = 1);
+                {mutation}
+                if acquired {{ return 1; }}
+                return previous;
+            }}
+        "
+        );
+
+        let provider = compilation(&source);
+        let diagnostics = provider.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:?}"
+        );
+
+        if valid {
+            let consumer = execution_consumer(
+                &provider,
+                r"
+                module app;
+                using core.atomic;
+                using example.package.api;
+                func forward(pos binding: &core.atomic.Atomic<usize>) -> usize
+                    ensures(result > 0)
+                    executes(total)
+                { return example.package.api.select(binding); }
+            ",
+            );
+
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn product_static_access_is_total_without_becoming_pure() {
+    for (duration, property, valid) in [
+        ("", "total", true),
+        ("", "pure", false),
+        ("@thread_local", "total", false),
+        ("@thread_local", "pure", false),
+    ] {
+        for access in ["VALUE", "GENERIC_VALUE<7>", "NESTED.value"] {
+            let source = format!(
+                r"
+                module api;
+                struct Nested {{ value: u32; }}
+                {duration} static VALUE: u32 = 7;
+                {duration} static GENERIC_VALUE<const N: u32>: u32 = N;
+                {duration} static NESTED: Nested = {{ value = 7 }};
+
+                func read() -> u32 executes({property}) {{ return {access}; }}
+                "
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_product_static_access_preserves_total_execution() {
+    for (duration, valid) in [("", true), ("@thread_local", false)] {
+        let provider = compilation(&format!(
+            "module api; {duration} static VALUE<const N: u32>: u32 = N;"
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            r"
+            module app;
+            using example.package.api;
+            func read() -> u32 executes(total) { return example.package.api.VALUE<7>; }
+            ",
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{duration}: {diagnostics:?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+}
+
+#[test]
 fn imported_ordinary_predicate_meaning_tracks_completion_and_mutation() {
     let provider = compilation(
         r#"

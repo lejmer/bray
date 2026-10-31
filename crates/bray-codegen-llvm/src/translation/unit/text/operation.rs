@@ -483,7 +483,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .find(|field| self.string_type(field.ty()))
                 .expect("checked MIR text translation requires an established mapping or value");
 
-            let destination = self.constant_offset_pointer(storage, field.offset_bytes())?;
+            let destination = self.representation_offset_pointer(storage, field.offset_bytes())?;
 
             self.store_value(destination, payload, field.ty())?;
         }

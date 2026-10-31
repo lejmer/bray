@@ -71,6 +71,21 @@ impl Compilation {
             return Ok(None);
         };
 
+        // The host emits the interval. Imported callable bodies retain ordinary
+        // code, while memory observation still requires instrumented bindings.
+        let options = match options.runtime_observations() {
+            bray_codegen::RuntimeObservationMode::PerformanceInterval { .. } => {
+                CodegenOptions::new(
+                    options.optimization(),
+                    options.size_preference(),
+                    options.debug_information(),
+                    options.reproducibility(),
+                    bray_codegen::RuntimeObservationMode::None,
+                )
+            }
+            _ => options,
+        };
+
         if imported.template() != MirExecutableTemplateId::ROOT
             || imported.platform_service().is_some()
             || key.specialization() != &CodegenSpecialization::NonGeneric

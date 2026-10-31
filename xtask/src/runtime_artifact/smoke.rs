@@ -235,7 +235,10 @@ fn smoke_test_bootstrap(
     audit_bootstrap_link_map(&map)
 }
 
-pub(super) fn resident_host_object(target: NativeTarget, directory: &Path) -> Result<PathBuf, CommandError> {
+pub(super) fn resident_host_object(
+    target: NativeTarget,
+    directory: &Path,
+) -> Result<PathBuf, CommandError> {
     let root = crate::workspace::root().map_err(CommandError::Workspace)?;
     let object = directory.join("runtime-resident-host.o");
 

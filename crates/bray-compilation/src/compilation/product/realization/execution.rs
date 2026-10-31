@@ -271,18 +271,16 @@ impl Compilation {
 
                 if let MirOperationKind::Call(call) = operation.kind() {
                     if let Some(behavior) = call.phase_behaviors() {
-                        lanes = ExecutionLaneRequirement::set(
-                            lanes.iter().copied().chain(
-                                bray_lowering::lower_execution_requirements(
+                        lanes = ExecutionLaneRequirement::set(lanes.iter().copied().chain(
+                            bray_lowering::lower_execution_requirements(
+                                self.available_compiler_known_symbols(),
+                                bray_checker::invocation_execution_requirements(
+                                    self.semantic_value_store()?,
                                     self.available_compiler_known_symbols(),
-                                    behavior
-                                        .invocation()
-                                        .execution_requirements()
-                                        .iter()
-                                        .copied(),
+                                    behavior,
                                 ),
                             ),
-                        );
+                        ));
                     } else if let bray_ir::MirCallTarget::Direct(reference) = call.target() {
                         // Structural expansion preserves the selected call, rather than
                         // a source invocation's phase summary. Resolve its contract once.
@@ -356,11 +354,17 @@ impl Compilation {
             signature.expect("selected lifecycle invocation retains its checked signature");
 
         let known = self.available_compiler_known_symbols();
+        let values = self.semantic_value_store()?;
+        let data = values.type_data(signature.callable_type());
+
+        let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+            panic!("selected lifecycle signature retains a checked callable type");
+        };
 
         let requirements = bray_checker::invocation_execution_requirements(
-            self.semantic_value_store()?,
+            values,
             known,
-            signature.callable_type(),
+            callable.phase_behaviors(),
         );
 
         Ok(entry.insert(bray_lowering::lower_execution_requirements(

@@ -21,6 +21,7 @@ pub(crate) fn verify_no_memory_work(
 
     let recorded = execute_observed(
         executable,
+        executable,
         output,
         output,
         0,
@@ -46,6 +47,7 @@ pub(crate) fn time_empty_program(
     let digest = super::command::expected_output_digest(super::corpus::ExpectedOutput::Empty)?;
 
     execute_timing_sample(
+        executable,
         executable,
         output,
         output,
@@ -77,6 +79,7 @@ pub(super) fn validate_timing_artifact(linker_map: &Path) -> Result<(), String> 
 
 pub(super) fn execute_timing_sample(
     executable: &Path,
+    production_executable: &Path,
     working_directory: &Path,
     output: &Path,
     iteration: u32,
@@ -85,6 +88,7 @@ pub(super) fn execute_timing_sample(
 ) -> Result<u64, String> {
     let recorded = execute_observed(
         executable,
+        production_executable,
         working_directory,
         output,
         iteration,
@@ -103,6 +107,7 @@ pub(super) fn execute_timing_sample(
 
 pub(super) fn measure_storage(
     executable: &Path,
+    production_executable: &Path,
     linker_map: &Path,
     working_directory: &Path,
     output: &Path,
@@ -112,6 +117,7 @@ pub(super) fn measure_storage(
 
     let recorded = execute_observed(
         executable,
+        production_executable,
         working_directory,
         output,
         0,
@@ -138,6 +144,7 @@ pub(super) fn measure_storage(
 
 fn execute_observed(
     executable: &Path,
+    production_executable: &Path,
     working_directory: &Path,
     output: &Path,
     iteration: u32,
@@ -146,13 +153,14 @@ fn execute_observed(
 ) -> Result<RecordedExecution, String> {
     let observation_path = output.join(format!("performance-observations-{iteration}.bin"));
 
-    let execution = super::execution::workload_command(executable, working_directory)
-        .env(
-            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
-            &observation_path,
-        )
-        .output()
-        .map_err(|error| format!("could not execute observed artifact: {error}"))?;
+    let execution =
+        super::execution::workload_command(executable, production_executable, working_directory)
+            .env(
+                bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+                &observation_path,
+            )
+            .output()
+            .map_err(|error| format!("could not execute observed artifact: {error}"))?;
 
     if !execution.status.success() {
         return Err(format!(

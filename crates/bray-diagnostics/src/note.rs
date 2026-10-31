@@ -139,6 +139,8 @@ pub enum DiagnosticNoteKind {
     ExternalToolExitRequiresCorrection,
     /// Recovery guidance for an unusable selected runtime artifact.
     RuntimeArtifactMustBeUsable,
+    /// Recovery guidance for an absent required standard-library dependency.
+    StandardLibraryDependencyRequired,
     /// One exact unavailable state required across an await.
     AwaitDependencyUnavailable,
     /// Recovery guidance for a value whose dependency cannot leave its storage scope.
@@ -240,6 +242,7 @@ impl DiagnosticNoteKind {
             Self::LinkPlanContext => "link_plan_context",
             Self::ExternalToolExitRequiresCorrection => "external_tool_exit_requires_correction",
             Self::RuntimeArtifactMustBeUsable => "runtime_artifact_must_be_usable",
+            Self::StandardLibraryDependencyRequired => "standard_library_dependency_required",
             Self::AwaitDependencyUnavailable => "await_dependency_unavailable",
             Self::EscapingStorageDependencyResolution => "escaping_storage_dependency_resolution",
             Self::AsynchronousCallableRequired => "asynchronous_callable_required",

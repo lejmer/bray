@@ -15,6 +15,11 @@ pub(crate) fn enum_attribute(
     Ok(context.create_enum_attribute(kind, value))
 }
 
+pub(crate) fn read_only_memory_attribute(context: &Context) -> Result<Attribute, CodegenFailure> {
+    // LLVM 22 encodes Ref in two bits for each of its six memory locations.
+    enum_attribute("memory", 0b01_01_01_01_01_01, context)
+}
+
 pub(crate) fn type_attribute(
     name: &str,
     pointee: bray_symbols::TypeId,

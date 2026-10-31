@@ -61,6 +61,13 @@ pub(crate) fn runtime_attributes(
 ) -> Result<Vec<(AttributeLoc, Attribute)>, CodegenFailure> {
     let mut attributes = Vec::new();
 
+    if role == RuntimeAbiRole::PanicReportConstruction {
+        attributes.push((
+            AttributeLoc::Function,
+            crate::mapping::enum_attribute("cold", 0, context)?,
+        ));
+    }
+
     if let Some(result) = runtime_indirect_result_type(context, target, role) {
         attributes.push((
             AttributeLoc::Param(0),
@@ -205,6 +212,72 @@ pub(super) fn invoke_runtime<'context>(
         .map(|result| crate::translation::allocate_temporary(context, builder, result, name))
         .transpose()?;
 
+    let completed = if role == RuntimeAbiRole::PanicReportSuppression {
+        let report = super::core::panic_report_type(context);
+        let mut owned = context.bool_type().const_zero();
+
+        for argument in arguments {
+            let value = BasicValueEnum::try_from(*argument)
+                .expect("owned report arguments retain their native representation");
+
+            let present = if let BasicValueEnum::PointerValue(pointer) = value {
+                crate::translation::report_slot_has_ownership(context, builder, pointer)?
+            } else {
+                crate::translation::report_has_ownership(context, builder, |index| {
+                    builder
+                        .build_extract_value(value.into_struct_value(), index, "report.ownership")
+                        .map_err(CodegenFailure::backend_library)
+                })?
+            };
+
+            owned = builder
+                .build_or(owned, present, "reports.have_ownership")
+                .map_err(CodegenFailure::backend_library)?;
+        }
+
+        let parent = builder
+            .get_insert_block()
+            .and_then(|block| block.get_parent())
+            .expect("report suppression belongs to a generated function");
+
+        let call = context.append_basic_block(parent, "report.suppress.owned");
+        let empty = context.append_basic_block(parent, "report.suppress.empty");
+        let completed = context.append_basic_block(parent, "report.suppress.completed");
+
+        builder
+            .build_conditional_branch(owned, call, empty)
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder.position_at_end(empty);
+
+        // Empty reports transfer no ownership. Preserve the native operation's canonical
+        // slot clearing while avoiding argument copies, temporary outcomes and native calls.
+        for argument in arguments {
+            if let BasicMetadataValueEnum::PointerValue(pointer) = argument {
+                builder
+                    .build_store(*pointer, report.const_zero())
+                    .map_err(CodegenFailure::backend_library)?;
+            }
+        }
+
+        builder
+            .build_store(
+                storage.expect("native reports use an indirect result"),
+                report.const_zero(),
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder
+            .build_unconditional_branch(completed)
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder.position_at_end(call);
+
+        Some(completed)
+    } else {
+        None
+    };
+
     let mut native_arguments = storage.into_iter().map(Into::into).collect::<Vec<_>>();
 
     for (kind, argument) in signature
@@ -271,6 +344,14 @@ pub(super) fn invoke_runtime<'context>(
 
     for (location, attribute) in runtime_attributes(context, target, role)? {
         call.add_attribute(location, attribute);
+    }
+
+    if let Some(completed) = completed {
+        builder
+            .build_unconditional_branch(completed)
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder.position_at_end(completed);
     }
 
     if let (Some(result), Some(storage)) = (result, storage) {
@@ -345,6 +426,268 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiRole;
     use bray_target::NativeTarget;
     use inkwell::context::Context;
+
+    #[test]
+    fn panic_construction_is_cold_without_cooling_ordinary_report_merges() {
+        for native in NativeTarget::ALL {
+            let context = Context::create();
+            let module = context.create_module("failure.attributes");
+
+            let target = CodegenTarget::for_native(native);
+
+            let constructor = declare_runtime_function(
+                &module,
+                &context,
+                &target,
+                RuntimeAbiRole::PanicReportConstruction,
+            )
+            .expect("panic construction has a native declaration");
+
+            let merge = declare_runtime_function(
+                &module,
+                &context,
+                &target,
+                RuntimeAbiRole::PanicReportSuppression,
+            )
+            .expect("report suppression has a native declaration");
+
+            let cold = inkwell::attributes::Attribute::get_named_enum_kind_id("cold");
+
+            assert!(
+                constructor
+                    .get_enum_attribute(inkwell::attributes::AttributeLoc::Function, cold)
+                    .is_some()
+            );
+
+            assert!(
+                merge
+                    .get_enum_attribute(inkwell::attributes::AttributeLoc::Function, cold)
+                    .is_none()
+            );
+
+            let caller =
+                module.add_function("construct", context.void_type().fn_type(&[], false), None);
+
+            let builder = context.create_builder();
+
+            builder.position_at_end(context.append_basic_block(caller, "entry"));
+
+            let arguments = RuntimeAbiRole::PanicReportConstruction
+                .native_signature()
+                .expect("native signature")
+                .parameters()
+                .iter()
+                .map(|kind| {
+                    runtime_value_type(&context, &target, *kind)
+                        .expect("native parameter type")
+                        .const_zero()
+                        .into()
+                })
+                .collect::<Vec<_>>();
+
+            invoke_runtime(
+                &context,
+                &builder,
+                &target,
+                RuntimeAbiRole::PanicReportConstruction,
+                constructor,
+                &arguments,
+                "report",
+            )
+            .expect("cold native invocation retains its ABI");
+
+            builder.build_return(None).expect("native caller returns");
+
+            module
+                .verify()
+                .expect("cold declarations and calls verify on every native ABI");
+        }
+    }
+
+    #[test]
+    fn empty_report_suppression_skips_only_unowned_native_transfers() {
+        use inkwell::types::BasicTypeEnum;
+        use inkwell::values::AnyValue;
+
+        let context = Context::create();
+        let report = crate::native::panic_report_type(&context);
+        let role = RuntimeAbiRole::PanicReportSuppression;
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+
+            let machine = crate::machine::LlvmTargetMachine::create(&target)
+                .expect("native report target creates an LLVM machine");
+
+            for owner in [None, Some(10), Some(16), Some(19), Some(20)] {
+                for owning_argument in 0..2 {
+                    for pointer_arguments in [false, true] {
+                        let module = context.create_module("report.suppression");
+
+                        module.set_data_layout(&machine.target_data().get_data_layout());
+
+                        let builder = context.create_builder();
+
+                        let wrapper =
+                            module.add_function("wrapper", report.fn_type(&[], false), None);
+
+                        builder.position_at_end(context.append_basic_block(wrapper, "entry"));
+
+                        let mut arguments = Vec::new();
+
+                        for index in 0..2 {
+                            // Non-owning header fields still need canonical empty results.
+                            let mut value = builder
+                                .build_insert_value(
+                                    report.const_zero(),
+                                    context.i32_type().const_int(1, false),
+                                    0,
+                                    "source",
+                                )
+                                .expect("report source field exists")
+                                .into_struct_value();
+
+                            if index == owning_argument
+                                && let Some(field) = owner
+                            {
+                                let nonzero: inkwell::values::BasicValueEnum<'_> = match report
+                                    .get_field_type_at_index(field)
+                                    .expect("ownership field exists")
+                                {
+                                    BasicTypeEnum::IntType(integer) => {
+                                        let bit = if owning_argument == 0 {
+                                            0
+                                        } else {
+                                            integer.get_bit_width() - 1
+                                        };
+
+                                        integer.const_int(1 << bit, false).into()
+                                    }
+                                    BasicTypeEnum::PointerType(pointer) => {
+                                        let integer =
+                                            crate::native::pointer_integer_type(&context, &target);
+
+                                        let bit = if owning_argument == 0 {
+                                            0
+                                        } else {
+                                            integer.get_bit_width() - 1
+                                        };
+
+                                        integer
+                                            .const_int(1 << bit, false)
+                                            .const_to_pointer(pointer)
+                                            .into()
+                                    }
+                                    _ => panic!("native ownership fields are scalar values"),
+                                };
+
+                                value = builder
+                                    .build_insert_value(value, nonzero, field, "owner")
+                                    .expect("report ownership field exists")
+                                    .into_struct_value();
+                            }
+
+                            if pointer_arguments {
+                                let slot = builder
+                                    .build_alloca(report, "report.slot")
+                                    .expect("report has stack storage");
+
+                                builder
+                                    .build_store(slot, value)
+                                    .expect("report slot is writable");
+
+                                arguments.push(slot.into());
+                            } else {
+                                arguments.push(value.into());
+                            }
+                        }
+
+                        let function = declare_runtime_function(&module, &context, &target, role)
+                            .expect("native suppression has a declared ABI");
+
+                        let value = invoke_runtime(
+                            &context, &builder, &target, role, function, &arguments, "suppress",
+                        )
+                        .expect("owned report suppression lowers")
+                        .expect("report suppression returns a value");
+
+                        builder
+                            .build_return(Some(&value))
+                            .expect("wrapper returns its logical report");
+
+                        module
+                            .verify()
+                            .expect("native report transfer is valid LLVM");
+
+                        machine
+                            .run_passes(&module, "default<O2>")
+                            .expect("native report transfer optimizes");
+
+                        let body = wrapper.print_to_string().to_string();
+
+                        assert_eq!(
+                            body.contains("@bray_runtime_panic_report_suppression"),
+                            owner.is_some(),
+                            "{native:?} {owner:?} {pointer_arguments}: {body}"
+                        );
+
+                        if owner.is_none() {
+                            assert!(body.contains("zeroinitializer"), "{body}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_report_suppression_clears_both_borrowed_native_slots() {
+        use inkwell::values::AnyValue;
+
+        let context = Context::create();
+        let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+        let module = context.create_module("report.suppression.slots");
+        let builder = context.create_builder();
+        let pointer = context.ptr_type(inkwell::AddressSpace::default());
+
+        let wrapper = module.add_function(
+            "wrapper",
+            context
+                .void_type()
+                .fn_type(&[pointer.into(), pointer.into()], false),
+            None,
+        );
+
+        builder.position_at_end(context.append_basic_block(wrapper, "entry"));
+
+        let arguments = wrapper.get_param_iter().map(Into::into).collect::<Vec<_>>();
+        let role = RuntimeAbiRole::PanicReportSuppression;
+
+        let function = declare_runtime_function(&module, &context, &target, role)
+            .expect("native suppression has a declared ABI");
+
+        invoke_runtime(
+            &context, &builder, &target, role, function, &arguments, "suppress",
+        )
+        .expect("native slots preserve report ownership");
+
+        builder
+            .build_return(None)
+            .expect("slot wrapper returns normally");
+
+        module
+            .verify()
+            .expect("native report slots form valid LLVM");
+
+        let body = wrapper.print_to_string().to_string();
+
+        for slot in [0, 1] {
+            assert!(
+                body.contains(&format!("zeroinitializer, ptr %{slot},")),
+                "{body}"
+            );
+        }
+    }
 
     #[test]
     fn wrong_native_argument_count_exposes_the_role() {

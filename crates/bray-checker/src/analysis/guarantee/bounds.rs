@@ -55,11 +55,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .map(|(condition, holds)| (condition.with_equalities(&equalities), *holds))
             .collect();
 
-        let proves = |operator, left, right| {
-            ExecutionCondition::operation(operator, vec![left, right])
+        let mut proves = |operator, left, right| {
+            let condition = ExecutionCondition::operation(operator, vec![left, right]);
+
+            condition
                 .with_equalities(&equalities)
                 .prove(&assumptions, &mut { ExecutionCondition::WORK_LIMIT })
                 == Some(true)
+                || self.integer_condition_truth(state, &condition, &mut ranges) == Some(true)
         };
 
         match index.kind() {
@@ -73,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     receiver,
                     self.value(state, *selector).with_equalities(&equalities),
                     true,
-                    &proves,
+                    &mut proves,
                     &mut { ExecutionCondition::WORK_LIMIT },
                 )
             }
@@ -93,7 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         receiver,
                         self.value(state, lower),
                         false,
-                        &proves,
+                        &mut proves,
                         &mut { ExecutionCondition::WORK_LIMIT },
                     ),
                     // A missing lower bound is zero, and checked slice bounds have type usize.
@@ -107,7 +110,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             receiver,
                             self.value(state, upper),
                             false,
-                            &proves,
+                            &mut proves,
                             &mut { ExecutionCondition::WORK_LIMIT },
                         )
                     })
@@ -135,7 +138,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         receiver: BoundExpressionId,
         index: ExecutionCondition,
         strict: bool,
-        proves: &impl Fn(BoundOperator, ExecutionCondition, ExecutionCondition) -> bool,
+        proves: &mut impl FnMut(BoundOperator, ExecutionCondition, ExecutionCondition) -> bool,
         budget: &mut usize,
     ) -> bool {
         let Some(remaining) = budget.checked_sub(1) else {
@@ -223,19 +226,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        self.sequence_lengths.iter().any(|length| {
-            let length = self.value(state, *length);
+        state
+            .assumptions
+            .iter()
+            .flat_map(|(condition, _)| condition.observations())
+            .any(|length| {
+                let ExecutionCondition::Call(instance, arguments) = length else {
+                    return false;
+                };
 
-            let ExecutionCondition::Call(_, arguments) = &length else {
-                return false;
-            };
+                if Some(instance.definition().symbol()) != self.sequence_length {
+                    return false;
+                }
 
-            let [observed] = arguments.as_ref() else {
-                return false;
-            };
+                let [observed] = arguments.as_ref() else {
+                    return false;
+                };
 
-            referent(&receiver) == referent(observed) && proves(operator, index.clone(), length)
-        })
+                referent(&receiver) == referent(observed)
+                    && proves(operator, index.clone(), length.clone())
+            })
     }
 }
 

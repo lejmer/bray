@@ -2,15 +2,14 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::BoundCallResult;
 use bray_codegen::{
-    CodegenCallSite, CodegenOptions, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
-    DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
-    demanded_callable_instance_for_call,
+    CodegenCallSite, CodegenOptions, CodegenTarget, DebugInformationMode, OptimizationLevel,
+    RuntimeObservationMode, SizePreference, demanded_callable_instance_for_call,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBinaryOperator, MirCall, MirCallTarget, MirEdge, MirOperand, MirOperationId,
     MirOperationKind, MirStorageKind, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey,
-    MirUnitKind, inline_scalar_call, reconstruct_reachable,
+    MirUnitKind, inline_call, reconstruct_reachable,
 };
 use bray_symbols::{CallableAbi, TypeData, TypeId};
 
@@ -18,8 +17,7 @@ use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenInstance};
 use crate::fact::CancellationToken;
 
-const MAX_CALLEE_OPERATIONS: usize = 32;
-const MAX_INSERTED_OPERATIONS: usize = 128;
+const MAX_INLINE_WORK: usize = 192;
 const MAX_INLINE_DEPTH: usize = 4;
 
 impl Compilation {
@@ -33,7 +31,7 @@ impl Compilation {
     ) -> Result<Option<MirUnit>, CodegenPreparationError> {
         if options.optimization() != OptimizationLevel::Full
             || options.debug_information() == DebugInformationMode::Full
-            || options.runtime_observations() != RuntimeObservationMode::None
+            || options.runtime_observations() == RuntimeObservationMode::Memory
             || options.size_preference() == SizePreference::MinimumSize
             || !matches!(
                 base.key(),
@@ -45,11 +43,18 @@ impl Compilation {
             return Ok(None);
         }
 
+        if !self
+            .codegen_instance_signature(owner, cancellation)?
+            .has_panic_report_context()
+        {
+            return Ok(None);
+        }
+
         let mut stack = vec![owner.key().clone()];
-        let mut remaining = MAX_INSERTED_OPERATIONS;
+        let mut remaining = MAX_INLINE_WORK;
 
         // MIR bodies own Arc-backed tables. The cached base remains immutable while expansion replaces this handle.
-        let (body, changed) = self.expand_scalar_calls(
+        let (body, changed) = self.expand_calls(
             owner,
             base.clone(),
             options,
@@ -67,7 +72,7 @@ impl Compilation {
         clippy::too_many_arguments,
         reason = "inlining carries one caller's policy, stack, and work budget"
     )]
-    fn expand_scalar_calls(
+    fn expand_calls(
         &self,
         owner: &ConcreteCodegenInstance,
         mut body: MirUnit,
@@ -79,6 +84,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<(MirUnit, bool), CodegenPreparationError> {
         let mut changed = false;
+        let mut caller_types = BTreeMap::new();
 
         if depth >= MAX_INLINE_DEPTH || *remaining == 0 {
             return Ok((body, false));
@@ -117,14 +123,8 @@ impl Compilation {
                         continue;
                     }
 
-                    let Some(callee) = self.scalar_callee(
-                        owner,
-                        &body,
-                        *operation_id,
-                        call,
-                        target,
-                        cancellation,
-                    )?
+                    let Some(callee) =
+                        self.inline_callee(owner, *operation_id, call, target, cancellation)?
                     else {
                         continue;
                     };
@@ -145,13 +145,9 @@ impl Compilation {
                     let base =
                         self.optimized_mir_for_plan(&callee, &raw, basic, target, cancellation)?;
 
-                    if base.operations().len() > MAX_CALLEE_OPERATIONS
-                        || base.blocks().len() > MAX_CALLEE_OPERATIONS
-                    {
-                        continue;
-                    }
-
-                    let cost = (base.operations().len() + call.arguments().len()).max(1);
+                    let cost = (base.operations().len().max(base.blocks().len())
+                        + call.arguments().len())
+                    .max(1);
 
                     if cost > *remaining {
                         continue;
@@ -161,7 +157,7 @@ impl Compilation {
 
                     stack.push(callee.key().clone());
 
-                    let expanded = self.expand_scalar_calls(
+                    let expanded = self.expand_calls(
                         &callee,
                         base,
                         options,
@@ -187,20 +183,63 @@ impl Compilation {
                         expanded
                     };
 
-                    let Some(concrete_types) =
-                        self.scalar_body_is_eligible(&callee, &expanded, cancellation)?
+                    let Some((concrete_types, scalar_parameters)) =
+                        self.inline_body_types(&callee, &expanded, cancellation)?
                     else {
                         continue;
                     };
 
-                    let Some(spliced) =
-                        inline_scalar_call(&body, *operation_id, &expanded, &concrete_types)
-                            .map_err(CodegenPreparationError::MirCapacity)?
+                    let callables = if scalar_parameters {
+                        BTreeMap::new()
+                    } else {
+                        self.concrete_mir_callables(&callee, &expanded, cancellation)?
+                    };
+
+                    for argument in call.arguments() {
+                        let ty = body
+                            .operand_type(argument.value())
+                            .expect("checked call argument");
+
+                        if !caller_types.contains_key(&ty) {
+                            caller_types.insert(
+                                ty,
+                                self.concrete_codegen_type(
+                                    ty,
+                                    owner.substitution(),
+                                    Some(owner),
+                                    cancellation,
+                                )?,
+                            );
+                        }
+                    }
+
+                    let Some(spliced) = inline_call(
+                        &body,
+                        *operation_id,
+                        &expanded,
+                        &concrete_types,
+                        &callables,
+                        &caller_types,
+                        scalar_parameters,
+                    )
+                    .map_err(CodegenPreparationError::MirCapacity)?
                     else {
                         continue;
                     };
 
-                    replacement = Some((spliced, tentative));
+                    let inserted = spliced
+                        .operations()
+                        .len()
+                        .saturating_sub(body.operations().len())
+                        .max(spliced.blocks().len().saturating_sub(body.blocks().len()));
+
+                    let extra = inserted.saturating_sub(*remaining - tentative);
+
+                    if extra > tentative {
+                        continue;
+                    }
+
+                    replacement = Some((spliced, tentative - extra));
                     break 'sites;
                 }
             }
@@ -217,10 +256,9 @@ impl Compilation {
         Ok((body, changed))
     }
 
-    fn scalar_callee(
+    fn inline_callee(
         &self,
         owner: &ConcreteCodegenInstance,
-        body: &MirUnit,
         operation_id: MirOperationId,
         call: &MirCall,
         target: &CodegenTarget,
@@ -230,41 +268,9 @@ impl Compilation {
             || !matches!(call.result(), BoundCallResult::Immediate(_))
             || call.is_cleanup()
             || call.intrinsic().is_some()
-            || call.trait_dispatch().is_some()
         {
             return Ok(None);
         }
-
-        let mut caller_types = BTreeMap::new();
-
-        for argument in call.arguments() {
-            if !self.scalar_operand(
-                body,
-                argument.value(),
-                owner,
-                &mut caller_types,
-                cancellation,
-            )? {
-                return Ok(None);
-            }
-        }
-
-        let Some(result) = body
-            .operation(operation_id)
-            .expect("call operation")
-            .result()
-        else {
-            return Ok(None);
-        };
-
-        let Some(result_type) = self.concrete_scalar_type(
-            body.value(result).expect("call result").ty(),
-            owner,
-            cancellation,
-        )?
-        else {
-            return Ok(None);
-        };
 
         let demand =
             demanded_callable_instance_for_call(CodegenCallSite::Operation(operation_id), call)
@@ -292,25 +298,81 @@ impl Compilation {
             return Ok(None);
         }
 
-        for parameter in signature.parameters() {
-            let CodegenParameterMapping::Direct { ty, .. } = parameter else {
-                return Ok(None);
-            };
-
-            if !self.scalar_type(*ty)? {
-                return Ok(None);
-            }
-        }
-
-        let CodegenResultMapping::Direct { ty, .. } = signature.result() else {
-            return Ok(None);
-        };
-
-        if !self.scalar_type(*ty)? || *ty != result_type {
-            return Ok(None);
-        }
-
         Ok(Some(callee))
+    }
+
+    fn inline_body_types(
+        &self,
+        instance: &ConcreteCodegenInstance,
+        body: &MirUnit,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(BTreeMap<TypeId, TypeId>, bool)>, CodegenPreparationError> {
+        // Scalar templates need only substitute operand types. Rich bodies also
+        // retain the selected trait Self and their closed callable references.
+        let values = self.semantic_value_store()?;
+
+        let borrows_input = body.storages_with_ids().any(|(_, storage)| {
+            matches!(storage.kind(), MirStorageKind::Parameter(_))
+                && matches!(
+                    values.type_data(storage.ty()).as_ref(),
+                    TypeData::Borrow { .. }
+                )
+        });
+
+        let has_bindings = instance.substitution().is_some_and(|substitution| {
+            !values
+                .generic_substitution_data(substitution)
+                .bindings()
+                .is_empty()
+        });
+
+        if !borrows_input || has_bindings {
+            return self
+                .scalar_body_is_eligible(instance, body, cancellation)
+                .map(|types| types.map(|types| (types, true)));
+        }
+
+        let mut types = BTreeMap::new();
+
+        for ty in body.referenced_types() {
+            let concrete = self.concrete_codegen_type(
+                ty,
+                instance.substitution(),
+                Some(instance),
+                cancellation,
+            )?;
+
+            types.insert(ty, concrete);
+        }
+
+        if types.iter().any(|(source, target)| source != target)
+            && !bray_codegen::demanded_constant_terms(body).is_empty()
+        {
+            return Ok(None);
+        }
+
+        if body
+            .operations()
+            .iter()
+            .any(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => call.trait_dispatch().is_some(),
+                MirOperationKind::Memory(memory) => matches!(
+                    memory.kind(),
+                    bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { .. }
+                ),
+                MirOperationKind::Async(_)
+                | MirOperationKind::Host(_)
+                | MirOperationKind::AnonymousCallable(_)
+                | MirOperationKind::DeclaredCallable(_)
+                | MirOperationKind::AdmitOutgoing { .. }
+                | MirOperationKind::DischargeOutgoing { .. } => true,
+                _ => false,
+            })
+        {
+            return Ok(None);
+        }
+
+        Ok(Some((types, false)))
     }
 
     fn scalar_body_is_eligible(
@@ -555,7 +617,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
-    use bray_ir::{MirOperationKind, MirUnitKey, inline_scalar_call};
+    use bray_ir::{MirOperationKind, MirUnitKey, inline_call};
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
         InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
@@ -663,6 +725,14 @@ mod tests {
 
         let full = reachability_for_compilation(&compilation, release);
 
+        let timed = reachability_for_compilation(
+            &compilation,
+            crate::BuildConfiguration::TimedRelease {
+                inner_iterations: std::num::NonZeroU64::new(3).expect("nonzero iterations"),
+            }
+            .codegen_options(),
+        );
+
         let observed = reachability_for_compilation(
             &compilation,
             crate::BuildConfiguration::ObservedRelease.codegen_options(),
@@ -673,11 +743,33 @@ mod tests {
         assert_eq!(none.graph().instances().len(), 3);
         assert_eq!(basic.graph().instances().len(), 3);
         assert_eq!(full.graph().instances().len(), 1);
+        assert_eq!(timed.graph().instances().len(), 1);
         assert_eq!(observed.graph().instances().len(), 3);
         assert_eq!(debug.graph().instances().len(), 3);
         assert!(direct_calls(&basic) > 0);
         assert_eq!(direct_calls(&full), 0);
+        assert_eq!(direct_calls(&timed), 0);
         assert!(full.graph().instances()[0].mir().is_valid());
+    }
+
+    #[test]
+    fn scalar_splices_keep_named_arguments_in_declaration_order() {
+        let full = reachability(
+            r"
+            module app;
+            func unused() {}
+            func select(first: bool, second: bool) -> bool {
+                return first && !second;
+            }
+            func main() {
+                if select(second = false, first = true) {} else { unused(); }
+            }
+        ",
+            crate::BuildConfiguration::Release.codegen_options(),
+        );
+
+        assert_eq!(full.graph().instances().len(), 1);
+        assert_eq!(direct_calls(&full), 0);
     }
 
     #[test]
@@ -869,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn borrowed_and_owned_arguments_do_not_inline() {
+    fn borrowed_arguments_inline_while_owned_cleanup_keeps_its_boundary() {
         let borrowed = r#"
             module app;
 
@@ -909,11 +1001,16 @@ mod tests {
             }
         "#;
 
-        for source in [borrowed, owned] {
-            let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+        let borrowed = reachability(
+            borrowed,
+            crate::BuildConfiguration::Release.codegen_options(),
+        );
 
-            assert!(direct_calls(&full) > 0);
-        }
+        assert_eq!(direct_calls(&borrowed), 0);
+
+        let owned = reachability(owned, crate::BuildConfiguration::Release.codegen_options());
+
+        assert!(direct_calls(&owned) > 0);
     }
 
     #[test]
@@ -1097,9 +1194,17 @@ mod tests {
             .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
             .expect("caller retains its selected call");
 
-        let inlined = inline_scalar_call(caller, site, callee, &BTreeMap::new())
-            .expect("MIR capacity")
-            .expect("scalar call is eligible");
+        let inlined = inline_call(
+            caller,
+            site,
+            callee,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            true,
+        )
+        .expect("MIR capacity")
+        .expect("scalar call is eligible");
 
         assert!(inlined.is_valid());
 
@@ -1108,7 +1213,7 @@ mod tests {
                 .blocks()
                 .iter()
                 .any(|block| block.parameters().len() > 1),
-            "callee blocks carry the caller's live prefix value"
+            "callee blocks carry the caller's live prefix value in SSA"
         );
     }
 
@@ -1171,9 +1276,17 @@ mod tests {
             .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
             .expect("call site");
 
-        let inlined = inline_scalar_call(caller.mir(), site, callee.mir(), &BTreeMap::new())
-            .expect("MIR capacity")
-            .expect("scalar splice");
+        let inlined = inline_call(
+            caller.mir(),
+            site,
+            callee.mir(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            true,
+        )
+        .expect("MIR capacity")
+        .expect("scalar splice");
 
         assert_ne!(operation.source(), callee.mir().blocks()[0].source());
 
@@ -1222,7 +1335,12 @@ mod tests {
                 )
                 .with_native_link_inputs(native_links.iter().cloned()),
             )
-            .with_package_interface_export(export),
+            .with_package_interface_export(export)
+            .with_dependency_interfaces([
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
         )
         .expect("library compilation");
 
@@ -1268,7 +1386,12 @@ mod tests {
                 )
                 .with_native_link_inputs(native_links.iter().cloned()),
             )
-            .with_dependency_interfaces([dependency]),
+            .with_dependency_interfaces([
+                dependency,
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
         )
         .expect("consumer compilation");
 
@@ -1391,6 +1514,173 @@ mod tests {
     }
 
     #[test]
+    fn source_and_imported_static_borrowed_adapters_inline_before_outcome_lowering() {
+        let adapter = r#"
+            module adapters;
+            public struct Sink { mut length: usize; }
+            public struct Failure { detail: string; }
+            func checked_length(pos count: usize) -> usize { assert(count != 0); return count; }
+            func checked_count<T>(pos count: usize) -> Result<usize, Failure> {
+                assert(count != 0);
+                return Ok(count);
+            }
+            public trait Writer {
+                mut func write(pos bytes: &[u8]) -> Result<usize, Failure>;
+                mut func complete(pos bytes: &[u8]) -> usize {
+                    let length: usize = match consume checked_count<Self>(bytes.length()) {
+                        case Ok(count) { yield count; }
+                        case Error(_) { panic("length failed"); }
+                    };
+                    let mut written: usize = 0;
+                    while written < length {
+                        let result: Result<usize, Failure> = self.write(&bytes[written..length]);
+                        match result {
+                            case Ok(count) {
+                                if count == length - written { return length; }
+                            }
+                            case Error(_) {}
+                        }
+                        match consume result {
+                            case Ok(count) {
+                                assert(count > 0 && count <= length - written);
+                                written += count;
+                            }
+                            case Error(error) { panic("write failed"); }
+                        }
+                    }
+                    return length;
+                }
+            }
+            impl SinkWriter = Sink(Writer) {
+                mut func write(pos bytes: &[u8]) -> Result<usize, Failure> {
+                    let count: usize = checked_length(bytes.length());
+                    self.length = count;
+                    return Ok(count);
+                }
+            }
+        "#;
+
+        let source = crate::Compilation::load(
+            crate::CompilationRequest::with_options(
+                crate::test_support::package_identity(),
+                vec![crate::test_support::source_input(
+                    &format!(
+                        "{adapter} func main() {{ let mut sink: Sink = {{ length = 0 }}; let bytes: [u8; 4] = [1; 4]; assert(sink.complete(&bytes[..]) == 4); assert(sink.length == 4); }}"
+                    ),
+                    0,
+                )],
+                crate::CompilationOptions::new(
+                    crate::WorkerBudget::serial(),
+                    bray_symbols::ProductKind::Executable,
+                    crate::SelectedTarget::baseline(),
+                ),
+            )
+            .with_dependency_interfaces([
+                crate::test_support::runtime_standard_library_dependency(
+                    &crate::SelectedTarget::baseline(),
+                ),
+            ]),
+        )
+        .expect("source compilation");
+
+        let imported = imported_consumer(
+            adapter,
+            r"
+            module app;
+            using example.dependency.adapters;
+            using example.dependency.adapters.SinkWriter;
+            func main() {
+                let mut sink: example.dependency.adapters.Sink = { length = 0 };
+                let bytes: [u8; 4] = [1; 4];
+                assert(sink.complete(&bytes[..]) == 4);
+                assert(sink.length == 4);
+            }
+        ",
+        );
+
+        for compilation in [&source, &imported] {
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            for configuration in [
+                crate::BuildConfiguration::Development,
+                crate::BuildConfiguration::Release,
+                crate::BuildConfiguration::TimedRelease {
+                    inner_iterations: std::num::NonZeroU64::new(3).expect("nonzero iterations"),
+                },
+            ] {
+                let graph =
+                    reachability_for_compilation(compilation, configuration.codegen_options());
+
+                let retained_adapter = graph.graph().instances().iter().any(|instance| {
+                    match instance.key().template() {
+                        MirUnitKey::Bound(key) => {
+                            matches!(
+                                key.declared_owner().kind(),
+                                bray_symbols::SymbolKind::TraitCallableFulfillment
+                                    | bray_symbols::SymbolKind::TraitCallableMember
+                            )
+                        }
+                        MirUnitKey::ImportedExecutable(key) => {
+                            matches!(
+                                key.owner().kind(),
+                                bray_symbols::SymbolKind::TraitCallableFulfillment
+                                    | bray_symbols::SymbolKind::TraitCallableMember
+                            )
+                        }
+                        _ => false,
+                    }
+                });
+
+                assert_eq!(
+                    retained_adapter,
+                    configuration == crate::BuildConfiguration::Development
+                );
+
+                if configuration != crate::BuildConfiguration::Development {
+                    let values = compilation.semantic_value_store().expect("semantic values");
+                    let mut type_arguments = 0;
+
+                    for instance in graph.graph().instances() {
+                        let concrete = graph.instance(instance.key()).expect("concrete instance");
+
+                        let Some(substitution) = concrete.substitution() else {
+                            continue;
+                        };
+
+                        for binding in values.generic_substitution_data(substitution).bindings() {
+                            if let bray_symbols::GenericArgument::Type(ty) = binding.argument() {
+                                assert!(!matches!(
+                                    values.type_data(ty).as_ref(),
+                                    bray_symbols::TypeData::ContextualSelf(_)
+                                ));
+
+                                type_arguments += 1;
+                            }
+                        }
+                    }
+
+                    assert!(
+                        type_arguments > 0,
+                        "the generic helper remains a closed call"
+                    );
+                }
+
+                assert!(
+                    graph
+                        .graph()
+                        .instances()
+                        .iter()
+                        .all(|instance| instance.mir().is_valid())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn imported_scalar_template_inlines_at_concrete_call() {
         let consumer = imported_consumer(
             r#"
@@ -1447,9 +1737,17 @@ mod tests {
             .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
             .expect("imported call site");
 
-        let inlined = inline_scalar_call(caller.mir(), site, imported.mir(), &BTreeMap::new())
-            .expect("MIR capacity")
-            .expect("scalar splice");
+        let inlined = inline_call(
+            caller.mir(),
+            site,
+            imported.mir(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+            true,
+        )
+        .expect("MIR capacity")
+        .expect("scalar splice");
 
         assert!(inlined.is_valid());
         assert_ne!(imported.mir().blocks()[0].source(), operation.source());

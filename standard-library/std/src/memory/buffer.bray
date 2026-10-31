@@ -177,7 +177,6 @@ trusted internal func reserve_raw_buffer<T>(
     additional: usize,
     growth: CapacityGrowth,
 ) -> Result<unit, MemoryLayoutError>
-    uses(manual_alloc, raw_memory, unchecked_init)
 {
     let current_length: usize = buffer.initialized;
 
@@ -186,8 +185,18 @@ trusted internal func reserve_raw_buffer<T>(
         return Ok(unit);
     }
 
+    return trusted internal grow_raw_buffer<T>(buffer, additional = additional, growth = growth);
+}
+
+trusted internal func grow_raw_buffer<T>(
+    pos buffer: &mut RawBuffer<T>,
+    additional: usize,
+    growth: CapacityGrowth,
+) -> Result<unit, MemoryLayoutError>
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
     let replacement_capacity: usize = try growth_capacity(
-        current_length = current_length,
+        current_length = buffer.initialized,
         current_capacity = buffer.capacity,
         additional = additional,
         growth = growth,
@@ -277,16 +286,17 @@ trusted internal func fill_spare_bytes(pos buffer: &mut RawBuffer<u8>, value: u8
 }
 
 trusted internal func copy_spare_bytes(pos buffer: &mut RawBuffer<u8>, pos bytes: &[u8], count: usize) -> usize
+    requires(
+        count <= bytes.length(),
+        buffer.initialized <= buffer.capacity,
+        count <= buffer.capacity - buffer.initialized,
+    )
+    executes(total)
     ensures(
         result <= buffer.capacity,
         trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
     )
 {
-    if !(count <= bytes.length())
-    {
-        panic("byte copy exceeds its source storage");
-    }
-
     let source: DataPointer<u8> = internal slice_pointer<u8>(bytes, count = count);
 
     return trusted internal copy_spare_raw_bytes(buffer, source = source, count = count);
@@ -298,6 +308,8 @@ trusted internal func copy_spare_raw_bytes(
     count: usize
 ) -> usize
     requires(
+        buffer.initialized <= buffer.capacity,
+        count <= buffer.capacity - buffer.initialized,
         trusted core.memory.valid_read<u8>(pointer = source, count = count),
         trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
     )
@@ -305,19 +317,9 @@ trusted internal func copy_spare_raw_bytes(
         result <= buffer.capacity,
         trusted core.memory.initialized_range_as<u8>(pointer = buffer.pointer, count = result),
     )
+    executes(total)
     uses(raw_memory, unchecked_init)
-    when(count <= buffer.capacity - buffer.initialized)
-    {
-        executes(total)
-    }
 {
-    let available: usize = buffer.capacity - buffer.initialized;
-
-    if count > available
-    {
-        panic("byte copy exceeds spare buffer storage");
-    }
-
     let initialized: usize = initialized_count<u8>(&buffer);
     let destination: DataPointer<u8> = trusted spare_pointer<u8>(buffer);
 

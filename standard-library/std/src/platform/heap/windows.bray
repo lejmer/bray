@@ -7,12 +7,11 @@ trusted internal func allocate(pos bytes: usize, align: usize) -> DataPointer<u8
     return trusted aligned_allocate(bytes = bytes, alignment = align);
 }
 
-trusted internal func deallocate(pos allocation: DataPointer<u8>) -> bool
+trusted internal func deallocate(pos allocation: DataPointer<u8>) -> unit
+    executes(total)
     uses(foreign_call)
 {
     trusted aligned_free(allocation);
-
-    return true;
 }
 
 @link(name = "ucrt", kind = system)
@@ -25,4 +24,5 @@ extern trusted func aligned_allocate(pos bytes: usize, pos alignment: usize) -> 
 @symbol(name = "_aligned_free")
 @abi(c)
 extern trusted func aligned_free(pos allocation: DataPointer<u8>) -> unit
+    executes(total)
     uses(foreign_call);

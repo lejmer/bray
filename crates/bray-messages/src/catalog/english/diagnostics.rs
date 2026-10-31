@@ -1894,6 +1894,11 @@ const NOTE_LINK_PLAN_CONTEXT: &[MessageTemplatePart] = &[
 const NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
     "select a readable runtime artifact built for the selected target and runtime ABI",
 )];
+const NOTE_STANDARD_LIBRARY_DEPENDENCY_REQUIRED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text(
+        "configure a standard-library bundle for the selected target, or supply its compiled 'std' dependency",
+    ),
+];
 const NOTE_AWAIT_DEPENDENCY_UNAVAILABLE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::DependencySubjectKind),
     MessageTemplatePart::Text(" must "),
@@ -2071,7 +2076,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::UniqueTestIdentityRequired
         | DiagnosticNoteKind::PublicDependencyRequired
         | DiagnosticNoteKind::ExternalToolExitRequiresCorrection
-        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable => RenderedDiagnosticNoteKind::Help,
+        | DiagnosticNoteKind::RuntimeArtifactMustBeUsable
+        | DiagnosticNoteKind::StandardLibraryDependencyRequired => RenderedDiagnosticNoteKind::Help,
     }
 }
 
@@ -3218,6 +3224,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::RuntimeArtifactMustBeUsable => {
             MessageTemplate::new(NOTE_RUNTIME_ARTIFACT_MUST_BE_USABLE)
+        }
+        DiagnosticNoteKind::StandardLibraryDependencyRequired => {
+            MessageTemplate::new(NOTE_STANDARD_LIBRARY_DEPENDENCY_REQUIRED)
         }
         DiagnosticNoteKind::AwaitDependencyUnavailable => {
             MessageTemplate::new(NOTE_AWAIT_DEPENDENCY_UNAVAILABLE)

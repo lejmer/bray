@@ -22,6 +22,7 @@ trusted internal func take_report(pos pointer: DataPointer<PanicReportData>) -> 
         trusted core.memory.valid_read<PanicReportData>(pointer = pointer, count = 1),
         trusted core.memory.initialized_as<PanicReportData>(pointer = pointer)
     )
+    executes(total)
     uses(raw_memory, unchecked_init)
 {
     let owned: PanicReportData = trusted std.memory.read<PanicReportData>(pointer);
@@ -61,6 +62,7 @@ trusted internal func take_primary_report(
         trusted core.memory.aligned_for<PanicReportData>(pointer = incident),
         trusted core.memory.initialized_as<PanicReportData>(pointer = incident),
     )
+    executes(total)
     uses(raw_memory, unchecked_init)
 {
     let owned: PanicReportData = trusted std.memory.read<PanicReportData>(primary);
@@ -109,6 +111,11 @@ trusted internal func suppress_report(pos report: PanicReportData, pos suppresse
     )
     ensures(trusted native_report_callbacks(report = &result))
 {
+    if report_is_empty(&report) && report_is_empty(&suppressed)
+    {
+        return empty_panic_report();
+    }
+
     let (primary, mut chain, mut incident_records) = if report.primary_present == 0
     {
         let earlier = trusted retain_report(report);

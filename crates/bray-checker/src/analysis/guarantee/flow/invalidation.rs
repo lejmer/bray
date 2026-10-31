@@ -8,6 +8,176 @@ use super::super::state::ExecutionState;
 use bray_bound_tree::StorageInvalidation;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    fn disjoint_initialized_values(
+        &self,
+        state: &ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
+    ) -> BTreeSet<ExecutionCondition> {
+        use bray_bound_tree::{CheckedMemoryOperationKind as Operation, MemoryReadKind};
+
+        let bray_bound_tree::StorageMutation::Operation(occurrence) = mutation else {
+            return BTreeSet::new();
+        };
+
+        let Some(operation) = occurrence
+            .expression()
+            .and_then(|expression| self.memory.operation(expression))
+        else {
+            return BTreeSet::new();
+        };
+
+        let pointee = match operation.kind() {
+            Operation::Read {
+                pointee,
+                kind: MemoryReadKind::Move,
+            }
+            | Operation::Write { pointee } => *pointee,
+            _ => return BTreeSet::new(),
+        };
+
+        let Some(pointer) = state.entries.get(&occurrence).and_then(|entry| {
+            crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
+                .value_in(&entry.arguments)
+        }) else {
+            return BTreeSet::new();
+        };
+
+        let predicate = |name| {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                .expect("closed memory predicate key must be valid");
+
+            self.request
+                .context()
+                .available_compiler_known_symbols()
+                .provider()
+                .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                .map(Into::into)
+        };
+
+        let non_overlapping = predicate("NonOverlapping");
+        let initialized = predicate("InitializedAs");
+        let equalities = ExecutionCondition::equalities(&state.assumptions, None);
+
+        let normalize = |condition: &ExecutionCondition| condition.with_equalities(&equalities);
+
+        let pointer = normalize(&pointer);
+
+        if pointer.observation_path().is_none() {
+            return BTreeSet::new();
+        }
+
+        let element_matches = |substitution| {
+            let substitution = self
+                .request
+                .semantic_values()
+                .generic_substitution_data(substitution);
+
+            matches!(substitution.bindings(), [binding] if binding.argument() == bray_symbols::GenericArgument::Type(pointee))
+        };
+
+        let count = |value: &ExecutionCondition| match value {
+            ExecutionCondition::Literal(value) => match value.kind() {
+                bray_symbols::ConstantValueKind::Integer(value) => value.to_u64(),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        // These facts bound exactly one typed slot. Do not preserve opaque predicates:
+        // they can observe reachable storage outside a disjoint header's own bytes.
+        let mut disjoint = BTreeSet::new();
+        let mut preserved = BTreeSet::new();
+
+        for (original, holds) in &state.trusted_assumptions {
+            if !holds {
+                continue;
+            }
+
+            let ExecutionCondition::Trusted(condition) = normalize(original) else {
+                continue;
+            };
+
+            let ExecutionCondition::Predicate(identity, substitution, arguments) =
+                condition.as_ref()
+            else {
+                continue;
+            };
+
+            if Some(*identity) != non_overlapping || !element_matches(*substitution) {
+                continue;
+            }
+
+            let [left, left_count, right, right_count] = arguments.as_ref() else {
+                continue;
+            };
+
+            // Contents transfers do not change this captured spatial relation. Its
+            // original carrier and owner dependencies still expire normally.
+            preserved.insert(original.clone());
+
+            if left == right
+                || left.observation_path().is_none()
+                || right.observation_path().is_none()
+            {
+                continue;
+            }
+
+            if !count(left_count).is_some_and(|count| count >= 1)
+                || !count(right_count).is_some_and(|count| count >= 1)
+            {
+                continue;
+            }
+
+            if left == &pointer {
+                disjoint.insert(right.clone());
+            }
+
+            if right == &pointer {
+                disjoint.insert(left.clone());
+            }
+        }
+
+        preserved.extend(
+            state
+                .trusted_assumptions
+                .iter()
+                .filter_map(|(original, holds)| {
+                    if !holds {
+                        return None;
+                    }
+
+                    let ExecutionCondition::Trusted(condition) = normalize(original) else {
+                        return None;
+                    };
+
+                    let ExecutionCondition::Predicate(identity, substitution, arguments) =
+                        condition.as_ref()
+                    else {
+                        return None;
+                    };
+
+                    if !element_matches(*substitution) {
+                        return None;
+                    }
+
+                    let pointer = match arguments.as_ref() {
+                        [pointer] if Some(*identity) == initialized => pointer,
+                        [pointer, extent]
+                            if Some(*identity) == self.initialized_range
+                                && count(extent) == Some(1) =>
+                        {
+                            pointer
+                        }
+                        _ => return None,
+                    };
+
+                    disjoint.contains(pointer).then(|| original.clone())
+                }),
+        );
+
+        preserved
+    }
+
     fn storage_places<'state>(
         &'state self,
         state: &'state ExecutionState,
@@ -275,6 +445,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .collect::<Vec<_>>();
 
             let unstable = BTreeSet::new();
+            let preserved = self.disjoint_initialized_values(state, mutation);
 
             state.invalidate_referents(
                 &observed,
@@ -283,6 +454,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 } else {
                     &unstable
                 },
+                &preserved,
             );
         }
 

@@ -55,7 +55,7 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(in crate::analysis::guarantee) dependencies:
         &'a bray_bound_tree::CheckedDependencyContracts,
     pub(in crate::analysis::guarantee) has_bounds_checks: bool,
-    pub(in crate::analysis::guarantee) sequence_lengths: &'a [BoundExpressionId],
+    pub(in crate::analysis::guarantee) sequence_length: Option<bray_symbols::AnySymbolId>,
     pub(super) observed_types: &'a BTreeMap<crate::ExecutionPlace, Option<bray_symbols::TypeId>>,
     pub(in crate::analysis::guarantee) borrowed_inputs: &'a BTreeSet<crate::ExecutionPlace>,
     pub(in crate::analysis::guarantee) scope_places: &'a BTreeMap<

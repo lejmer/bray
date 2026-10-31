@@ -7,6 +7,30 @@ using std.testing;
 const LIB_NAME: bytes<4> = b"lib\0";
 
 @test
+func large_repeated_arrays_preserve_byte_and_wider_element_values()
+{
+    let bytes: [u8; 4096] = [120; 4096];
+    let signed: [i8; 17] = [-3; 17];
+    let words: [u16; 17] = [0x1234; 17];
+    let mut index: usize = 0;
+
+    while index < bytes.length()
+    {
+        assert(bytes[index] == 120);
+        index += 1;
+    }
+
+    index = 0;
+
+    while index < signed.length()
+    {
+        assert(signed[index] == -3);
+        assert(words[index] == 0x1234);
+        index += 1;
+    }
+}
+
+@test
 func byte_literals_use_fixed_array_storage()
 {
     let text: bytes = b"lib\0";

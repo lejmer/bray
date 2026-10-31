@@ -358,7 +358,8 @@ impl MirOperationKind {
                     ty: *error,
                 });
             }
-            Self::Store { .. }
+            Self::TakeIncomingReport { .. }
+            | Self::Store { .. }
             | Self::Borrow { .. }
             | Self::Unary { .. }
             | Self::Binary { .. }
