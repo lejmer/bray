@@ -3124,6 +3124,7 @@ static int check_task_cancellation(void)
     uint64_t runtime = bray_runtime_task_control_creation();
     size_t previous_bytes = atomic_load(&retained_bytes);
     unsigned setup_attempts = atomic_load(&allocation_attempts);
+    uintptr_t cell_stride = UINTPTR_MAX;
 
     for (unsigned index = 0; index < TASKS; ++index)
     {
@@ -3131,11 +3132,21 @@ static int check_task_cancellation(void)
 
         if (runtime == 0 || handle == 0 || bray_runtime_task_control_retention(runtime, handle, &cells[index]) != 0)
             return 194;
+
+        if (index != 0)
+        {
+            uintptr_t first = cells[index - 1].address;
+            uintptr_t second = cells[index].address;
+            uintptr_t distance = first > second ? first - second : second - first;
+
+            if (distance < cell_stride)
+                cell_stride = distance;
+        }
     }
 
     size_t pooled_bytes = atomic_load(&retained_bytes) - previous_bytes;
-    printf("task_control admitted=%u pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
-        TASKS, pooled_bytes, (double)pooled_bytes / TASKS,
+    printf("task_control admitted=%u cell_stride_bytes=%zu pool_requested_bytes=%zu pool_bytes_per_cell=%.1f setup_allocations=%u\n",
+        TASKS, (size_t)cell_stride, pooled_bytes, (double)pooled_bytes / TASKS,
         atomic_load(&allocation_attempts) - setup_attempts);
 
     unsigned attempts = atomic_load(&allocation_attempts);
