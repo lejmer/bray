@@ -669,11 +669,13 @@ fn uninit_static_payloads_preserve_relocations_without_cleanup_admission() {
             .iter()
             .any(|mapping| !mapping.relocations().is_empty())
     );
+
     assert!(
         mappings
             .iter()
             .all(|mapping| mapping.outgoing_requirements().is_empty())
     );
+
     assert!(
         plan.product_host()
             .is_none_or(|host| host.statics().is_empty())
