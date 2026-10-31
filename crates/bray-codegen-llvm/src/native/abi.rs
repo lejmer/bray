@@ -555,13 +555,29 @@ mod tests {
                                     .expect("ownership field exists")
                                 {
                                     BasicTypeEnum::IntType(integer) => {
-                                        integer.const_int(1, false).into()
+                                        let bit = if owning_argument == 0 {
+                                            0
+                                        } else {
+                                            integer.get_bit_width() - 1
+                                        };
+
+                                        integer.const_int(1 << bit, false).into()
                                     }
-                                    BasicTypeEnum::PointerType(pointer) => context
-                                        .i64_type()
-                                        .const_int(1, false)
-                                        .const_to_pointer(pointer)
-                                        .into(),
+                                    BasicTypeEnum::PointerType(pointer) => {
+                                        let integer =
+                                            crate::native::pointer_integer_type(&context, &target);
+
+                                        let bit = if owning_argument == 0 {
+                                            0
+                                        } else {
+                                            integer.get_bit_width() - 1
+                                        };
+
+                                        integer
+                                            .const_int(1 << bit, false)
+                                            .const_to_pointer(pointer)
+                                            .into()
+                                    }
                                     _ => panic!("native ownership fields are scalar values"),
                                 };
 

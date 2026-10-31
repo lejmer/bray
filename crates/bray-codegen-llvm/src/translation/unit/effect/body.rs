@@ -22,13 +22,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .panic_report_context
                     .expect("an inlined report transfer requires its Bray incoming context");
 
-                if let Some(report) = normal_report {
-                    let report = self.operand(report)?;
+                let report = normal_report
+                    .as_ref()
+                    .map(|report| self.operand(report))
+                    .transpose()?;
 
-                    self.publish_normal_report(report)?;
-                }
-
-                self.take_completed_call_report(context, destination)?;
+                self.take_completed_call_report(context, destination, report)?;
 
                 None
             }

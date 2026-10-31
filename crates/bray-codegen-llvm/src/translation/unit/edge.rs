@@ -298,7 +298,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let route = self.begin_route("call.completed", moved_reports);
 
         if let Some(report) = report {
-            self.take_completed_call_report(context, report)?;
+            self.take_completed_call_report(context, report, None)?;
         }
 
         self.add_edge_arguments(edge)?;
@@ -374,9 +374,49 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         context: PointerValue<'context>,
         destination: &MirPlace,
+        normal_report: Option<BasicValueEnum<'context>>,
     ) -> Result<(), CodegenFailure> {
         let outcome_type =
             crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let continued = self
+            .types
+            .context()
+            .append_basic_block(self.function, "call.report.taken");
+
+        if let Some(report) = normal_report {
+            let owned = crate::translation::panic::report_has_ownership(
+                self.types.context(),
+                &self.builder,
+                |index| extract_value(&self.builder, report, index),
+            )?;
+
+            let returned = self
+                .types
+                .context()
+                .append_basic_block(self.function, "call.report.returned");
+
+            let incoming = self
+                .types
+                .context()
+                .append_basic_block(self.function, "call.report.incoming");
+
+            llvm(
+                self.builder
+                    .build_conditional_branch(owned, returned, incoming),
+            )?;
+
+            self.builder.position_at_end(returned);
+
+            // Publishing this owner and immediately collecting it has the same
+            // destination and empty outcome, without copying through the context.
+            let destination = self.place(destination)?;
+
+            llvm(self.builder.build_store(destination, report))?;
+            llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
+            llvm(self.builder.build_unconditional_branch(continued))?;
+            self.builder.position_at_end(incoming);
+        }
 
         let report =
             llvm(
@@ -399,11 +439,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .types
             .context()
             .append_basic_block(self.function, "call.report.empty");
-
-        let continued = self
-            .types
-            .context()
-            .append_basic_block(self.function, "call.report.taken");
 
         llvm(
             self.builder

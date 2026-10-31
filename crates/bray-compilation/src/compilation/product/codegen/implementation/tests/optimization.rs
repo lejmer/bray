@@ -296,6 +296,74 @@ fn empty_normal_reports_do_not_write_the_callers_outcome() {
 
 #[test]
 #[ignore = "tier:native"]
+fn inlined_normal_reports_transfer_directly_without_republishing_the_context() {
+    let (backend, compilation) = codegen_compilation(source_request_with_runtime(
+        &[r"
+            module app;
+            public struct Cell { enabled: bool; }
+            func invoke(pos cell: &Cell, pos operation: func() -> u8) -> u8 {
+                if cell.enabled { return operation(); }
+                return 0;
+            }
+            public func forward(pos cell: &Cell, pos operation: func() -> u8) -> u8 {
+                return invoke(cell, operation);
+            }
+            "],
+        CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        ),
+    ));
+
+    for configuration in [
+        crate::BuildConfiguration::Release,
+        crate::BuildConfiguration::TimedRelease {
+            inner_iterations: std::num::NonZeroU64::new(3).expect("nonzero iterations"),
+        },
+    ] {
+        let plan = compilation
+            .native_product_plan(test_product_identity(), configuration, None, [], None)
+            .expect("borrowed callback adapter must reach native lowering");
+
+        // Inspect release MIR before LLVM can fold its ownership branches.
+        let options = plan
+            .options()
+            .with_optimization(bray_codegen::OptimizationLevel::None);
+
+        let ir = super::support::artifacts::generated_artifacts_of_kind_with_options(
+            &backend,
+            &plan,
+            bray_codegen::BackendArtifactKind::BackendIr,
+            &options,
+        )
+        .into_iter()
+        .map(|bytes| String::from_utf8(bytes).expect("backend IR is UTF-8"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+        let routes = ir
+            .split("\ncall.report.returned")
+            .skip(1)
+            .map(|route| route.split("\n\n").next().expect("owned report route"))
+            .collect::<Vec<_>>();
+
+        assert!(!routes.is_empty(), "{configuration:?}: {ir}");
+
+        for route in routes {
+            assert_eq!(route.matches("store ").count(), 2, "{route}");
+            assert!(route.contains("zeroinitializer"), "{route}");
+            assert!(!route.contains("insertvalue"), "{route}");
+            assert!(!route.contains("llvm.memcpy"), "{route}");
+        }
+
+        assert!(ir.contains("call.report.incoming"), "{ir}");
+        assert!(ir.contains("call.report.empty"), "{ir}");
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn host_volatile_contracts_bind_memory_predicates_for_scalars_and_pointers() {
     for element in ["u8", "DataPointer<u8>"] {
         let ir = library_ir(
