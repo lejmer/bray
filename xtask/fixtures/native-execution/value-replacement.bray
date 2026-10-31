@@ -434,16 +434,18 @@ async func borrowed_cancellation(pos panic_first: bool)
         }
     };
 
-    let task = borrowed_task(&mut slot).start();
-    let result = await task.join();
+    {
+        let task = borrowed_task(&mut slot).start();
+        let result = await task.join();
 
-    if panic_first
-    {
-        assert(result matches Panicked(_));
-    }
-    else
-    {
-        assert(result matches Cancelled);
+        if panic_first
+        {
+            assert(result matches Panicked(_));
+        }
+        else
+        {
+            assert(result matches Cancelled);
+        }
     }
 
     assert(slot.value.left.id == 3);
