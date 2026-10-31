@@ -41,6 +41,7 @@ impl Tier {
 }
 
 pub(super) struct Options {
+    pub(super) profile: String,
     pub(super) tier: Tier,
     pub(super) shard: usize,
     pub(super) shards: usize,
@@ -50,6 +51,7 @@ pub(super) struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
+            profile: "test".to_owned(),
             tier: Tier::Fast,
             shard: 1,
             shards: 1,
@@ -61,7 +63,7 @@ impl Default for Options {
 impl Options {
     pub(super) fn parse(mut arguments: impl Iterator<Item = String>) -> Result<Self, String> {
         if arguments.next().as_deref() != Some("compiler") {
-            return Err("usage: cargo xtask test compiler [--tier fast|native|proof|exhaustive|all] [--shard index/count] [--timeout-seconds seconds]".to_owned());
+            return Err("usage: cargo xtask test compiler [--profile profile] [--tier fast|native|proof|exhaustive|all] [--shard index/count] [--timeout-seconds seconds]".to_owned());
         }
 
         let mut options = Self::default();
@@ -72,6 +74,7 @@ impl Options {
                 .ok_or_else(|| format!("missing value for {argument}"))?;
 
             match argument.as_str() {
+                "--profile" => options.profile = value,
                 "--tier" => options.tier = Tier::parse(&value)?,
                 "--timeout-seconds" => {
                     let seconds: u32 = value
@@ -124,6 +127,8 @@ mod tests {
         let options = Options::parse(
             [
                 "compiler",
+                "--profile",
+                "ci",
                 "--tier",
                 "proof",
                 "--shard",
@@ -142,5 +147,7 @@ mod tests {
         );
 
         assert_eq!(options.timeout, std::time::Duration::from_secs(90));
+        assert_eq!(options.profile, "ci");
+        assert_eq!(Options::default().profile, "test");
     }
 }

@@ -14,11 +14,13 @@ pub(super) struct SelectedTest {
     pub(super) tier: String,
 }
 
-pub(super) fn inventory(root: &Path) -> Result<Vec<SelectedTest>, String> {
+pub(super) fn inventory(root: &Path, profile: &str) -> Result<Vec<SelectedTest>, String> {
     let mut build = std::process::Command::new("cargo");
 
     build.current_dir(root).args([
         "test",
+        "--profile",
+        profile,
         "-p",
         "bray-compilation",
         "--no-run",

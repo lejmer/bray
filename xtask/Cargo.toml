@@ -8,54 +8,93 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+default = ["full"]
+# Compiler tests only need process execution, discovery, and reporting.
+full = [
+    "dep:cc",
+    "dep:bray-base",
+    "dep:bray-codegen",
+    "dep:bray-codegen-llvm",
+    "dep:bray-compilation",
+    "dep:bray-declarations",
+    "dep:bray-compiler-known",
+    "dep:bray-diagnostics",
+    "dep:bray-driver",
+    "dep:bray-emitter",
+    "dep:bray-formatter",
+    "dep:bray-linker",
+    "dep:bray-native-artifact",
+    "dep:bray-numeric",
+    "dep:bray-package-interface",
+    "dep:bray-profile",
+    "dep:bray-project",
+    "dep:bray-runtime-abi",
+    "dep:bray-runtime-interface",
+    "dep:bray-source",
+    "dep:bray-standard-library",
+    "dep:bray-symbols",
+    "dep:bray-syntax",
+    "dep:bray-target",
+    "dep:bray-test-protocol",
+    "dep:bray-tooling",
+    "dep:rust-style",
+    "dep:object",
+    "dep:quote",
+    "dep:rayon",
+    "dep:sha2",
+    "dep:unicode-width",
+    "dep:inkwell",
+]
+
 [dependencies]
-cc = "1.2.48"
-bray-base = { path = "../crates/bray-base" }
+cc = { version = "1.2.48", optional = true }
+bray-base = { path = "../crates/bray-base", optional = true }
 bray-llvm-toolchain = { path = "../tools/llvm-toolchain" }
-bray-codegen = { path = "../crates/bray-codegen" }
-bray-codegen-llvm = { path = "../crates/bray-codegen-llvm" }
-bray-compilation = { path = "../crates/bray-compilation" }
-bray-declarations = { path = "../crates/bray-declarations" }
-bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
-bray-diagnostics = { path = "../crates/bray-diagnostics" }
-bray-driver = { path = "../crates/bray-driver" }
-bray-emitter = { path = "../crates/bray-emitter" }
-bray-formatter = { path = "../crates/bray-formatter" }
-bray-linker = { path = "../crates/bray-linker" }
-bray-native-artifact = { path = "../crates/bray-native-artifact" }
-bray-numeric = { path = "../crates/bray-numeric" }
-bray-package-interface = { path = "../crates/bray-package-interface" }
-bray-profile = { path = "../crates/bray-profile" }
-bray-project = { path = "../crates/bray-project" }
-bray-runtime-abi = { path = "../crates/bray-runtime-abi" }
-bray-runtime-interface = { path = "../crates/bray-runtime-interface" }
-bray-source = { path = "../crates/bray-source" }
-bray-standard-library = { path = "../crates/bray-standard-library" }
-bray-symbols = { path = "../crates/bray-symbols" }
-bray-syntax = { path = "../crates/bray-syntax" }
-bray-target = { path = "../crates/bray-target" }
-bray-test-protocol = { path = "../crates/bray-test-protocol", features = ["serialization"] }
-bray-tooling = { path = "../crates/bray-tooling" }
-rust-style = { path = "../tools/rust-style" }
-object = { version = "=0.39.1", default-features = false, features = ["read", "std"] }
-quote = "1"
-rayon = "1.11.0"
+bray-codegen = { path = "../crates/bray-codegen", optional = true }
+bray-codegen-llvm = { path = "../crates/bray-codegen-llvm", optional = true }
+bray-compilation = { path = "../crates/bray-compilation", optional = true }
+bray-declarations = { path = "../crates/bray-declarations", optional = true }
+bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"], optional = true }
+bray-diagnostics = { path = "../crates/bray-diagnostics", optional = true }
+bray-driver = { path = "../crates/bray-driver", optional = true }
+bray-emitter = { path = "../crates/bray-emitter", optional = true }
+bray-formatter = { path = "../crates/bray-formatter", optional = true }
+bray-linker = { path = "../crates/bray-linker", optional = true }
+bray-native-artifact = { path = "../crates/bray-native-artifact", optional = true }
+bray-numeric = { path = "../crates/bray-numeric", optional = true }
+bray-package-interface = { path = "../crates/bray-package-interface", optional = true }
+bray-profile = { path = "../crates/bray-profile", optional = true }
+bray-project = { path = "../crates/bray-project", optional = true }
+bray-runtime-abi = { path = "../crates/bray-runtime-abi", optional = true }
+bray-runtime-interface = { path = "../crates/bray-runtime-interface", optional = true }
+bray-source = { path = "../crates/bray-source", optional = true }
+bray-standard-library = { path = "../crates/bray-standard-library", optional = true }
+bray-symbols = { path = "../crates/bray-symbols", optional = true }
+bray-syntax = { path = "../crates/bray-syntax", optional = true }
+bray-target = { path = "../crates/bray-target", optional = true }
+bray-test-protocol = { path = "../crates/bray-test-protocol", features = ["serialization"], optional = true }
+bray-tooling = { path = "../crates/bray-tooling", optional = true }
+rust-style = { path = "../tools/rust-style", optional = true }
+object = { version = "=0.39.1", default-features = false, features = ["read", "std"], optional = true }
+quote = { version = "1", optional = true }
+rayon = { version = "1.11.0", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = { version = "0.10", optional = true }
 syn = { version = "2", features = ["full", "visit"] }
 subprocess = "1.2.1"
 tempfile = "3"
-unicode-width = "0.2"
+unicode-width = { version = "0.2", optional = true }
 
 [dev-dependencies]
 bray-package-interface = { path = "../crates/bray-package-interface", features = ["test-support"] }
 
 [target.'cfg(not(windows))'.dependencies]
-inkwell = { version = "=0.9.0", default-features = false, features = ["llvm22-1-prefer-static"] }
+inkwell = { version = "=0.9.0", default-features = false, features = ["llvm22-1-prefer-static"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-inkwell = { version = "=0.9.0", default-features = false, features = ["llvm22-1-no-llvm-linking"] }
+inkwell = { version = "=0.9.0", default-features = false, features = ["llvm22-1-no-llvm-linking"], optional = true }
 
 [[bin]]
 name = "xtask"

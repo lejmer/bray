@@ -34,16 +34,16 @@ jobs:
           path: target/toolchains/llvm/downloads
           key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('toolchains/llvm.json') }}
       - run: cargo llvm fetch
-      - name: Prepare compiler tests and runner in the same profile
+      - name: Prepare compiler tests and dependency-light runner
         id: prepare
         run: |
-          cargo test -p bray-compilation --no-run
-          cargo build --profile test --bin xtask
+          cargo test --profile ci -p bray-compilation --no-run
+          cargo build --profile ci -p xtask --no-default-features --bin xtask
       - name: Report fast compiler reference timing
-        run: cargo run --profile test --bin xtask -- test compiler
+        run: cargo run --profile ci -p xtask --no-default-features --bin xtask -- test compiler --profile ci
       - name: Run native compiler integration coverage
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' }}
-        run: cargo run --profile test --bin xtask -- test compiler --tier native
+        run: cargo run --profile ci -p xtask --no-default-features --bin xtask -- test compiler --profile ci --tier native
       - name: Run nightly or manual proof and exhaustive coverage
         if: ${{ !cancelled() && steps.prepare.outcome == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         shell: bash
@@ -52,7 +52,7 @@ jobs:
           for tier in proof exhaustive; do
             processes=()
             for shard in 1 2 3 4; do
-              cargo run --profile test --bin xtask -- test compiler --tier "$tier" --shard "$shard/4" &
+              cargo run --profile ci -p xtask --no-default-features --bin xtask -- test compiler --profile ci --tier "$tier" --shard "$shard/4" &
               processes+=("$!")
             done
             for process in "${processes[@]}"; do

@@ -77,6 +77,15 @@ debug = 1
 [profile.test.package.xtask]
 opt-level = 0
 
+# Retain test optimization without local debugging information in CI.
+[profile.ci]
+inherits = "test"
+debug = 0
+
+# Override the compiler library's inherited development archive setting too.
+[profile.ci.package.bray-compilation]
+debug = 0
+
 # Keep release optimization and its codegen-unit count while enabling incremental reuse.
 [profile.tooling]
 inherits = "release"

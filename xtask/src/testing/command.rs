@@ -26,7 +26,7 @@ pub(crate) fn run(arguments: impl Iterator<Item = String>) -> ExitCode {
 
 fn execute(root: &Path, options: &Options) -> Result<(), String> {
     let started = Instant::now();
-    let tests = select(inventory(root)?, options);
+    let tests = select(inventory(root, &options.profile)?, options);
 
     let directory = workspace::cargo_target(root)
         .join("compiler-tests")

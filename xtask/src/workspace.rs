@@ -21,6 +21,7 @@ fn cargo_target_from(root: &Path, configured: Option<OsString>) -> PathBuf {
     root.join(configured)
 }
 
+#[cfg(feature = "full")]
 pub(crate) fn io_error(action: &str, path: &Path, error: std::io::Error) -> String {
     format!("failed to {action} {}: {error}", path.display())
 }

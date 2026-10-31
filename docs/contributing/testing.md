@@ -56,9 +56,12 @@ that branch once the workflow exists on the default branch. Do not remove a test
 the reference target. Put substantial native, proof, stress, or target-matrix work in its owning tier and keep a focused
 behavior test in `fast` where appropriate. New ignored tests must carry one of these tier tags or discovery fails.
 
-The routine PR path avoids repeating full production proofs and cross-target matrices for every update. CI builds the
-runner with `cargo build --profile test --bin xtask` and uses that profile for all tier commands, rather than preparing
-a second release-profile compiler. Cargo and LLVM downloads are cached, including Cargo outputs after test failures.
+The routine PR path avoids repeating full production proofs and cross-target matrices for every update. CI uses the
+`ci` Cargo profile, which retains test optimization and disables debug information. The runner is built with
+`cargo build --profile ci -p xtask --no-default-features --bin xtask`. Disabling the default `full` feature keeps compiler
+libraries and LLVM bindings out of the runner's dependencies. Its test command uses `--profile ci` so discovery reuses
+the prepared compiler-test binaries. Local commands retain the normal test profile and debug information.
+Cargo and LLVM downloads are cached, including Cargo outputs after test failures.
 Superseded PR runs are cancelled. The nightly run also refreshes the default branch's cache for subsequent PRs.
 Nightly and manual full runs use a separate concurrency group. Cold-cache setup and
 compilation remain visible in the workflow's preparation steps and are separate from test execution times.
