@@ -42,6 +42,7 @@ fn compiler_lowered_roots_do_not_select_a_product_report_provider() {
         let (_, plan) = runtime_native_plan(source);
 
         assert!(plan.product_host().is_none());
+
         assert!(
             !plan
                 .executable_host()
@@ -76,6 +77,7 @@ fn synchronous_report_publishers_retain_their_product_host_control() {
         let (_, plan) = runtime_native_plan(source);
 
         assert!(plan.product_host().is_some());
+
         assert!(
             plan.executable_host()
                 .expect("the executable retains its root")
