@@ -18,6 +18,12 @@ digest, extracts it with `tar`, and validates the LLVM version, C headers, and s
 Provisioned files remain under Cargo's ignored `target/toolchains/llvm` directory. Repeated commands reuse a valid
 archive and installation.
 
+Compiler-test CI caches the complete prepared toolchain, including Bray's native linker instrumentation. The cache key
+covers the runner platform, pinned distribution manifest, provisioning sources, and foundational digest implementation.
+The provisioning command checks the restored toolchain's version and identity before reusing it. A prepared-cache hit
+skips download-cache restoration, archive extraction, and instrumentation rebuilding. Successful preparation is cached
+before compiler tests run so test failures preserve reusable setup work. Cache misses can reuse the downloaded archives.
+
 Cargo receives the provisioned prefix through `BRAY_LLVM_PREFIX` in `.cargo/config.toml`. The configuration also
 supplies the versioned environment name consumed by the upstream `llvm-sys` build script, but Bray-owned code does not
 use that external crate's name. Set both variables before invoking Cargo to use a separately managed LLVM installation.

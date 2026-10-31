@@ -3,6 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
+#[cfg(any(feature = "full", test))]
 pub(crate) fn write_compact(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let bytes = serde_json::to_vec(value)
         .map_err(|error| format!("could not encode {}: {error}", path.display()))?;

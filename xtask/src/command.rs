@@ -1,6 +1,10 @@
+#[cfg(any(feature = "full", test))]
 use std::io::{Read, Write};
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Output};
+#[cfg(feature = "full")]
+use std::process::Stdio;
 
+#[cfg(feature = "full")]
 pub(crate) fn reject_trailing_argument(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(), String> {
@@ -22,6 +26,7 @@ pub(crate) fn require_success(mut command: Command, operation: &str) -> Result<O
     Err(failure(operation, &output))
 }
 
+#[cfg(feature = "full")]
 pub(crate) fn output_with_streamed_stderr(command: &mut Command) -> std::io::Result<Output> {
     let mut child = command
         .stdout(Stdio::piped())
@@ -47,10 +52,12 @@ pub(crate) fn output_with_streamed_stderr(command: &mut Command) -> std::io::Res
     })
 }
 
+#[cfg(feature = "full")]
 fn stream_and_capture(source: impl Read) -> std::io::Result<Vec<u8>> {
     copy_and_capture(source, std::io::stderr().lock())
 }
 
+#[cfg(any(feature = "full", test))]
 fn copy_and_capture(
     mut source: impl Read,
     mut destination: impl Write,
@@ -94,21 +101,34 @@ pub(crate) fn failure(operation: &str, output: &Output) -> String {
 
     format!("{operation} failed with status {}{details}", output.status)
 }
+#[cfg(feature = "full")]
 const USAGE: &str = "usage: cargo xtask <compiler-known | composition | format | package-interface | performance | readiness | runtime-artifact | standard-library | style | test> ...";
+
+#[cfg(not(feature = "full"))]
+const USAGE: &str = "usage: xtask test compiler ...";
 
 /// Runs the repository task command selected by process arguments.
 pub fn run() -> std::process::ExitCode {
     let mut arguments = std::env::args().skip(1);
 
     match arguments.next().as_deref() {
+        #[cfg(feature = "full")]
         Some("composition") => crate::composition::run(arguments),
+        #[cfg(feature = "full")]
         Some("compiler-known") => crate::compiler_known::run(arguments),
+        #[cfg(feature = "full")]
         Some("format") => crate::source_format::run(arguments),
+        #[cfg(feature = "full")]
         Some("package-interface") => crate::package_interface::run(arguments),
+        #[cfg(feature = "full")]
         Some("performance") => crate::performance::run(arguments),
+        #[cfg(feature = "full")]
         Some("readiness") => crate::readiness::run(arguments),
+        #[cfg(feature = "full")]
         Some("runtime-artifact") => crate::runtime_artifact::run(arguments),
+        #[cfg(feature = "full")]
         Some("standard-library") => crate::standard_library::run(arguments),
+        #[cfg(feature = "full")]
         Some("style") => crate::style::run(arguments),
         Some("test") => crate::testing::run(arguments),
         _ => {

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use subprocess::{Exec, Job, Redirection};
 
+#[cfg(feature = "full")]
 pub(crate) const TIMEOUT: Duration = Duration::from_secs(30);
 const REAP_TIMEOUT: Duration = Duration::from_secs(1);
 const CAPTURE_LIMIT: usize = 1024 * 1024;
@@ -80,10 +81,12 @@ impl Write for ObservedCapture<'_> {
     }
 }
 
+#[cfg(any(feature = "full", test))]
 pub(crate) fn output(command: Exec, timeout: Duration) -> Result<Output, Box<Failure>> {
     execute(command, timeout, false, &mut |_| {})
 }
 
+#[cfg(any(feature = "full", test))]
 pub(crate) fn success(command: Exec, timeout: Duration) -> Result<Output, Box<Failure>> {
     execute(command, timeout, true, &mut |_| {})
 }
