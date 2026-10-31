@@ -124,6 +124,12 @@ impl ExecutionSlots {
     }
 
     pub(super) fn priority_changed(&self) {
+        // Coordinate with the predicate check and the atomic unlock-and-wait.
+        // Otherwise a promotion can notify before a queued worker starts waiting.
+        let _state = self
+            .state()
+            .expect("scheduler slot state must remain available during priority promotion");
+
         self.available.notify_all();
     }
 
@@ -138,10 +144,11 @@ impl ExecutionSlots {
         while state.interactive_waiters < interactive || state.ordinary_waiters < ordinary {
             let now = std::time::Instant::now();
 
-            assert!(
-                now < deadline,
-                "scheduled requests did not reach the slot queue"
-            );
+            if now >= deadline {
+                drop(state);
+
+                panic!("scheduled requests did not reach the slot queue");
+            }
 
             let waited = self
                 .available
@@ -353,5 +360,92 @@ impl Drop for ExecutionSlot<'_> {
 
         state.active = active;
         self.slots.available.notify_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    use super::ExecutionSlots;
+    use crate::fact::{QueryPriority, QueryPriorityDemand};
+
+    #[test]
+    #[should_panic(expected = "scheduled requests did not reach the slot queue")]
+    fn queue_timeout_unwinds_without_blocking_scoped_slot_waiters() {
+        let slots = ExecutionSlots::new(1);
+        let priority = QueryPriorityDemand::new(QueryPriority::Normal);
+
+        std::thread::scope(|scope| {
+            let _occupied = slots.acquire(&priority).expect("test must occupy the slot");
+
+            scope.spawn(|| {
+                let _slot = slots
+                    .acquire(&priority)
+                    .expect("unwinding must free the slot");
+            });
+
+            slots.wait_until_queued(1, 0);
+        });
+    }
+
+    #[test]
+    fn priority_promotion_coordinates_with_a_waiter_finishing_its_predicate_check() {
+        let slots = ExecutionSlots::new(1);
+        let occupied_priority = QueryPriorityDemand::new(QueryPriority::Normal);
+        let priority = QueryPriorityDemand::new(QueryPriority::Background);
+
+        let (promoted_sender, promoted_receiver) = mpsc::channel();
+
+        let (notified_sender, notified_receiver) = mpsc::channel();
+
+        std::thread::scope(|scope| {
+            let _occupied = slots
+                .acquire(&occupied_priority)
+                .expect("test must occupy the slot");
+
+            let state = slots.state().expect("test waiter must own the slot state");
+
+            assert_eq!(priority.current(), QueryPriority::Background);
+
+            scope.spawn(|| {
+                priority.promote(QueryPriority::Interactive);
+
+                promoted_sender
+                    .send(())
+                    .expect("test must observe promotion");
+
+                slots.priority_changed();
+
+                notified_sender
+                    .send(())
+                    .expect("test must observe notification");
+            });
+
+            promoted_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("priority must change while the old predicate check owns the mutex");
+
+            assert_eq!(
+                notified_receiver.recv_timeout(Duration::from_millis(50)),
+                Err(RecvTimeoutError::Timeout),
+                "notification must synchronize with the predicate mutex"
+            );
+
+            let (_state, wait) = slots
+                .available
+                .wait_timeout(state, Duration::from_secs(1))
+                .expect("test waiter must release and reacquire the slot state");
+
+            assert!(
+                !wait.timed_out(),
+                "promotion must wake the committed waiter"
+            );
+
+            notified_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("promotion notification must finish after the waiter commits");
+        });
     }
 }
