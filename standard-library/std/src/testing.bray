@@ -56,7 +56,8 @@ func assert_completed<T>(pos result: RunResult<T>) -> T
     match consume result
     {
         case Completed(value) { return value; }
-        case unexpected { fail(&"expected RunResult.Completed"); }
+        case Panicked(report) { fail(&"expected RunResult.Completed"); }
+        case Cancelled { fail(&"expected RunResult.Completed"); }
     }
 }
 

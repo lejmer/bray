@@ -12,61 +12,80 @@ use bray_runtime_abi::{
     reason = "the linked Bray provider supplies the record ownership ABI"
 )]
 unsafe extern "C" {
-    #[cfg(test)]
-    pub(crate) safe fn bray_runtime_frame_completion_move(
-        parent: *mut u8,
-        outcome: &mut NativeRunOutcome,
-    );
+    pub(crate) safe fn bray_runtime_task_result_transfer(
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+        destination: *mut u8,
+        layout: *const bray_runtime_abi::NativeRunResultLayout,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_creation() -> u64;
+    pub(crate) safe fn bray_runtime_task_control_admission(runtime: u64) -> u64;
+    pub(crate) safe fn bray_runtime_task_control_retention(
+        runtime: u64,
+        handle: u64,
+        output: &mut bray_runtime_abi::NativeTaskReference,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_snapshot(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        output: &mut bray_runtime_abi::NativeTaskSnapshot,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_publication(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        root: usize,
+        execution: &bray_runtime_abi::NativeActivationExecution,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
 
-    pub(crate) safe fn bray_runtime_activation_dispatch(
-        root: *mut u8,
-        callback: extern "C" fn(
-            &bray_runtime_abi::NativeActivationExecution,
-            &bray_runtime_abi::NativeActivationDescriptor,
-            usize,
-            u32,
-            usize,
-            &mut bray_runtime_abi::NativeFrameProgress,
-            &mut NativeReportRecords,
-        ),
-        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
-        operation: u32,
-        argument: usize,
+    pub(crate) safe fn bray_runtime_task_control_dispatch(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        services: &bray_runtime_abi::NativeTaskDispatchServices,
         progress: &mut bray_runtime_abi::NativeFrameProgress,
-        records: &mut NativeReportRecords,
-        incidents: &mut NativeReportRecords,
+        execution: &mut bray_runtime_abi::NativeActivationExecution,
     ) -> u32;
-    pub(crate) safe fn bray_runtime_activation_step(
-        root: *mut u8,
-        callback: extern "C" fn(
-            &bray_runtime_abi::NativeActivationExecution,
-            &bray_runtime_abi::NativeActivationDescriptor,
-            usize,
-            u32,
-            usize,
-            &mut bray_runtime_abi::NativeFrameProgress,
-            &mut NativeReportRecords,
-        ),
-        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
-        cancellation: u8,
-        abandoning: u8,
-        progress: &mut bray_runtime_abi::NativeFrameProgress,
-        records: &mut NativeReportRecords,
-        incidents: &mut NativeReportRecords,
-    ) -> u32;
-    pub(crate) safe fn bray_runtime_activation_composition(
-        parent: *mut u8,
+    pub(crate) safe fn bray_runtime_task_control_observation(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_destruction(
+        reference: &bray_runtime_abi::NativeTaskReference,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_reference_release(
+        reference: &bray_runtime_abi::NativeTaskReference,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+
+    pub(crate) safe fn bray_runtime_task_control_callback_entry(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        execution: &bray_runtime_abi::NativeActivationExecution,
+        resumable: u8,
+        previous_resumable: &mut u8,
+    ) -> usize;
+    pub(crate) safe fn bray_runtime_task_control_callback_exit(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        previous: usize,
+        previous_resumable: u8,
+    );
+    pub(crate) safe fn bray_runtime_task_control_wait(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        parent: &bray_runtime_abi::NativeTaskReference,
+        retirement: u8,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_retirement(
+        reference: &bray_runtime_abi::NativeTaskReference,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_runtime_retirement(context: &crate::native::RuntimeRetirement<'_>)
+        -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_control_composition(
+        reference: &bray_runtime_abi::NativeTaskReference,
         token: &bray_runtime_abi::NativeInactiveFrame,
         state: u32,
         origin: u64,
         destination: usize,
-        abandoning: u8,
+        disposition: u8,
         ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
-    ) -> usize;
-    pub(crate) safe fn bray_runtime_activation_run_snapshot(
-        root: *mut u8,
-        cancellation: u8,
-        output: &mut bray_runtime_abi::NativeActivationExecution,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
+
+    #[cfg(test)]
+    pub(crate) safe fn bray_runtime_frame_completion_move(
+        parent: *mut u8,
+        outcome: &mut NativeRunOutcome,
     );
 
     pub(crate) safe fn bray_runtime_activation_inspection(

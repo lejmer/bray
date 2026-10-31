@@ -198,9 +198,11 @@ impl Lowerer<'_> {
         }
 
         let mut moved = Vec::new();
+        let preserved = kind.input_preserved_on_rejection();
 
         kind.for_each_operand(|operand| {
             if let MirOperand::Move(place) = operand
+                && Some(operand) != preserved
                 && !moved.contains(place)
             {
                 moved.push(Self::retained_place(place));

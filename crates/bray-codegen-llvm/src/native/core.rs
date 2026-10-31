@@ -467,7 +467,7 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
         RuntimeAbiType::InactiveFrame => inactive_frame_type(context, target).into(),
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
-        RuntimeAbiType::LaneResult => context
+        RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState => context
             .struct_type(
                 &[context.i32_type().into(), context.i32_type().into()],
                 false,

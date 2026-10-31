@@ -6,6 +6,7 @@ using internal bray.runtime.bootstrap;
 using core.memory;
 using std.memory;
 
+@copy
 @layout(c)
 internal struct Execution
 {

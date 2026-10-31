@@ -972,3 +972,113 @@ fn task_observation_retains_concrete_cleanup_lanes_without_executing_them_at_con
         !generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty()
     );
 }
+
+#[test]
+#[ignore = "tier:native"]
+fn task_observation_resolves_returned_futures_through_cleanup_frames() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+            module app;
+
+            async func inactive() {}
+
+            async func child() -> Future<unit>
+            {
+                return inactive();
+            }
+
+            async func main()
+            {
+                let task = child().start();
+                let result = await task.join();
+            }
+        "#,
+    );
+
+    assert!(plan.mappings().iter()
+        .flat_map(bray_codegen::CodegenMappings::operations)
+        .flat_map(|operation| operation.helpers())
+        .any(|helper| matches!(helper.reference(), MirHelperReference::LifecycleFrame {
+            role: bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution), ..
+        })));
+
+    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn task_observation_retained_finalizer_errors_use_cleanup_frames() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+            module app;
+
+            async func inactive() {}
+
+            async func child() -> Future<unit>
+            {
+                return inactive();
+            }
+
+            struct Failure
+            {
+                pending: Future<RunResult<Future<unit>>>;
+            }
+
+            struct Owner
+            {
+                async finalize() -> Result<unit, Failure>
+                {
+                    return Error(Failure { pending = child().start().join() });
+                }
+            }
+
+            async func main()
+            {
+                let owner = Owner {};
+                panic("");
+            }
+        "#,
+    );
+
+    assert!(plan.mappings().iter()
+        .flat_map(bray_codegen::CodegenMappings::symbols)
+        .any(|mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(reference)
+            if reference.role() == RuntimeAbiRole::ProviderReferenceRelease)));
+
+    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+}
+
+#[test]
+#[ignore = "tier:native"]
+fn task_admission_failure_retains_cleanup_after_a_suspension() {
+    let (backend, plan) = runtime_native_plan(
+        r#"
+            module app;
+
+            async func inactive() {}
+
+            async func child() -> Future<unit>
+            {
+                return inactive();
+            }
+
+            struct Owner
+            {
+                pending: Future<RunResult<Future<unit>>>;
+            }
+
+            async func main()
+            {
+                let task = child().start();
+
+                await inactive();
+
+                let owner = Owner { pending = task.join() };
+
+                panic("");
+            }
+        "#,
+    );
+
+    assert!(!generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr).is_empty());
+}

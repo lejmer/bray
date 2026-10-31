@@ -117,6 +117,7 @@ impl Plan {
         &mut self,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
         graph: &crate::analysis::ControlFlowGraph,
         cleanup: &BTreeMap<TypeId, BTreeSet<bray_bound_tree::BodyBehaviorCall>>,
     ) {
@@ -193,10 +194,20 @@ impl Plan {
                 continue;
             }
 
+            let receiver = match (node, selections.expression(expression)) {
+                (bray_bound_tree::BoundExpression::Call(call), Some(bray_bound_tree::SemanticSelection::Call(selected))) => {
+                    selected.receiver().map(|receiver| (call.callee(), receiver.expression()))
+                }
+                _ => None,
+            };
+
             let mut pending = BTreeSet::new();
             let mut suspends = false;
 
-            for input in node.child_expressions() {
+            for input in node.child_expressions().map(|input| {
+                receiver.filter(|(callee, _)| *callee == input)
+                    .map_or(input, |(_, receiver)| receiver)
+            }) {
                 // Earlier inputs remain owned while later inputs are evaluated.
                 if suspends {
                     let walked = bray_bound_tree::walk_bound_tree(unit.tree(), input, |event| {

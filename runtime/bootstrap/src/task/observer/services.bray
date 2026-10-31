@@ -1,0 +1,44 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.observer;
+
+using internal bray.runtime.bootstrap;
+using core.memory;
+
+// Native transports retain the current runtime and its cached service owner.
+// They do not contain frame state or acquire a second task resolution claim.
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_task_observation_service")
+@abi(c)
+extern trusted internal func native_service(pos task: u64, pos operation: u32, pos output: DataPointer<u64>) -> u32
+    requires(
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted core.memory.valid_write<u64>(pointer = output, count = 1),
+        trusted core.memory.aligned_for<u64>(pointer = output)
+    )
+    uses(foreign_call);
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_task_cancellation_request")
+@abi(c)
+extern trusted internal func native_cancel(pos task: u64) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(foreign_call);
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_task_destruction")
+@abi(c)
+extern trusted internal func native_destroy(pos task: u64) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(foreign_call);
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_awaited_frame_composition")
+@abi(c)
+extern trusted internal func native_compose(
+    pos token: bray.runtime.bootstrap.activation.Inactive,
+    pos state: u32,
+    pos destination: usize,
+    pos disposition: u8
+)
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(foreign_call);

@@ -330,8 +330,7 @@ fn check_operations<C: CheckerRequestContext + ?Sized>(
                     diagnostics,
                 )?,
                 AnalysisOperationKind::Recovery(_)
-                | AnalysisOperationKind::Suspension { .. }
-                | AnalysisOperationKind::TaskOperation { .. } => false,
+                | AnalysisOperationKind::Suspension { .. } => false,
                 AnalysisOperationKind::Call {
                     invocation: bray_bound_tree::BoundExecutionSite::Node(_),
                     ..

@@ -533,7 +533,6 @@ impl OperationEffects {
             } => Some(AnalysisCallPhase::Completion),
             AnalysisOperationKind::Bound(_)
             | AnalysisOperationKind::PatternObservation(_)
-            | AnalysisOperationKind::TaskOperation { .. }
             | AnalysisOperationKind::Recovery(_) => None,
         };
 

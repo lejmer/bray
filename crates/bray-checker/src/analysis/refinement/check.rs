@@ -201,12 +201,6 @@ pub(crate) fn transfer_operation(
                 universe.finish_operation(state, node);
             }
         }
-        AnalysisOperationKind::TaskOperation { expression, .. } => {
-            let node = AnyBoundNodeId::Expression(expression);
-
-            universe.invalidate_for_operation(state, node, storage, invalidation, discriminants);
-            universe.finish_operation(state, node);
-        }
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
             ..

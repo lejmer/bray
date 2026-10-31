@@ -2,6 +2,7 @@ use std::num::NonZeroU64;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
+const BRAY_TASK_ID_TAG: u64 = 1 << 63;
 
 /// Process-local identity of one task-control block.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -10,6 +11,12 @@ pub struct TaskId(NonZeroU64);
 impl TaskId {
     pub(crate) const fn from_native(value: NonZeroU64) -> Self {
         Self(value)
+    }
+
+    pub(crate) fn from_bray_handle(handle: bray_runtime_abi::NativeTaskHandle) -> Self {
+        assert_eq!(handle.raw() & BRAY_TASK_ID_TAG, 0, "Bray handles retain a distinct identity range");
+
+        Self(NonZeroU64::new(handle.raw() | BRAY_TASK_ID_TAG).expect("tagged task identities are nonzero"))
     }
 
     /// Returns the process-local numeric identity.
@@ -48,7 +55,7 @@ impl TaskAdmission {
 fn next_task_id() -> Result<TaskId, TaskStartError> {
     let id = NEXT_TASK_ID
         .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-            current.checked_add(1)
+            current.checked_add(1).filter(|next| *next < BRAY_TASK_ID_TAG)
         })
         .map_err(|_| TaskStartError::IdentityExhausted)?;
 

@@ -1,14 +1,14 @@
 use crate::incident::OwnedCleanupIncident;
 
 pub(crate) fn run_static_finalizer(
-    admission: crate::TaskAdmission,
+    _admission: crate::TaskAdmission,
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
 ) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
     super::state::with_runtime(|runtime| {
-        let allocation = runtime.allocate_admitted(admission);
+        let allocation = runtime.allocate();
 
         let Some(task) = allocation.task() else {
             return [

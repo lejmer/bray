@@ -10,6 +10,51 @@ const ALLOCATION_RECORD: u8 = 1;
 const COPY_RECORD: u8 = 2;
 const CONTROLLED_DURATION_RECORD: u8 = 3;
 
+pub(crate) fn verify_no_memory_work(
+    executable: &Path,
+    linker_map: &Path,
+    output: &Path,
+) -> Result<(), String> {
+    require_observation_symbols(linker_map, ObservationKind::Memory)?;
+
+    let digest = super::command::expected_output_digest(super::corpus::ExpectedOutput::Empty)?;
+
+    let recorded = execute_observed(
+        executable,
+        output,
+        output,
+        0,
+        &digest,
+        ExpectedSideEffects::None,
+    )?;
+
+    if recorded.storage != empty_storage() {
+        return Err(format!(
+            "allocation-free program recorded memory work: {:?}",
+            recorded.storage
+        ));
+    }
+
+    Ok(())
+}
+
+pub(crate) fn time_empty_program(
+    executable: &Path,
+    output: &Path,
+    iteration: u32,
+) -> Result<u64, String> {
+    let digest = super::command::expected_output_digest(super::corpus::ExpectedOutput::Empty)?;
+
+    execute_timing_sample(
+        executable,
+        output,
+        output,
+        iteration,
+        &digest,
+        ExpectedSideEffects::None,
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RecordedExecution {
     duration_nanoseconds: Option<u64>,
