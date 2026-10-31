@@ -296,6 +296,43 @@ fn empty_normal_reports_do_not_write_the_callers_outcome() {
 
 #[test]
 #[ignore = "tier:native"]
+fn host_volatile_contracts_bind_memory_predicates_for_scalars_and_pointers() {
+    for element in ["u8", "DataPointer<u8>"] {
+        let ir = library_ir(
+            &format!(
+                r"
+                trusted module app;
+                using core.memory;
+                using core.target;
+                public trusted func transfer(
+                    pos source: DataPointer<{element}>,
+                    pos destination: DataPointer<{element}>
+                ) -> {element}
+                    requires(
+                        trusted core.memory.valid_read<{element}>(pointer = source, count = 1),
+                        trusted core.memory.aligned_for<{element}>(pointer = source),
+                        trusted core.memory.initialized_as<{element}>(pointer = source),
+                        trusted core.memory.valid_write<{element}>(pointer = destination, count = 1),
+                        trusted core.memory.aligned_for<{element}>(pointer = destination),
+                    )
+                    uses(raw_memory, unchecked_init)
+                {{
+                    let value: {element} = trusted core.target.volatile_load<{element}>(source);
+                    trusted core.target.volatile_store<{element}>(destination, value);
+                    return value;
+                }}
+                "
+            ),
+            bray_codegen::OptimizationLevel::None,
+        );
+
+        assert_eq!(ir.matches("load volatile ").count(), 1, "{ir}");
+        assert_eq!(ir.matches("store volatile ").count(), 1, "{ir}");
+    }
+}
+
+#[test]
+#[ignore = "tier:native"]
 fn pure_assembly_preserves_read_only_memory_inputs() {
     for (options, clobbers, read_only) in [(1, "", true), (0, "memory", false)] {
         let source = format!(
