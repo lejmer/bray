@@ -598,17 +598,17 @@ mod tests {
         let slots = Arc::new(ExecutionSlots::new(2));
         let occupied = QueryPriorityDemand::new(QueryPriority::Normal);
 
-        let first = slots
-            .acquire(&occupied)
-            .unwrap_or_else(|error| panic!("test must occupy one slot: {error:?}"));
-
-        let second = slots
-            .acquire(&occupied)
-            .unwrap_or_else(|error| panic!("test must occupy another slot: {error:?}"));
-
         let (order_sender, order_receiver) = mpsc::channel();
 
         std::thread::scope(|scope| {
+            let first = slots
+                .acquire(&occupied)
+                .unwrap_or_else(|error| panic!("test must occupy one slot: {error:?}"));
+
+            let second = slots
+                .acquire(&occupied)
+                .unwrap_or_else(|error| panic!("test must occupy another slot: {error:?}"));
+
             let background_slots = Arc::clone(&slots);
             let background_sender = order_sender.clone();
 
@@ -651,15 +651,15 @@ mod tests {
         let slots = Arc::new(ExecutionSlots::new(1));
         let occupied_priority = QueryPriorityDemand::new(QueryPriority::Normal);
 
-        let occupied = slots
-            .acquire(&occupied_priority)
-            .unwrap_or_else(|error| panic!("test must occupy the execution slot: {error:?}"));
-
         let shared_priority = QueryPriorityDemand::new(QueryPriority::Background);
 
         let (order_sender, order_receiver) = mpsc::channel();
 
         std::thread::scope(|scope| {
+            let occupied = slots
+                .acquire(&occupied_priority)
+                .unwrap_or_else(|error| panic!("test must occupy the execution slot: {error:?}"));
+
             let shared_slots = Arc::clone(&slots);
             let shared_demand = shared_priority.clone();
             let shared_sender = order_sender.clone();
