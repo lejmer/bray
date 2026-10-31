@@ -114,8 +114,24 @@ fn load_project_graph_with_authority(
         packages,
     );
 
-    (graph.build_order, graph.build_plans) = super::generation::plan_project(&graph)?;
-    graph.generated_sources = super::generation::generate_sources(workspace_root, &graph, host)?;
+    let rooted_failure = |mut error: ProjectLoadError| {
+        let path = match &mut error {
+            ProjectLoadError::Generator { path, .. }
+            | ProjectLoadError::ReadManifest { path, .. }
+            | ProjectLoadError::ParseManifest { path, .. }
+            | ProjectLoadError::InvalidManifest { path, .. } => path,
+        };
+
+        *path = workspace_root.join(&*path);
+
+        error
+    };
+
+    (graph.build_order, graph.build_plans) =
+        super::generation::plan_project(&graph).map_err(&rooted_failure)?;
+
+    graph.generated_sources = super::generation::generate_sources(workspace_root, &graph, host)
+        .map_err(rooted_failure)?;
 
     Ok(graph)
 }

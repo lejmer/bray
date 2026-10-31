@@ -263,10 +263,13 @@ fn generated_only_products_publish_distinct_immutable_sources_and_host_order() {
 fn loading_without_an_executor_fails_closed() {
     let fixture = Fixture::new();
 
-    assert_eq!(
-        failure(load_project_graph(fixture.root())),
-        Failure::ExecutorUnavailable
-    );
+    let Err(ProjectLoadError::Generator { path, failure, .. }) = load_project_graph(fixture.root())
+    else {
+        panic!("a selected generator must require an executor");
+    };
+
+    assert_eq!(path, fixture.root().join("app/bray-package.json"));
+    assert_eq!(failure, Failure::ExecutorUnavailable);
 }
 
 #[test]
@@ -1067,8 +1070,11 @@ fn tool_reference_failures_retain_the_known_package_product_or_target_cause() {
 
         let result = fixture.load(&mut GeneratorCache::default(), &Executor::new(outputs));
 
-        assert!(
-            matches!(result, Err(ProjectLoadError::InvalidManifest { problem, .. }) if problem.kind() == expected)
-        );
+        let Err(ProjectLoadError::InvalidManifest { path, problem }) = result else {
+            panic!("tool references must retain their exact manifest failure");
+        };
+
+        assert_eq!(path, fixture.root().join("app/bray-package.json"));
+        assert_eq!(problem.kind(), expected);
     }
 }
