@@ -487,7 +487,7 @@ mod tests {
         }
 
         assert_eq!(host, 39);
-        assert_eq!(execution, 52);
+        assert_eq!(execution, 63);
     }
 
     #[test]
