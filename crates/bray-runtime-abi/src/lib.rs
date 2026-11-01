@@ -7,6 +7,7 @@
 mod layout;
 mod activation;
 mod catalog;
+mod event;
 mod numeric;
 mod panic;
 mod platform;
@@ -23,6 +24,7 @@ pub mod symbols;
 mod task;
 mod temporal;
 
+pub use event::{NativeEventCallback, NativeEventReference};
 pub use task::{NativeTaskObservationGlue, NativeValueCleanupFactory};
 
 pub use activation::{NativeActivationDescriptor, NativeActivationExecution};

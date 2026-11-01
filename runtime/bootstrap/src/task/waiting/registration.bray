@@ -8,6 +8,7 @@ using std.numeric;
 using std.sync;
 using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
 // One ordinary noncopy owner retains both the collection and callback target.
@@ -15,11 +16,21 @@ using internal bray.runtime.bootstrap.host.product;
 // confer ownership or authorize source result observation.
 internal struct WaitRegistration
 {
-    target: Reference;
+    target: WaitTarget;
     waiter: Reference;
     retirement: u8;
     mut previous: u64;
     mut next: u64;
+}
+
+internal union WaitTarget
+{
+    Task(pos reference: Reference);
+    Event(
+        pos reference: bray.runtime.bootstrap.event.Reference,
+        pos observed: u64,
+        pos callback: bray.runtime.bootstrap.event.Callback
+    );
 }
 
 trusted internal predicate registration_owned(owner: &WaitRegistration);
@@ -29,9 +40,13 @@ trusted internal predicate optional_registration(owner: &(WaitRegistration?));
 trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
     requires(trusted registration_owned(owner = owner))
     ensures(trusted retained(owner = result))
-    executes(pure, total)
+    uses(intrinsic)
 {
-    return &owner.target;
+    return match owner.target
+    {
+        case WaitTarget.Task(reference) { yield &reference; }
+        case WaitTarget.Event(_, _, _) { yield trusted core.target.abort(); }
+    };
 }
 
 // The resident acquisition excludes notification commitment. The borrowed
@@ -125,7 +140,7 @@ trusted internal func admit_wait(
 
     let registration: WaitRegistration =
     {
-        target = observed,
+        target = WaitTarget.Task(observed),
         waiter = waiter,
         retirement = retirement,
         previous = 0,
@@ -176,7 +191,7 @@ trusted internal func publish_wait(
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
     let mut entries = &mut host.tasks;
     let parent = registration.waiter.handle;
-    let child = registration.target.handle;
+    let child = (trusted registration_target(&registration)).handle;
     let retirement = registration.retirement;
 
     {
@@ -184,7 +199,7 @@ trusted internal func publish_wait(
 
         if let ?existing = slot.registration
         {
-            let status: u32 = if existing.target.handle == child && existing.retirement == retirement
+            let status: u32 = if trusted same_task_wait(&existing, child, retirement)
             {
                 yield 6;
             }
@@ -243,4 +258,48 @@ trusted internal func publish_wait(
     }
 
     return (6, none);
+}
+
+trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: u64, pos retirement: u8) -> bool
+{
+    return match owner.target
+    {
+        case WaitTarget.Task(reference) { yield reference.handle == child && owner.retirement == retirement; }
+        case WaitTarget.Event(_, _, _) { yield false; }
+    };
+}
+
+// The registration retains this event independently of its external name.
+// A local carrier lends that storage under the resident acquisition.
+trusted internal func event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
+    requires(trusted registration_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.event.retained(owner = &result), trusted registration_owned(owner = owner))
+    uses(intrinsic)
+{
+    return match owner.target
+    {
+        case WaitTarget.Event(reference, _, _)
+        {
+            yield
+            {
+                address = reference.address
+            };
+        }
+        case WaitTarget.Task(_) { yield trusted core.target.abort(); }
+    };
+}
+
+trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Callback
+    requires(trusted registration_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.event.callback_owned(owner = result),
+        trusted registration_owned(owner = owner)
+    )
+    uses(intrinsic)
+{
+    return match owner.target
+    {
+        case WaitTarget.Event(_, _, callback) { yield &callback; }
+        case WaitTarget.Task(_) { yield trusted core.target.abort(); }
+    };
 }

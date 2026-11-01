@@ -1,20 +1,20 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use bray_runtime_abi::NativeTaskReference;
+use bray_runtime_abi::{NativeRuntimeStatus, NativeTaskReference};
 
+use super::super::state::NativeRuntimeCore;
 use crate::context::{TaskOutput, current_task_output};
-use crate::{
-    CancellationContext, RuntimeEvent, RuntimeEventGeneration, RuntimeEventRegistration,
-    TaskRegistration,
-};
+use crate::event::{EventRegistration, EventWake};
+use crate::{CancellationContext, TaskRegistration};
 
 /// Native execution resources borrowed by the Source-owned task record.
 /// No frame, terminal payload, or source resolution claim is stored here.
 pub(crate) struct NativeTaskServices {
+    pub(in crate::native) event_wake: EventWake,
     pub(crate) cancellation: CancellationContext,
     pub(in crate::native) output: TaskOutput,
     pub(in crate::native) registration: TaskRegistration,
-    pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
+    pub(in crate::native) suspended_wait: Mutex<Option<EventRegistration>>,
 }
 
 impl std::fmt::Debug for NativeTaskServices {
@@ -34,34 +34,16 @@ impl NativeTaskServices {
     pub(in crate::native) fn new(
         cancellation: CancellationContext,
         registration: TaskRegistration,
-    ) -> Self {
-        Self {
+        owner: &Arc<NativeRuntimeCore>,
+    ) -> Result<Self, NativeRuntimeStatus> {
+        let event_wake = EventWake::admit(cancellation.clone(), registration.wake_handle(), owner)?;
+
+        Ok(Self {
+            event_wake,
             cancellation,
             output: current_task_output(),
             registration,
             suspended_wait: Mutex::new(None),
-        }
-    }
-}
-
-pub(in crate::native) enum SuspendedWait {
-    Event {
-        event: RuntimeEvent,
-        observed: RuntimeEventGeneration,
-        _registration: RuntimeEventRegistration,
-    },
-}
-
-impl SuspendedWait {
-    pub(in crate::native) fn is_ready(&self) -> bool {
-        match self {
-            Self::Event {
-                event, observed, ..
-            } => {
-                let (generation, closed) = event.observation();
-
-                closed || generation != *observed
-            }
-        }
+        })
     }
 }

@@ -578,6 +578,116 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [RequestCancellation]
             }
+            EventCreation {
+                "Admit event backing and a resident external identity.", "event_creation",
+                native: (EVENT_CREATION_SYMBOL = "bray_runtime_event_creation", [U64, Pointer] -> Usize),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Pointer] -> Usize,
+                owner: Host, availability: All, bootstrap: ("event.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventAcquisition {
+                "Validate an external event and retain its actual storage.", "event_acquisition",
+                native: (EVENT_ACQUISITION_SYMBOL = "bray_runtime_event_acquisition", [U64, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.acquisition"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventRelease {
+                "Release one retained event storage owner.", "event_release",
+                native: (EVENT_RELEASE_SYMBOL = "bray_runtime_event_release", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("event.release"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventObservation {
+                "Observe the generation and closure of a retained event.", "event_observation",
+                native: (EVENT_OBSERVATION_SYMBOL = "bray_runtime_event_observation", [Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.observation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventRegistration {
+                "Admit one withdrawal or committed delivery owner.", "event_registration",
+                native: (EVENT_REGISTRATION_SYMBOL = "bray_runtime_event_registration", [Pointer, U64, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.registration"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventReadiness {
+                "Observe whether a retained task wait has released its slot.", "event_readiness",
+                native: (EVENT_READINESS_SYMBOL = "bray_runtime_event_readiness", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.readiness"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventWithdrawal {
+                "Withdraw pending membership or release a committed registration owner.", "event_withdrawal",
+                native: (EVENT_WITHDRAWAL_SYMBOL = "bray_runtime_event_withdrawal", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventNotification {
+                "Commit event notification and drain retained delivery outside locks.", "event_notification",
+                native: (EVENT_NOTIFICATION_SYMBOL = "bray_runtime_event_notification", [Pointer, U32, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.notification"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventSignal {
+                "Signal a resident external event without thread attachment.", "event_signal",
+                native: (EVENT_SIGNAL_SYMBOL = "bray_runtime_event_signal", [Usize] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.signal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventDestruction {
+                "Close an external event and remove its resident identity.", "event_destruction",
+                native: (EVENT_DESTRUCTION_SYMBOL = "bray_runtime_event_destruction", [U64, Usize] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64, Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("event.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            EventClear {
+                "Close and retire the events of a retiring runtime.", "event_clear",
+                native: (EVENT_CLEAR_SYMBOL = "bray_runtime_event_clear", [U64] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U64] -> Void,
+                owner: Host, availability: All, bootstrap: ("event.clear"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             SchedulerCreation {
                 "Admit scheduler backing without starting optional execution services.", "scheduler_creation",
                 native: (SCHEDULER_CREATION_SYMBOL = "bray_runtime_scheduler_creation", [U32, U64, Usize, Pointer] -> U32),

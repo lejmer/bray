@@ -19,6 +19,7 @@ const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-allocation-probe.c"),
     include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
     include_str!("../../fixtures/runtime-product-smoke.c"),
+    include_str!("../../fixtures/runtime-event-smoke.c"),
     include_str!("../../fixtures/runtime-numeric-smoke.c"),
 );
 
@@ -505,6 +506,12 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
+        bray_runtime_abi::symbols::EVENT_CREATION_SYMBOL,
+        bray_runtime_abi::symbols::EVENT_REGISTRATION_SYMBOL,
+        bray_runtime_abi::symbols::EVENT_SIGNAL_SYMBOL,
+        bray_runtime_abi::symbols::EVENT_WITHDRAWAL_SYMBOL,
+        bray_runtime_abi::symbols::EVENT_READINESS_SYMBOL,
+        bray_runtime_abi::symbols::EVENT_RELEASE_SYMBOL,
         bray_runtime_abi::symbols::ACTIVATION_ENTRY_SYMBOL,
         bray_runtime_abi::symbols::ACTIVATION_COMPOSITION_SYMBOL,
         bray_runtime_abi::symbols::ACTIVATION_STEP_SYMBOL,
@@ -558,10 +565,9 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         "bray_runtime_cancellation",
         "bray_runtime_event",
         "bray_runtime_test_host",
-        "std.lib",
-        "libstd.a",
+        "std",
     ] {
-        if contents.contains(archive) {
+        if crate::link_map::contains_archive(&contents, archive) {
             return Err(CommandError::BootstrapLinkMapBoundary(format!(
                 "retained {archive}"
             )));
