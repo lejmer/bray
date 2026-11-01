@@ -36,6 +36,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let observed_result = self.trusted.observed_result.flatten();
 
         let owned_transfers = self.trusted.owned_transfers.take().unwrap_or_default();
+        let owned_transfers = self.owned_transfers(owned_transfers)?;
 
         self.diagnostics
             .add_range(std::mem::take(&mut self.trusted).finish(self.execution));
@@ -117,6 +118,97 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_owned_transfers(owned_transfers)
             .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
+    }
+
+    fn owned_transfers(
+        &mut self,
+        candidates: std::collections::BTreeSet<bray_symbols::DependencyOwnedTransfer>,
+    ) -> crate::CheckerQueryResult<Vec<bray_symbols::DependencyOwnedTransfer>, C::UpstreamError> {
+        use bray_symbols::{ConstantProjectionKind, ConstantTermData, DependencyProjection};
+
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let inputs = self.request.trusted_contracts().expect("owned transfer inference retains formal inputs");
+
+        let mut result = Vec::new();
+        let mut copyable = std::collections::BTreeMap::new();
+
+        for transfer in candidates {
+            let mut term = transfer.input();
+            let mut projections = Vec::new();
+
+            let ordinal = loop {
+                match self.request.semantic_values().constant_term_data(term).as_ref() {
+                    ConstantTermData::CallableArgument(ordinal) => break ordinal.raw(),
+                    ConstantTermData::Projection(projection) => {
+                        projections.push(projection.kind());
+                        term = projection.subject();
+                    }
+                    _ => unreachable!("inferred ownership source contains only input projections"),
+                }
+            };
+
+            let input = inputs.inputs[usize::try_from(ordinal).expect("formal input ordinal fits the target")];
+
+            let target = bray_bound_tree::StorageBindingTarget::from_reference_target(input)
+                .expect("formal ownership input has a storage binding role");
+
+            let mut ty = match self.storage.binding(target)
+                .expect("formal ownership input retains its checked storage") {
+                bray_bound_tree::StorageBinding::Identity(identity) => self.storage.storage_type(identity)
+                    .expect("formal ownership input retains its checked type"),
+                bray_bound_tree::StorageBinding::Access(access) => self.storage.access(access)
+                    .expect("formal ownership input retains its checked access").reached_type(),
+            };
+
+            for projection in projections.into_iter().rev() {
+                let projection = match projection {
+                    ConstantProjectionKind::ProductField(field) => DependencyProjection::ProductField(field),
+                    ConstantProjectionKind::UnionPayloadField(field) => DependencyProjection::UnionPayloadField(field),
+                    ConstantProjectionKind::TupleElement(ordinal) => DependencyProjection::TupleElement(ordinal),
+                    ConstantProjectionKind::NullableValue => DependencyProjection::NullableValue,
+                    ConstantProjectionKind::ArrayElementOrdinal(_) => {
+                        let data = self.request.semantic_values().type_data(ty);
+
+                        let TypeData::Array { element, .. } = data.as_ref() else {
+                            panic!("checked owned array projection retains its array type: {ty:?}");
+                        };
+
+                        ty = *element;
+                        continue;
+                    }
+                    _ => unreachable!("inferred ownership source uses an owning projection"),
+                };
+
+                let projected = crate::storage::projected_value_type(self.request, ty, projection)?;
+
+                let (projected, diagnostics) = projected.into_parts();
+
+                self.diagnostics.add_range(diagnostics);
+                ty = projected.expect("checked owned input retains its projected type");
+            }
+
+            let copies = if let Some(copies) = copyable.get(&ty) { *copies } else {
+                let resolved = match crate::storage::type_is_copyable(self.request, ty) {
+                    crate::CheckerOutcome::Complete(result) => result,
+                    crate::CheckerOutcome::Cancelled => return Err(crate::CheckerQueryError::Cancelled),
+                    crate::CheckerOutcome::UpstreamFailure(error) => return Err(crate::CheckerQueryError::Upstream(error)),
+                };
+
+                let (copies, diagnostics) = resolved.into_parts();
+
+                self.diagnostics.add_range(diagnostics);
+                copyable.insert(ty, copies);
+
+                copies
+            };
+
+            if !copies { result.push(transfer); }
+        }
+
+        Ok(result)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn reference_kind(

@@ -453,14 +453,6 @@ pub(super) fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
         return transfers;
     }
 
-    let Some(ty) = domain.semantics.types().callable_result_type() else {
-        return transfers;
-    };
-
-    if domain.storage.copyable_types().contains(&ty) {
-        return transfers;
-    }
-
     let mut pending = vec![(result, Vec::new())];
 
     while let Some((source, path)) = pending.pop() {
@@ -493,13 +485,7 @@ pub(super) fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
 
             let input = ExecutionCondition::Input(place);
 
-            let ty = domain
-                .observation_type(&input)
-                .expect("returned input retains its checked observation type");
-
-            if !domain.storage.copyable_types().contains(&ty)
-                && let Some(term) = portable(domain.request, &input)
-            {
+            if let Some(term) = portable(domain.request, &input) {
                 transfers.insert(DependencyOwnedTransfer::new(term, path));
             }
 
