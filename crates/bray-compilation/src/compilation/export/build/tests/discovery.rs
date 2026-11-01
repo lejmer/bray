@@ -310,6 +310,11 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
                 return value;
             }
 
+            func pack<T>(pos left: T, pos right: T) -> (T, T)
+            {
+                return (left, right);
+            }
+
             trusted predicate ready0(value: &Boxed<i32>);
 
             func observe0(pos value: &Boxed<i32>)
@@ -325,6 +330,11 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
             func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
             {
                 return value;
+            }
+
+            func swap<T>(pos left: T, pos right: T) -> (T, T)
+            {
+                return (right, left);
             }
 
             func observe0(pos value: &app.first.Boxed<i32>)

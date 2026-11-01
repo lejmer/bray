@@ -113,9 +113,9 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let owned_transfers = data
-            .owned_transfers()
-            .iter()
+        let owned_transfers = self
+            .dependency_order(data.owned_transfers(), |encoder, item| encoder.dependency_owned_transfer(item))?
+            .into_iter()
             .map(|transfer| {
                 Ok(bray_symbols::DependencyOwnedTransfer::new(
                     self.constant_term_id(transfer.input())?,
