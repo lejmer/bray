@@ -270,7 +270,8 @@ fn storage_command(
         } else {
             let expired = elapsed(SystemTime::now(), record.last_used) >= policy.cache_max_age;
 
-            let category = if record.state != EntryState::Live
+            let category = if !exists
+                || record.state != EntryState::Live
                 || record.kind != EntryKind::Cache
                 || expired
                 || budget_reclaimable.contains(&key)
