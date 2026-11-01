@@ -10,6 +10,7 @@ mod operation;
 mod postcondition;
 mod predicate;
 mod state;
+mod retirement;
 mod termination;
 mod trusted;
 

@@ -2803,3 +2803,597 @@ fn interleaved_guarded_postconditions_round_trip_in_source_order() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn imported_address_retirement_preserves_independent_returned_guarantees() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Receipt { marker: Marker; pointer: DataPointer<u32>; }
+        trusted predicate held(owner: &Marker);
+        trusted func produce(pos payload: &u32) -> Receipt
+            ensures(
+                trusted held(owner = &result.marker),
+                trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
+            )
+        { return { marker = Marker {}, pointer = core.memory.address_of<u32>(payload) }; }
+        trusted func shifted(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(
+                trusted held(owner = &result.marker),
+                trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
+            )
+        { return { marker = Marker {}, pointer = core.memory.offset<u32>(pointer, elements = 0) }; }
+        trusted func derived(pos receipt: Receipt) -> DataPointer<u32>
+            requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
+        { return core.memory.offset<u32>(receipt.pointer, elements = 0); }
+        func forward(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+        { return shifted(pointer); }
+        func forward_explicit(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+        { return shifted(pointer); }
+        func forward_default(pos payload: &u32, pos receipt: Receipt = produce(payload)) -> Receipt
+            requires(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+        { return receipt; }
+        trusted async func shifted_async(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+        { return shifted(pointer); }
+        func observe_raw(pos pointer: DataPointer<u32>)
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+        func observe_marker(pos receipt: &Receipt)
+            requires(trusted held(owner = &receipt.marker)) {}
+        func observe_address(pos receipt: &Receipt)
+            requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) {}
+        "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (value, after, valid, asynchronous) in [
+        (
+            "example.package.api.produce(&payload)",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.produce(&payload)",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.derived(example.package.api.produce(&payload))",
+            "example.package.api.observe_raw(receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.forward(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward_explicit(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward_default(&payload)",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.forward_default(&payload)",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "await example.package.api.shifted_async(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            true,
+        ),
+        (
+            "await example.package.api.shifted_async(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            true,
+        ),
+    ] {
+        let asynchronous = if asynchronous { "async" } else { "" };
+
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            using core.memory;
+            {asynchronous} func caller() {{
+                let receipt = {{
+                    let payload: u32 = 0;
+                    yield trusted {value};
+                }};
+                {after}
+            }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{after}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_input_and_sibling_address_guarantees_keep_their_storage_bounds() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Receipt { marker: Marker; mut pointer: DataPointer<u32>; }
+        trusted predicate held(owner: &Marker);
+        trusted func empty() -> Receipt ensures(trusted held(owner = &result.marker))
+        { return { marker = Marker {}, pointer = core.memory.null<u32>() }; }
+        trusted func set(pos receipt: &mut Receipt, pos payload: &u32)
+            requires(trusted held(owner = &receipt.marker))
+            ensures(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+        { receipt.pointer = core.memory.address_of<u32>(payload); }
+        impl Receipt {
+            trusted mut func set(pos payload: &u32)
+                requires(trusted held(owner = &self.marker))
+                ensures(trusted held(owner = &self.marker), trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+            { self.pointer = core.memory.address_of<u32>(payload); }
+        }
+        trusted func set_result(pos receipt: &mut Receipt, pos payload: &u32) -> Marker
+            requires(trusted held(owner = &receipt.marker))
+            ensures(trusted held(owner = &result) && trusted held(owner = &receipt.marker) && trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+        { receipt.pointer = core.memory.address_of<u32>(payload); return Marker {}; }
+        func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+        func observe_marker(pos receipt: &Receipt) requires(trusted held(owner = &receipt.marker)) {}
+        func observe_token(pos marker: &Marker) requires(trusted held(owner = marker)) {}
+        struct Addresses { left: DataPointer<u32>; right: DataPointer<u32>; }
+        trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
+            ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
+        { return { left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }; }
+        func forward(pos values: Addresses) -> Addresses
+            requires(trusted core.memory.valid_read<u32>(pointer = values.left, count = 1), trusted core.memory.valid_read<u32>(pointer = values.right, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
+        { return values; }
+        trusted func derive(pos values: Addresses) -> Addresses
+            requires(trusted core.memory.valid_read<u32>(pointer = values.left, count = 1), trusted core.memory.valid_read<u32>(pointer = values.right, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
+        { return { left = core.memory.offset<u32>(values.left, elements = 0), right = core.memory.offset<u32>(values.right, elements = 0) }; }
+    "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (body, valid) in [
+        (
+            "let payload: u32 = 0; trusted example.package.api.set(&mut receipt, &payload); example.package.api.observe(receipt.pointer);",
+            true,
+        ),
+        (
+            "{ let payload: u32 = 0; trusted example.package.api.set(&mut receipt, &payload); } example.package.api.observe(receipt.pointer);",
+            false,
+        ),
+        (
+            "{ let payload: u32 = 0; trusted example.package.api.set(&mut receipt, &payload); } example.package.api.observe_marker(&receipt);",
+            true,
+        ),
+        (
+            "{ let payload: u32 = 0; trusted receipt.set(&payload); } example.package.api.observe(receipt.pointer);",
+            false,
+        ),
+        (
+            "{ let payload: u32 = 0; trusted receipt.set(&payload); } example.package.api.observe_marker(&receipt);",
+            true,
+        ),
+        (
+            "let token = { let payload: u32 = 0; yield trusted example.package.api.set_result(&mut receipt, &payload); }; example.package.api.observe(receipt.pointer);",
+            false,
+        ),
+        (
+            "let token = { let payload: u32 = 0; yield trusted example.package.api.set_result(&mut receipt, &payload); }; example.package.api.observe_marker(&receipt); example.package.api.observe_token(&token);",
+            true,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            func caller() {{ let mut receipt = trusted example.package.api.empty(); {body} }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{body}: {diagnostics:#?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+
+    for forwarding in ["forward", "derive"] {
+        for (field, valid) in [("left", false), ("right", true)] {
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    r#"
+                module app;
+                using example.package.api;
+                func caller() {{
+                    let retained: u32 = 1;
+                    let values = {{ let expired: u32 = 0; yield trusted example.package.api.{forwarding}(trusted example.package.api.produce(&expired, &retained)); }};
+                    example.package.api.observe(values.{field});
+                }}
+            "#
+                ),
+            );
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{forwarding}: {field}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_address_store_keeps_destination_initialization_independent_of_the_pointee() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        using core.memory;
+        trusted func store(pos slot: DataPointer<DataPointer<u32>>, pos value: DataPointer<u32>)
+            requires(
+                trusted core.memory.valid_write<DataPointer<u32>>(pointer = slot, count = 1),
+                trusted core.memory.valid_read<DataPointer<u32>>(pointer = slot, count = 1),
+                trusted core.memory.aligned_for<DataPointer<u32>>(pointer = slot)
+            )
+            ensures(
+                trusted core.memory.valid_read<DataPointer<u32>>(pointer = slot, count = 1),
+                trusted core.memory.aligned_for<DataPointer<u32>>(pointer = slot),
+                trusted core.memory.initialized_as<DataPointer<u32>>(pointer = slot)
+            )
+            uses(raw_memory, unchecked_init)
+        { trusted core.memory.write<DataPointer<u32>>(slot, value); }
+        "#,
+    );
+
+    for (after, valid) in [
+        ("_ = bits;", true),
+        ("_ = trusted core.memory.read<u32>(bits);", false),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                using example.package.api;
+                trusted func caller() uses(raw_memory) {{
+                    let mut storage: DataPointer<u32> = core.memory.null<u32>();
+                    let slot = core.memory.address_of_mut<DataPointer<u32>>(&mut storage);
+                    {{
+                        let payload: u32 = 7;
+                        trusted example.package.api.store(slot, core.memory.address_of<u32>(&payload));
+                    }}
+                    let bits = trusted core.memory.read<DataPointer<u32>>(slot);
+                    {after}
+                }}
+                "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{after}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn imported_input_address_postconditions_preserve_independent_field_origins() {
+    let provider = compilation(
+        r#"trusted module api;
+using core.memory;
+struct Addresses { mut left: DataPointer<u32>; mut right: DataPointer<u32>; }
+func empty() -> Addresses { return { left = core.memory.null<u32>(), right = core.memory.null<u32>() }; }
+trusted func set(pos values: &mut Addresses, pos left: &u32, pos right: &u32)
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{
+    values.left = core.memory.address_of<u32>(left);
+    values.right = core.memory.address_of<u32>(right);
+}
+func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+impl Addresses {
+    trusted mut func set(pos left: &u32, pos right: &u32)
+        ensures(
+            trusted core.memory.valid_read<u32>(pointer = self.left, count = 1),
+            trusted core.memory.valid_read<u32>(pointer = self.right, count = 1)
+        )
+    { set(&mut self, left, right); }
+}
+trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
+    )
+{ return { left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }; }
+trusted func copy_owned(pos values: &mut Addresses, pos sources: Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = sources.left; values.right = sources.right; }
+trusted func copy_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = sources.left; values.right = sources.right; }
+trusted func copy_from(pos sources: &Addresses) -> Addresses
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
+    )
+{ return { left = sources.left, right = sources.right }; }
+
+trusted func derive_owned(pos values: &mut Addresses, pos sources: Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+
+trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+"#,
+    );
+
+    for (call, returned) in [
+        ("set(&mut values, &expired, &retained);", false),
+        ("values.set(&expired, &retained);", false),
+        (
+            "let sources = produce(&expired, &retained); copy_owned(&mut values, sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); copy_borrowed(&mut values, &sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); derive_owned(&mut values, sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); derive_borrowed(&mut values, &sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); yield copy_from(&sources);",
+            true,
+        ),
+    ] {
+        for (field, valid) in [("left", false), ("right", true)] {
+            let body = if returned {
+                format!(
+                    "let retained: u32 = 1; let values = {{ let expired: u32 = 0; {call} }}; observe(values.{field});"
+                )
+            } else {
+                format!(
+                    "let retained: u32 = 1; let mut values = empty(); {{ let expired: u32 = 0; {call} }} observe(values.{field});"
+                )
+            };
+
+            let mut body = body;
+
+            for function in [
+                "empty",
+                "produce",
+                "copy_owned",
+                "copy_borrowed",
+                "derive_owned",
+                "derive_borrowed",
+                "copy_from",
+                "observe",
+            ] {
+                body = body.replace(
+                    &format!("{function}("),
+                    &format!("example.package.api.{function}("),
+                );
+            }
+
+            body = body.replace(" set(", " example.package.api.set(");
+
+            let consumer = execution_consumer(
+                &provider,
+                &format!(
+                    "trusted module app; using core.memory; using example.package.api; func caller() {{ {body} }}"
+                ),
+            );
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{call}: {field}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_mutated_address_sources_preserve_their_entry_bounds() {
+    let provider = r#"trusted module api;
+using core.memory;
+struct Addresses { mut pointer: DataPointer<u32>; }
+func empty() -> Addresses { return { pointer = core.memory.null<u32>() }; }
+trusted func produce(pos payload: &u32) -> Addresses
+    ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+{ return { pointer = core.memory.address_of<u32>(payload) }; }
+trusted func transfer(pos destination: &mut Addresses, pos source: &mut Addresses)
+    requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+    ensures(trusted core.memory.valid_read<u32>(pointer = destination.pointer, count = 1))
+{
+    destination.pointer = source.pointer;
+    source.pointer = core.memory.null<u32>();
+}
+trusted func take(pos source: &mut Addresses) -> Addresses
+    requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+    ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+{
+    let pointer = source.pointer;
+    source.pointer = core.memory.null<u32>();
+    return { pointer = pointer };
+}
+func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+impl Addresses {
+    trusted mut func take() -> Addresses
+        requires(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+        ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+    { return take(&mut self); }
+    trusted mut func receive(pos source: &mut Addresses)
+        requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+        ensures(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+    { transfer(&mut self, source); }
+}
+"#;
+
+    for operation in ["transfer(&mut destination, &mut source);", "destination = take(&mut source);", "destination.receive(&mut source);", "destination = source.take();"] {
+        for clear in [false, true] {
+            for expired in [false, true] {
+                let provider = if clear { provider.to_owned() } else { provider.replace("source.pointer = core.memory.null<u32>();", "") };
+                let payload = if expired { "expired" } else { "retained" };
+                let body = format!("let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);");
+
+                let provider = compilation(&provider);
+                let mut body = body;
+
+                for function in ["produce", "empty", "observe"] { body = body.replace(&format!("{function}("), &format!("example.package.api.{function}(")); }
+                body = body.replace(" transfer(", " example.package.api.transfer(").replace("= take(", "= example.package.api.take(");
+
+                let consumer = execution_consumer(&provider, &format!("trusted module app; using example.package.api; func caller() {{ {body} }}"));
+                let diagnostics = consumer.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), !expired, "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}");
+
+                if expired { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+            }
+        }
+    }
+}

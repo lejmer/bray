@@ -73,7 +73,7 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
 
             let inputs = [(DependencySubjectRoot::Receiver, access, Some(source))];
 
-            input_contract(request, storage, &inputs, slots[index].1, &template)?
+            input_contract(request, storage, &inputs, slots[index].1, &template, None)?
         } else {
             let inputs = if matches!(
                 input.default_provider(),
@@ -84,7 +84,21 @@ pub(crate) fn selected_input_contracts<C: CheckerRequestContext + ?Sized>(
                 &[]
             };
 
-            input_contract(request, storage, inputs, slots[index].1, &template)?
+            let retained_inputs = match selection {
+                SemanticSelection::Call(call) => Some(crate::dependency::result_inputs(
+                    expression, call, &template,
+                )),
+                _ => None,
+            };
+
+            input_contract(
+                request,
+                storage,
+                inputs,
+                slots[index].1,
+                &template,
+                retained_inputs,
+            )?
         };
 
         result.push((
@@ -121,6 +135,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
     inputs: &[Input],
     result: StorageAccessId,
     template: &DependencyContractTemplateData,
+    retained_inputs: Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>>,
 ) -> Result<
     BoundCallDependencyContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
@@ -152,29 +167,35 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
         .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
         .with_reports(reports);
 
-    super::references::with_reference_inputs(request, contracts, template, None, |subject| {
-        let access = if matches!(
-            subject.subject_root(),
-            DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage
-        ) {
-            Some(result)
-        } else {
-            inputs
-                .iter()
-                .find_map(|(root, access, _)| (*root == subject.subject_root()).then_some(*access))
-        };
+    super::references::with_reference_inputs(
+        request,
+        contracts,
+        template,
+        retained_inputs,
+        |subject| {
+            let access = if matches!(
+                subject.subject_root(),
+                DependencySubjectRoot::Result | DependencySubjectRoot::EvaluationStorage
+            ) {
+                Some(result)
+            } else {
+                inputs.iter().find_map(|(root, access, _)| {
+                    (*root == subject.subject_root()).then_some(*access)
+                })
+            };
 
-        let Some(access) = access else {
-            return Ok(None);
-        };
+            let Some(access) = access else {
+                return Ok(None);
+            };
 
-        let ty = storage
-            .access(access)
-            .expect("input contract has its checked access")
-            .reached_type();
+            let ty = storage
+                .access(access)
+                .expect("input contract has its checked access")
+                .reached_type();
 
-        super::references::reference_subject_path(request, subject, ty)
-    })
+            super::references::reference_subject_path(request, subject, ty)
+        },
+    )
     .map_err(DependencyContractInstantiationError::Resolution)
 }
 

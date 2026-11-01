@@ -46,6 +46,8 @@ pub struct TrustedCallContract {
     pub preserves_inputs: bool,
     /// Checked witness carriers paired with their conditional completion guarantee.
     pub witness_subjects: Vec<(ExecutionCondition, ExecutionCondition)>,
+    /// Typed raw-address subjects, their completion guarantee, and whether they carry owning authority.
+    pub address_subjects: Vec<(ExecutionCondition, ExecutionCondition, bool)>,
     /// Conditions required before invocation.
     pub requirements: Vec<ExecutionCondition>,
     /// Compiler-only compound execution conditions that require ordinary caller evidence.

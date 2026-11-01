@@ -211,6 +211,25 @@ impl ExecutionCondition {
             .chain(fields.iter().map(|(_, value)| value))
     }
 
+    /// Conjuncts retain their authority on the same complete carrier.
+    pub(crate) fn conjuncts(&self) -> impl Iterator<Item = &Self> {
+        let mut pending = vec![self];
+
+        std::iter::from_fn(move || {
+            loop {
+                let condition = pending.pop()?;
+
+                if let Self::Operation(bray_bound_tree::BoundOperator::LogicalAnd, operands) =
+                    condition
+                {
+                    pending.extend(operands.iter());
+                } else {
+                    return Some(condition);
+                }
+            }
+        })
+    }
+
     pub(crate) fn owned_values(&self) -> impl Iterator<Item = &Self> {
         let mut pending = vec![self];
 

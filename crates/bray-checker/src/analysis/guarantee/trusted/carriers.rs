@@ -4,6 +4,70 @@ use super::super::state::ExecutionState;
 use crate::ExecutionCondition;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
+impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
+    /// Combine declared completion clauses with checked portable carrier promises.
+    pub(super) fn completion_guarantees(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        contract: &crate::TrustedCallContract,
+        capture: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) -> (
+        Vec<ExecutionCondition>,
+        Vec<(ExecutionCondition, ExecutionCondition)>,
+    ) {
+        let inferred = self
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .into_iter()
+            .flat_map(|dependencies| {
+                dependencies.carriers().iter().map(|carrier| {
+                    let condition = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        carrier.guarantee(),
+                        dependencies.input_count(),
+                    )
+                    .expect("checked carrier condition decodes in the same semantic store");
+
+                    (
+                        capture(&condition),
+                        result_projection(self.dependencies, carrier.path()),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let guarantees = contract
+            .guarantees
+            .iter()
+            .map(capture)
+            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
+            .collect::<Vec<_>>();
+
+        let mut subjects = contract
+            .witness_subjects
+            .iter()
+            .filter_map(|(guarantee, subject)| {
+                let guarantee = capture(guarantee);
+
+                if subject.observes_completion_result()
+                    && inferred
+                        .iter()
+                        .any(|(condition, _)| *condition == guarantee)
+                {
+                    None
+                } else {
+                    Some((guarantee, subject.clone()))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        subjects.extend(inferred);
+
+        (guarantees, subjects)
+    }
+}
+
 impl super::check::TrustedChecks {
     pub(super) fn collect_carriers<C: crate::CheckerRequestContext + ?Sized>(
         &mut self,
@@ -86,7 +150,7 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 
     let mut result = BTreeSet::new();
 
-    for (owner, conditions) in &state.witness_carriers {
+    for (owner, witness) in &state.witnesses {
         let Some(path) = owners.get(owner) else {
             continue;
         };
@@ -95,7 +159,12 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        for condition in conditions {
+        for condition in witness
+            .conditions
+            .iter()
+            .filter(|(_, guarantee)| guarantee.witness)
+            .map(|(condition, _)| condition)
+        {
             // Rename actual returned storage identities, never ordinary field equalities.
             let condition = condition.with_joined_values(&identities, &identities);
 
@@ -154,7 +223,7 @@ fn collect(
 
         let mut paths = BTreeSet::new();
 
-        for (carrier, conditions) in &state.witness_carriers {
+        for (carrier, witness) in &state.witnesses {
             let Some(path) = owners.get(carrier) else {
                 continue;
             };
@@ -165,7 +234,12 @@ fn collect(
 
             let mut evidence = BTreeSet::new();
 
-            for condition in conditions {
+            for condition in witness
+                .conditions
+                .iter()
+                .filter(|(_, guarantee)| guarantee.witness)
+                .map(|(condition, _)| condition)
+            {
                 // The temporary proof set owns its conditions independently of the exit state.
                 condition.clone().assume(true, &mut evidence);
             }
@@ -252,8 +326,8 @@ fn returned_owners(
 impl ExecutionState {
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
-        for conditions in self.witness_carriers.values_mut() {
-            if !conditions.iter().any(|condition| {
+        for witness in self.witnesses.values_mut() {
+            if !witness.conditions.keys().any(|condition| {
                 matches!(
                     condition,
                     ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)
@@ -264,36 +338,63 @@ impl ExecutionState {
 
             let mut evidence = BTreeSet::new();
 
-            for condition in conditions.iter() {
-                // This proof set is independent of the immutable carried clauses.
+            for condition in witness.conditions.keys() {
                 condition.clone().assume(true, &mut evidence);
             }
 
             let known =
                 crate::execution_guarantees::trusted_condition_closure(evidence, &self.assumptions);
 
-            let derived = conditions
-                .iter()
-                .flat_map(ExecutionCondition::observations)
-                .filter(|condition| {
-                    !condition.contains_trusted()
-                        || matches!(condition, ExecutionCondition::Trusted(_))
-                })
-                .filter(|condition| known.contains(&((*condition).clone(), true)))
-                .cloned()
-                .collect::<Vec<_>>();
+            let mut derived = BTreeMap::<
+                ExecutionCondition,
+                crate::execution_guarantees::ExecutionGuarantee,
+            >::new();
 
-            for condition in derived {
-                // The carrier and current proof set independently retain this established fact.
+            for (condition, guarantee) in &witness.conditions {
+                for observation in condition
+                    .observations()
+                    .filter(|condition| {
+                        !condition.contains_trusted()
+                            || matches!(condition, ExecutionCondition::Trusted(_))
+                    })
+                    .filter(|condition| known.contains(&((*condition).clone(), true)))
+                {
+                    let retained = derived.entry(observation.clone()).or_default();
+
+                    retained.witness |= guarantee.witness;
+
+                    for (address, owners) in guarantee
+                        .addresses
+                        .iter()
+                        .filter(|(address, _)| observation.observes(address))
+                    {
+                        retained
+                            .addresses
+                            .entry(address.clone())
+                            .or_default()
+                            .extend(owners.iter().cloned());
+                    }
+                }
+            }
+
+            for (condition, guarantee) in derived {
                 if matches!(condition, ExecutionCondition::Trusted(_)) {
                     condition
                         .clone()
                         .assume(true, &mut self.trusted_assumptions);
 
-                    conditions.insert(condition);
+                    let retained = witness.conditions.entry(condition).or_default();
+
+                    retained.witness |= guarantee.witness;
+
+                    for (address, owners) in guarantee.addresses {
+                        retained
+                            .addresses
+                            .entry(address)
+                            .or_default()
+                            .extend(owners);
+                    }
                 } else {
-                    // A checked mixed guarantee can also establish ordinary value bounds.
-                    // Their truth does not supply the qualifier required by trusted calls.
                     condition.assume(true, &mut self.assumptions);
                 }
             }

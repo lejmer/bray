@@ -7,6 +7,7 @@ mod normalize;
 mod place;
 mod portable;
 mod trusted_implication;
+mod witness;
 
 pub use bray_symbols::ExecutionProperty;
 pub use condition::ExecutionCondition;
@@ -38,3 +39,5 @@ pub use portable::{
 pub use clause::ExecutionClauseId;
 
 pub(crate) use trusted_implication::trusted_condition_closure;
+
+pub(crate) use witness::{AddressDependencies, ExecutionGuarantee, ExecutionWitness};

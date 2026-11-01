@@ -75,7 +75,13 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
     request
         .trusted_contracts()
         .and_then(|contracts| contracts.calls.get(&invocation))
-        .is_some_and(crate::TrustedCallContract::result_guarantees_name_whole_owner)
+        .is_some_and(|contract| {
+            contract.result_guarantees_name_whole_owner()
+                || contract
+                    .address_subjects
+                    .iter()
+                    .any(|(_, subject, _)| subject.observes_completion_result())
+        })
         || template
             .borrows()
             .iter()
