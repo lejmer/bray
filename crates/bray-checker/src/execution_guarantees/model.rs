@@ -315,6 +315,9 @@ pub(crate) struct ExecutionValueEvidence {
 pub struct ExecutionCallEvidence {
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
     pub(crate) returned: ExecutionValueEvidence,
+    /// Access dependencies captured before consuming inputs, without owning authority.
+    pub(crate) addresses:
+        std::collections::BTreeMap<super::ExecutionPlace, super::AddressDependencies>,
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
     pub(crate) pending_execution: bool,
@@ -419,6 +422,22 @@ impl ExecutionCallEvidence {
             self.arguments.len(),
         );
 
+        let mut addresses_changed = false;
+
+        for (input, addresses) in &other.addresses {
+            let retained = self.addresses.entry(input.clone()).or_default();
+
+            for (address, owners) in addresses {
+                addresses_changed |= !retained.contains_key(address);
+
+                let retained = retained.entry(address.clone()).or_default();
+                let before = retained.len();
+
+                retained.extend(owners.iter().cloned());
+                addresses_changed |= retained.len() != before;
+            }
+        }
+
         let returned_changed =
             self.returned != other.returned && self.returned != ExecutionValueEvidence::default();
 
@@ -442,7 +461,8 @@ impl ExecutionCallEvidence {
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
 
-        returned_changed
+        addresses_changed
+            || returned_changed
             || before
                 != (
                     self.anonymous_target.is_some(),

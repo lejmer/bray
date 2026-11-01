@@ -2826,6 +2826,26 @@ fn imported_address_retirement_preserves_independent_returned_guarantees() {
                 trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
             )
         { return { marker = Marker {}, pointer = core.memory.offset<u32>(pointer, elements = 0) }; }
+        trusted func derived(pos receipt: Receipt) -> DataPointer<u32>
+            requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result, count = 1))
+        { return core.memory.offset<u32>(receipt.pointer, elements = 0); }
+        func forward(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+        { return shifted(pointer); }
+        func forward_explicit(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+        { return shifted(pointer); }
+        func forward_default(pos payload: &u32, pos receipt: Receipt = produce(payload)) -> Receipt
+            requires(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1))
+        { return receipt; }
+        trusted async func shifted_async(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(trusted held(owner = &result.marker), trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+        { return shifted(pointer); }
+        func observe_raw(pos pointer: DataPointer<u32>)
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
         func observe_marker(pos receipt: &Receipt)
             requires(trusted held(owner = &receipt.marker)) {}
         func observe_address(pos receipt: &Receipt)
@@ -2839,28 +2859,82 @@ fn imported_address_retirement_preserves_independent_returned_guarantees() {
         provider.check_diagnostics()
     );
 
-    for (value, after, valid) in [
+    for (value, after, valid, asynchronous) in [
         (
             "example.package.api.produce(&payload)",
             "example.package.api.observe_marker(&receipt);",
             true,
+            false,
         ),
         (
             "example.package.api.produce(&payload)",
             "example.package.api.observe_address(&receipt);",
+            false,
             false,
         ),
         (
             "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
             "example.package.api.observe_marker(&receipt);",
             true,
+            false,
         ),
         (
             "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
             "example.package.api.observe_address(&receipt);",
             false,
+            false,
+        ),
+        (
+            "example.package.api.derived(example.package.api.produce(&payload))",
+            "example.package.api.observe_raw(receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.forward(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward_explicit(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "example.package.api.forward_default(&payload)",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            false,
+        ),
+        (
+            "example.package.api.forward_default(&payload)",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            false,
+        ),
+        (
+            "await example.package.api.shifted_async(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+            true,
+        ),
+        (
+            "await example.package.api.shifted_async(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+            true,
         ),
     ] {
+        let asynchronous = if asynchronous { "async" } else { "" };
+
         let consumer = execution_consumer(
             &provider,
             &format!(
@@ -2868,7 +2942,7 @@ fn imported_address_retirement_preserves_independent_returned_guarantees() {
             module app;
             using example.package.api;
             using core.memory;
-            func caller() {{
+            {asynchronous} func caller() {{
                 let receipt = {{
                     let payload: u32 = 0;
                     yield trusted {value};

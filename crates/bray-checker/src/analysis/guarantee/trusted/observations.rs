@@ -9,10 +9,7 @@ use crate::{CheckerRequestContext, ExecutionCondition};
 /// Ordinary borrowed storage bounds the value, while an address bounds only access clauses.
 pub(super) enum GuaranteeSource {
     Borrowed(BTreeSet<crate::ExecutionPlace>),
-    Address {
-        value: ExecutionCondition,
-        owners: BTreeSet<crate::ExecutionPlace>,
-    },
+    Addresses(crate::execution_guarantees::AddressDependencies),
 }
 
 impl GuaranteeSource {
@@ -26,12 +23,39 @@ impl GuaranteeSource {
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// Select the evaluated input surface for direct calls and parameter defaults.
+    pub(super) fn observation_call(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+    ) -> Option<(BoundExpressionId, &bray_bound_tree::SelectedCall)> {
+        let expression = invocation.expression()?;
+        let selection = self.semantics.selections().expression(expression)?;
+
+        let bray_bound_tree::SemanticSelection::Call(call) = selection else {
+            return None;
+        };
+
+        let visible = match invocation {
+            bray_bound_tree::BoundExecutionSite::Node(_) => true,
+            bray_bound_tree::BoundExecutionSite::CallInput { ordinal, .. } => selection.input(ordinal)
+                .is_some_and(|input| matches!(input.default_provider(), Some(bray_symbols::DefaultValueProvider::CallableParameter(_)))),
+            _ => false,
+        };
+
+        visible.then_some((expression, call))
+    }
+
     pub(super) fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        address_sources: &BTreeMap<
+            crate::ExecutionPlace,
+            crate::execution_guarantees::AddressDependencies,
+        >,
         origins: &BTreeMap<
             bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
@@ -52,7 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 && self
                     .dependencies
                     .calls()
-                    .get(&expression.into())
+                    .get(&invocation)
                     .and_then(|dependencies| dependencies.retained_inputs())
                     .is_none_or(|inputs| inputs.contains(&operand))
         };
@@ -82,20 +106,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 )
                 .expect("selected argument has its evaluated input");
 
+            let ordinal = crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(
+                ordinal
+                    .checked_add(u32::from(call.receiver().is_some()))
+                    .expect("selected argument order fits"),
+            ));
+
+            // A parameter default sees only the earlier evaluated inputs.
+            if !arguments.contains_key(&ordinal) {
+                continue;
+            }
+
             let reference = crate::representation::reference_kind(self.request, ty);
+
+            if reference != Some(bray_symbols::DependencyReferenceKind::Borrow)
+                && let Some(addresses) = address_sources.get(&ordinal)
+            {
+                owners.insert(operand, GuaranteeSource::Addresses(addresses.clone()));
+            }
 
             if reference.is_none() {
                 continue;
             }
 
             if reference == Some(bray_symbols::DependencyReferenceKind::Address) {
-                let ordinal = ordinal
-                    .checked_add(u32::from(call.receiver().is_some()))
-                    .expect("selected argument order must fit");
-
-                let ordinal =
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
-
                 if let Some(current) = self
                     .input_place(operand)
                     .and_then(|place| place.value_in(&state.current))
@@ -114,16 +148,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
 
                     arguments.insert(ordinal.clone(), current);
-                }
-
-                if let Some(value) = arguments.get(&ordinal) {
-                    owners.insert(
-                        operand,
-                        GuaranteeSource::Address {
-                            value: value.clone(),
-                            owners: state.address_owners(value),
-                        },
-                    );
                 }
 
                 continue;
@@ -180,14 +204,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 );
             }
 
-            let ordinal = ordinal
-                .checked_add(u32::from(call.receiver().is_some()))
-                .expect("selected argument order must fit");
+            arguments.insert(ordinal, value);
+        }
 
-            arguments.insert(
-                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
-                value,
-            );
+        if let Some(receiver) = call.receiver()
+            && matches!(
+                receiver.mode(),
+                bray_symbols::ReceiverMode::Consuming
+                    | bray_symbols::ReceiverMode::ConsumingMutable
+            )
+            && let Some(addresses) = address_sources.get(&crate::ExecutionPlace::argument(
+                bray_symbols::SymbolOrdinal::new(0),
+            ))
+            && let Some(input) =
+                call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
+        {
+            owners.insert(input, GuaranteeSource::Addresses(addresses.clone()));
         }
 
         if let Some(receiver) = call.receiver()
@@ -268,38 +300,49 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut retained = BTreeSet::new();
         let mut addresses = BTreeMap::new();
 
-        let call = invocation.expression().and_then(|expression| {
-            match self.semantics.selections().expression(expression) {
-                Some(bray_bound_tree::SemanticSelection::Call(call)) => Some((expression, call)),
-                _ => None,
-            }
-        });
+        let call = self.observation_call(invocation);
 
         let dependencies = self.dependencies.calls().get(&invocation);
 
         for (input, source) in owners {
-            let owners = match source {
-                GuaranteeSource::Borrowed(owners) | GuaranteeSource::Address { owners, .. } => {
-                    owners
-                }
-            };
-
-            if owners.is_empty() {
-                continue;
-            }
-
             let (Some((expression, call)), Some(dependencies)) = (call, dependencies) else {
-                retained.extend(owners.iter().cloned());
+                match source {
+                    GuaranteeSource::Borrowed(owners) => retained.extend(owners.iter().cloned()),
+                    GuaranteeSource::Addresses(addresses) => {
+                        retained.extend(addresses.values().flatten().cloned())
+                    }
+                }
+
                 continue;
             };
 
-            if let GuaranteeSource::Address { value, .. } = source {
-                for (_, subject) in address_subjects
+            if let GuaranteeSource::Addresses(sources) = source {
+                let subjects = address_subjects
                     .iter()
                     .filter(|(condition, _)| condition == guarantee)
-                {
-                    let address = instantiate(subject);
-                    let same_address = address.owner_identity() == value.owner_identity();
+                    .map(|(_, subject)| subject.clone())
+                    .chain(
+                        dependencies
+                            .references()
+                            .iter()
+                            .filter(|reference| {
+                                reference.relation().kind()
+                                    == bray_symbols::DependencyReferenceKind::Address
+                                    && reference.relation().exit().subject_root()
+                                        == bray_symbols::DependencySubjectRoot::Result
+                            })
+                            .map(|reference| {
+                                super::carriers::result_projection(
+                                    self.dependencies,
+                                    reference.relation().exit().projections(),
+                                )
+                            })
+                            .filter(|subject| guarantee.observes(subject)),
+                    )
+                    .collect::<BTreeSet<_>>();
+
+                for subject in subjects {
+                    let address = instantiate(&subject);
 
                     let retained_input = dependencies
                         .retained_inputs()
@@ -307,25 +350,38 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let independent = dependencies.references().iter().any(|reference| {
                         reference.relation().entry().is_none()
+                            && reference.relation().is_exact()
                             && reference.relation().kind()
                                 == bray_symbols::DependencyReferenceKind::Address
                             && subject
-                                == &super::carriers::result_projection(
+                                == super::carriers::result_projection(
                                     self.dependencies,
                                     reference.relation().exit().projections(),
                                 )
                     });
 
-                    if same_address
-                        || (subject.observes_completion_result() && retained_input && !independent)
-                    {
-                        addresses
-                            .entry(address)
-                            .or_insert_with(BTreeSet::new)
-                            .extend(owners.iter().cloned());
+                    for (source, owners) in sources {
+                        if address.owner_identity() == source.owner_identity()
+                            || (subject.observes_completion_result()
+                                && retained_input
+                                && !independent)
+                        {
+                            addresses
+                                .entry(address.clone())
+                                .or_insert_with(BTreeSet::new)
+                                .extend(owners.iter().cloned());
+                        }
                     }
                 }
 
+                continue;
+            }
+
+            let GuaranteeSource::Borrowed(owners) = source else {
+                unreachable!("address sources were handled above");
+            };
+
+            if owners.is_empty() {
                 continue;
             }
 

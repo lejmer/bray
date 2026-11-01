@@ -332,6 +332,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             returned: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution,
@@ -391,6 +392,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             returned: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,
@@ -418,6 +420,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if !entry.pending_execution {
             entry.returned = self.returned_value_evidence(state, invocation, &entry.arguments);
         }
+
+        entry.addresses = entry
+            .arguments
+            .iter()
+            .filter(|(input, _)| {
+                matches!(
+                    input.root,
+                    crate::execution_guarantees::ExecutionInput::Argument(_)
+                )
+            })
+            .filter_map(|(input, value)| {
+                let addresses = state.address_dependencies(value);
+
+                (!addresses.is_empty()).then(|| (input.clone(), addresses))
+            })
+            .collect();
 
         Some(entry)
     }
@@ -575,6 +593,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
             returned: Default::default(),
+            addresses: Default::default(),
             anonymous_target: call
                 .resolution()
                 .anonymous_body()
