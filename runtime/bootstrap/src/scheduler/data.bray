@@ -1,0 +1,149 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.atomic;
+using core.memory;
+using std.memory;
+using std.sync;
+
+// The native binding retains this allocation through every operation and every
+// outstanding dispatch. Copying its address does not create another owner.
+@layout(c)
+internal struct Reference
+{
+    pointer: DataPointer<Domain>;
+}
+
+@copy
+@layout(c)
+internal struct Lane
+{
+    placement: u32;
+    workload: u32;
+    thread: u64;
+}
+
+@copy
+@layout(c)
+internal struct Requirements
+{
+    affinity: u32;
+    workloads: u32;
+    origin: u64;
+}
+
+@copy
+@layout(c)
+internal struct Observation
+{
+    task: u64;
+    registration: u64;
+    lane: Lane;
+    phase: u32;
+    cause: u32;
+    wakes: u64;
+    queued_at: u64;
+}
+
+internal struct Entry
+{
+    mut generation: u32;
+    mut phase: u32;
+    mut task: u64;
+    mut lane: Lane;
+    mut queue: usize;
+    mut previous: usize;
+    mut next: usize;
+    mut cause: u32;
+    mut pending: u32;
+    mut wakes: u64;
+    mut queued_at: u64;
+    mut slot: bool;
+}
+
+internal struct State
+{
+    mut entries: std.memory.RawBuffer<Entry>?;
+    mut queues: std.memory.RawBuffer<Queue>?;
+    mut free_queue: usize;
+    mut free: usize;
+    mut head: usize;
+    mut tail: usize;
+    mut running: usize;
+    mut waiters: [usize; 2];
+}
+
+internal struct Domain
+{
+    capabilities: u32;
+    main: u64;
+    limit: usize;
+    state: std.sync.SpinLock<State>;
+    signals: [core.atomic.Atomic<u32>; 2];
+}
+
+trusted internal predicate retained(owner: &Reference);
+
+trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+
+internal func empty_entry(pos next: usize) -> Entry
+{
+    return
+    {
+        generation = 0,
+        phase = 3,
+        task = 0,
+        lane =
+        {
+            placement = 0,
+            workload = 0,
+            thread = 0
+        },
+        queue = 0,
+        previous = 0,
+        next = next,
+        cause = 0,
+        pending = 0,
+        wakes = 0,
+        queued_at = 0,
+        slot = false
+    };
+}
+
+internal struct Queue
+{
+    mut lane: Lane;
+    mut head: usize;
+    mut tail: usize;
+    mut previous: usize;
+    mut next: usize;
+}
+
+internal struct Prepared
+{
+    mut entries: std.memory.RawBuffer<Entry>?;
+    mut queues: std.memory.RawBuffer<Queue>?;
+}
+
+internal union Growth
+{
+    Entries(pos capacity: usize);
+    Queues(pos capacity: usize);
+}
+
+internal func empty_queue(pos next: usize) -> Queue
+{
+    return
+    {
+        lane =
+        {
+            placement = 0,
+            workload = 0,
+            thread = 0
+        },
+        head = 0,
+        tail = 0,
+        previous = 0,
+        next = next
+    };
+}

@@ -1,0 +1,222 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.target;
+using core.memory;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.host.product;
+
+trusted internal func observation(pos state: &mut State, pos index: usize) -> Observation
+{
+    let row = trusted entry(state, index);
+
+    return
+    {
+        task = row.task,
+        registration = (std.numeric.truncate_to<u64, u32>(row.generation) << 32) | std.numeric.truncate_to<u64, usize>(
+            index
+        ),
+        lane = row.lane,
+        phase = row.phase,
+        cause = if row.phase == 2
+        {
+            yield row.pending;
+        }
+        else
+        {
+            yield row.cause;
+        },
+        wakes = row.wakes,
+        queued_at = row.queued_at
+    };
+}
+
+// FIFO within each lane and round robin across nonempty compatible lanes.
+// Dequeue scans lane headers, never incompatible task backlogs. A successful
+// lane moves behind every other active lane, so continued arrivals cannot starve
+// main or exact-thread work when its acquired consumer continues driving.
+@abi(c)
+trusted internal func acquisition(
+    pos pointer: DataPointer<Reference>,
+    pos thread: u64,
+    pos lanes: u32,
+    pos output: DataPointer<Observation>
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let selected: Observation? =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+
+        if state.running == value.limit
+        {
+            return 0;
+        }
+
+        let mut queue_index = state.head;
+
+        let completed: Observation? = loop
+        {
+            if queue_index == 0
+            {
+                break none;
+            }
+
+            let lane = trusted queue(state, queue_index).lane;
+            let bit = 1 << (lane.placement * 4 + lane.workload);
+
+            if (lanes & bit) != 0 && (lane.placement == 0 || lane.thread == thread)
+            {
+                let index = trusted queue(state, queue_index).head;
+                let result = trusted observation(state, index);
+
+                trusted unlink(state, index);
+
+                if trusted queue(state, queue_index).head != 0 && state.tail != queue_index
+                {
+                    trusted unlink_queue(state, queue_index);
+                    trusted append_queue(state, queue_index);
+                }
+
+                {
+                    let row = trusted entry(state, index);
+
+                    row.phase = 2;
+                    row.pending = 0;
+                    row.slot = true;
+                }
+
+                state.running += 1;
+                break result;
+            }
+
+            queue_index = trusted queue(state, queue_index).next;
+        };
+
+        yield completed;
+    };
+
+    if let ?chosen = selected
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, chosen);
+        return 1;
+    }
+
+    return 0;
+}
+
+@abi(c)
+trusted internal func release(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos lane_pointer: DataPointer<Lane>,
+    pos cancellation: u32,
+    pos now: u64
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted lane_slot(pointer = lane_pointer))
+    uses(intrinsic)
+{
+    let lane = trusted read_lane(lane_pointer);
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let notifications: u32 =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 2;
+        }
+
+        let row = trusted entry(state, index);
+
+        if row.phase != 2 || !row.slot
+        {
+            trusted core.target.abort();
+        }
+
+        let pending = if row.pending != 0
+        {
+            yield row.pending;
+        }
+        else
+        {
+            yield cancellation;
+        };
+
+        row.phase = 0;
+        row.slot = false;
+        row.pending = 0;
+        row.cause = 0;
+        row.lane = lane;
+        state.running -= 1;
+
+        if pending != 0
+        {
+            trusted enqueue(state, index, pending, now);
+        }
+
+        yield trusted prepare_signal(value, &state);
+    };
+
+    trusted notify(value, notifications);
+    return 0;
+}
+
+@abi(c)
+trusted internal func snapshot(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos output: DataPointer<Observation>
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let result =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 2;
+        }
+
+        yield trusted observation(state, index);
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Observation>(output, result);
+    return 0;
+}
+
+// The native caller lends one initialized immutable lane value through return.
+trusted internal predicate lane_slot(pointer: DataPointer<Lane>);
+
+trusted internal func read_lane(pos pointer: DataPointer<Lane>) -> Lane
+    requires(trusted lane_slot(pointer = pointer))
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Lane>)
+        requires(trusted lane_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Lane>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Lane>(pointer = pointer),
+            trusted core.memory.initialized_as<Lane>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Lane>(pointer);
+}

@@ -156,9 +156,9 @@ trusted internal func advance_dispatch(
 {
     let initial = trusted snapshot_dispatch(owner);
 
-    if initial.phase == 4 || initial.phase == 5
+    if initial.phase == 3 || initial.phase == 4
     {
-        if initial.phase == 5 && initial.retiring != 0
+        if initial.phase == 4 && initial.retiring != 0
         {
             let status = trusted retire_dispatch(owner);
 

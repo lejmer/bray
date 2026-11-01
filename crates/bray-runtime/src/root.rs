@@ -196,7 +196,7 @@ where
 
         loop {
             let ready = scheduler
-                .wait_ready(root_lane, None)?
+                .wait_ready(main_thread, [root_lane], None)?
                 .ok_or(RootExecutionError::UnexpectedTask(root.id()))?;
 
             if ready.task() != root.id() {
@@ -356,7 +356,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let reports = CleanupReportSink::new();
 
@@ -395,7 +396,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let reports = CleanupReportSink::new();
 
@@ -429,7 +431,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let reports = CleanupReportSink::new();
 
@@ -465,7 +468,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let reports = CleanupReportSink::new();
 
@@ -499,7 +503,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let child = TaskControlBlock::start_local(
             crate::test_support::admit_task(),

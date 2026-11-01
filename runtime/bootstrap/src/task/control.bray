@@ -41,7 +41,7 @@ trusted internal func release(pos owner: &mut Control) -> bool
 trusted internal func end_dispatch(pos owner: &mut Control) -> bool
     uses(intrinsic)
 {
-    if !owner.dispatching || owner.callback != 0 || owner.phase matches Phase.Running
+    if !owner.dispatching || owner.callback != 0 || owner.phase matches Phase.Executing
     {
         trusted core.target.abort();
     }
@@ -64,7 +64,7 @@ trusted internal func publish(
 
     owner.root = root;
     owner.execution = execution;
-    owner.phase = Phase.Ready;
+    owner.phase = Phase.Active;
 }
 
 trusted internal func begin_dispatch(pos owner: &mut Control) -> bool
@@ -78,7 +78,7 @@ trusted internal func begin_dispatch(pos owner: &mut Control) -> bool
 
     if !(owner.phase matches Phase.Terminal) && !(owner.phase matches Phase.Resolved)
     {
-        owner.phase = Phase.Running;
+        owner.phase = Phase.Executing;
     }
 
     return true;
@@ -90,13 +90,13 @@ trusted internal func suspend(
 )
     uses(intrinsic)
 {
-    if !(owner.phase matches Phase.Running) || !owner.dispatching || owner.callback != 0
+    if !(owner.phase matches Phase.Executing) || !owner.dispatching || owner.callback != 0
     {
         trusted core.target.abort();
     }
 
     owner.execution = execution;
-    owner.phase = Phase.Waiting;
+    owner.phase = Phase.Active;
 }
 
 // The activation driver calls this only after lexical cleanup. Moving a Task or
@@ -104,7 +104,7 @@ trusted internal func suspend(
 trusted internal func complete(pos owner: &mut Control, pos outcome: bray.runtime.bootstrap.ReportOutcome)
     uses(intrinsic)
 {
-    if !(owner.phase matches Phase.Running) || !owner.dispatching || outcome.state > 3 || owner.callback != 0
+    if !(owner.phase matches Phase.Executing) || !owner.dispatching || outcome.state > 3 || owner.callback != 0
     {
         trusted core.target.abort();
     }

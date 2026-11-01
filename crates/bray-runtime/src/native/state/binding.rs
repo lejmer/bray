@@ -6,49 +6,37 @@ use crate::bootstrap::RuntimeThreadScope;
 use bray_platform::RuntimeThreadId;
 use bray_runtime_abi::{
     NativeExecutionLane, NativeExecutionLaneResult, NativeRunOutcome, NativeRunState,
-    NativeRuntimeStatus, NativeTaskHandle,
+    NativeRuntimeStatus,
 };
 
 use crate::{ExecutionLane, ExecutionLanePlacement, ExecutionWorkload};
 
-use super::core::{
-    NativeRuntime, RetainedRuntime, current_runtime, current_task, with_bound_runtime,
-};
+use super::core::{NativeRuntime, RetainedRuntime, current_runtime, with_bound_runtime};
 
 pub(in crate::native) fn current_thread_lanes(
     thread: RuntimeThreadId,
     main_thread_lane: bool,
     cleanup_workloads: bool,
-) -> Vec<ExecutionLane> {
-    let mut placements = Vec::with_capacity(4);
-
-    if main_thread_lane {
-        placements.push(ExecutionLanePlacement::MainThread(thread));
-    }
-
-    placements.extend([
-        ExecutionLanePlacement::OriginThread(thread),
-        ExecutionLanePlacement::PinnedWorker(thread),
-    ]);
-
-    if cleanup_workloads {
-        placements.push(ExecutionLanePlacement::Migratable);
-    }
+) -> impl Iterator<Item = ExecutionLane> {
+    let placements = [
+        main_thread_lane.then_some(ExecutionLanePlacement::MainThread(thread)),
+        Some(ExecutionLanePlacement::OriginThread(thread)),
+        Some(ExecutionLanePlacement::PinnedWorker(thread)),
+        cleanup_workloads.then_some(ExecutionLanePlacement::Migratable),
+    ];
 
     let workloads = [
         ExecutionWorkload::Cooperative,
         ExecutionWorkload::Blocking,
         ExecutionWorkload::Compute,
+        ExecutionWorkload::BlockingCompute,
     ];
 
-    placements
-        .into_iter()
-        .flat_map(|placement| {
-            workloads
-                .into_iter()
-                .map(move |workload| ExecutionLane::new(placement, workload))
-        })
-        .collect()
+    placements.into_iter().flatten().flat_map(move |placement| {
+        workloads
+            .into_iter()
+            .map(move |workload| ExecutionLane::new(placement, workload))
+    })
 }
 
 pub(in crate::native) fn with_cleanup_runtime<T>(
@@ -108,14 +96,11 @@ impl Drop for CleanupWorkloadScope<'_> {
     }
 }
 
-pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
-    current_task()
-}
-
 pub(in crate::native) fn lane_result(lane: ExecutionLane) -> NativeExecutionLaneResult {
     let lane = match (lane.placement(), lane.workload()) {
         (_, ExecutionWorkload::Blocking) => NativeExecutionLane::BLOCKING,
         (_, ExecutionWorkload::Compute) => NativeExecutionLane::COMPUTE,
+        (_, ExecutionWorkload::BlockingCompute) => NativeExecutionLane::BLOCKING_COMPUTE,
         (ExecutionLanePlacement::MainThread(_), _) => NativeExecutionLane::MAIN_THREAD,
         (ExecutionLanePlacement::OriginThread(_), _) => NativeExecutionLane::ORIGIN_THREAD,
         (ExecutionLanePlacement::Migratable | ExecutionLanePlacement::PinnedWorker(_), _) => {

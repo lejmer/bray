@@ -335,7 +335,8 @@ mod tests {
                 std::num::NonZeroUsize::new(1).expect("fixture non zero usize must be valid"),
                 std::num::NonZeroUsize::new(1).expect("fixture non zero usize must be valid"),
             ),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let registration =
             crate::test_support::register_task(&scheduler, &task, thread.runtime().id());

@@ -1,70 +1,95 @@
-use bray_platform::{MonotonicDeadline, NativeWaitOutcome};
-
-use crate::ExecutionLane;
+use bray_platform::{MonotonicDeadline, RuntimeThread, RuntimeThreadId};
 
 use super::contract::SchedulerError;
-use super::dispatch::{earliest_deadline, pop_ready};
-use super::engine::{ReadyTask, Scheduler, SchedulerState};
+use super::dispatch::{self, ReadyTask};
+use super::engine::{Scheduler, SchedulerData};
+use super::native;
+use crate::ExecutionLane;
 
 impl Scheduler {
-    /// Waits for the next compatible task or the supplied deadline.
+    /// Waits for ready work with fair turns across the acquired lanes.
+    /// The caller retains the current thread's attachment throughout the wait.
     pub fn wait_ready(
         &self,
-        lane: ExecutionLane,
+        thread: &RuntimeThread,
+        lanes: impl IntoIterator<Item = ExecutionLane>,
         deadline: Option<MonotonicDeadline>,
     ) -> Result<Option<ReadyTask>, SchedulerError> {
-        self.wait_ready_matching(deadline, |state| pop_ready(&self.data, state, lane))
-    }
+        let thread = thread.id();
 
-    /// Waits for the next task compatible with the first ready lane in the supplied order.
-    pub fn wait_ready_from(
-        &self,
-        lanes: &[ExecutionLane],
-        deadline: Option<MonotonicDeadline>,
-    ) -> Result<Option<ReadyTask>, SchedulerError> {
-        self.wait_ready_matching(deadline, |state| {
-            lanes
-                .iter()
-                .find_map(|lane| pop_ready(&self.data, state, *lane))
-        })
+        let lanes = lanes
+            .into_iter()
+            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
+
+        self.wait_ready_matching(thread, lanes, deadline)
     }
 
     fn wait_ready_matching(
         &self,
+        thread: RuntimeThreadId,
+        lanes: u32,
         deadline: Option<MonotonicDeadline>,
-        mut take_ready: impl FnMut(&mut SchedulerState) -> Option<ReadyTask>,
     ) -> Result<Option<ReadyTask>, SchedulerError> {
         loop {
-            let observed = self.data.event.observe()?;
+            let parking = Parking::register(&self.data);
 
-            let wait_deadline = {
-                let mut state = self.lock_state()?;
+            self.promote_elapsed_timers()?;
 
-                self.promote_elapsed_timers(&mut state)?;
+            if let Some(task) = dispatch::pop_ready(&self.data, thread, lanes)? {
+                return Ok(Some(task));
+            }
 
-                if let Some(task) = take_ready(&mut state) {
-                    return Ok(Some(task));
-                }
+            if deadline.is_some_and(MonotonicDeadline::has_elapsed) {
+                return Ok(None);
+            }
 
-                earliest_deadline(deadline, state.timers.keys().next().copied())
+            let wait_deadline = match (deadline, self.next_deadline()?) {
+                (Some(first), Some(second)) => Some(first.min(second)),
+                (deadline, None) | (None, deadline) => deadline,
             };
 
-            match self.data.event.wait(observed, wait_deadline)? {
-                NativeWaitOutcome::Woken(_) => {}
-                NativeWaitOutcome::TimedOut(_) => {
-                    let mut state = self.lock_state()?;
-
-                    self.promote_elapsed_timers(&mut state)?;
-
-                    if let Some(task) = take_ready(&mut state) {
-                        return Ok(Some(task));
-                    }
-
-                    if deadline.is_some_and(MonotonicDeadline::has_elapsed) {
-                        return Ok(None);
-                    }
-                }
-            }
+            parking.wait(wait_deadline);
         }
+    }
+}
+
+// Registration precedes every condition observation. Its borrowed domain stays
+// live until withdrawal acknowledges any broadcast committed while checking.
+pub(super) struct Parking<'a> {
+    scheduler: &'a SchedulerData,
+    group: u32,
+}
+
+impl<'a> Parking<'a> {
+    pub(super) fn register(scheduler: &'a SchedulerData) -> Self {
+        let group =
+            native::bray_runtime_scheduler_parking_registration(&scheduler.source.reference);
+
+        Self { scheduler, group }
+    }
+
+    pub(super) fn wait(&self, deadline: Option<MonotonicDeadline>) {
+        let milliseconds = deadline.map_or(u32::MAX - 1, |deadline| {
+            let remaining = deadline.remaining().as_nanos().div_ceil(1_000_000);
+
+            u32::try_from(remaining)
+                .unwrap_or(u32::MAX - 1)
+                .min(u32::MAX - 1)
+        });
+
+        native::bray_runtime_scheduler_parking(
+            &self.scheduler.source.reference,
+            self.group,
+            milliseconds,
+        );
+    }
+}
+
+impl Drop for Parking<'_> {
+    fn drop(&mut self) {
+        native::bray_runtime_scheduler_parking_withdrawal(
+            &self.scheduler.source.reference,
+            self.group,
+        );
     }
 }

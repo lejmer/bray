@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::bootstrap::RuntimeThreadScope;
-use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
 use bray_runtime_model::{ExecutionLaneRequirement, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::context::with_task_execution_context;
@@ -34,7 +33,6 @@ trait RuntimeConformance {
     fn reject_missing_lane_capability(&self) -> Option<RuntimeCapability>;
     fn enforce_task_limit(&self) -> bool;
     fn run_structured_shutdown(&self) -> ShutdownObservation;
-    fn translate_platform_failure(&self) -> Option<(PlatformOperation, PlatformErrorKind)>;
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -176,11 +174,6 @@ fn assert_runtime_conformance(runtime: &impl RuntimeConformance) {
             cleanup_ordinals: vec![0, 1],
             infrastructure_stopped_last: true,
         }
-    );
-
-    assert_eq!(
-        runtime.translate_platform_failure(),
-        Some((PlatformOperation::Event, PlatformErrorKind::Unsupported,))
     );
 }
 
@@ -350,7 +343,8 @@ impl RuntimeConformance for BrayRuntime {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         self.record_cost(|costs| costs.task_starts += 2);
 
@@ -386,14 +380,14 @@ impl RuntimeConformance for BrayRuntime {
         self.record_cost(|costs| costs.scheduler_dispatches += 1);
 
         let first_ready = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("first dispatch must succeed: {error:?}"))
             .unwrap_or_else(|| panic!("first task must be ready"));
 
         self.record_cost(|costs| costs.scheduler_dispatches += 1);
 
         let second_ready = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("second dispatch must succeed: {error:?}"))
             .unwrap_or_else(|| panic!("second task must be ready"));
 
@@ -503,17 +497,33 @@ impl RuntimeConformance for BrayRuntime {
         let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
         let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
-        first_registration.wake_handle().wake().expect("first task wakes");
-        second_registration.wake_handle().wake().expect("second task wakes");
+        first_registration
+            .wake_handle()
+            .wake()
+            .expect("first task wakes");
 
-        let running = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds");
+        second_registration
+            .wake_handle()
+            .wake()
+            .expect("second task wakes");
 
-        let bounded = running.is_some() && scheduler.take_ready(cooperative_lane())
-            .expect("quota remains available").is_none();
+        let running = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("first dispatch succeeds");
+
+        let bounded = running.is_some()
+            && scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("quota remains available")
+                .is_none();
 
         drop(running);
 
-        bounded && scheduler.take_ready(cooperative_lane()).expect("released capacity admits queued work").is_some()
+        bounded
+            && scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("released capacity admits queued work")
+                .is_some()
     }
 
     fn run_structured_shutdown(&self) -> ShutdownObservation {
@@ -583,19 +593,6 @@ impl RuntimeConformance for BrayRuntime {
             infrastructure_stopped_last,
         }
     }
-
-    fn translate_platform_failure(&self) -> Option<(PlatformOperation, PlatformErrorKind)> {
-        let error = SchedulerError::from(PlatformError::new(
-            PlatformOperation::Event,
-            PlatformErrorKind::Unsupported,
-        ));
-
-        let SchedulerError::Platform(error) = error else {
-            return None;
-        };
-
-        Some((error.operation(), error.kind()))
-    }
 }
 
 impl BrayRuntime {
@@ -615,10 +612,14 @@ fn runtime_thread() -> RuntimeThreadScope {
 
 fn scheduler(main_thread: bray_platform::RuntimeThreadId, task_limit: usize) -> Scheduler {
     Scheduler::new(
-        [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
+        [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::MigratableLanes,
+        ],
         main_thread,
         SchedulerLimits::new(nonzero(task_limit), nonzero(4)),
     )
+    .expect("scheduler backing must be admitted")
 }
 
 fn cooperative_lane() -> ExecutionLane {

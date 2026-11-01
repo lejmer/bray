@@ -604,6 +604,8 @@ impl NativeExecutionLane {
     pub const BLOCKING: Self = Self(3);
     /// Work on a compute lane.
     pub const COMPUTE: Self = Self(4);
+    /// Work requiring both blocking and compute execution authority.
+    pub const BLOCKING_COMPUTE: Self = Self(5);
 }
 
 /// Result of selecting a compatible execution lane.

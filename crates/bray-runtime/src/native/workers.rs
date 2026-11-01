@@ -379,6 +379,213 @@ mod tests {
     }
 
     #[test]
+    fn exact_thread_tasks_keep_an_excess_blocking_worker_until_resolution() {
+        use crate::native::{export, fixtures, state};
+
+        use bray_runtime_abi::{
+            NativeActivationDescriptor, NativeCleanupStorageShape, NativeFrameAffinity,
+            NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeFrameState,
+            NativeInactiveFrame, NativeLaneRequirements, NativeRunState,
+            NativeRuntimeConfiguration, NativeTaskHandle,
+        };
+
+        use std::sync::atomic::AtomicU64;
+
+        static CHILD: AtomicU64 = AtomicU64::new(0);
+        static ORIGIN: AtomicU64 = AtomicU64::new(0);
+        static RESUMES: AtomicU64 = AtomicU64::new(0);
+
+        extern "C" fn requirements(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(
+                NativeFrameAffinity::ORIGIN_THREAD,
+                NativeLaneRequirements::NONE,
+            )
+        }
+
+        extern "C" fn blocking(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::BLOCKING,
+            )
+        }
+
+        extern "C-unwind" fn ignore(_: usize) {}
+        extern "C-unwind" fn broadcast(_: &mut NativeFrameProgress, _: usize) {}
+        extern "C-unwind" fn completion(_: usize, _: usize) {}
+
+        extern "C-unwind" fn resolve(
+            progress: &mut NativeFrameProgress,
+            _: usize,
+            _: NativeFrameExit,
+        ) {
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+        }
+
+        fn frame(
+            state: bray_runtime_abi::NativeFrameStateCallback,
+            resume: bray_runtime_abi::NativeFrameResumeCallback,
+        ) -> NativeInactiveFrame {
+            fixtures::admit(
+                0,
+                NativeActivationDescriptor {
+                    storage: NativeCleanupStorageShape::new([92; 32], 8, 8),
+                    header: 0,
+                    completion: 0,
+                    completion_bytes: 8,
+                    completion_align: 8,
+                    states: 2,
+                    state,
+                    resume,
+                    cancel: resume,
+                    broadcast,
+                    resolve,
+                    move_completion: completion,
+                    destroy: ignore,
+                },
+            )
+        }
+
+        extern "C-unwind" fn child(progress: &mut NativeFrameProgress, _: usize) {
+            let thread = state::current_runtime()
+                .expect("the worker remains attached")
+                .thread
+                .runtime()
+                .id()
+                .raw();
+
+            assert_eq!(thread, ORIGIN.load(Ordering::Acquire));
+
+            *progress = if RESUMES.fetch_add(1, Ordering::AcqRel) == 0 {
+                NativeFrameProgress::new(NativeFrameProgressKind::YIELDED, 1, 0)
+            } else {
+                NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 1, 0)
+            };
+        }
+
+        extern "C-unwind" fn parent(progress: &mut NativeFrameProgress, _: usize) {
+            let runtime = state::current_runtime().expect("the parent executes on its worker");
+
+            ORIGIN.store(runtime.thread.runtime().id().raw(), Ordering::Release);
+
+            let task = runtime
+                .allocate()
+                .task()
+                .expect("the independent exact-thread task is admitted");
+
+            assert!(
+                runtime
+                    .start(task, &frame(requirements, child))
+                    .is_success()
+            );
+
+            CHILD.store(task.raw(), Ordering::Release);
+
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+        }
+
+        let _isolation = crate::native::test_runtime_isolation();
+
+        CHILD.store(0, Ordering::Relaxed);
+        ORIGIN.store(0, Ordering::Relaxed);
+        RESUMES.store(0, Ordering::Relaxed);
+
+        assert!(
+            export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+                .is_success()
+        );
+
+        let core = state::current_runtime()
+            .expect("the host owns the runtime")
+            .core
+            .clone();
+
+        // With three idle workers, the parent consumes one and leaves the full
+        // reserve. Its worker would retire immediately without its child owner.
+        assert!(
+            core.workers
+                .spawn(&core, crate::ExecutionWorkload::Blocking)
+        );
+
+        assert!(
+            core.workers
+                .spawn(&core, crate::ExecutionWorkload::Blocking)
+        );
+
+        let parent_task = export::bray_runtime_task_allocation()
+            .task()
+            .expect("the parent is admitted");
+
+        assert!(export::bray_runtime_task_start(parent_task, frame(blocking, parent)).is_success());
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+
+        let child = loop {
+            if let Some(child) = NativeTaskHandle::new(CHILD.load(Ordering::Acquire)) {
+                if state::with_runtime(|runtime| runtime.observe(child))
+                    .expect("the host remains active")
+                    .state()
+                    == NativeRunState::COMPLETED
+                {
+                    break child;
+                }
+            }
+
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the exact-thread child must resume on its original worker"
+            );
+
+            std::thread::yield_now();
+        };
+
+        assert_eq!(RESUMES.load(Ordering::Acquire), 2);
+
+        assert_eq!(
+            core.workers.idle_blocking_workers.load(Ordering::Acquire),
+            2
+        );
+
+        assert_eq!(
+            state::with_runtime(|runtime| runtime.observe(parent_task))
+                .expect("the parent remains owned")
+                .state(),
+            NativeRunState::COMPLETED
+        );
+
+        for task in [child, parent_task] {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+
+            loop {
+                let status = state::with_runtime(|runtime| runtime.retire_task(task))
+                    .expect("the run remains owned");
+
+                if status.is_success() {
+                    break;
+                }
+
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "retirement must progress: {:?}",
+                    state::with_runtime(|runtime| (
+                        runtime
+                            .retained_task(task)
+                            .expect("the run remains retained")
+                            .snapshot(),
+                        runtime.scheduler.snapshot()
+                    ))
+                    .expect("the runtime remains active")
+                );
+
+                std::thread::yield_now();
+            }
+
+            assert!(export::bray_runtime_task_destruction(task).is_success());
+        }
+
+        assert!(export::bray_runtime_execution_shutdown().is_success());
+    }
+
+    #[test]
     fn completed_blocking_work_keeps_a_bounded_idle_reserve() {
         let workers = WorkerPool::new();
 

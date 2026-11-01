@@ -168,13 +168,13 @@ pub(crate) fn enter_current_run_cleanup_shield() {
 }
 
 pub(crate) fn leave_current_run_cleanup_shield() {
-    CURRENT_RUN_CANCELLATION.with(|cell| {
-        let context = &*cell.borrow();
+    // Releasing the outer shield can notify the scheduler. Let the callback
+    // establish its independent runtime scope without retaining a TLS borrow.
+    let context = CURRENT_RUN_CANCELLATION.with(|cell| cell.borrow().clone());
 
-        if let Some(context) = context.as_ref() {
-            context.leave_shield();
-        }
-    });
+    if let Some(context) = context {
+        context.leave_shield();
+    }
 }
 
 /// Returns whether cancellation was requested for the current run, including while shielded.
@@ -395,7 +395,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let cancellation = CancellationContext::root();
 
@@ -459,7 +460,8 @@ mod tests {
             [RuntimeCapability::CooperativeExecution],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let cancellation = CancellationContext::root();
 
