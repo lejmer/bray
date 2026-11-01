@@ -1,0 +1,167 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal std.memory;
+using internal bray.runtime.bootstrap.event;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.host.product;
+
+// Success consumes the callback descriptor. Rejection leaves it with its producer.
+@abi(c)
+trusted internal func registration(
+    pos pointer: DataPointer<Reference>,
+    pos deadline: u64,
+    pos scope: u64,
+    pos callback: DataPointer<bray.runtime.bootstrap.event.Callback>,
+    pos output: DataPointer<u64>
+) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.event.callback_slot(pointer = callback),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let header = trusted read_header(pointer, callback);
+    let owner = trusted read_reference(pointer);
+    let mut prepared: std.memory.RawBuffer<Entry>? = none;
+
+    while true
+    {
+        let required = match consume trusted try_register(&owner, &mut prepared, deadline, scope, &header)
+        {
+            case Ok(admission)
+            {
+                if admission.0 == 0
+                {
+                    trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, admission.1);
+                    trusted notify(&owner);
+                }
+
+                return admission.0;
+            }
+            case Error(required) { yield required; }
+        };
+
+        if !trusted prepare_growth(&owner, &mut prepared, required, &header)
+        {
+            return 1;
+        }
+    }
+}
+
+// Read the caller's live descriptor while retaining its distinct domain slot.
+trusted internal func read_header(
+    pos pointer: DataPointer<Reference>,
+    pos callback: DataPointer<bray.runtime.bootstrap.event.Callback>
+) -> bray.runtime.bootstrap.event.Callback
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.event.callback_slot(pointer = callback)
+    )
+    ensures(
+        trusted reference_slot(pointer = pointer),
+        trusted bray.runtime.bootstrap.event.callback_owned(owner = &result)
+    )
+{
+    return trusted bray.runtime.bootstrap.event.read_callback(callback);
+}
+
+trusted internal func try_register(
+    pos owner: &Reference,
+    pos prepared: &mut(std.memory.RawBuffer<Entry>?),
+    pos deadline: u64,
+    pos scope: u64,
+    pos callback: &bray.runtime.bootstrap.event.Callback
+) -> Result<(u32, u64), usize>
+    requires(trusted retained(owner = owner), trusted bray.runtime.bootstrap.event.callback_owned(owner = callback))
+    ensures(trusted retained(owner = owner), trusted bray.runtime.bootstrap.event.callback_owned(owner = callback))
+    uses(intrinsic)
+{
+    let value = trusted domain(owner);
+    let mut guard = trusted lock(value);
+    let current = trusted state(value, &mut guard);
+
+    if !trusted bray.runtime.bootstrap.scheduler.deadline_admission(trusted scheduler_reference(value))
+    {
+        let rejected: (u32, u64) = (4, 0);
+
+        return Ok(rejected);
+    }
+
+    if count(&current) == value.limit
+    {
+        let rejected: (u32, u64) = (2, 0);
+
+        return Ok(rejected);
+    }
+
+    if current.next == std.numeric.U64_MAX
+    {
+        let rejected: (u32, u64) = (8, 0);
+
+        return Ok(rejected);
+    }
+
+    match consume trusted bray.runtime.bootstrap.heap.reserve<Entry>(&mut current.entries, prepared)
+    {
+        case Error(required) { return Error(required); }
+        case Ok(ready)
+        {
+            if !ready
+            {
+                let rejected: (u32, u64) = (1, 0);
+
+                return Ok(rejected);
+            }
+        }
+    }
+
+    let identity = current.next;
+
+    current.next += 1;
+
+    if let ?entries = current.entries
+    {
+        trusted internal std.memory.initialize_spare<Entry>(
+            &mut entries,
+            {
+                deadline = deadline,
+                identity = identity,
+                scope = scope,
+                callback =
+                {
+                    context = callback.context,
+                    call = callback.call
+                }
+            }
+        );
+
+        let last = entries.initialized - 1;
+
+        trusted sift_up(&mut entries, last);
+
+        let admitted: (u32, u64) = (0, identity);
+
+        return Ok(admitted);
+    }
+
+    return trusted core.target.abort();
+}
+
+trusted internal func prepare_growth(
+    pos owner: &Reference,
+    pos prepared: &mut(std.memory.RawBuffer<Entry>?),
+    pos required: usize,
+    pos callback: &bray.runtime.bootstrap.event.Callback
+) -> bool
+    requires(trusted retained(owner = owner), trusted bray.runtime.bootstrap.event.callback_owned(owner = callback))
+    ensures(trusted retained(owner = owner), trusted bray.runtime.bootstrap.event.callback_owned(owner = callback))
+{
+    prepared = trusted bray.runtime.bootstrap.heap.try_buffer<Entry>(required);
+    return prepared matches ?_;
+}

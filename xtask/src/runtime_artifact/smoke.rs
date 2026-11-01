@@ -20,6 +20,7 @@ const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
     include_str!("../../fixtures/runtime-product-smoke.c"),
     include_str!("../../fixtures/runtime-event-smoke.c"),
+    include_str!("../../fixtures/runtime-deadline-smoke.c"),
     include_str!("../../fixtures/runtime-numeric-smoke.c"),
 );
 
@@ -156,6 +157,7 @@ pub(super) fn add_package_dependencies(
         &owned,
         target,
         standard_library.path(),
+        [],
         directory,
     )
     .map_err(CommandError::Bootstrap)?;
@@ -480,6 +482,9 @@ fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
     let required = [bray_runtime_abi::symbols::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL];
 
     let forbidden = [
+        bray_runtime_abi::symbols::DEADLINE_CREATION_SYMBOL,
+        bray_runtime_abi::symbols::DEADLINE_DISPATCH_SYMBOL,
+        bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow.native_symbol(),
         bray_runtime_abi::symbols::ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::TASK_ALLOCATION_SYMBOL,
         bray_runtime_abi::symbols::TASK_START_SYMBOL,
@@ -506,6 +511,10 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
+        bray_runtime_abi::symbols::DEADLINE_CREATION_SYMBOL,
+        bray_runtime_abi::symbols::DEADLINE_REGISTRATION_SYMBOL,
+        bray_runtime_abi::symbols::DEADLINE_DISPATCH_SYMBOL,
+        bray_runtime_abi::symbols::DEADLINE_WITHDRAWAL_SYMBOL,
         bray_runtime_abi::symbols::EVENT_CREATION_SYMBOL,
         bray_runtime_abi::symbols::EVENT_REGISTRATION_SYMBOL,
         bray_runtime_abi::symbols::EVENT_SIGNAL_SYMBOL,

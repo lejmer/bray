@@ -404,6 +404,7 @@ pub(super) fn compile_fixture(
         &[implementation],
         target,
         &standard_library,
+        [],
         output,
     )?;
 

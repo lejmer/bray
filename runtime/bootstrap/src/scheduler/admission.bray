@@ -248,3 +248,27 @@ trusted internal func prepare_growth(pos owner: &Reference, pos prepared: &mut P
         }
     }
 }
+
+// The admission gate exists even before the optional deadline domain is formed.
+trusted internal func deadline_admission(pos owner: &Reference) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let value = trusted domain(owner);
+    let mut guard = trusted lock(value);
+    let current = trusted guard.get();
+
+    return !current.deadline_closed;
+}
+
+@abi(c)
+trusted internal func deadline_closure(pos pointer: DataPointer<Reference>)
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let current = trusted guard.get();
+
+    current.deadline_closed = true;
+}

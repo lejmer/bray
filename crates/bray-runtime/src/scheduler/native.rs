@@ -28,6 +28,8 @@ unsafe extern "C" {
         limit: usize,
         output: &mut NativeSchedulerReference,
     ) -> u32;
+    #[link_name = "bray_runtime_deadline_closure"]
+    safe fn bray_runtime_deadline_closure_native(reference: &NativeSchedulerReference);
     #[link_name = "bray_runtime_scheduler_destruction"]
     safe fn bray_runtime_scheduler_destruction_native(reference: &NativeSchedulerReference);
     #[link_name = "bray_runtime_scheduler_selection"]
@@ -123,6 +125,10 @@ pub(super) fn bray_runtime_scheduler_creation(
     crate::context::with_independent_execution_context(|| {
         bray_runtime_scheduler_creation_native(capabilities, main, limit, output)
     })
+}
+
+pub(super) fn close_deadlines(reference: &NativeSchedulerReference) {
+    crate::context::with_independent_execution_context(|| bray_runtime_deadline_closure_native(reference));
 }
 
 pub(super) fn bray_runtime_scheduler_destruction(reference: &NativeSchedulerReference) {

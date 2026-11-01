@@ -4,13 +4,13 @@ use bray_runtime_abi::{NativeRuntimeStatus, NativeTaskReference};
 
 use super::super::state::NativeRuntimeCore;
 use crate::context::{TaskOutput, current_task_output};
-use crate::event::{EventRegistration, EventWake};
+use crate::event::{EventRegistration, NativeCallback};
 use crate::{CancellationContext, TaskRegistration};
 
 /// Native execution resources borrowed by the Source-owned task record.
 /// No frame, terminal payload, or source resolution claim is stored here.
 pub(crate) struct NativeTaskServices {
-    pub(in crate::native) event_wake: EventWake,
+    pub(crate) callback: NativeCallback,
     pub(crate) cancellation: CancellationContext,
     pub(in crate::native) output: TaskOutput,
     pub(in crate::native) registration: TaskRegistration,
@@ -36,10 +36,10 @@ impl NativeTaskServices {
         registration: TaskRegistration,
         owner: &Arc<NativeRuntimeCore>,
     ) -> Result<Self, NativeRuntimeStatus> {
-        let event_wake = EventWake::admit(cancellation.clone(), registration.wake_handle(), owner)?;
+        let callback = NativeCallback::admit(cancellation.clone(), registration.wake_handle(), owner)?;
 
         Ok(Self {
-            event_wake,
+            callback,
             cancellation,
             output: current_task_output(),
             registration,

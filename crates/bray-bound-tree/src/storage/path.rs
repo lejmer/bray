@@ -54,7 +54,8 @@ impl StoragePath {
         Self::inline_projections(&self.projections)
     }
 
-    pub(super) fn inline_projections(projections: &[StorageProjection]) -> bool {
+    /// Returns whether projections remain within the same inline owner.
+    pub fn inline_projections(projections: &[StorageProjection]) -> bool {
         projections.iter().all(|projection| {
             matches!(
                 projection,

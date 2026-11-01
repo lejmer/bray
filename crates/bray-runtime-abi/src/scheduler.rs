@@ -6,6 +6,13 @@ pub struct NativeSchedulerReference {
     address: usize,
 }
 
+/// Sole native owner of a Bray deadline domain borrowing its enclosing scheduler.
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct NativeDeadlineReference {
+    address: usize,
+}
+
 /// Checked placement and workload selected by the Bray scheduler.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -53,12 +60,13 @@ pub struct NativeSchedulerObservation {
 #[cfg(test)]
 mod tests {
     use super::{
-        NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
+        NativeDeadlineReference, NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
         NativeSchedulerRequirements,
     };
 
     #[test]
     fn scheduler_carriers_match_bray_layouts() {
+        assert_abi_layout!(NativeDeadlineReference, size: 8, align: 8, fields: { address: 0 });
         assert_abi_layout!(NativeSchedulerReference, size: 8, align: 8, fields: { address: 0 });
         assert_abi_layout!(NativeSchedulerLane, size: 16, align: 8, fields: { placement: 0, workload: 4, thread: 8 });
         assert_abi_layout!(NativeSchedulerRequirements, size: 16, align: 8, fields: { affinity: 0, workloads: 4, origin: 8 });
