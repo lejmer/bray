@@ -1819,7 +1819,7 @@ fn returned_field_addresses_differ_from_stored_reference_values() {
 }
 
 #[test]
-fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_aliases() {
+fn mutation_observations_preserve_siblings_and_exclusive_input_referents() {
     let application = compilation(
         r#"
         module app;
@@ -1854,6 +1854,7 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
 
     let mut checked_left = false;
     let mut checked_right = false;
+    let mut checked_mutated = false;
 
     for (access, _) in storage.access_entries() {
         let Some(path) = storage.logical_path(access) else {
@@ -1882,12 +1883,21 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
             continue;
         };
 
-        if graph
+        let field_name = graph
             .member_name(field.into())
-            .expect("fixture `member_name` call must succeed")
-            .as_str()
-            != "second"
-        {
+            .expect("fixture `member_name` call must succeed");
+
+        if field_name.as_str() == "first" && parameter.ordinal() == 0 {
+            assert!(
+                accesses.contains_key(&access),
+                "the changed component is invalidated: {path:?}"
+            );
+
+            checked_mutated = true;
+            continue;
+        }
+
+        if field_name.as_str() != "second" {
             continue;
         }
 
@@ -1900,15 +1910,15 @@ fn mutation_observations_preserve_sibling_fields_but_invalidate_other_input_alia
             checked_left = true;
         } else {
             assert!(
-                accesses.contains_key(&access),
-                "different input may alias: {path:?}"
+                !accesses.contains_key(&access),
+                "distinct exclusive input referents are disjoint: {path:?}"
             );
 
             checked_right = true;
         }
     }
 
-    assert!(checked_left && checked_right);
+    assert!(checked_left && checked_right && checked_mutated);
 }
 
 #[test]

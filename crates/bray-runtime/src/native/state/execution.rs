@@ -291,7 +291,7 @@ impl NativeRuntime {
         let registration = match event.register(
             generation,
             started.cancellation.clone(),
-            &started.event_wake,
+            &started.callback,
         ) {
             Ok(registration) => registration,
             Err(status) => return status,

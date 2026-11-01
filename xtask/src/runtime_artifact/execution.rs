@@ -116,6 +116,7 @@ pub(super) fn smoke_test(
             ("release", BuildConfiguration::Release),
         ] {
             let output = directory.join(format!("{name}-{mode}"));
+            let map = output.with_extension("map");
 
             crate::native_product::emit_executable_with_configuration(
                 &compilation,
@@ -127,10 +128,26 @@ pub(super) fn smoke_test(
                     LinkSearchPath::try_new(LinkSearchPathKind::Library, directory)
                         .expect("native smoke directory is a valid link search path"),
                 ],
-                None,
+                bray_linker::SystemLinkerMapOutput::try_new(&map),
                 configuration,
             )
             .map_err(CommandError::EntrySmoke)?;
+
+            // Development deliberately preserves unused linked content. Optional
+            // service omission is a property of the final release executable.
+            if configuration == BuildConfiguration::Release {
+                let symbols = fs::read_to_string(&map).map_err(|error| CommandError::read(&map, error))?;
+
+                super::smoke::audit_link_symbols(
+                    &symbols,
+                    &[],
+                    &[
+                        bray_runtime_abi::symbols::DEADLINE_CREATION_SYMBOL,
+                        bray_runtime_abi::symbols::DEADLINE_DISPATCH_SYMBOL,
+                        bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow.native_symbol(),
+                    ],
+                ).map_err(CommandError::EntrySmoke)?;
+            }
 
             let destination = crate::native_product::managed_destination(&output)
                 .map_err(CommandError::EntrySmoke)?;

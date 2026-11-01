@@ -62,4 +62,4 @@ pub use task::{
     JoinWaitRegistration, JoinWake, TaskAdmission, TaskControlBlock, TaskFailureKind, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };
-pub use timeout::{RunCancellationTimer, RunTimeoutError, RunTimeoutScheduler};
+pub use timeout::{RunTimeoutError, register_run_timeout};

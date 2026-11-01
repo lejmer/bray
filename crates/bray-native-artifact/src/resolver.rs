@@ -296,18 +296,25 @@ impl NativeUnitResolver {
         )
     }
 
-    /// Closes from known owned units when native publication starts from physical entries.
+    /// Closes symbol demand and known owned units when publication starts from physical entries.
     pub fn select_seeded(
         &self,
+        demands: impl IntoIterator<Item = NativeSymbolContract>,
         seeds: impl IntoIterator<Item = NativeUnitLocation>,
     ) -> Result<NativeUnitSelection, NativeResolutionError> {
+        let demands = demands
+            .into_iter()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+
         let seeds = seeds
             .into_iter()
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
 
-        self.select_uncached(&[], &BTreeMap::new(), &seeds, [], false)
+        self.select_uncached(&demands, &BTreeMap::new(), &seeds, [], false)
     }
 
     fn select_uncached(
@@ -1561,8 +1568,10 @@ mod tests {
             &[],
         );
 
-        let selected = NativeUnitResolver::new([index([unused, support, owner], [])])
-            .select_seeded([location(1)])
+        let resolver = NativeUnitResolver::new([index([unused, support, owner], [])]);
+
+        let selected = resolver
+            .select_seeded([], [location(1)])
             .expect("owned-unit closure");
 
         assert_eq!(selected.units(), [location(1), location(2)]);
@@ -1572,6 +1581,14 @@ mod tests {
                 .reasons(location(1))
                 .expect("fixture `reasons` call must succeed")
                 .contains(&NativeUnitInclusion::Seed)
+        );
+
+        let required = resolver.select_seeded([required("unused")], [location(1)])
+            .expect("foreign host demand closes with the owned units");
+
+        assert_eq!(
+            required.units().iter().copied().collect::<BTreeSet<_>>(),
+            BTreeSet::from([location(1), location(2), location(3)]),
         );
     }
 

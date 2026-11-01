@@ -63,6 +63,7 @@ internal struct Entry
 
 internal struct State
 {
+    mut deadline_closed: bool;
     mut entries: std.memory.RawBuffer<Entry>?;
     mut queues: std.memory.RawBuffer<Queue>?;
     mut free_queue: usize;
@@ -83,6 +84,8 @@ internal struct Domain
 }
 
 trusted internal predicate retained(owner: &Reference);
+
+trusted internal predicate retiring(owner: &Reference);
 
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 

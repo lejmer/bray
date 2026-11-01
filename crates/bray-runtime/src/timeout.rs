@@ -1,223 +1,60 @@
-use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread::JoinHandle;
 use std::time::Duration;
 
-use bray_platform::{MonotonicClock, MonotonicDeadline};
+use bray_runtime_abi::NativeRuntimeStatus;
 
-use crate::RootCancellationHandle;
+use crate::event::NativeCallback;
+use crate::{RootCancellationHandle, SchedulerError, TimerRegistration};
 
-/// Failure to create a host timeout service or register one invocation deadline.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Failure to retain the shared runtime or admit a run's cancellation deadline.
+#[derive(Debug)]
 pub enum RunTimeoutError {
-    /// The host could not start its shared timeout worker.
-    WorkerUnavailable,
-    /// The requested relative deadline cannot be represented.
-    DeadlineOverflow,
-    /// Registration identities cannot be represented.
-    IdentityExhausted,
-    /// The timeout service is shutting down.
-    ShuttingDown,
+    /// Native execution services could not be retained or initialized.
+    Runtime(NativeRuntimeStatus),
+    /// The shared scheduler could not admit the deadline and its callback.
+    Deadline(SchedulerError),
 }
 
-/// Host-owned service enforcing every active invocation deadline with one worker.
-pub struct RunTimeoutScheduler {
-    shared: Arc<RunTimeoutShared>,
-    worker: Option<JoinHandle<()>>,
-}
+/// Requests cancellation through the shared scheduler when the relative deadline expires.
+/// The timer retains execution services until withdrawal or committed callback return.
+pub fn register_run_timeout(
+    duration: Duration,
+    cancellation: &RootCancellationHandle,
+) -> Result<TimerRegistration, RunTimeoutError> {
+    let deadline = crate::scheduler::deadline_after(duration).map_err(RunTimeoutError::Deadline)?;
+    let runtime = crate::native::retain_timeout_runtime().map_err(RunTimeoutError::Runtime)?;
+    let scheduler = runtime.core.scheduler().clone();
+    let resources = NativeCallback::timeout(cancellation.clone(), runtime).map_err(RunTimeoutError::Runtime)?;
 
-impl RunTimeoutScheduler {
-    /// Starts an empty timeout service for one native test host.
-    pub fn start() -> Result<Self, RunTimeoutError> {
-        let shared = Arc::new(RunTimeoutShared {
-            state: Mutex::new(RunTimeoutState::default()),
-            wake: Condvar::new(),
-        });
-
-        let worker_shared = Arc::clone(&shared);
-
-        let worker = std::thread::Builder::new()
-            .name(String::from("bray-run-timeouts"))
-            .spawn(move || run_timeout_worker(&worker_shared))
-            .map_err(|_| RunTimeoutError::WorkerUnavailable)?;
-
-        Ok(Self {
-            shared,
-            worker: Some(worker),
-        })
-    }
-
-    /// Registers one invocation for cooperative cancellation at a relative deadline.
-    pub fn register(
-        &self,
-        limit: Duration,
-        cancellation: RootCancellationHandle,
-    ) -> Result<RunCancellationTimer, RunTimeoutError> {
-        let deadline = MonotonicClock
-            .deadline_after(limit)
-            .ok_or(RunTimeoutError::DeadlineOverflow)?;
-
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        if state.stopping {
-            return Err(RunTimeoutError::ShuttingDown);
-        }
-
-        let identity = state.next_identity;
-
-        state.next_identity = identity
-            .checked_add(1)
-            .ok_or(RunTimeoutError::IdentityExhausted)?;
-
-        state
-            .deadlines
-            .entry(deadline)
-            .or_default()
-            .insert(identity, cancellation);
-
-        drop(state);
-
-        self.shared.wake.notify_all();
-
-        Ok(RunCancellationTimer {
-            deadline,
-            identity,
-            shared: Arc::downgrade(&self.shared),
-        })
-    }
-}
-
-impl Drop for RunTimeoutScheduler {
-    fn drop(&mut self) {
-        {
-            let mut state = self
-                .shared
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            state.stopping = true;
-            state.deadlines.clear();
-        }
-
-        self.shared.wake.notify_all();
-
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
-    }
-}
-
-/// Cancellation-safe ownership of one pending invocation timeout.
-pub struct RunCancellationTimer {
-    deadline: MonotonicDeadline,
-    identity: u64,
-    shared: Weak<RunTimeoutShared>,
-}
-
-impl Drop for RunCancellationTimer {
-    fn drop(&mut self) {
-        let Some(shared) = self.shared.upgrade() else {
-            return;
-        };
-
-        let mut state = shared
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let Some(registrations) = state.deadlines.get_mut(&self.deadline) else {
-            return;
-        };
-
-        registrations.remove(&self.identity);
-
-        if registrations.is_empty() {
-            state.deadlines.remove(&self.deadline);
-        }
-
-        drop(state);
-
-        shared.wake.notify_all();
-    }
-}
-
-struct RunTimeoutShared {
-    state: Mutex<RunTimeoutState>,
-    wake: Condvar,
-}
-
-#[derive(Default)]
-struct RunTimeoutState {
-    stopping: bool,
-    next_identity: u64,
-    deadlines: BTreeMap<MonotonicDeadline, BTreeMap<u64, RootCancellationHandle>>,
-}
-
-fn run_timeout_worker(shared: &RunTimeoutShared) {
-    let mut state = shared
-        .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-    loop {
-        if state.stopping {
-            return;
-        }
-
-        let Some(deadline) = state.deadlines.keys().next().copied() else {
-            state = shared
-                .wake
-                .wait(state)
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            continue;
-        };
-
-        if !deadline.has_elapsed() {
-            let (next, _) = shared
-                .wake
-                .wait_timeout(state, deadline.remaining())
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            state = next;
-
-            continue;
-        }
-
-        let expired = state.deadlines.remove(&deadline).unwrap_or_default();
-
-        drop(state);
-
-        for cancellation in expired.into_values() {
-            cancellation.request_timeout();
-        }
-
-        state = shared
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-    }
+    scheduler.register_callback(deadline, resources.retain_timer()).map_err(RunTimeoutError::Deadline)
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::RunTimeoutScheduler;
+    use super::register_run_timeout;
     use crate::{
         RootCancellationSource, RunOutcome, current_run_cancellation_requested,
         execute_synchronous_root,
     };
 
     #[test]
+    fn unrepresentable_timeout_preserves_target_without_starting_runtime_services() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let root = crate::RootCancellationHandle::new(crate::CancellationContext::root());
+
+        assert!(matches!(register_run_timeout(Duration::MAX, &root), Err(super::RunTimeoutError::Deadline(crate::SchedulerError::DeadlineOverflow))));
+        assert_eq!(root.source(), None);
+
+        assert_eq!(
+            crate::native::implementation::bray_runtime_execution_shutdown(),
+            bray_runtime_abi::NativeRuntimeStatus::NOT_INITIALIZED,
+        );
+    }
+
+    #[test]
     fn elapsed_deadlines_request_timeout_cancellation() {
-        let timeouts = RunTimeoutScheduler::start()
-            .unwrap_or_else(|error| panic!("test timeout service must start: {error:?}"));
+        let _isolation = crate::native::test_runtime_isolation();
 
         let mut timer = None;
         let mut cancellation = None;
@@ -235,8 +72,7 @@ mod tests {
                 cancellation = Some(root.clone());
 
                 timer = Some(
-                    timeouts
-                        .register(Duration::ZERO, root)
+                    register_run_timeout(Duration::ZERO, &root)
                         .unwrap_or_else(|error| panic!("test timeout must register: {error:?}")),
                 );
             },
@@ -244,7 +80,7 @@ mod tests {
         );
 
         drop(timer);
-        drop(timeouts);
+        assert!(crate::native::implementation::bray_runtime_execution_shutdown().is_success());
 
         assert!(matches!(outcome, RunOutcome::Completed(())));
 
@@ -255,9 +91,36 @@ mod tests {
     }
 
     #[test]
+    fn pending_timeout_retains_services_after_runtime_entry_closes() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let mut timer = None;
+        let mut cancellation = None;
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("outgoing records are admitted");
+        let limit = Instant::now() + Duration::from_secs(2);
+
+        let outcome = execute_synchronous_root(
+            || {
+                while !current_run_cancellation_requested() {
+                    assert!(Instant::now() < limit, "retained deadline services make progress after closure");
+                    std::thread::yield_now();
+                }
+            },
+            |root| {
+                cancellation = Some(root.clone());
+                timer = Some(register_run_timeout(Duration::from_millis(10), &root).expect("timeout is admitted"));
+                assert!(crate::native::implementation::bray_runtime_execution_shutdown().is_success());
+            },
+            &mut admitted,
+        );
+
+        drop(timer);
+        assert!(matches!(outcome, RunOutcome::Completed(())));
+        assert_eq!(cancellation.and_then(|handle| handle.source()), Some(RootCancellationSource::Timeout));
+    }
+
+    #[test]
     fn dropping_a_registration_before_its_deadline_prevents_cancellation() {
-        let timeouts = RunTimeoutScheduler::start()
-            .unwrap_or_else(|error| panic!("test timeout service must start: {error:?}"));
+        let _isolation = crate::native::test_runtime_isolation();
 
         let mut timer = None;
         let mut cancellation = None;
@@ -271,8 +134,7 @@ mod tests {
                 cancellation = Some(root.clone());
 
                 timer = Some(
-                    timeouts
-                        .register(Duration::from_secs(60), root)
+                    register_run_timeout(Duration::from_secs(60), &root)
                         .unwrap_or_else(|error| panic!("test timeout must register: {error:?}")),
                 );
             },
@@ -280,7 +142,7 @@ mod tests {
         );
 
         drop(timer);
-        drop(timeouts);
+        assert!(crate::native::implementation::bray_runtime_execution_shutdown().is_success());
 
         assert!(matches!(outcome, RunOutcome::Completed(())));
 
@@ -291,9 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn one_worker_enforces_multiple_independent_deadlines() {
-        let timeouts = RunTimeoutScheduler::start()
-            .unwrap_or_else(|error| panic!("test timeout service must start: {error:?}"));
+    fn shared_scheduler_enforces_multiple_independent_deadlines() {
+        let _isolation = crate::native::test_runtime_isolation();
 
         let mut first = None;
         let mut second = None;
@@ -308,8 +169,7 @@ mod tests {
                 first = Some(root.clone());
 
                 registrations.push(
-                    timeouts
-                        .register(Duration::ZERO, root)
+                    register_run_timeout(Duration::ZERO, &root)
                         .unwrap_or_else(|error| panic!("first timeout must register: {error:?}")),
                 );
             },
@@ -325,8 +185,7 @@ mod tests {
                 second = Some(root.clone());
 
                 registrations.push(
-                    timeouts
-                        .register(Duration::ZERO, root)
+                    register_run_timeout(Duration::ZERO, &root)
                         .unwrap_or_else(|error| panic!("second timeout must register: {error:?}")),
                 );
             },
@@ -346,6 +205,8 @@ mod tests {
         );
 
         assert_eq!(registrations.len(), 2);
+        drop(registrations);
+        assert!(crate::native::implementation::bray_runtime_execution_shutdown().is_success());
     }
 
     fn wait_for_timeout(cancellation: &crate::RootCancellationHandle) {

@@ -2047,7 +2047,13 @@ fn raw_writes_invalidate_only_the_reached_witness_observations() {
 
 #[test]
 fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() {
-    for (mutated, valid) in [("left", true), ("right", false)] {
+    for (mutated, right_type, field, valid) in [
+        ("left", "&mut Pair", "first", true),
+        ("right", "&mut Pair", "first", true),
+        ("left", "&mut Pair", "second", false),
+        ("right", "&mut Pair", "second", true),
+        ("right", "&mut (&mut Pair)", "first", false),
+    ] {
         let source = format!(
             r#"
             trusted module app;
@@ -2056,9 +2062,9 @@ fn input_referent_mutations_preserve_only_proven_disjoint_component_witnesses() 
             trusted predicate held(value: &Cell);
             func observe(pos value: &Cell)
                 requires(trusted held(value)) executes(pure, total) {{}}
-            func caller(pos left: &mut Pair, pos right: &mut Pair)
+            func caller(pos left: &mut Pair, pos right: {right_type})
                 requires(trusted held(&left.second)) {{
-                {mutated}.first.value = false;
+                {mutated}.{field}.value = false;
                 observe(&left.second);
             }}
         "#
