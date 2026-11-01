@@ -341,3 +341,73 @@ fn compiler_capacity_labels_identify_the_affected_source_construct() {
     assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
     assert!(!rendered.message().contains("internal compiler error"));
 }
+
+#[test]
+fn runtime_role_abi_failure_preserves_the_rejected_entry_and_signature_context() {
+    use bray_diagnostics::{
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticNativeProductFailureDetail,
+        DiagnosticNativeProductFailureKind,
+    };
+
+    for (reason, expected) in [
+        (
+            "codegen_invalid_runtime_role_source_binding",
+            "source signature does not match",
+        ),
+        (
+            "codegen_invalid_runtime_role_source_contract",
+            "does not satisfy its entry contract",
+        ),
+    ] {
+        let detail = DiagnosticNativeProductFailureDetail::new(
+            reason,
+            [
+                DiagnosticFailureField::new(
+                    "role",
+                    DiagnosticFailureValue::Text("scheduler_admission".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "expected_panic_report_context",
+                    DiagnosticFailureValue::Boolean(false),
+                ),
+                DiagnosticFailureField::new(
+                    "actual_panic_report_context",
+                    DiagnosticFailureValue::Boolean(true),
+                ),
+            ],
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::NativeProductPreparationFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_product_identity("example.runtime"))
+        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+        .with_arg(DiagnosticArg::native_product_failure_kind(
+            DiagnosticNativeProductFailureKind::CodegenInvalidAbiMapping(Some(detail)),
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().contains(expected));
+
+        assert!(
+            rendered
+                .message()
+                .contains("runtime role: scheduler_admission")
+        );
+
+        assert!(
+            rendered
+                .message()
+                .contains("expected panic report context: false")
+        );
+
+        assert!(
+            rendered
+                .message()
+                .contains("actual panic report context: true")
+        );
+    }
+}

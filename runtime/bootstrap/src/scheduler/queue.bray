@@ -1,0 +1,286 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.target;
+using std.memory;
+using std.numeric;
+
+trusted internal func queue(pos state: &mut State, pos index: usize) -> &mut Queue
+    uses(intrinsic, raw_memory)
+{
+    if let ?queues = state.queues
+    {
+        let rows = trusted std.memory.initialized_slice_mut<Queue>(&mut queues);
+
+        return &mut rows[index - 1];
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func unlink_queue(pos state: &mut State, pos index: usize)
+{
+    let current = trusted queue(state, index);
+    let previous = current.previous;
+    let next = current.next;
+
+    if previous == 0
+    {
+        state.head = next;
+    }
+    else
+    {
+        trusted queue(state, previous).next = next;
+    }
+
+    if next == 0
+    {
+        state.tail = previous;
+    }
+    else
+    {
+        trusted queue(state, next).previous = previous;
+    }
+}
+
+trusted internal func append_queue(pos state: &mut State, pos index: usize)
+{
+    let tail = state.tail;
+    let current = trusted queue(state, index);
+
+    current.previous = tail;
+    current.next = 0;
+
+    if tail == 0
+    {
+        state.head = index;
+    }
+    else
+    {
+        trusted queue(state, tail).next = index;
+    }
+
+    state.tail = index;
+}
+
+// Ready entries cache their reusable header. A cache hit needs no lane search;
+// an emptied/reused header is accepted only if its current checked lane matches.
+trusted internal func queue_for(pos state: &mut State, pos lane: Lane, pos cached: usize) -> usize
+    uses(intrinsic)
+{
+    if cached != 0
+    {
+        let current = trusted queue(state, cached);
+
+        if current.head != 0 && same_lane(current.lane, lane)
+        {
+            return cached;
+        }
+    }
+
+    let mut index = state.head;
+
+    while index != 0
+    {
+        let current = trusted queue(state, index);
+
+        if same_lane(current.lane, lane)
+        {
+            return index;
+        }
+
+        index = current.next;
+    }
+
+    // One header per admitted arena cell covers the maximum simultaneous
+    // distinct lanes. Header activation never allocates, including state moves.
+    let free_index = state.free_queue;
+
+    if free_index == 0
+    {
+        trusted core.target.abort();
+    }
+
+    let current = trusted queue(state, free_index);
+    let next = current.next;
+
+    current.lane = lane;
+    current.head = 0;
+    current.tail = 0;
+    state.free_queue = next;
+    trusted append_queue(state, free_index);
+    return free_index;
+}
+
+trusted internal func unlink(pos state: &mut State, pos index: usize)
+{
+    let row = trusted entry(state, index);
+    let previous = row.previous;
+    let next = row.next;
+    let owner = row.queue;
+
+    row.previous = 0;
+    row.next = 0;
+
+    if previous == 0
+    {
+        trusted queue(state, owner).head = next;
+    }
+    else
+    {
+        trusted entry(state, previous).next = next;
+    }
+
+    if next == 0
+    {
+        trusted queue(state, owner).tail = previous;
+    }
+    else
+    {
+        trusted entry(state, next).previous = previous;
+    }
+
+    if trusted queue(state, owner).head == 0
+    {
+        trusted unlink_queue(state, owner);
+
+        let free = state.free_queue;
+        let current = trusted queue(state, owner);
+
+        current.previous = 0;
+        current.next = free;
+        state.free_queue = owner;
+    }
+}
+
+trusted internal func enqueue(pos state: &mut State, pos index: usize, pos cause: u32, pos now: u64)
+{
+    let (lane, cached) =
+    {
+        let row = trusted entry(state, index);
+
+        yield (row.lane, row.queue);
+    };
+
+    let owner = trusted queue_for(state, lane, cached);
+    let tail = trusted queue(state, owner).tail;
+    let row = trusted entry(state, index);
+
+    row.phase = 1;
+    row.cause = cause;
+    row.queued_at = now;
+    row.queue = owner;
+    row.previous = tail;
+    row.next = 0;
+
+    if tail == 0
+    {
+        trusted queue(state, owner).head = index;
+    }
+    else
+    {
+        trusted entry(state, tail).next = index;
+    }
+
+    trusted queue(state, owner).tail = index;
+}
+
+@abi(c)
+trusted internal func wake(
+    pos pointer: DataPointer<Reference>,
+    pos registration: u64,
+    pos cause: u32,
+    pos now: u64
+) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let notifications: u32 =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 2;
+        }
+
+        let row = trusted entry(state, index);
+
+        if row.phase == 1
+        {
+            return 0;
+        }
+
+        if row.phase == 2 && row.pending != 0
+        {
+            return 0;
+        }
+
+        if row.wakes != std.numeric.U64_MAX
+        {
+            row.wakes += 1;
+        }
+
+        if row.phase == 2
+        {
+            row.pending = cause;
+            return 0;
+        }
+
+        trusted enqueue(state, index, cause, now);
+        yield trusted prepare_signal(value, &state);
+    };
+
+    trusted notify(value, notifications);
+
+    return 1;
+}
+
+@abi(c)
+trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos registration: u64)
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let notifications: u32 =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return;
+        }
+
+        if trusted entry(state, index).phase == 1
+        {
+            trusted unlink(state, index);
+        }
+
+        let free = state.free;
+        let row = trusted entry(state, index);
+        let slot = row.slot;
+
+        row.slot = false;
+        row.phase = 3;
+        row.next = free;
+        row.previous = 0;
+        row.pending = 0;
+
+        if slot
+        {
+            state.running -= 1;
+        }
+
+        state.free = index;
+        yield trusted prepare_signal(value, &state);
+    };
+
+    trusted notify(value, notifications);
+}

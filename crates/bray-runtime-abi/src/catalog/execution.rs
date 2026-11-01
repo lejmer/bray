@@ -578,6 +578,166 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [RequestCancellation]
             }
+            SchedulerCreation {
+                "Admit scheduler backing without starting optional execution services.", "scheduler_creation",
+                native: (SCHEDULER_CREATION_SYMBOL = "bray_runtime_scheduler_creation", [U32, U64, Usize, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [U32, U64, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.creation"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerDestruction {
+                "Release the retired scheduler domain and admitted arena backing.", "scheduler_destruction",
+                native: (SCHEDULER_DESTRUCTION_SYMBOL = "bray_runtime_scheduler_destruction", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.destruction"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerSelection {
+                "Select a compatible lane from checked continuation requirements.", "scheduler_selection",
+                native: (SCHEDULER_SELECTION_SYMBOL = "bray_runtime_scheduler_selection", [Pointer, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.selection"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerCompatibility {
+                "Check an active dispatch lane against retained execution requirements.", "scheduler_compatibility",
+                native: (SCHEDULER_COMPATIBILITY_SYMBOL = "bray_runtime_scheduler_compatibility", [Pointer, Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.compatibility"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerAdmission {
+                "Admit one independent run without charging simultaneous execution capacity.", "scheduler_admission",
+                native: (SCHEDULER_ADMISSION_SYMBOL = "bray_runtime_scheduler_admission", [Pointer, U64, Pointer, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.admission"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerWithdrawal {
+                "Withdraw an admitted run and release its queue and execution slot.", "scheduler_withdrawal",
+                native: (SCHEDULER_WITHDRAWAL_SYMBOL = "bray_runtime_scheduler_withdrawal", [Pointer, U64] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerWake {
+                "Coalesce readiness while preserving wakes racing dispatch release.", "scheduler_wake",
+                native: (SCHEDULER_WAKE_SYMBOL = "bray_runtime_scheduler_wake", [Pointer, U64, U32, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, U32, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.wake"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerAcquisition {
+                "Acquire compatible ready work and one execution slot.", "scheduler_acquisition",
+                native: (SCHEDULER_ACQUISITION_SYMBOL = "bray_runtime_scheduler_acquisition", [Pointer, U64, U32, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, U32, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.acquisition"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerRelease {
+                "Release a dispatch and commit pending readiness without allocating.", "scheduler_release",
+                native: (SCHEDULER_RELEASE_SYMBOL = "bray_runtime_scheduler_release", [Pointer, U64, Pointer, U32, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, U32, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.release"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerSnapshot {
+                "Observe one admitted scheduler run without acquiring its source outcome.", "scheduler_snapshot",
+                native: (SCHEDULER_SNAPSHOT_SYMBOL = "bray_runtime_scheduler_snapshot", [Pointer, U64, Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.snapshot"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerParkingRegistration {
+                "Register before rechecking work and entering a target wait.", "scheduler_parking_registration",
+                native: (SCHEDULER_PARKING_REGISTRATION_SYMBOL = "bray_runtime_scheduler_parking_registration", [Pointer] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.parking_registration"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerParkingWithdrawal {
+                "Acknowledge a parking registration before its group can reset.", "scheduler_parking_withdrawal",
+                native: (SCHEDULER_PARKING_WITHDRAWAL_SYMBOL = "bray_runtime_scheduler_parking_withdrawal", [Pointer, U32] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.parking_withdrawal"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerParking {
+                "Wait through the low-level Bray target atomic binding.", "scheduler_parking",
+                native: (SCHEDULER_PARKING_SYMBOL = "bray_runtime_scheduler_parking", [Pointer, U32, U32] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U32, U32] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.parking"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerNotification {
+                "Signal registered scheduler waiters without an event-handle registry.", "scheduler_notification",
+                native: (SCHEDULER_NOTIFICATION_SYMBOL = "bray_runtime_scheduler_notification", [Pointer] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.notification"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerSlotRelease {
+                "Lend execution capacity while retaining exclusive callback ownership.", "scheduler_slot_release",
+                native: (SCHEDULER_SLOT_RELEASE_SYMBOL = "bray_runtime_scheduler_slot_release", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.slot_release"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerSlotAcquisition {
+                "Reacquire the parked callback execution slot before returning.", "scheduler_slot_acquisition",
+                native: (SCHEDULER_SLOT_ACQUISITION_SYMBOL = "bray_runtime_scheduler_slot_acquisition", [Pointer, U64] -> U32),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64] -> U32,
+                owner: Host, availability: All, bootstrap: ("scheduler.slot_acquisition"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
             TaskControlCreation {
                 "Create the runtime identity for resident Bray task control.", "task_control_creation",
                 native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),

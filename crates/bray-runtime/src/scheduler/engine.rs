@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
 
-use bray_platform::{MonotonicDeadline, NativeEvent, RuntimeThreadId};
-use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
+use bray_platform::{MonotonicClock, RuntimeThread, RuntimeThreadId};
+use bray_runtime_model::RuntimeCapability;
 
 use crate::cancellation::CancellationWakeRegistration;
 use crate::{
@@ -12,10 +12,10 @@ use crate::{
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
-use super::queue::{self, QueuedTask, ReadyQueue};
-use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_state_lane};
+use super::native::{self, BrayScheduler};
+use super::timer::Timer;
 
-/// Target-independent scheduler policy and ready-queue storage.
+/// One Bray scheduler and the native resources retained by its registrations.
 #[derive(Clone, Debug)]
 pub struct Scheduler {
     pub(super) data: Arc<SchedulerData>,
@@ -23,71 +23,52 @@ pub struct Scheduler {
 
 #[derive(Debug)]
 pub(super) struct SchedulerData {
-    pub(super) capabilities: Arc<[RuntimeCapability]>,
-    pub(super) main_thread: RuntimeThreadId,
     pub(super) limits: SchedulerLimits,
     pub(super) observe_queue_time: bool,
     pub(super) state: Mutex<SchedulerState>,
-    pub(super) event: NativeEvent,
+    pub(super) source: BrayScheduler,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct SchedulerState {
-    pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
-    pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,
-    pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
-    next_timer: u64,
-    pub(super) timer_count: usize,
-    pub(super) running_count: usize,
+    pub(super) tasks: HashMap<TaskId, RegisteredTask>,
+    pub(super) timers: BinaryHeap<Reverse<Timer>>,
+    pub(super) next_timer: u64,
 }
 
+// These bindings own callback resources and checked metadata, never readiness,
+// links, terminal results or execution quota. Those belong to Bray.
 #[derive(Debug)]
 pub(super) struct RegisteredTask {
+    pub(super) registration: u64,
     pub(super) execution: FrameExecutionState,
     pub(super) origin: RuntimeThreadId,
-    pub(super) cancellation: CancellationContext,
-    pub(super) dispatch: DispatchState,
-    pub(super) wake_count: u64,
+    pub(super) cancellation: Option<CancellationContext>,
     pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
-    pub(super) queued: Option<QueuedTask>,
-    pub(super) execution_slot: bool,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum DispatchState {
-    Idle(ProtectedFrameStateId),
-    Queued(ProtectedFrameStateId),
-    Running {
-        state: ProtectedFrameStateId,
-        pending: Option<TaskWakeCause>,
-    },
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct TimerWake {
-    task: TaskId,
 }
 
 impl Scheduler {
     pub(crate) fn wake_waiters(&self) {
-        let _ = self.data.event.wake_handle().wake();
+        native::bray_runtime_scheduler_notification(&self.data.source.reference);
     }
 
-    /// Creates a scheduler from validated runtime capabilities and explicit limits.
+    /// Creates a scheduler without starting workers or optional services.
+    /// Returns an error if scheduler backing cannot be admitted.
     pub fn new(
         capabilities: impl IntoIterator<Item = RuntimeCapability>,
         main_thread: RuntimeThreadId,
         limits: SchedulerLimits,
-    ) -> Self {
+    ) -> Result<Self, SchedulerError> {
         Self::create(capabilities, main_thread, limits, false)
     }
 
-    /// Creates a scheduler that records ready-queue timing for inspection.
+    /// Creates a scheduler that records queue timestamps for inspection.
+    /// Returns an error if scheduler backing cannot be admitted.
     pub fn new_observed(
         capabilities: impl IntoIterator<Item = RuntimeCapability>,
         main_thread: RuntimeThreadId,
         limits: SchedulerLimits,
-    ) -> Self {
+    ) -> Result<Self, SchedulerError> {
         Self::create(capabilities, main_thread, limits, true)
     }
 
@@ -96,29 +77,20 @@ impl Scheduler {
         main_thread: RuntimeThreadId,
         limits: SchedulerLimits,
         observe_queue_time: bool,
-    ) -> Self {
-        let mut capabilities: Vec<_> = capabilities.into_iter().collect();
+    ) -> Result<Self, SchedulerError> {
+        let source = BrayScheduler::new(capabilities, main_thread, limits.tasks().get())?;
 
-        capabilities.sort_unstable();
-        capabilities.dedup();
-
-        Self {
+        Ok(Self {
             data: Arc::new(SchedulerData {
-                capabilities: capabilities.into(),
-                main_thread,
                 limits,
                 observe_queue_time,
                 state: Mutex::new(SchedulerState::default()),
-                event: NativeEvent::new(),
+                source,
             }),
-        }
+        })
     }
 
-    pub(crate) fn task_wake(&self, task: TaskId) -> TaskWakeHandle {
-        TaskWakeHandle { task, scheduler: Arc::downgrade(&self.data) }
-    }
-
-    /// Registers one runtime-owned task without making it ready.
+    /// Registers an independent host run without making it ready.
     pub fn register_task(
         &self,
         task: TaskId,
@@ -126,132 +98,162 @@ impl Scheduler {
         origin: RuntimeThreadId,
         cancellation: &CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let initial_state = execution.state();
-        let execution_origin = execution.origin().unwrap_or(origin);
+        let mut registration =
+            self.register(task, execution, origin, Some(cancellation.clone()))?;
 
-        select_state_lane(&self.data, execution.descriptor(), execution_origin)?;
+        let wake = registration.wake_handle();
 
-        {
+        let cancellation_wake = cancellation.register_wake(|| {
+            Arc::new(move || {
+                let _ = wake.wake_cancellation();
+            })
+        })?;
+
+        registration._cancellation_wake = cancellation_wake;
+
+        Ok(registration)
+    }
+
+    pub(crate) fn register_native(
+        &self,
+        task: TaskId,
+        execution: FrameExecutionState,
+        origin: RuntimeThreadId,
+    ) -> Result<TaskRegistration, SchedulerError> {
+        self.register(task, execution, origin, None)
+    }
+
+    fn register(
+        &self,
+        task: TaskId,
+        execution: FrameExecutionState,
+        origin: RuntimeThreadId,
+        cancellation: Option<CancellationContext>,
+    ) -> Result<TaskRegistration, SchedulerError> {
+        let lane = self
+            .data
+            .source
+            .select(execution.descriptor(), execution.origin().unwrap_or(origin))?;
+
+        let mut registration = 0;
+
+        let status = native::bray_runtime_scheduler_admission(
+            &self.data.source.reference,
+            task.raw(),
+            &native::to_native(lane),
+            &mut registration,
+        );
+
+        match status {
+            0 => {}
+            1 => return Err(SchedulerError::BackingUnavailable),
+            2 => return Err(SchedulerError::RegistrationIdentityExhausted),
+            _ => panic!("Bray admission returned unknown status {status}"),
+        }
+
+        // This guard also rolls back Source admission if native binding backing
+        // cannot be prepared. No frame or callback has transferred yet.
+        let owner = TaskRegistration {
+            task,
+            origin,
+            registration,
+            scheduler: Arc::downgrade(&self.data),
+            _cancellation_wake: None,
+        };
+
+        let mut prepared = HashMap::new();
+
+        loop {
             let mut state = self.lock_state()?;
 
             if state.tasks.contains_key(&task) {
                 return Err(SchedulerError::TaskAlreadyRegistered(task));
             }
 
-            let capacity = state.tasks.len().checked_add(1).expect("the registry length is representable");
+            if state.tasks.len() < state.tasks.capacity() {
+                state.tasks.insert(
+                    task,
+                    RegisteredTask {
+                        registration,
+                        execution,
+                        origin,
+                        cancellation,
+                        native: None,
+                    },
+                );
 
-            if state.queues.capacity() < capacity {
-                let additional = capacity - state.queues.len();
-
-                state.queues.try_reserve(additional).map_err(SchedulerError::ReadyStorageUnavailable)?;
+                return Ok(owner);
             }
 
-            state.tasks.insert(
-                task,
-                RegisteredTask {
-                    execution,
-                    origin,
-                    // Dispatch release must observe cancellation after registration returns.
-                    cancellation: cancellation.clone(),
-                    dispatch: DispatchState::Idle(initial_state),
-                    wake_count: 0,
-                    native: None,
-                    queued: None,
-                    execution_slot: false,
-                },
-            );
+            let required = state
+                .tasks
+                .len()
+                .checked_add(1)
+                .expect("binding capacity is representable");
+
+            if prepared.capacity() >= required {
+                prepared.extend(state.tasks.drain());
+                std::mem::swap(&mut prepared, &mut state.tasks);
+
+                state.tasks.insert(
+                    task,
+                    RegisteredTask {
+                        registration,
+                        execution,
+                        origin,
+                        cancellation,
+                        native: None,
+                    },
+                );
+
+                return Ok(owner);
+            }
+
+            drop(state);
+
+            prepared
+                .try_reserve(required)
+                .map_err(SchedulerError::ReadyStorageUnavailable)?;
         }
+    }
 
-        let scheduler = Arc::downgrade(&self.data);
+    /// Takes the next ready task with fair turns across the acquired lanes.
+    /// The caller retains the current thread's attachment through this operation.
+    pub fn take_ready(
+        &self,
+        thread: &RuntimeThread,
+        lanes: impl IntoIterator<Item = ExecutionLane>,
+    ) -> Result<Option<super::dispatch::ReadyTask>, SchedulerError> {
+        self.promote_elapsed_timers()?;
 
-        let cancellation_wake = match cancellation
-            .register_wake(|| Arc::new(move || wake_cancelled_task(&scheduler, task)))
-        {
-            Ok(registration) => registration,
-            Err(error) => {
-                unregister_task(&self.data, task);
+        let thread = thread.id();
 
-                return Err(error.into());
-            }
-        };
+        let lanes = lanes
+            .into_iter()
+            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
 
-        Ok(TaskRegistration {
-            task,
-            origin,
-            scheduler: Arc::downgrade(&self.data),
-            _cancellation_wake: cancellation_wake,
+        super::dispatch::pop_ready(&self.data, thread, lanes)
+    }
+
+    /// Returns the number of registered independent runs.
+    pub fn task_count(&self) -> Result<usize, SchedulerError> {
+        Ok(self.lock_state()?.tasks.len())
+    }
+
+    // Keep the creating attachment and any checked live frame origin through
+    // registration retirement. This cold resource query owns no lane policy.
+    pub(crate) fn has_attachment_users(&self, thread: &RuntimeThread) -> bool {
+        let state = self
+            .lock_state()
+            .expect("worker retirement retains scheduler bindings");
+
+        state.tasks.values().any(|binding| {
+            binding.origin == thread.id() || binding.execution.origin() == Some(thread.id())
         })
     }
 
-    /// Registers a timer that requests task dispatch after its deadline.
-    pub fn register_timer(
-        &self,
-        deadline: MonotonicDeadline,
-        wake: &TaskWakeHandle,
-    ) -> Result<TimerRegistration, SchedulerError> {
-        if !Weak::ptr_eq(&wake.scheduler, &Arc::downgrade(&self.data)) {
-            return Err(SchedulerError::UnknownTask(wake.task));
-        }
-
-        let mut state = self.lock_state()?;
-
-        if !state.tasks.contains_key(&wake.task) {
-            return Err(SchedulerError::UnknownTask(wake.task));
-        }
-
-        if state.timer_count >= self.data.limits.timers().get() {
-            return Err(SchedulerError::TimerCapacityReached);
-        }
-
-        let identity = state.next_timer;
-
-        let Some(next_timer) = identity.checked_add(1) else {
-            return Err(SchedulerError::TimerIdentityExhausted);
-        };
-
-        state.next_timer = next_timer;
-
-        state
-            .timers
-            .entry(deadline)
-            .or_default()
-            .insert(identity, TimerWake { task: wake.task });
-
-        state.timer_count += 1;
-
-        drop(state);
-
-        let registration = TimerRegistration {
-            deadline,
-            identity: Some(identity),
-            scheduler: Arc::downgrade(&self.data),
-        };
-
-        if let Err(error) = self.data.event.wake_handle().wake() {
-            drop(registration);
-
-            return Err(error.into());
-        }
-
-        Ok(registration)
-    }
-
-    /// Takes the next task compatible with one exact worker lane.
-    pub fn take_ready(&self, lane: ExecutionLane) -> Result<Option<ReadyTask>, SchedulerError> {
-        let mut state = self.lock_state()?;
-
-        self.promote_elapsed_timers(&mut state)?;
-
-        Ok(pop_ready(&self.data, &mut state, lane))
-    }
-
-    /// Returns the current registered-task count.
-    pub fn task_count(&self) -> Result<usize, SchedulerError> {
-        self.lock_state().map(|state| state.tasks.len())
-    }
-
     pub(crate) fn unregister_native_task(&self, task: TaskId) {
-        unregister_task(&self.data, task);
+        unregister_task(&self.data, task, None);
     }
 
     pub(crate) fn install_native_task(
@@ -259,9 +261,18 @@ impl Scheduler {
         task: Arc<crate::native::NativeTaskServices>,
     ) -> Result<(), SchedulerError> {
         let mut state = self.lock_state()?;
-        let registered = state.tasks.get_mut(&task.id()).ok_or(SchedulerError::UnknownTask(task.id()))?;
 
-        assert!(registered.native.is_none(), "a registration accepts its native resources once");
+        let registered = state
+            .tasks
+            .get_mut(&task.id())
+            .ok_or(SchedulerError::UnknownTask(task.id()))?;
+
+        assert!(
+            registered.native.is_none(),
+            "a registration accepts native resources once"
+        );
+
+        registered.cancellation = Some(task.cancellation.clone());
         registered.native = Some(task);
 
         Ok(())
@@ -271,52 +282,17 @@ impl Scheduler {
         &self,
         task: TaskId,
     ) -> Result<Arc<crate::native::NativeTaskServices>, SchedulerError> {
-        self.lock_state()?.tasks.get(&task)
+        self.lock_state()?
+            .tasks
+            .get(&task)
             .and_then(|registered| registered.native.as_ref())
             .map(Arc::clone)
             .ok_or(SchedulerError::UnknownTask(task))
     }
 
-    /// Captures registered tasks and timers in deterministic identity order.
+    /// Captures current task metadata in deterministic identity order.
     pub fn snapshot(&self) -> Result<SchedulerSnapshot, SchedulerError> {
-        let state = self.lock_state()?;
-
-        scheduler_snapshot(&self.data, &state)
-    }
-
-    pub(super) fn promote_elapsed_timers(
-        &self,
-        scheduler: &mut SchedulerState,
-    ) -> Result<(), SchedulerError> {
-        while let Some(deadline) = scheduler.timers.keys().next().copied() {
-            if !deadline.has_elapsed() {
-                break;
-            }
-
-            let Some(wakes) = scheduler.timers.remove(&deadline) else {
-                continue;
-            };
-
-            let mut wakes = wakes.into_iter();
-
-            while let Some((identity, wake)) = wakes.next() {
-                match enqueue_task(&self.data, scheduler, wake.task, TaskWakeCause::Timer) {
-                    Ok(_) | Err(SchedulerError::UnknownTask(_)) => {
-                        scheduler.timer_count = scheduler.timer_count.saturating_sub(1);
-                    }
-                    Err(error) => {
-                        let retained = scheduler.timers.entry(deadline).or_default();
-
-                        retained.insert(identity, wake);
-                        retained.extend(wakes);
-
-                        return Err(error);
-                    }
-                }
-            }
-        }
-
-        Ok(())
+        super::dispatch::scheduler_snapshot(&self.data)
     }
 
     pub(super) fn lock_state(
@@ -329,431 +305,187 @@ impl Scheduler {
     }
 }
 
-/// Cancellation-safe ownership of one pending scheduler timer.
-#[derive(Debug)]
-pub struct TimerRegistration {
-    deadline: MonotonicDeadline,
-    identity: Option<u64>,
-    scheduler: Weak<SchedulerData>,
-}
-
-impl Drop for TimerRegistration {
-    fn drop(&mut self) {
-        let Some(identity) = self.identity.take() else {
-            return;
-        };
-
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return;
-        };
-
-        let mut state = scheduler
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let mut removed = false;
-
-        if let Some(timers) = state.timers.get_mut(&self.deadline) {
-            removed = timers.remove(&identity).is_some();
-
-            if timers.is_empty() {
-                state.timers.remove(&self.deadline);
-            }
-        }
-
-        if removed {
-            state.timer_count = state.timer_count.saturating_sub(1);
+impl SchedulerData {
+    pub(super) fn ticks(&self) -> u64 {
+        if self.observe_queue_time {
+            MonotonicClock
+                .ticks()
+                .expect("observed queue time remains representable")
+        } else {
+            0
         }
     }
 }
 
-/// Registration whose lifetime keeps one task known to the scheduler.
+impl Drop for SchedulerData {
+    fn drop(&mut self) {
+        // No concurrent operation survives the final Arc. Retire links before
+        // dropping the native bindings; their registrations may reenter Drop.
+        let state = self
+            .state
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        for registered in state.tasks.values() {
+            native::bray_runtime_scheduler_withdrawal(
+                &self.source.reference,
+                registered.registration,
+            );
+        }
+    }
+}
+
+/// Registration retaining this run's membership in the scheduler.
 #[derive(Debug)]
 pub struct TaskRegistration {
     pub(super) task: TaskId,
-    origin: RuntimeThreadId,
+    pub(super) origin: RuntimeThreadId,
+    pub(super) registration: u64,
     pub(super) scheduler: Weak<SchedulerData>,
     _cancellation_wake: Option<CancellationWakeRegistration>,
 }
 
 impl TaskRegistration {
-    /// Returns the registered task identity.
+    /// Returns the independent run identity.
     pub const fn task(&self) -> TaskId {
         self.task
     }
 
-    /// Returns a transferable handle that can make this task ready.
+    /// Returns a transferable wake for this exact admitted registration.
     pub fn wake_handle(&self) -> TaskWakeHandle {
         TaskWakeHandle {
             task: self.task,
+            registration: self.registration,
             scheduler: self.scheduler.clone(),
         }
     }
 
-    /// Returns the compatible execution lane for the registered activation state.
+    /// Returns the lane selected for the registered continuation.
     pub fn lane(&self) -> Result<ExecutionLane, SchedulerError> {
-        let Some(scheduler) = self.scheduler.upgrade() else {
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        let mut observation = bray_runtime_abi::NativeSchedulerObservation::default();
+
+        let status = native::bray_runtime_scheduler_snapshot(
+            &scheduler.source.reference,
+            self.registration,
+            &mut observation,
+        );
+
+        if status != 0 {
             return Err(SchedulerError::UnknownTask(self.task));
-        };
+        }
 
-        let state = scheduler
-            .state
-            .lock()
-            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
-
-        let Some(task) = state.tasks.get(&self.task) else {
-            return Err(SchedulerError::UnknownTask(self.task));
-        };
-
-        let origin = task.execution.origin().unwrap_or(task.origin);
-
-        select_state_lane(&scheduler, task.execution.descriptor(), origin)
+        Ok(native::from_native(observation.lane))
     }
 
     pub(crate) fn execution_lane(
         &self,
         execution: &FrameExecutionState,
     ) -> Result<ExecutionLane, SchedulerError> {
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return Err(SchedulerError::UnknownTask(self.task));
-        };
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
 
-        let origin = execution.origin().unwrap_or(self.origin);
-
-        select_state_lane(&scheduler, execution.descriptor(), origin)
+        scheduler.source.select(
+            execution.descriptor(),
+            execution.origin().unwrap_or(self.origin),
+        )
     }
 }
 
 impl Drop for TaskRegistration {
     fn drop(&mut self) {
         if let Some(scheduler) = self.scheduler.upgrade() {
-            unregister_task(&scheduler, self.task);
+            unregister_task(&scheduler, self.task, Some(self.registration));
         }
     }
 }
 
-fn unregister_task(scheduler: &SchedulerData, task: TaskId) {
+fn unregister_task(scheduler: &SchedulerData, task: TaskId, registration: Option<u64>) {
     let removed = {
-        let mut state = scheduler.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = scheduler
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        queue::remove(&mut state, task);
-
-        let removed = state.tasks.remove(&task);
-
-        if removed.as_ref().is_some_and(|task| task.execution_slot) {
-            state.running_count -= 1;
-        }
-
-        let mut removed_timers = 0;
-
-        state.timers.retain(|_, wakes| {
-            let previous = wakes.len();
-
-            wakes.retain(|_, wake| wake.task != task);
-            removed_timers += previous - wakes.len();
-
-            !wakes.is_empty()
+        let matches = state.tasks.get(&task).is_some_and(|binding| {
+            registration.is_none_or(|registration| registration == binding.registration)
         });
 
-        state.timer_count = state.timer_count.saturating_sub(removed_timers);
+        if !matches {
+            // Admission can fail before publishing a native binding.
+            drop(state);
+
+            if let Some(registration) = registration {
+                native::bray_runtime_scheduler_withdrawal(
+                    &scheduler.source.reference,
+                    registration,
+                );
+            }
+
+            return;
+        }
+
+        let removed = state
+            .tasks
+            .remove(&task)
+            .expect("the matching binding remains present");
+
+        native::bray_runtime_scheduler_withdrawal(
+            &scheduler.source.reference,
+            removed.registration,
+        );
+
+        state.timers.retain(|Reverse(timer)| timer.task != task);
 
         removed
     };
 
-    // Native resources include their registration. Drop them after releasing
-    // the registry lock so final resource cleanup can reenter the scheduler.
     drop(removed);
-
-    let _ = scheduler.event.wake_handle().wake();
 }
 
-/// Transferable authority to request dispatch of one registered task.
+/// Transferable wake for one generation-checked Bray registration.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
-    task: TaskId,
-    scheduler: Weak<SchedulerData>,
+    pub(super) task: TaskId,
+    pub(super) registration: u64,
+    pub(super) scheduler: Weak<SchedulerData>,
 }
 
 impl TaskWakeHandle {
-    /// Requests dispatch at the task's saved suspension state.
-    ///
-    /// Returns whether this call added a new ready-queue entry.
+    /// Coalesces a wake and reports whether it adds a new ready entry.
     pub fn wake(&self) -> Result<bool, SchedulerError> {
         self.wake_with_cause(TaskWakeCause::Explicit)
     }
-
     pub(crate) fn wake_cancellation(&self) -> Result<bool, SchedulerError> {
         self.wake_with_cause(TaskWakeCause::Cancellation)
     }
 
-    fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return Err(SchedulerError::UnknownTask(self.task));
-        };
+    pub(super) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
 
-        let mut state = scheduler
-            .state
-            .lock()
-            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+        let status = native::bray_runtime_scheduler_wake(
+            &scheduler.source.reference,
+            self.registration,
+            native::cause(cause),
+            scheduler.ticks(),
+        );
 
-        let changed = enqueue_task(&scheduler, &mut state, self.task, cause)?;
-
-        drop(state);
-
-        if changed {
-            scheduler.event.wake_handle().wake()?;
-        }
-
-        Ok(changed)
-    }
-}
-
-fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
-    let Some(scheduler) = scheduler.upgrade() else {
-        return;
-    };
-
-    let Ok(mut state) = scheduler.state.lock() else {
-        return;
-    };
-
-    let Some(DispatchState::Idle(_)) = state.tasks.get(&task_id).map(|task| task.dispatch) else {
-        return;
-    };
-
-    let Ok(changed) = enqueue_task(&scheduler, &mut state, task_id, TaskWakeCause::Cancellation)
-    else {
-        return;
-    };
-
-    drop(state);
-
-    if changed {
-        let _ = scheduler.event.wake_handle().wake();
-    }
-}
-
-/// One ready dispatch borrowed from a scheduler lane.
-#[derive(Debug)]
-pub struct ReadyTask {
-    pub(super) task: TaskId,
-    pub(super) execution: FrameExecutionState,
-    pub(super) lane: ExecutionLane,
-    pub(super) wake_cause: TaskWakeCause,
-    pub(super) queue_latency: Option<Duration>,
-    pub(super) scheduler: Weak<SchedulerData>,
-    pub(super) released: bool,
-    pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
-}
-
-impl ReadyTask {
-    pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
-        self.native.take()
-    }
-
-    /// Returns the task selected for this dispatch.
-    pub const fn task(&self) -> TaskId {
-        self.task
-    }
-
-    /// Returns the protected-frame state selected for resumption.
-    pub const fn state(&self) -> ProtectedFrameStateId {
-        self.execution.state()
-    }
-
-    /// Returns the active frame identity and checked execution metadata.
-    pub const fn execution_state(&self) -> &FrameExecutionState {
-        &self.execution
-    }
-
-    /// Returns the exact compatible lane that produced this dispatch.
-    pub const fn lane(&self) -> ExecutionLane {
-        self.lane
-    }
-
-    /// Returns why this dispatch became ready.
-    pub const fn wake_cause(&self) -> TaskWakeCause {
-        self.wake_cause
-    }
-
-    /// Returns queue latency when scheduler observation is enabled.
-    pub const fn queue_latency(&self) -> Option<Duration> {
-        self.queue_latency
-    }
-
-    /// Releases this dispatch at the frame's newly suspended state.
-    pub fn suspend(
-        mut self,
-        execution: FrameExecutionState,
-    ) -> Result<ExecutionLane, SchedulerError> {
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return Err(SchedulerError::UnknownTask(self.task));
-        };
-
-        let mut state = scheduler
-            .state
-            .lock()
-            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
-
-        let (changed, lane) =
-            release_dispatch(&scheduler, &mut state, self.task, self.state(), execution)?;
-
-        self.released = true;
-
-        drop(state);
-
-        if changed {
-            scheduler.event.wake_handle().wake()?;
-        }
-
-        Ok(lane)
-    }
-}
-
-impl Drop for ReadyTask {
-    fn drop(&mut self) {
-        if self.released {
-            return;
-        }
-
-        let Some(scheduler) = self.scheduler.upgrade() else {
-            return;
-        };
-
-        let Ok(mut state) = scheduler.state.lock() else {
-            return;
-        };
-
-        let Ok((changed, _)) = release_dispatch(
-            &scheduler,
-            &mut state,
-            self.task,
-            self.state(),
-            self.execution.clone(),
-        ) else {
-            return;
-        };
-
-        drop(state);
-
-        if changed {
-            let _ = scheduler.event.wake_handle().wake();
+        match status {
+            0 => Ok(false),
+            1 => Ok(true),
+            2 => Err(SchedulerError::UnknownTask(self.task)),
+            _ => panic!("Bray wake returned unknown status {status}"),
         }
     }
-}
-
-fn release_dispatch(
-    scheduler: &SchedulerData,
-    state: &mut SchedulerState,
-    task_id: TaskId,
-    running_state: ProtectedFrameStateId,
-    execution: FrameExecutionState,
-) -> Result<(bool, ExecutionLane), SchedulerError> {
-    let Some(task) = state.tasks.get(&task_id) else {
-        return Err(SchedulerError::UnknownTask(task_id));
-    };
-
-    let DispatchState::Running {
-        state: retained,
-        pending,
-    } = task.dispatch
-    else {
-        panic!("dispatch release requires the exclusively running task");
-    };
-
-    assert_eq!(
-        retained, running_state,
-        "dispatch release retains its original running state"
-    );
-
-    let origin = execution.origin().unwrap_or(task.origin);
-    let lane = select_state_lane(scheduler, execution.descriptor(), origin)?;
-    let suspended_state = execution.state();
-
-    let next = pending.or_else(|| {
-        task.cancellation
-            .recheck_dispatch()
-            .then_some(TaskWakeCause::Cancellation)
-    });
-
-    let task = state.tasks.get_mut(&task_id).expect("the running task remains registered");
-
-    assert!(task.execution_slot, "dispatch return reacquires its temporarily parked execution slot");
-
-    task.execution_slot = false;
-    state.running_count -= 1;
-
-    if let Some(next) = next {
-        queue::push(state, task_id, lane, suspended_state, next, queue_instant(scheduler));
-
-        let Some(task) = state.tasks.get_mut(&task_id) else {
-            return Err(SchedulerError::UnknownTask(task_id));
-        };
-
-        task.execution = execution;
-        task.dispatch = DispatchState::Queued(suspended_state);
-    } else {
-        let Some(task) = state.tasks.get_mut(&task_id) else {
-            return Err(SchedulerError::UnknownTask(task_id));
-        };
-
-        task.execution = execution;
-        task.dispatch = DispatchState::Idle(suspended_state);
-    }
-
-    Ok((true, lane))
-}
-
-fn enqueue_task(
-    scheduler: &SchedulerData,
-    state: &mut SchedulerState,
-    task_id: TaskId,
-    cause: TaskWakeCause,
-) -> Result<bool, SchedulerError> {
-    let Some(task) = state.tasks.get(&task_id) else {
-        return Err(SchedulerError::UnknownTask(task_id));
-    };
-
-    let state_id = match task.dispatch {
-        DispatchState::Queued(_) => return Ok(false),
-        DispatchState::Running {
-            state: retained,
-            pending,
-        } => {
-            if pending.is_some() {
-                return Ok(false);
-            }
-
-            let Some(task) = state.tasks.get_mut(&task_id) else {
-                return Err(SchedulerError::UnknownTask(task_id));
-            };
-
-            task.wake_count = task.wake_count.saturating_add(1);
-
-            task.dispatch = DispatchState::Running {
-                state: retained,
-                pending: Some(cause),
-            };
-
-            return Ok(false);
-        }
-        DispatchState::Idle(state_id) => state_id,
-    };
-
-    let origin = task.execution.origin().unwrap_or(task.origin);
-    let lane = select_state_lane(scheduler, task.execution.descriptor(), origin)?;
-
-    queue::push(state, task_id, lane, state_id, cause, queue_instant(scheduler));
-
-    let Some(task) = state.tasks.get_mut(&task_id) else {
-        return Err(SchedulerError::UnknownTask(task_id));
-    };
-
-    task.wake_count = task.wake_count.saturating_add(1);
-    task.dispatch = DispatchState::Queued(state_id);
-
-    Ok(true)
 }
 
 #[cfg(test)]
@@ -765,7 +497,8 @@ mod tests {
     use bray_platform::MonotonicClock;
     use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
 
-    use super::{Scheduler, SchedulerError, SchedulerLimits};
+    use super::super::contract::{SchedulerError, SchedulerLimits};
+    use super::Scheduler;
     use crate::test_support::{TestFrame, register_task};
     use crate::{
         ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind,
@@ -801,7 +534,7 @@ mod tests {
 
         assert!(
             scheduler
-                .take_ready(cooperative_lane())
+                .take_ready(runtime.runtime(), [cooperative_lane()])
                 .expect("fixture `take_ready` call must succeed")
                 .is_none()
         );
@@ -821,7 +554,8 @@ mod tests {
             ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(8), nonzero(8)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
@@ -848,7 +582,7 @@ mod tests {
         assert!(scheduled.queue_age().is_some());
 
         let ready = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("task must be ready"));
 
@@ -888,7 +622,7 @@ mod tests {
         let lane = cooperative_lane();
 
         let first_ready = scheduler
-            .take_ready(lane)
+            .take_ready(runtime.runtime(), [lane])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("first task must be ready"));
 
@@ -897,7 +631,7 @@ mod tests {
         drop(first_ready);
 
         let second_ready = scheduler
-            .take_ready(lane)
+            .take_ready(runtime.runtime(), [lane])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("second task must be ready"));
 
@@ -935,7 +669,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("ready task must wake: {error:?}"));
 
         let dispatch = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("yielding task must be ready first"));
 
@@ -960,7 +694,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("yielding task must requeue: {error:?}"));
 
         let next = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("ready queue must remain available: {error:?}"))
             .unwrap_or_else(|| panic!("ready task must remain queued"));
 
@@ -997,7 +731,7 @@ mod tests {
         let lane = cooperative_lane();
 
         let ready = scheduler
-            .take_ready(lane)
+            .take_ready(runtime.runtime(), [lane])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("task must be ready"));
 
@@ -1011,7 +745,7 @@ mod tests {
 
         assert!(
             scheduler
-                .take_ready(lane)
+                .take_ready(runtime.runtime(), [lane])
                 .unwrap_or_else(|error| panic!("pending wake must be available: {error:?}"))
                 .is_some()
         );
@@ -1041,7 +775,7 @@ mod tests {
         let lane = cooperative_lane();
 
         let ready = scheduler
-            .take_ready(lane)
+            .take_ready(runtime.runtime(), [lane])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("task must be ready"));
 
@@ -1059,7 +793,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("new suspension state must be retained: {error:?}"));
 
         let pending = scheduler
-            .take_ready(lane)
+            .take_ready(runtime.runtime(), [lane])
             .unwrap_or_else(|error| panic!("pending wake must be available: {error:?}"))
             .unwrap_or_else(|| panic!("next state must be ready"));
 
@@ -1085,7 +819,7 @@ mod tests {
         assert!(task.request_cancellation());
 
         let ready = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("cancelled task must be ready"));
 
@@ -1116,12 +850,13 @@ mod tests {
 
         let ready = scheduler
             .wait_ready(
-                cooperative_lane(),
+                runtime.runtime(),
+                [cooperative_lane()],
                 MonotonicClock.deadline_after(Duration::from_secs(1)),
             )
             .unwrap_or_else(|error| panic!("timer wait must succeed: {error:?}"));
 
-        assert_eq!(ready.as_ref().map(super::ReadyTask::task), Some(task.id()));
+        assert_eq!(ready.as_ref().map(crate::ReadyTask::task), Some(task.id()));
     }
 
     #[test]
@@ -1154,7 +889,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         let ready = scheduler
-            .take_ready(cooperative_lane())
+            .take_ready(runtime.runtime(), [cooperative_lane()])
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("task must remain ready"));
 
@@ -1167,8 +902,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        assert_eq!(state.timer_count, 0);
-        assert!(!state.timers.contains_key(&deadline));
+        assert!(state.timers.is_empty());
     }
 
     #[test]
@@ -1208,31 +942,63 @@ mod tests {
         let runtime = RuntimeThreadScope::enter().expect("fixture thread enters");
 
         let scheduler = Scheduler::new(
-            [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+            ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
-        let first = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
-        let second = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+        let first =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let second =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+
         let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
         let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
-        first_registration.wake_handle().wake().expect("first task wakes");
-        second_registration.wake_handle().wake().expect("second task wakes");
+        first_registration
+            .wake_handle()
+            .wake()
+            .expect("first task wakes");
 
-        assert_eq!(scheduler.task_count().expect("registry remains available"), 2);
+        second_registration
+            .wake_handle()
+            .wake()
+            .expect("second task wakes");
 
-        let running = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds")
+        assert_eq!(
+            scheduler.task_count().expect("registry remains available"),
+            2
+        );
+
+        let running = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("first dispatch succeeds")
             .expect("first task is ready");
 
         assert_eq!(running.task(), first.id());
-        assert!(scheduler.take_ready(cooperative_lane()).expect("quota check succeeds").is_none());
+
+        assert!(
+            scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("quota check succeeds")
+                .is_none()
+        );
 
         drop(running);
 
-        assert_eq!(scheduler.take_ready(cooperative_lane()).expect("released quota admits work")
-            .expect("queued second task is ready").task(), second.id());
+        assert_eq!(
+            scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("released quota admits work")
+                .expect("queued second task is ready")
+                .task(),
+            second.id()
+        );
     }
 
     #[test]
@@ -1241,43 +1007,86 @@ mod tests {
         let runtime = RuntimeThreadScope::enter().expect("fixture thread enters");
 
         let scheduler = Scheduler::new(
-            [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+            ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
-        let first = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
-        let second = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+        let first =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let second =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
+
         let first_registration = register_task(&scheduler, &first, runtime.runtime().id());
         let second_registration = register_task(&scheduler, &second, runtime.runtime().id());
 
-        first_registration.wake_handle().wake().expect("first task wakes");
-        second_registration.wake_handle().wake().expect("second task wakes");
+        first_registration
+            .wake_handle()
+            .wake()
+            .expect("first task wakes");
 
-        let first_dispatch = scheduler.take_ready(cooperative_lane()).expect("first dispatch succeeds")
+        second_registration
+            .wake_handle()
+            .wake()
+            .expect("second task wakes");
+
+        let first_dispatch = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("first dispatch succeeds")
             .expect("first task is ready");
 
-        let parked = first_registration.park_execution().expect("the running dispatch owns capacity");
+        let parked = first_registration
+            .park_execution()
+            .expect("the running dispatch owns capacity");
 
         assert!(first_registration.park_execution().is_none());
-        assert!(!first_registration.wake_handle().wake().expect("wake retains exclusive claim"));
 
-        let second_dispatch = scheduler.take_ready(cooperative_lane()).expect("parked capacity admits work")
+        assert!(
+            !first_registration
+                .wake_handle()
+                .wake()
+                .expect("wake retains exclusive claim")
+        );
+
+        let second_dispatch = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("parked capacity admits work")
             .expect("second task is ready");
 
         assert_eq!(second_dispatch.task(), second.id());
-        assert!(scheduler.take_ready(cooperative_lane()).expect("quota remains bounded").is_none());
+
+        assert!(
+            scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("quota remains bounded")
+                .is_none()
+        );
 
         drop(second_dispatch);
         drop(parked);
 
-        assert_eq!(scheduler.lock_state().expect("quota remains observable").running_count, 1);
-        assert!(scheduler.take_ready(cooperative_lane()).expect("the parent retains capacity").is_none());
+        assert!(
+            scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("the parent retains capacity")
+                .is_none()
+        );
 
         drop(first_dispatch);
 
-        assert_eq!(scheduler.take_ready(cooperative_lane()).expect("parent wake is preserved")
-            .expect("the parent can run after dispatch return").task(), first.id());
+        assert_eq!(
+            scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("parent wake is preserved")
+                .expect("the parent can run after dispatch return")
+                .task(),
+            first.id()
+        );
     }
 
     #[test]
@@ -1291,7 +1100,8 @@ mod tests {
             [RuntimeCapability::CooperativeExecution],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
@@ -1319,8 +1129,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        assert_eq!(state.timer_count, 0);
-        assert!(state.queues.is_empty());
+        assert!(state.tasks.is_empty());
         assert!(state.timers.is_empty());
     }
 
@@ -1333,6 +1142,7 @@ mod tests {
             main_thread,
             SchedulerLimits::new(nonzero(8), nonzero(8)),
         )
+        .expect("scheduler backing must be admitted")
     }
 
     fn cooperative_lane() -> ExecutionLane {
@@ -1345,5 +1155,506 @@ mod tests {
     fn nonzero(value: usize) -> NonZeroUsize {
         NonZeroUsize::new(value)
             .unwrap_or_else(|| panic!("test scheduler capacity must be nonzero"))
+    }
+
+    use crate::ExecutionLaneSelectionError;
+    use bray_runtime_model::{
+        ExecutionLaneRequirement, ProtectedFrameAffinity, ProtectedFrameStateDescriptor,
+    };
+
+    #[test]
+    fn lane_selection_preserves_workload_and_affinity_requirements() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        let main = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
+
+        let thread = main.runtime().id();
+
+        let capabilities = [
+            RuntimeCapability::CooperativeExecution,
+            RuntimeCapability::LocalLanes,
+            RuntimeCapability::MigratableLanes,
+            RuntimeCapability::BlockingLanes,
+            RuntimeCapability::ComputeLanes,
+            RuntimeCapability::MainThreadLane,
+        ];
+
+        let blocking = select_execution_lane(
+            &[ExecutionLaneRequirement::Blocking],
+            ProtectedFrameAffinity::OriginThread,
+            &capabilities,
+            thread,
+            thread,
+        )
+        .unwrap_or_else(|error| panic!("blocking lane must be available: {error:?}"));
+
+        assert_eq!(blocking.workload(), ExecutionWorkload::Blocking);
+
+        assert_eq!(
+            blocking.placement(),
+            ExecutionLanePlacement::OriginThread(thread)
+        );
+
+        let compute = select_execution_lane(
+            &[ExecutionLaneRequirement::Compute],
+            ProtectedFrameAffinity::Movable,
+            &capabilities,
+            thread,
+            thread,
+        )
+        .unwrap_or_else(|error| panic!("compute lane must be available: {error:?}"));
+
+        assert_eq!(compute.workload(), ExecutionWorkload::Compute);
+        assert_eq!(compute.placement(), ExecutionLanePlacement::Migratable);
+    }
+
+    #[test]
+    fn incompatible_or_unavailable_lanes_are_rejected() {
+        let _isolation = crate::native::test_runtime_isolation();
+
+        let main = RuntimeThreadScope::enter()
+            .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
+
+        let thread = main.runtime().id();
+
+        assert_eq!(
+            select_execution_lane(
+                &[
+                    ExecutionLaneRequirement::Blocking,
+                    ExecutionLaneRequirement::Compute
+                ],
+                ProtectedFrameAffinity::Movable,
+                &[RuntimeCapability::CooperativeExecution],
+                thread,
+                thread,
+            ),
+            Err(ExecutionLaneSelectionError::MissingCapability(
+                RuntimeCapability::BlockingLanes
+            ))
+        );
+
+        assert_eq!(
+            select_execution_lane(
+                &[ExecutionLaneRequirement::Blocking],
+                ProtectedFrameAffinity::Movable,
+                &[RuntimeCapability::CooperativeExecution],
+                thread,
+                thread,
+            ),
+            Err(ExecutionLaneSelectionError::MissingCapability(
+                RuntimeCapability::BlockingLanes
+            ))
+        );
+    }
+
+    fn select_execution_lane(
+        requirements: &[ExecutionLaneRequirement],
+        affinity: ProtectedFrameAffinity,
+        capabilities: &[RuntimeCapability],
+        origin: bray_platform::RuntimeThreadId,
+        main: bray_platform::RuntimeThreadId,
+    ) -> Result<ExecutionLane, ExecutionLaneSelectionError> {
+        let source =
+            super::super::native::BrayScheduler::new(capabilities.iter().copied(), main, 1)
+                .expect("fixture scheduler backing is admitted");
+
+        let descriptor = ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(0),
+            requirements.iter().copied(),
+            [],
+            [],
+            affinity,
+        );
+
+        source
+            .select(&descriptor, origin)
+            .map_err(|error| match error {
+                SchedulerError::LaneSelection(error) => error,
+                error => panic!("fixture lane selection failed: {error:?}"),
+            })
+    }
+
+    #[test]
+    fn compatible_lanes_rotate_without_starving_main_work() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            RuntimeCapability::ALL,
+            thread,
+            SchedulerLimits::new(nonzero(1), nonzero(8)),
+        )
+        .expect("fixture backing is available");
+
+        let tasks: Vec<_> = (0..64)
+            .map(|value| {
+                TaskControlBlock::start(
+                    crate::test_support::admit_task(),
+                    TestFrame::completing(value),
+                )
+            })
+            .collect();
+
+        let registrations: Vec<_> = tasks
+            .iter()
+            .map(|task| register_task(&scheduler, task, thread))
+            .collect();
+
+        for registration in &registrations {
+            registration
+                .wake_handle()
+                .wake()
+                .expect("the admitted run accepts a wake");
+        }
+
+        let main_task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::requiring([ExecutionLaneRequirement::MainThread], 64),
+        );
+
+        let main = register_task(&scheduler, &main_task, thread);
+
+        main.wake_handle().wake().expect("main work accepts a wake");
+
+        let lanes = [
+            cooperative_lane(),
+            ExecutionLane::new(
+                ExecutionLanePlacement::MainThread(thread),
+                ExecutionWorkload::Cooperative,
+            ),
+        ];
+
+        let first = scheduler
+            .wait_ready(runtime.runtime(), lanes, None)
+            .expect("ready work is available")
+            .expect("the first lane is ready");
+
+        assert_eq!(first.task(), tasks[0].id());
+
+        assert!(
+            scheduler
+                .take_ready(runtime.runtime(), [lanes[1]])
+                .expect("quota is observable")
+                .is_none()
+        );
+
+        drop(first);
+
+        let second = scheduler
+            .wait_ready(runtime.runtime(), lanes, None)
+            .expect("ready work is available")
+            .expect("main receives the next turn");
+
+        assert_eq!(second.task(), main_task.id());
+        drop(second);
+
+        for task in &tasks[1..] {
+            let ready = scheduler
+                .take_ready(runtime.runtime(), [lanes[0]])
+                .expect("the cooperative queue remains available")
+                .expect("the queued run progresses");
+
+            assert_eq!(ready.task(), task.id());
+            drop(ready);
+        }
+    }
+
+    #[test]
+    fn another_attached_thread_cannot_drive_main_or_origin_work() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            RuntimeCapability::ALL,
+            thread,
+            SchedulerLimits::new(nonzero(1), nonzero(8)),
+        )
+        .expect("fixture backing is available");
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        for affinity in [
+            ProtectedFrameAffinity::MainThread,
+            ProtectedFrameAffinity::OriginThread,
+        ] {
+            let execution = task.execution_state();
+
+            let descriptor = execution
+                .descriptor()
+                .clone()
+                .with_execution_requirements([], affinity);
+
+            let execution = crate::FrameExecutionState::new(execution.frame(), descriptor);
+
+            let registration = scheduler
+                .register_task(task.id(), execution, thread, task.cancellation_context())
+                .expect("the exact-thread run is admitted");
+
+            let lane = registration.lane().expect("the exact lane is selected");
+
+            registration
+                .wake_handle()
+                .wake()
+                .expect("the run becomes ready");
+
+            let shared = scheduler.clone();
+
+            std::thread::spawn(move || {
+                let worker =
+                    RuntimeThreadScope::enter().expect("another native attachment is available");
+
+                assert_ne!(worker.runtime().id(), thread);
+
+                assert!(
+                    shared
+                        .take_ready(worker.runtime(), [lane])
+                        .expect("incompatible dispatch is rejected")
+                        .is_none()
+                );
+            })
+            .join()
+            .expect("the incompatible consumer returns");
+
+            let ready = scheduler
+                .take_ready(runtime.runtime(), [lane])
+                .expect("the owning attachment can drive")
+                .expect("the wake remains queued");
+
+            assert_eq!(ready.task(), task.id());
+            drop(ready);
+            drop(registration);
+        }
+    }
+
+    #[test]
+    fn combined_workloads_keep_both_requirements_through_dispatch() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            RuntimeCapability::ALL,
+            thread,
+            SchedulerLimits::new(nonzero(1), nonzero(1)),
+        )
+        .expect("fixture backing is available");
+
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::requiring(
+                [
+                    ExecutionLaneRequirement::Blocking,
+                    ExecutionLaneRequirement::Compute,
+                ],
+                1,
+            ),
+        );
+
+        let registration = register_task(&scheduler, &task, thread);
+
+        assert_eq!(
+            registration
+                .lane()
+                .expect("both capabilities are provided")
+                .workload(),
+            ExecutionWorkload::BlockingCompute
+        );
+
+        registration
+            .wake_handle()
+            .wake()
+            .expect("the admitted run accepts a wake");
+
+        for workload in [
+            ExecutionWorkload::Cooperative,
+            ExecutionWorkload::Blocking,
+            ExecutionWorkload::Compute,
+        ] {
+            assert!(
+                scheduler
+                    .take_ready(
+                        runtime.runtime(),
+                        [ExecutionLane::new(
+                            ExecutionLanePlacement::Migratable,
+                            workload
+                        )]
+                    )
+                    .expect("individual lanes remain available")
+                    .is_none()
+            );
+        }
+
+        let ready = scheduler
+            .take_ready(
+                runtime.runtime(),
+                [ExecutionLane::new(
+                    ExecutionLanePlacement::Migratable,
+                    ExecutionWorkload::BlockingCompute,
+                )],
+            )
+            .expect("the combined lane is available")
+            .expect("the run is ready");
+
+        assert_eq!(ready.task(), task.id());
+
+        assert_eq!(
+            ready.execution().descriptor().lane_requirements(),
+            &[
+                ExecutionLaneRequirement::Blocking,
+                ExecutionLaneRequirement::Compute
+            ]
+        );
+    }
+
+    #[test]
+    fn concurrent_wake_and_dispatch_return_preserve_one_next_resume() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+        let wake = registration.wake_handle();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+        wake.wake().expect("the first wake commits");
+
+        std::thread::scope(|scope| {
+            let barrier = std::sync::Arc::clone(&barrier);
+            let worker_barrier = std::sync::Arc::clone(&barrier);
+
+            scope.spawn(move || {
+                for _ in 0..256 {
+                    worker_barrier.wait();
+
+                    wake.wake()
+                        .expect("the retained registration accepts the racing wake");
+
+                    worker_barrier.wait();
+                }
+            });
+
+            let mut ready = scheduler
+                .take_ready(runtime.runtime(), [cooperative_lane()])
+                .expect("the first dispatch is available")
+                .expect("the first run is ready");
+
+            for _ in 0..256 {
+                barrier.wait();
+                drop(ready);
+                barrier.wait();
+
+                ready = scheduler
+                    .take_ready(runtime.runtime(), [cooperative_lane()])
+                    .expect("the remembered wake is available")
+                    .expect("dispatch return cannot lose the wake");
+
+                assert_eq!(ready.task(), task.id());
+
+                assert!(
+                    scheduler
+                        .take_ready(runtime.runtime(), [cooperative_lane()])
+                        .expect("exclusive ownership remains observable")
+                        .is_none()
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn outstanding_dispatch_retains_the_scheduler_and_its_binding() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+        let wake = registration.wake_handle();
+
+        wake.wake().expect("the first wake commits");
+
+        let ready = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("the dispatch is available")
+            .expect("the run is ready");
+
+        drop(scheduler);
+
+        assert_eq!(
+            registration
+                .lane()
+                .expect("the callback retains the domain"),
+            cooperative_lane()
+        );
+
+        assert!(
+            !wake
+                .wake()
+                .expect("the callback retains its pending-wake target")
+        );
+
+        drop(ready);
+        assert!(matches!(wake.wake(), Err(SchedulerError::UnknownTask(_))));
+    }
+
+    #[test]
+    fn host_cancellation_commits_a_pending_wake_during_dispatch() {
+        let _isolation = crate::native::test_runtime_isolation();
+        let runtime = RuntimeThreadScope::enter().expect("fixture attachment is available");
+        let scheduler = scheduler(runtime.runtime().id());
+
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::cancellation_aware(),
+        );
+
+        let registration = register_task(&scheduler, &task, runtime.runtime().id());
+
+        registration
+            .wake_handle()
+            .wake()
+            .expect("the initial wake commits");
+
+        let ready = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("the dispatch is available")
+            .expect("the run is ready");
+
+        task.cancellation_context().request();
+
+        let snapshot = scheduler
+            .snapshot()
+            .expect("the running continuation is observable");
+
+        assert_eq!(snapshot.tasks()[0].dispatch(), ScheduledTaskState::Running);
+
+        assert_eq!(
+            snapshot.tasks()[0].wake_cause(),
+            Some(TaskWakeCause::Cancellation)
+        );
+
+        assert!(
+            !registration
+                .wake_handle()
+                .wake()
+                .expect("the pending cause coalesces")
+        );
+
+        drop(ready);
+
+        let cancelled = scheduler
+            .take_ready(runtime.runtime(), [cooperative_lane()])
+            .expect("the cancellation wake is available")
+            .expect("the cancelled run progresses");
+
+        assert_eq!(cancelled.wake_cause(), TaskWakeCause::Cancellation);
     }
 }

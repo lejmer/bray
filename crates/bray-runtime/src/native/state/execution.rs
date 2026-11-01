@@ -2,18 +2,19 @@ use std::sync::Arc;
 
 use bray_runtime_abi::{
     NativeActivationExecution, NativeExecutionLaneResult, NativeFrameProgressKind,
-    NativeInactiveFrame, NativeRootHandle, NativeRunOutcome, NativeRunState,
-    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeTaskReference,
-    NativeTaskSnapshot,
+    NativeInactiveFrame, NativeRootHandle, NativeRunOutcome, NativeRunState, NativeRuntimeStatus,
+    NativeTaskAllocation, NativeTaskHandle, NativeTaskReference, NativeTaskSnapshot,
 };
 use bray_runtime_model::ProtectedFrameStateId;
 
-use crate::context::with_task_execution_context;
-use crate::{ExecutionLanePlacement, RootCancellationHandle, TaskExecutionContext, TaskId, report_provider};
 use super::super::NativeTaskServices;
 use super::super::task::SuspendedWait;
 use super::binding::{CleanupWorkloadScope, current_thread_lanes, lane_result, runtime_failure};
 use super::core::{NativeRuntime, current_services, with_task_services};
+use crate::context::with_task_execution_context;
+use crate::{
+    ExecutionLanePlacement, RootCancellationHandle, TaskExecutionContext, TaskId, report_provider,
+};
 
 impl NativeRuntime {
     pub(in crate::native) fn with_cleanup_driving<T>(&self, callback: impl FnOnce() -> T) -> T {
@@ -36,10 +37,16 @@ impl NativeRuntime {
         )
     }
 
-    pub(in crate::native) fn start(&self, handle: NativeTaskHandle, frame: &NativeInactiveFrame) -> NativeRuntimeStatus {
+    pub(in crate::native) fn start(
+        &self,
+        handle: NativeTaskHandle,
+        frame: &NativeInactiveFrame,
+    ) -> NativeRuntimeStatus {
         let origin = self.thread.runtime().id();
         let mut initial = NativeActivationExecution::default();
-        let status = report_provider::bray_runtime_activation_inspection(frame, 0, 0, 0, &mut initial);
+
+        let status =
+            report_provider::bray_runtime_activation_inspection(frame, 0, 0, 0, &mut initial);
 
         if status != 0 {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
@@ -48,7 +55,12 @@ impl NativeRuntime {
         initial.origin = origin.raw();
 
         let mut reference = NativeTaskReference::empty();
-        let status = report_provider::bray_runtime_task_control_retention(self.identity, handle.raw(), &mut reference);
+
+        let status = report_provider::bray_runtime_task_control_retention(
+            self.identity,
+            handle.raw(),
+            &mut reference,
+        );
 
         if !status.is_success() {
             return status;
@@ -66,22 +78,37 @@ impl NativeRuntime {
         }
 
         let identity = TaskId::from_bray_handle(handle);
-        let cancellation = crate::CancellationContext::native(reference, self.scheduler.task_wake(identity));
 
-        let registration = match self.scheduler.register_task(identity, super::super::activation::execution(&initial), origin, &cancellation) {
+        let registration = match self.scheduler.register_native(
+            identity,
+            super::super::activation::execution(&initial),
+            origin,
+        ) {
             Ok(registration) => registration,
             Err(_) => {
+                report_provider::bray_runtime_task_control_reference_release(&reference);
+
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
         };
 
-        if self.cleanup_workloads.get() && !self.main_thread_lane && registration.lane().is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_))) {
+        let cancellation =
+            crate::CancellationContext::native(reference, registration.wake_handle());
+
+        if self.cleanup_workloads.get()
+            && !self.main_thread_lane
+            && registration
+                .lane()
+                .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
+        {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
         let task = Arc::new(NativeTaskServices::new(cancellation, registration));
 
-        self.scheduler.install_native_task(Arc::clone(&task)).expect("a new registration accepts its admitted native resources");
+        self.scheduler
+            .install_native_task(Arc::clone(&task))
+            .expect("a new registration accepts its admitted native resources");
 
         let root = report_provider::bray_runtime_activation_entry(frame, origin.raw());
 
@@ -91,51 +118,77 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         }
 
-        let status = report_provider::bray_runtime_task_control_publication(task.control(), root, &initial);
+        let status =
+            report_provider::bray_runtime_task_control_publication(task.control(), root, &initial);
 
-        assert!(status.is_success(), "activation publishes into its previously admitted control");
-        task.registration.wake_handle().wake().expect("the newly published task accepts its first wake");
+        assert!(
+            status.is_success(),
+            "activation publishes into its previously admitted control"
+        );
+
+        task.registration
+            .wake_handle()
+            .wake()
+            .expect("the newly published task accepts its first wake");
 
         NativeRuntimeStatus::SUCCESS
     }
 
-    pub(in crate::native) fn compose_awaited(&self, frame: &NativeInactiveFrame, resume_state: u32, destination: usize, composition: bray_runtime_abi::NativeFrameComposition) -> NativeRuntimeStatus {
+    pub(in crate::native) fn compose_awaited(
+        &self,
+        frame: &NativeInactiveFrame,
+        resume_state: u32,
+        destination: usize,
+        composition: bray_runtime_abi::NativeFrameComposition,
+    ) -> NativeRuntimeStatus {
         let Some(parent) = current_services() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
         report_provider::bray_runtime_task_control_composition(
-            parent.control(), frame, resume_state, self.thread.runtime().id().raw(), destination,
-            composition.code(), super::super::activation::admission,
+            parent.control(),
+            frame,
+            resume_state,
+            self.thread.runtime().id().raw(),
+            destination,
+            composition.code(),
+            super::super::activation::admission,
         )
     }
 
     pub(in crate::native) fn drive_main_thread(&self) -> NativeRuntimeStatus {
-        let thread = self.thread.runtime().id();
+        let lanes = current_thread_lanes(
+            self.thread.runtime().id(),
+            self.main_thread_lane,
+            self.cleanup_workloads.get(),
+        );
 
-        for lane in
-            current_thread_lanes(thread, self.main_thread_lane, self.cleanup_workloads.get())
-        {
-            match self.scheduler.take_ready(lane) {
-                Ok(Some(ready)) => return self.drive_ready(ready),
-                Ok(None) => {}
-                Err(_) => return NativeRuntimeStatus::RUNTIME_FAILURE,
-            }
+        match self.scheduler.take_ready(self.thread.runtime(), lanes) {
+            Ok(Some(ready)) => self.drive_ready(ready),
+            Ok(None) => NativeRuntimeStatus::PENDING,
+            Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
         }
-
-        NativeRuntimeStatus::PENDING
     }
 
-    pub(in crate::native) fn drive_ready(&self, mut ready: crate::ReadyTask) -> NativeRuntimeStatus {
-        let task = ready.take_native_task().expect("native dispatch retains the registered native resources");
+    pub(in crate::native) fn drive_ready(
+        &self,
+        mut ready: crate::ReadyTask,
+    ) -> NativeRuntimeStatus {
+        let task = ready
+            .take_native_task()
+            .expect("native dispatch retains the registered native resources");
+
         let wake = task.registration.wake_handle();
 
         let (pending, completed_wait) = {
-            let mut wait = task.suspended_wait.lock().expect("task wait transport is available");
+            let mut wait = task
+                .suspended_wait
+                .lock()
+                .expect("task wait transport is available");
 
             if wait.as_ref().is_some_and(|wait| !wait.is_ready())
                 && !task.cancellation.is_requested()
-                && task.snapshot().phase < 4
+                && task.snapshot().phase < 3
             {
                 (true, None)
             } else {
@@ -146,10 +199,21 @@ impl NativeRuntime {
         drop(completed_wait);
 
         if pending {
-            return ready.suspend(task.execution_state()).map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| NativeRuntimeStatus::SUCCESS);
+            return ready
+                .suspend(task.execution_state())
+                .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
+                    NativeRuntimeStatus::SUCCESS
+                });
         }
 
-        let context = TaskExecutionContext::new(task.id(), ready.state(), task.cancellation.clone(), &task.output, ready.lane(), wake.clone());
+        let context = TaskExecutionContext::new(
+            task.id(),
+            ready.state(),
+            task.cancellation.clone(),
+            &task.output,
+            ready.lane(),
+            wake.clone(),
+        );
 
         let _bridge = match super::super::bridge::Scope::enter() {
             Ok(scope) => scope,
@@ -161,15 +225,31 @@ impl NativeRuntime {
         });
 
         if status == 6 {
-            return ready.suspend(task.execution_state()).map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| NativeRuntimeStatus::SUCCESS);
+            return ready
+                .suspend(task.execution_state())
+                .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
+                    NativeRuntimeStatus::SUCCESS
+                });
         }
 
-        assert!(status <= 3, "Bray dispatch returns one admitted scheduling outcome");
+        assert!(
+            status <= 3,
+            "Bray dispatch returns one admitted scheduling outcome"
+        );
 
         let execution = super::super::activation::execution(&execution);
 
         if status == 0 && progress.kind() == NativeFrameProgressKind::TASK_EVENT {
-            return self.suspend_on_task_event(ready, &task, crate::FrameSuspension::task_event(ProtectedFrameStateId::new(progress.state()), progress.payload()), execution, wake);
+            return self.suspend_on_task_event(
+                ready,
+                &task,
+                crate::FrameSuspension::task_event(
+                    ProtectedFrameStateId::new(progress.state()),
+                    progress.payload(),
+                ),
+                execution,
+                wake,
+            );
         }
 
         if ready.suspend(execution).is_err() {
@@ -177,7 +257,8 @@ impl NativeRuntime {
         }
 
         if status == 0 && progress.kind() == NativeFrameProgressKind::YIELDED {
-            wake.wake().expect("a yielded task retains its admitted registration");
+            wake.wake()
+                .expect("a yielded task retains its admitted registration");
         }
 
         if status == 1 && progress.kind() == NativeFrameProgressKind::RUNTIME_FAILURE {
@@ -245,17 +326,31 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn wake(&self, handle: NativeTaskHandle) -> NativeRuntimeStatus {
-        self.retained_task(handle).map_or_else(|status| status, |task| {
-            task.registration.wake_handle().wake().map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| NativeRuntimeStatus::SUCCESS)
-        })
+        self.retained_task(handle).map_or_else(
+            |status| status,
+            |task| {
+                task.registration
+                    .wake_handle()
+                    .wake()
+                    .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
+                        NativeRuntimeStatus::SUCCESS
+                    })
+            },
+        )
     }
 
-    pub(in crate::native) fn request_cancellation(&self, handle: NativeTaskHandle) -> NativeRuntimeStatus {
-        self.retained_task(handle).map_or_else(|status| status, |task| {
-            task.cancellation.request();
+    pub(in crate::native) fn request_cancellation(
+        &self,
+        handle: NativeTaskHandle,
+    ) -> NativeRuntimeStatus {
+        self.retained_task(handle).map_or_else(
+            |status| status,
+            |task| {
+                task.cancellation.request();
 
-            NativeRuntimeStatus::SUCCESS
-        })
+                NativeRuntimeStatus::SUCCESS
+            },
+        )
     }
 
     pub(in crate::native) fn request_root_cancellation(
@@ -269,10 +364,14 @@ impl NativeRuntime {
         self.request_cancellation(task)
     }
 
-    pub(in crate::native) fn root_cancellation(&self, root: NativeRootHandle) -> Result<RootCancellationHandle, NativeRuntimeStatus> {
+    pub(in crate::native) fn root_cancellation(
+        &self,
+        root: NativeRootHandle,
+    ) -> Result<RootCancellationHandle, NativeRuntimeStatus> {
         let task = NativeTaskHandle::new(root.raw()).ok_or(NativeRuntimeStatus::UNKNOWN_TASK)?;
 
-        self.retained_task(task).map(|task| RootCancellationHandle::new(task.cancellation.clone()))
+        self.retained_task(task)
+            .map(|task| RootCancellationHandle::new(task.cancellation.clone()))
     }
 
     pub(in crate::native) fn observe_root(&self, root: NativeRootHandle) -> NativeRunOutcome {
@@ -358,7 +457,10 @@ impl NativeRuntime {
         };
 
         if status == NativeRuntimeStatus::PENDING {
-            task.registration.wake_handle().wake().expect("retirement retains its dispatch registration");
+            task.registration
+                .wake_handle()
+                .wake()
+                .expect("retirement retains its dispatch registration");
         }
 
         status
@@ -376,7 +478,12 @@ impl NativeRuntime {
         }
 
         let mut reference = NativeTaskReference::empty();
-        let status = report_provider::bray_runtime_task_control_retention(self.identity, handle.raw(), &mut reference);
+
+        let status = report_provider::bray_runtime_task_control_retention(
+            self.identity,
+            handle.raw(),
+            &mut reference,
+        );
 
         if !status.is_success() {
             return status;
@@ -385,7 +492,10 @@ impl NativeRuntime {
         let status = report_provider::bray_runtime_task_control_destruction(&reference);
         let released = report_provider::bray_runtime_task_control_reference_release(&reference);
 
-        assert!(released.is_success(), "rejected start releases its temporary internal reference");
+        assert!(
+            released.is_success(),
+            "rejected start releases its temporary internal reference"
+        );
 
         status
     }
@@ -420,33 +530,49 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn observe(&self, handle: NativeTaskHandle) -> NativeRunOutcome {
-        self.retained_task(handle).and_then(|task| task.observe()).unwrap_or_else(|status| {
-            if status == NativeRuntimeStatus::PENDING {
-                NativeRunOutcome::new(NativeRunState::PENDING, 0)
-            } else {
-                runtime_failure(status)
-            }
-        })
+        self.retained_task(handle)
+            .and_then(|task| task.observe())
+            .unwrap_or_else(|status| {
+                if status == NativeRuntimeStatus::PENDING {
+                    NativeRunOutcome::new(NativeRunState::PENDING, 0)
+                } else {
+                    runtime_failure(status)
+                }
+            })
     }
 
-    pub(in crate::native) fn lane(&self, handle: NativeTaskHandle, state: u32) -> NativeExecutionLaneResult {
-        self.retained_task(handle).and_then(|task| {
-            let execution = task.execution_state();
+    pub(in crate::native) fn lane(
+        &self,
+        handle: NativeTaskHandle,
+        state: u32,
+    ) -> NativeExecutionLaneResult {
+        self.retained_task(handle)
+            .and_then(|task| {
+                let execution = task.execution_state();
 
-            if execution.state() != ProtectedFrameStateId::new(state) {
-                return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
-            }
+                if execution.state() != ProtectedFrameStateId::new(state) {
+                    return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+                }
 
-            task.registration.execution_lane(&execution).map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
-        }).map(lane_result).unwrap_or_else(NativeExecutionLaneResult::failure)
+                task.registration
+                    .execution_lane(&execution)
+                    .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
+            })
+            .map(lane_result)
+            .unwrap_or_else(NativeExecutionLaneResult::failure)
     }
 
-    pub(in crate::native) fn retained_task(&self, handle: NativeTaskHandle) -> Result<Arc<NativeTaskServices>, NativeRuntimeStatus> {
+    pub(in crate::native) fn retained_task(
+        &self,
+        handle: NativeTaskHandle,
+    ) -> Result<Arc<NativeTaskServices>, NativeRuntimeStatus> {
         if let Some(task) = current_services().filter(|task| task.handle() == handle) {
             return Ok(task);
         }
 
-        self.scheduler.native_task(TaskId::from_bray_handle(handle)).map_err(|_| NativeRuntimeStatus::UNKNOWN_TASK)
+        self.scheduler
+            .native_task(TaskId::from_bray_handle(handle))
+            .map_err(|_| NativeRuntimeStatus::UNKNOWN_TASK)
     }
 
     fn wait_main_thread(&self) -> NativeRuntimeStatus {
@@ -464,11 +590,13 @@ impl NativeRuntime {
         let deadline =
             bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(10));
 
-        match self.scheduler.wait_ready_from(&lanes, deadline) {
+        match self
+            .scheduler
+            .wait_ready(self.thread.runtime(), lanes, deadline)
+        {
             Ok(Some(ready)) => self.drive_ready(ready),
             Ok(None) => NativeRuntimeStatus::SUCCESS,
             Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
         }
     }
-
 }

@@ -4,14 +4,14 @@ use bray_runtime_abi::NativeTaskReference;
 
 use crate::context::{TaskOutput, current_task_output};
 use crate::{
-    CancellationContext, RuntimeEvent, RuntimeEventGeneration,
-    RuntimeEventRegistration, TaskRegistration,
+    CancellationContext, RuntimeEvent, RuntimeEventGeneration, RuntimeEventRegistration,
+    TaskRegistration,
 };
 
 /// Native execution resources borrowed by the Source-owned task record.
 /// No frame, terminal payload, or source resolution claim is stored here.
 pub(crate) struct NativeTaskServices {
-    pub(in crate::native) cancellation: CancellationContext,
+    pub(crate) cancellation: CancellationContext,
     pub(in crate::native) output: TaskOutput,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
@@ -19,7 +19,8 @@ pub(crate) struct NativeTaskServices {
 
 impl std::fmt::Debug for NativeTaskServices {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.debug_struct("NativeTaskServices")
+        formatter
+            .debug_struct("NativeTaskServices")
             .field("task", &self.handle())
             .finish_non_exhaustive()
     }

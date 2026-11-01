@@ -1,10 +1,8 @@
 use std::num::NonZeroUsize;
 
-use bray_platform::PlatformError;
-
 use crate::{ExecutionLaneSelectionError, TaskId};
 
-/// Hard scheduler capacities selected by the product host.
+/// Execution and pending-timer limits selected by the product host.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SchedulerLimits {
     tasks: NonZeroUsize,
@@ -12,7 +10,7 @@ pub struct SchedulerLimits {
 }
 
 impl SchedulerLimits {
-    /// Creates explicit task and timer capacities.
+    /// Sets the running-task quota and pending-timer capacity.
     pub const fn new(tasks: NonZeroUsize, timers: NonZeroUsize) -> Self {
         Self { tasks, timers }
     }
@@ -31,8 +29,12 @@ impl SchedulerLimits {
 /// A scheduler operation that could not preserve its runtime contract.
 #[derive(Debug)]
 pub enum SchedulerError {
-    /// Mandatory ready-queue backing could not be admitted before registration.
+    /// Native binding or pending-deadline storage could not be admitted.
     ReadyStorageUnavailable(std::collections::TryReserveError),
+    /// Stable Bray scheduler backing could not be allocated.
+    BackingUnavailable,
+    /// Scheduler registration generations or indices were exhausted.
+    RegistrationIdentityExhausted,
     /// The hard timer capacity was reached.
     TimerCapacityReached,
     /// Pending timer identities cannot be represented.
@@ -45,8 +47,6 @@ pub enum SchedulerError {
     LaneSelection(ExecutionLaneSelectionError),
     /// Cancellation-wake identities were exhausted.
     CancellationWakeIdentityExhausted,
-    /// A native wait or wake mechanism failed.
-    Platform(PlatformError),
     /// Scheduler state was poisoned by an unexpected runtime panic.
     SynchronizationPoisoned,
 }
@@ -60,11 +60,5 @@ impl From<ExecutionLaneSelectionError> for SchedulerError {
 impl From<crate::cancellation::CancellationWakeRegistrationError> for SchedulerError {
     fn from(_: crate::cancellation::CancellationWakeRegistrationError) -> Self {
         Self::CancellationWakeIdentityExhausted
-    }
-}
-
-impl From<PlatformError> for SchedulerError {
-    fn from(error: PlatformError) -> Self {
-        Self::Platform(error)
     }
 }

@@ -10,9 +10,9 @@ use bray_runtime_abi::{
 
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
-// Explicitly bundled Rust hosts own a resident final image. Produced Bray images
+// Bundled Rust hosts and runtime test images own a resident final image. Bray images
 // select unbundled runtime components and publish their own generated descriptor.
-#[cfg(feature = "bundled-bootstrap")]
+#[cfg(any(feature = "bundled-bootstrap", test))]
 #[expect(
     unsafe_code,
     reason = "the explicitly bundled native host publishes its resident descriptor"
@@ -21,13 +21,13 @@ use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 static bray_linked_product_host: bray_runtime_abi::NativeProductHostDescriptor =
     bray_runtime_abi::NativeProductHostDescriptor::new(
         bray_runtime_abi::NativeProductIdentity::new([0; 32]),
-        no_bundled_statics,
+        no_host_statics,
         0,
     );
 
-#[cfg(feature = "bundled-bootstrap")]
-extern "C" fn no_bundled_statics(_: usize) -> bray_runtime_abi::NativeStaticHostEntry {
-    panic!("the bundled native host has no compiler-generated statics")
+#[cfg(any(feature = "bundled-bootstrap", test))]
+extern "C" fn no_host_statics(_: usize) -> bray_runtime_abi::NativeStaticHostEntry {
+    panic!("the Rust native host has no compiler-generated statics")
 }
 
 native_export! {
@@ -419,8 +419,13 @@ fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> Native
 
 #[cfg(test)]
 mod tests {
-    fn observe_task(task: bray_runtime_abi::NativeTaskHandle, _: bray_runtime_abi::NativeWakeCallback, _: usize) -> bray_runtime_abi::NativeRunOutcome {
-        super::super::state::with_runtime(|runtime| runtime.observe(task)).expect("fixture runtime is active")
+    fn observe_task(
+        task: bray_runtime_abi::NativeTaskHandle,
+        _: bray_runtime_abi::NativeWakeCallback,
+        _: usize,
+    ) -> bray_runtime_abi::NativeRunOutcome {
+        super::super::state::with_runtime(|runtime| runtime.observe(task))
+            .expect("fixture runtime is active")
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -438,13 +443,13 @@ mod tests {
     };
 
     use super::{
-        bray_runtime_execution_shutdown,
-        bray_runtime_main_thread_lane_drive, bray_runtime_main_thread_lane_startup,
-        bray_runtime_root_completion_resolution, bray_runtime_root_execution,
-        bray_runtime_root_terminal_observation, bray_runtime_suspension_registration,
-        bray_runtime_task_allocation, bray_runtime_task_destruction,
-        bray_runtime_task_event_creation, bray_runtime_task_event_destruction,
-        bray_runtime_task_event_signal, bray_runtime_task_start, bray_runtime_wake,
+        bray_runtime_execution_shutdown, bray_runtime_main_thread_lane_drive,
+        bray_runtime_main_thread_lane_startup, bray_runtime_root_completion_resolution,
+        bray_runtime_root_execution, bray_runtime_root_terminal_observation,
+        bray_runtime_suspension_registration, bray_runtime_task_allocation,
+        bray_runtime_task_destruction, bray_runtime_task_event_creation,
+        bray_runtime_task_event_destruction, bray_runtime_task_event_signal,
+        bray_runtime_task_start, bray_runtime_wake,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -466,9 +471,8 @@ mod tests {
     static PENDING_CHILD_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_CLEANUP_THREAD: AtomicUsize = AtomicUsize::new(0);
-    static REJECTED_COMPUTE_CHILD: std::sync::Mutex<Option<NativeInactiveFrame>> =
-        std::sync::Mutex::new(None);
-    static CONFLICTING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+    static COMBINED_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static COMBINED_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_MOVES: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static EXACT_BLOCKING_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
@@ -1437,13 +1441,15 @@ mod tests {
         extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
             QUERIES.fetch_add(1, Ordering::Relaxed);
 
-            let locked =
-                super::super::state::with_runtime(|runtime| {
-                    let task = runtime.allocate().task().expect("reentrant admission succeeds");
+            let locked = super::super::state::with_runtime(|runtime| {
+                let task = runtime
+                    .allocate()
+                    .task()
+                    .expect("reentrant admission succeeds");
 
-                    !runtime.destroy_task(task).is_success()
-                })
-                    .expect("admission retains the native runtime");
+                !runtime.destroy_task(task).is_success()
+            })
+            .expect("admission retains the native runtime");
 
             if locked {
                 LOCKED.fetch_add(1, Ordering::Relaxed);
@@ -1660,38 +1666,63 @@ mod tests {
 
         assert!(bray_runtime_main_thread_lane_startup(configuration).is_success());
 
-        let task = bray_runtime_task_allocation().task().expect("task admission succeeds");
+        let task = bray_runtime_task_allocation()
+            .task()
+            .expect("task admission succeeds");
+
         let frame = protected_frame(8, resume_frame, ignore_completion_move, ignore_action);
 
         assert!(bray_runtime_task_start(task, frame).is_success());
 
         let retained = super::super::state::with_runtime(|runtime| runtime.retained_task(task))
-            .expect("runtime remains active").expect("published task has native services");
+            .expect("runtime remains active")
+            .expect("published task has native services");
 
         let returning_callback = std::sync::Arc::clone(&retained);
 
         assert!(bray_runtime_main_thread_lane_drive().is_success());
-        assert_eq!(retained.observe().expect("terminal payload transfers once").state(), NativeRunState::COMPLETED);
-        assert_eq!(returning_callback.observe().err(), Some(NativeRuntimeStatus::UNKNOWN_TASK));
 
-        assert!(super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-            .expect("runtime remains active").is_success());
+        assert_eq!(
+            retained
+                .observe()
+                .expect("terminal payload transfers once")
+                .state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert_eq!(
+            returning_callback.observe().err(),
+            Some(NativeRuntimeStatus::UNKNOWN_TASK)
+        );
+
+        assert!(
+            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
+                .expect("runtime remains active")
+                .is_success()
+        );
 
         assert!(bray_runtime_task_destruction(task).is_success());
 
         // Returning callbacks retain the actual Source cell after the public
         // owner and scheduler registration have both resolved.
-        assert_eq!(returning_callback.snapshot().phase, 5);
+        assert_eq!(returning_callback.snapshot().phase, 4);
         assert_eq!(returning_callback.snapshot().retired, 1);
         drop(retained);
-        assert_eq!(returning_callback.snapshot().phase, 5);
+        assert_eq!(returning_callback.snapshot().phase, 4);
         drop(returning_callback);
 
-        let replacement = bray_runtime_task_allocation().task().expect("released storage is reusable");
+        let replacement = bray_runtime_task_allocation()
+            .task()
+            .expect("released storage is reusable");
 
         assert_ne!(replacement, task);
         assert_eq!(replacement.raw() & 0xffff_ffff, task.raw() & 0xffff_ffff);
-        assert_eq!(bray_runtime_task_destruction(task), NativeRuntimeStatus::UNKNOWN_TASK);
+
+        assert_eq!(
+            bray_runtime_task_destruction(task),
+            NativeRuntimeStatus::UNKNOWN_TASK
+        );
+
         assert!(bray_runtime_task_destruction(replacement).is_success());
         assert!(bray_runtime_execution_shutdown().is_success());
     }
@@ -1711,8 +1742,10 @@ mod tests {
 
         let frame = protected_frame(8, resume_frame, ignore_completion_move, destroy);
 
-        let start =
-            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), NativeRuntimeConfiguration::new(0, 1));
+        let start = bray_runtime_root_execution(
+            NativeInactiveFrameTransfer::new(&frame),
+            NativeRuntimeConfiguration::new(0, 1),
+        );
 
         assert_eq!(start.status(), NativeRuntimeStatus::INVALID_ARGUMENT);
         assert!(start.root().is_none());
@@ -2130,57 +2163,42 @@ mod tests {
     }
 
     #[test]
-    fn conflicting_composition_preserves_the_child_for_independent_start() {
-        CONFLICTING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
+    fn direct_await_combines_workloads_without_an_extra_task_or_quota_slot() {
+        COMBINED_PARENT_RESUMES.store(0, Ordering::Relaxed);
+        COMBINED_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
         let start = execute_test_root(
             protected_frame_with_state(
                 8,
                 movable_blocking_frame_state,
-                reject_conflicting_child,
+                await_combined_child,
                 ignore_completion_move,
                 ignore_action,
             ),
-            NativeRuntimeConfiguration::new(2, 1),
+            NativeRuntimeConfiguration::new(1, 1),
         );
 
         let root = start
             .root()
-            .unwrap_or_else(|| panic!("conflicting parent frame must transfer"));
-
-        let outcome = bray_runtime_root_terminal_observation(root);
-
-        assert_eq!(outcome.state(), NativeRunState::RUNTIME_FAILURE);
-        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
+            .expect("one parent slot admits the combined direct await");
 
         assert_eq!(
-            bray_runtime_root_completion_resolution(root),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        let child = REJECTED_COMPUTE_CHILD
-            .lock()
-            .expect("fixture mutex must not be poisoned")
-            .take()
-            .expect("rejection retains the exact child");
-
-        let child = execute_test_root(child, NativeRuntimeConfiguration::new(2, 1))
-            .root()
-            .expect("independent start selects the child's compute lane");
-
-        assert_eq!(
-            bray_runtime_root_terminal_observation(child).state(),
+            bray_runtime_root_terminal_observation(root).state(),
             NativeRunState::COMPLETED
         );
 
-        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
-        assert!(bray_runtime_root_completion_resolution(child).is_success());
-        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+        assert_eq!(COMBINED_PARENT_RESUMES.load(Ordering::Relaxed), 2);
+        assert_eq!(COMBINED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
-            bray_runtime_execution_shutdown(),
-            NativeRuntimeStatus::SUCCESS
+            super::with_runtime(|runtime| runtime.scheduler.task_count())
+                .expect("the runtime remains active")
+                .expect("the registration count remains available"),
+            1
         );
+
+        assert!(bray_runtime_root_completion_resolution(root).is_success());
+        assert!(bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -2521,31 +2539,18 @@ mod tests {
         panic!("parent failed before publishing its awaited suspension");
     }
 
-    extern "C-unwind" fn reject_conflicting_child(destination: &mut NativeFrameProgress, _: usize) {
-        let child = move_conflicting_child(0);
+    extern "C-unwind" fn await_combined_child(destination: &mut NativeFrameProgress, _: usize) {
+        let resumes = COMBINED_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
 
-        let status = super::with_runtime(|runtime| {
-            runtime.compose_awaited(
-                &child,
-                1,
-                super::super::fixtures::destination(),
-                bray_runtime_abi::NativeFrameComposition::Completion,
-            )
-        })
-        .expect("fixture runtime must be active");
+        *destination = if resumes == 0 {
+            super::super::fixtures::compose(move_combined_child(0), 1);
 
-        assert_eq!(status, NativeRuntimeStatus::INVALID_ARGUMENT);
-        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
+            bray_runtime_suspension_registration(1)
+        } else {
+            assert_awaited_completion();
 
-        assert!(
-            REJECTED_COMPUTE_CHILD
-                .lock()
-                .expect("fixture mutex must not be poisoned")
-                .replace(child)
-                .is_none()
-        );
-
-        *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 1, 17)
+        };
     }
 
     fn assert_awaited_completion() {
@@ -2879,23 +2884,32 @@ mod tests {
         )
     }
 
-    extern "C" fn move_conflicting_child(_: usize) -> NativeInactiveFrame {
+    extern "C" fn move_combined_child(_: usize) -> NativeInactiveFrame {
         protected_frame_with_state(
             8,
             movable_compute_frame_state,
-            resume_frame,
+            resume_combined_child,
             ignore_completion_move,
-            destroy_conflicting_child,
+            destroy_combined_child,
         )
     }
 
-    extern "C-unwind" fn destroy_conflicting_child(_: usize) {
+    extern "C-unwind" fn resume_combined_child(destination: &mut NativeFrameProgress, _: usize) {
         assert_eq!(
             crate::context::current_task_execution_lane().map(crate::ExecutionLane::workload),
-            Some(crate::ExecutionWorkload::Compute)
+            Some(crate::ExecutionWorkload::BlockingCompute)
         );
 
-        CONFLICTING_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17);
+    }
+
+    extern "C-unwind" fn destroy_combined_child(_: usize) {
+        assert_eq!(
+            crate::context::current_task_execution_lane().map(crate::ExecutionLane::workload),
+            Some(crate::ExecutionWorkload::BlockingCompute)
+        );
+
+        COMBINED_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
     }
 
     extern "C-unwind" fn resume_runtime_failure(destination: &mut NativeFrameProgress, _: usize) {

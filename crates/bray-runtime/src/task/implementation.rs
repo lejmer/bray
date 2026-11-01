@@ -720,7 +720,8 @@ mod tests {
             [RuntimeCapability::CooperativeExecution],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(4), nonzero(4)),
-        );
+        )
+        .expect("scheduler backing must be admitted");
 
         let parent =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));

@@ -1,0 +1,250 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.target;
+using std.memory;
+using std.numeric;
+using internal std.memory;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.host.product;
+
+// Zero is the absent link. Registration tokens pair a reusable index with a
+// nonwrapping generation. Arena relocation never changes a published token.
+trusted internal func entry(pos state: &mut State, pos index: usize) -> &mut Entry
+    uses(intrinsic, raw_memory)
+{
+    if let ?entries = state.entries
+    {
+        let rows = trusted std.memory.initialized_slice_mut<Entry>(&mut entries);
+
+        return &mut rows[index - 1];
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func index_of(pos state: &mut State, pos registration: u64) -> usize
+{
+    let index = std.numeric.truncate_to<usize, u64>(registration & 0xffffffff);
+
+    if index == 0
+    {
+        return 0;
+    }
+
+    if let ?entries = state.entries
+    {
+        if index > entries.initialized
+        {
+            return 0;
+        }
+    }
+    else
+    {
+        return 0;
+    }
+
+    let row = trusted entry(state, index);
+
+    if row.generation != std.numeric.truncate_to<u32, u64>(registration >> 32) || row.phase == 3
+    {
+        return 0;
+    }
+
+    return index;
+}
+
+trusted internal func try_admit(
+    pos owner: &Reference,
+    pos prepared: &mut Prepared,
+    pos task: u64,
+    pos lane: Lane
+) -> Result<u64, Growth>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+    uses(intrinsic)
+{
+    let value = trusted domain(owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+
+    while true
+    {
+        while state.free == 0
+        {
+            let capacity = if let ?entries = state.entries
+            {
+                yield entries.capacity;
+            }
+            else
+            {
+                yield 0;
+            };
+
+            if capacity >= 0xffffffff
+            {
+                return Ok(0);
+            }
+
+            match consume trusted bray.runtime.bootstrap.heap.reserve<Entry>(&mut state.entries, &mut prepared.entries)
+            {
+                case Error(required) { return Error(Growth.Entries(required)); }
+                case Ok(ready)
+                {
+                    if !ready
+                    {
+                        return Ok(0);
+                    }
+                }
+            }
+
+            let entry_capacity = if let ?entries = state.entries
+            {
+                yield entries.capacity;
+            }
+            else
+            {
+                yield trusted core.target.abort();
+            };
+
+            match consume trusted bray.runtime.bootstrap.heap.reserve<Queue>(&mut state.queues, &mut prepared.queues)
+            {
+                case Error(required) { return Error(Growth.Queues(required)); }
+                case Ok(ready)
+                {
+                    if !ready
+                    {
+                        return Ok(0);
+                    }
+                }
+            }
+
+            if let ?queues = state.queues
+            {
+                while queues.initialized < entry_capacity
+                {
+                    let next = state.free_queue;
+
+                    trusted internal std.memory.initialize_spare<Queue>(&mut queues, empty_queue(next));
+                    state.free_queue = queues.initialized;
+                }
+            }
+
+            if let ?entries = state.entries
+            {
+                while entries.initialized < entries.capacity && entries.initialized < 0xffffffff
+                {
+                    let next = state.free;
+
+                    trusted internal std.memory.initialize_spare<Entry>(&mut entries, empty_entry(next));
+                    state.free = entries.initialized;
+                }
+            }
+        }
+
+        let index = state.free;
+
+        let (next, previous_generation) =
+        {
+            let row = trusted entry(state, index);
+
+            yield (row.next, row.generation);
+        };
+
+        if previous_generation == std.numeric.U32_MAX
+        {
+            state.free = next;
+            continue;
+        }
+
+        let generation =
+        {
+            let row = trusted entry(state, index);
+
+            row.generation += 1;
+            row.phase = 0;
+            row.task = task;
+            row.lane = lane;
+            row.next = 0;
+            row.previous = 0;
+            row.pending = 0;
+            row.cause = 0;
+            row.wakes = 0;
+            row.slot = false;
+            row.queued_at = 0;
+
+            yield row.generation;
+        };
+
+        state.free = next;
+        return Ok((std.numeric.truncate_to<u64, u32>(generation) << 32) | std.numeric.truncate_to<u64, usize>(index));
+    }
+}
+
+@abi(c)
+trusted internal func admission(
+    pos pointer: DataPointer<Reference>,
+    pos task: u64,
+    pos lane_pointer: DataPointer<Lane>,
+    pos output: DataPointer<u64>
+) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted lane_slot(pointer = lane_pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let lane = trusted read_lane(lane_pointer);
+    let owner = trusted read_reference(pointer);
+
+    let mut prepared: Prepared =
+    {
+        entries = none,
+        queues = none
+    };
+
+    while true
+    {
+        let required = match consume trusted try_admit(&owner, &mut prepared, task, lane)
+        {
+            case Ok(registration)
+            {
+                if registration == 0
+                {
+                    return 2;
+                }
+
+                trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, registration);
+                return 0;
+            }
+            case Error(required) { yield required; }
+        };
+
+        if !trusted prepare_growth(&owner, &mut prepared, required)
+        {
+            return 1;
+        }
+    }
+}
+
+// The native borrow retains this exact domain while disjoint arena backing is
+// prepared. Old prepared buffers are disposed here, outside every collection
+// acquisition, and cannot revoke the scheduler's independent allocation.
+trusted internal func prepare_growth(pos owner: &Reference, pos prepared: &mut Prepared, pos request: Growth) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    match consume request
+    {
+        case Growth.Entries(capacity)
+        {
+            prepared.entries = trusted bray.runtime.bootstrap.heap.try_buffer<Entry>(capacity);
+            return prepared.entries.is_present();
+        }
+        case Growth.Queues(capacity)
+        {
+            prepared.queues = trusted bray.runtime.bootstrap.heap.try_buffer<Queue>(capacity);
+            return prepared.queues.is_present();
+        }
+    }
+}

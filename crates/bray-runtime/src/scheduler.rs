@@ -1,10 +1,13 @@
 mod contract;
 mod dispatch;
 mod engine;
-mod queue;
+pub(crate) mod native;
 mod quota;
+mod timer;
 mod wait;
 
 pub use contract::{SchedulerError, SchedulerLimits};
-pub use engine::{ReadyTask, Scheduler, TaskRegistration, TaskWakeHandle, TimerRegistration};
+pub use dispatch::ReadyTask;
+pub use engine::{Scheduler, TaskRegistration, TaskWakeHandle};
 pub(crate) use quota::ExecutionPark;
+pub use timer::TimerRegistration;

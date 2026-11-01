@@ -1,7 +1,7 @@
 use crate::{
-    NativeActivationDescriptor, NativeActivationExecution, NativeFrameProgress, NativeReportRecords,
-    NativeTaskHandle, NativeCleanupStorageShape, NativeFrameState, NativeInactiveFrame,
-    NativeRunOutcome, NativeValueCleanupCallback,
+    NativeActivationDescriptor, NativeActivationExecution, NativeCleanupStorageShape,
+    NativeFrameProgress, NativeFrameState, NativeInactiveFrame, NativeReportRecords,
+    NativeRunOutcome, NativeTaskHandle, NativeValueCleanupCallback,
 };
 
 /// Constructs one typed cleanup frame without executing its body. The caller
@@ -77,7 +77,7 @@ pub struct NativeTaskSnapshot {
     pub root: usize,
     /// The current producer callback's frame address, or zero outside a callback.
     pub callback: usize,
-    /// Admitted, ready, running, waiting, terminal, or resolved (zero through five).
+    /// Admitted, active, executing, terminal, or resolved (zero through four).
     pub phase: u32,
     /// Whether the current callback may compose a child.
     pub resumable: u8,
@@ -120,7 +120,10 @@ pub struct NativeTaskDispatchServices {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativeTaskDispatchServices, NativeTaskReference, NativeTaskSnapshot, NativeTaskObservationGlue};
+    use super::{
+        NativeTaskDispatchServices, NativeTaskObservationGlue, NativeTaskReference,
+        NativeTaskSnapshot,
+    };
 
     #[test]
     fn observation_glue_matches_bray_metadata() {
@@ -168,5 +171,4 @@ mod tests {
             wake: 24,
         });
     }
-
 }

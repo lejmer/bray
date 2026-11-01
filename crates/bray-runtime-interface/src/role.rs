@@ -486,8 +486,8 @@ mod tests {
             assert!(role.native_signature().is_some(), "{role:?}");
         }
 
-        assert_eq!(host, 28);
-        assert_eq!(execution, 21);
+        assert_eq!(host, 39);
+        assert_eq!(execution, 52);
     }
 
     #[test]

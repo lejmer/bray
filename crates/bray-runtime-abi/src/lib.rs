@@ -16,6 +16,7 @@ mod provider;
 mod records;
 mod run_result;
 mod runtime;
+mod scheduler;
 mod signature;
 mod storage;
 pub mod symbols;
@@ -87,4 +88,9 @@ pub use signature::{PlatformAbiType, PlatformAbiValue, platform_signature_matche
 
 pub use storage::{
     NativeCleanupStorageBundle, NativeCleanupStorageLease, NativeCleanupStorageShape,
+};
+
+pub use scheduler::{
+    NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
+    NativeSchedulerRequirements,
 };

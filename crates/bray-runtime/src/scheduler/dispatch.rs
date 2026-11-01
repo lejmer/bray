@@ -1,126 +1,270 @@
+use std::num::NonZeroU64;
 use std::sync::Arc;
+use std::time::Duration;
 
-use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
-use bray_runtime_model::ProtectedFrameStateDescriptor;
-
-use crate::lane::select_execution_lane;
-use crate::{
-    ExecutionLane, ScheduledTaskSnapshot, ScheduledTaskState, SchedulerSnapshot, TaskId,
-};
+use bray_platform::RuntimeThreadId;
+use bray_runtime_abi::NativeSchedulerObservation;
+use bray_runtime_model::ProtectedFrameStateId;
 
 use super::contract::SchedulerError;
-use super::queue;
-use super::engine::{DispatchState, ReadyTask, RegisteredTask, SchedulerData, SchedulerState};
-
-pub(super) fn select_state_lane(
-    scheduler: &SchedulerData,
-    descriptor: &ProtectedFrameStateDescriptor,
-    origin: bray_platform::RuntimeThreadId,
-) -> Result<ExecutionLane, SchedulerError> {
-    select_execution_lane(
-        descriptor.lane_requirements(),
-        descriptor.affinity(),
-        &scheduler.capabilities,
-        origin,
-        scheduler.main_thread,
-    )
-    .map_err(Into::into)
-}
+use super::engine::SchedulerData;
+use super::native;
+use crate::{
+    ExecutionLane, FrameExecutionState, ScheduledTaskSnapshot, ScheduledTaskState,
+    SchedulerSnapshot, TaskId, TaskWakeCause,
+};
 
 pub(super) fn pop_ready(
     scheduler: &Arc<SchedulerData>,
-    state: &mut SchedulerState,
-    lane: ExecutionLane,
-) -> Option<ReadyTask> {
-    if state.running_count == scheduler.limits.tasks().get() {
-        return None;
+    thread: RuntimeThreadId,
+    lanes: u32,
+) -> Result<Option<ReadyTask>, SchedulerError> {
+    let state = scheduler
+        .state
+        .lock()
+        .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+    let mut selected = NativeSchedulerObservation::default();
+
+    let status = native::bray_runtime_scheduler_acquisition(
+        &scheduler.source.reference,
+        thread.raw(),
+        lanes,
+        &mut selected,
+    );
+
+    if status == 0 {
+        return Ok(None);
     }
 
-    let (identity, queued) = queue::pop(state, lane)?;
+    assert_eq!(
+        status, 1,
+        "Bray returns either an exclusive dispatch or no ready work"
+    );
 
-    let task = state.tasks.get_mut(&identity).expect("a ready link retains its registered task");
+    let task = TaskId::from_native(
+        NonZeroU64::new(selected.task).expect("a ready entry retains its nonzero binding identity"),
+    );
 
-    assert_eq!(task.dispatch, DispatchState::Queued(queued.state), "ready links match the registered continuation");
+    let binding = state
+        .tasks
+        .get(&task)
+        .expect("a selected Bray entry retains its native binding");
 
-    task.dispatch = DispatchState::Running { state: queued.state, pending: None };
-    task.execution_slot = true;
-    state.running_count += 1;
+    assert_eq!(
+        binding.registration, selected.registration,
+        "dispatch retains the admitted generation"
+    );
 
-    Some(ReadyTask {
-        task: identity,
-        execution: task.execution.clone(),
-        lane,
-        wake_cause: queued.cause,
-        queue_latency: queued.queued_at.map(|queued_at| MonotonicClock.now().elapsed_since(queued_at)),
-        scheduler: Arc::downgrade(scheduler),
+    Ok(Some(ReadyTask {
+        task,
+        registration: selected.registration,
+        execution: binding.execution.clone(),
+        lane: native::from_native(selected.lane),
+        wake_cause: native::wake_cause(selected.cause)
+            .expect("a ready entry retains its wake cause"),
+        queue_latency: queue_age(scheduler, selected.queued_at),
+        scheduler: Arc::clone(scheduler),
         released: false,
-        native: task.native.as_ref().map(Arc::clone),
-    })
+        native: binding.native.as_ref().map(Arc::clone),
+    }))
 }
 
 pub(super) fn scheduler_snapshot(
     scheduler: &SchedulerData,
-    state: &SchedulerState,
 ) -> Result<SchedulerSnapshot, SchedulerError> {
-    let now = scheduler.observe_queue_time.then(|| MonotonicClock.now());
+    let mut tasks = Vec::new();
 
-    let tasks = state
-        .tasks
-        .iter()
-        .map(|(&task_id, task)| {
-            scheduled_task_snapshot(scheduler, task_id, task, now)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    loop {
+        let state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
 
-    Ok(SchedulerSnapshot::new(tasks, state.timer_count))
-}
+        if tasks.capacity() < state.tasks.len() {
+            let required = state.tasks.len();
 
-pub(super) fn queue_instant(scheduler: &SchedulerData) -> Option<MonotonicInstant> {
-    scheduler.observe_queue_time.then(|| MonotonicClock.now())
-}
+            drop(state);
 
-pub(super) fn earliest_deadline(
-    first: Option<MonotonicDeadline>,
-    second: Option<MonotonicDeadline>,
-) -> Option<MonotonicDeadline> {
-    match (first, second) {
-        (Some(first), Some(second)) => Some(first.min(second)),
-        (Some(deadline), None) | (None, Some(deadline)) => Some(deadline),
-        (None, None) => None,
+            tasks
+                .try_reserve(required)
+                .map_err(SchedulerError::ReadyStorageUnavailable)?;
+
+            continue;
+        }
+
+        for (&task, binding) in &state.tasks {
+            let Some(cancellation) = binding.cancellation.as_ref() else {
+                continue;
+            };
+
+            let mut observation = NativeSchedulerObservation::default();
+
+            let status = native::bray_runtime_scheduler_snapshot(
+                &scheduler.source.reference,
+                binding.registration,
+                &mut observation,
+            );
+
+            assert_eq!(status, 0, "a native binding retains its Bray registration");
+
+            let dispatch = match observation.phase {
+                0 => ScheduledTaskState::Idle,
+                1 => ScheduledTaskState::Queued,
+                2 => ScheduledTaskState::Running,
+                phase => panic!("a live binding has invalid phase {phase}"),
+            };
+
+            let cancellation = cancellation.observation();
+
+            tasks.push(ScheduledTaskSnapshot::new(
+                task,
+                binding.execution.clone(),
+                dispatch,
+                native::from_native(observation.lane),
+                observation.wakes,
+                native::wake_cause(observation.cause),
+                (observation.phase == 1)
+                    .then(|| queue_age(scheduler, observation.queued_at))
+                    .flatten(),
+                cancellation,
+            ));
+        }
+
+        let timers = state.timers.len();
+
+        drop(state);
+        tasks.sort_unstable_by_key(ScheduledTaskSnapshot::task);
+
+        return Ok(SchedulerSnapshot::new(tasks, timers));
     }
 }
 
-fn scheduled_task_snapshot(
-    scheduler: &SchedulerData,
-    task_id: TaskId,
-    task: &RegisteredTask,
-    now: Option<MonotonicInstant>,
-) -> Result<ScheduledTaskSnapshot, SchedulerError> {
-    let queued = task.queued.as_ref();
+fn queue_age(scheduler: &SchedulerData, queued_at: u64) -> Option<Duration> {
+    scheduler
+        .observe_queue_time
+        .then(|| Duration::from_nanos(scheduler.ticks().saturating_sub(queued_at)))
+}
 
-    let latency = queued.and_then(|queued| queued.queued_at).zip(now)
-        .map(|(queued_at, now)| now.elapsed_since(queued_at));
+/// One exclusive dispatch and the domain/resources retained through its return.
+#[derive(Debug)]
+pub struct ReadyTask {
+    task: TaskId,
+    registration: u64,
+    execution: FrameExecutionState,
+    lane: ExecutionLane,
+    wake_cause: TaskWakeCause,
+    queue_latency: Option<Duration>,
+    scheduler: Arc<SchedulerData>,
+    released: bool,
+    native: Option<Arc<crate::native::NativeTaskServices>>,
+}
 
-    let (dispatch, wake_cause) = match task.dispatch {
-        DispatchState::Idle(_) => (ScheduledTaskState::Idle, None),
-        DispatchState::Queued(_) => (
-            ScheduledTaskState::Queued,
-            queued.map(|queued| queued.cause),
-        ),
-        DispatchState::Running { pending, .. } => (ScheduledTaskState::Running, pending),
-    };
+impl ReadyTask {
+    pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
+        self.native.take()
+    }
+    /// Returns the independent run identity.
+    pub const fn task(&self) -> TaskId {
+        self.task
+    }
+    /// Returns the checked continuation state.
+    pub fn state(&self) -> ProtectedFrameStateId {
+        self.execution.state()
+    }
+    /// Returns the complete retained frame metadata.
+    pub const fn execution(&self) -> &FrameExecutionState {
+        &self.execution
+    }
+    /// Returns the lane acquired by this transition.
+    pub const fn lane(&self) -> ExecutionLane {
+        self.lane
+    }
+    /// Returns the first wake coalesced into this dispatch.
+    pub const fn wake_cause(&self) -> TaskWakeCause {
+        self.wake_cause
+    }
+    /// Returns optional time spent queued.
+    pub const fn queue_latency(&self) -> Option<Duration> {
+        self.queue_latency
+    }
 
-    let origin = task.execution.origin().unwrap_or(task.origin);
-    let lane = select_state_lane(scheduler, task.execution.descriptor(), origin)?;
+    /// Commits suspension, releases quota and remembers any racing wake.
+    pub fn suspend(
+        mut self,
+        execution: FrameExecutionState,
+    ) -> Result<ExecutionLane, SchedulerError> {
+        let lane = self.release(execution)?;
 
-    Ok(ScheduledTaskSnapshot::new(
-        task_id,
-        task.execution.clone(),
-        dispatch,
-        lane,
-        task.wake_count,
-        wake_cause,
-        latency,
-        task.cancellation.observation(),
-    ))
+        self.released = true;
+
+        Ok(lane)
+    }
+
+    fn release(&self, execution: FrameExecutionState) -> Result<ExecutionLane, SchedulerError> {
+        let mut state = self
+            .scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let binding = state
+            .tasks
+            .get_mut(&self.task)
+            .filter(|binding| binding.registration == self.registration)
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        assert_eq!(
+            binding.execution.state(),
+            self.state(),
+            "dispatch release retains the acquired continuation"
+        );
+
+        let lane = self.scheduler.source.select(
+            execution.descriptor(),
+            execution.origin().unwrap_or(binding.origin),
+        )?;
+
+        let cancellation = u32::from(
+            binding
+                .cancellation
+                .as_ref()
+                .is_some_and(crate::CancellationContext::recheck_dispatch),
+        ) * native::cause(TaskWakeCause::Cancellation);
+
+        let previous = std::mem::replace(&mut binding.execution, execution);
+
+        let status = native::bray_runtime_scheduler_release(
+            &self.scheduler.source.reference,
+            self.registration,
+            &native::to_native(lane),
+            cancellation,
+            self.scheduler.ticks(),
+        );
+
+        assert_eq!(
+            status, 0,
+            "a retained binding releases its exclusive Bray dispatch"
+        );
+
+        drop(state);
+        drop(previous);
+
+        Ok(lane)
+    }
+}
+
+impl Drop for ReadyTask {
+    fn drop(&mut self) {
+        if !self.released {
+            match self.release(self.execution.clone()) {
+                Ok(_)
+                | Err(SchedulerError::UnknownTask(_))
+                | Err(SchedulerError::SynchronizationPoisoned) => {}
+                Err(error) => {
+                    panic!("an unchanged checked dispatch releases successfully: {error:?}")
+                }
+            }
+        }
+    }
 }

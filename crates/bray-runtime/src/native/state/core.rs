@@ -3,21 +3,19 @@ use std::mem::ManuallyDrop;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
 use bray_platform::RuntimeThreadId;
-use bray_runtime_abi::{
-    NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
-};
+use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle};
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
-    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    Scheduler, SchedulerLimits,
+    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler,
+    SchedulerLimits,
 };
 
 // Context contents belong to explicit scopes and runtime retirement. The slot itself
@@ -90,17 +88,22 @@ pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
 }
 
 pub(in crate::native) fn current_services() -> Option<Arc<super::super::NativeTaskServices>> {
-    NATIVE_CONTEXT.try_with(|context| context.borrow().services.as_ref().map(Arc::clone))
-        .ok().flatten()
+    NATIVE_CONTEXT
+        .try_with(|context| context.borrow().services.as_ref().map(Arc::clone))
+        .ok()
+        .flatten()
 }
 
 pub(in crate::native) fn current_reference_address() -> Option<u64> {
-    NATIVE_CONTEXT.try_with(|context| {
-        context.borrow().services.as_ref().map(|task| {
-            u64::try_from(std::ptr::from_ref(task.control()).addr())
-                .expect("native task-reference addresses fit the execution ABI")
+    NATIVE_CONTEXT
+        .try_with(|context| {
+            context.borrow().services.as_ref().map(|task| {
+                u64::try_from(std::ptr::from_ref(task.control()).addr())
+                    .expect("native task-reference addresses fit the execution ABI")
+            })
         })
-    }).ok().flatten()
+        .ok()
+        .flatten()
 }
 
 pub(in crate::native) fn park_current_execution() -> Option<crate::scheduler::ExecutionPark> {
@@ -214,7 +217,10 @@ pub(in crate::native) fn with_task_services<T>(
     let previous = NATIVE_CONTEXT.with(|cell| {
         let context = &mut *cell.borrow_mut();
 
-        (context.task.replace(services.handle()), context.services.replace(services))
+        (
+            context.task.replace(services.handle()),
+            context.services.replace(services),
+        )
     });
 
     let _scope = NativeTaskScope(previous);
@@ -222,7 +228,12 @@ pub(in crate::native) fn with_task_services<T>(
     callback()
 }
 
-struct NativeTaskScope((Option<NativeTaskHandle>, Option<Arc<super::super::NativeTaskServices>>));
+struct NativeTaskScope(
+    (
+        Option<NativeTaskHandle>,
+        Option<Arc<super::super::NativeTaskServices>>,
+    ),
+);
 
 impl Drop for NativeTaskScope {
     fn drop(&mut self) {
@@ -341,7 +352,12 @@ mod tests {
                 assert_eq!(core.owners.load(Ordering::Acquire), 0);
                 assert!(core.workers.is_stopping());
 
-                assert_eq!(core.scheduler.task_count().expect("fixture scheduler is available"), 0);
+                assert_eq!(
+                    core.scheduler
+                        .task_count()
+                        .expect("fixture scheduler is available"),
+                    0
+                );
             }
         }
     }
@@ -414,7 +430,7 @@ mod tests {
                     NonZeroUsize::new(1).expect("fixed worker limit is nonzero"),
                     NonZeroUsize::new(1).expect("fixed timer limit is nonzero"),
                 ),
-            );
+            ).expect("scheduler backing must be admitted");
 
             let state = ProtectedFrameStateId::new(0);
 
@@ -626,13 +642,25 @@ impl NativeRuntimeCore {
     }
 
     fn clear_tasks(&self) {
-        assert_eq!(self.scheduler.task_count().expect("native scheduler is available"), 0,
-            "runtime retirement follows resolution of every source-owned task and result");
+        assert_eq!(
+            self.scheduler
+                .task_count()
+                .expect("native scheduler is available"),
+            0,
+            "runtime retirement follows resolution of every source-owned task and result"
+        );
 
-        let context = RuntimeRetirement { identity: self.identity, scope: std::marker::PhantomData };
+        let context = RuntimeRetirement {
+            identity: self.identity,
+            scope: std::marker::PhantomData,
+        };
+
         let status = crate::report_provider::bray_runtime_task_control_runtime_retirement(&context);
 
-        assert!(status.is_success(), "runtime retirement releases unstarted admissions");
+        assert!(
+            status.is_success(),
+            "runtime retirement releases unstarted admissions"
+        );
     }
 
     fn retain_owner(&self) -> bool {
@@ -736,11 +764,14 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     }
 
-    let scheduler = Scheduler::new(
+    let scheduler = match Scheduler::new(
         capabilities,
         thread.runtime().id(),
         SchedulerLimits::new(task_capacity, timer_capacity),
-    );
+    ) {
+        Ok(scheduler) => scheduler,
+        Err(_) => return NativeRuntimeStatus::RUNTIME_FAILURE,
+    };
 
     let identity = crate::report_provider::bray_runtime_task_control_creation();
 
@@ -877,7 +908,6 @@ pub(in crate::native) fn run_worker(
         "worker starts without a runtime context"
     );
 
-    let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
     let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
 
     while !runtime.workers.is_stopping() {
@@ -886,25 +916,49 @@ pub(in crate::native) fn run_worker(
         let deadline =
             bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
 
-        match runtime.scheduler.wait_ready(lane, deadline) {
+        let lanes =
+            super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, false)
+                .chain(
+                    [
+                        Some(workload),
+                        (workload == ExecutionWorkload::Blocking)
+                            .then_some(ExecutionWorkload::BlockingCompute),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .map(|workload| {
+                        ExecutionLane::new(ExecutionLanePlacement::Migratable, workload)
+                    }),
+                );
+
+        let ready = runtime
+            .scheduler
+            .wait_ready(runtime.thread.runtime(), lanes, deadline);
+
+        match ready {
             Ok(Some(ready)) => {
-                if workload == ExecutionWorkload::Blocking {
+                if workload == ExecutionWorkload::Blocking && accounted_as_idle {
                     runtime.workers.begin_blocking_work(&runtime.core);
                     accounted_as_idle = false;
                 }
 
                 let _ = runtime.drive_ready(ready);
-
-                if workload == ExecutionWorkload::Blocking {
-                    if !runtime.workers.finish_blocking_work() {
-                        break;
-                    }
-
-                    accounted_as_idle = true;
-                }
             }
+            Ok(None) if workload != ExecutionWorkload::Blocking || accounted_as_idle => continue,
             Ok(None) => {}
             Err(_) => break,
+        }
+
+        if workload == ExecutionWorkload::Blocking {
+            accounted_as_idle = runtime.workers.finish_blocking_work();
+
+            if !accounted_as_idle
+                && !runtime
+                    .scheduler
+                    .has_attachment_users(runtime.thread.runtime())
+            {
+                break;
+            }
         }
     }
 

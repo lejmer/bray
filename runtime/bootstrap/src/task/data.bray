@@ -5,15 +5,14 @@ using core.memory;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.activation;
 
-// These states describe the independent run, rather than the source Task's
-// resolution obligation. Internal dispatch and delivery users retain storage
-// after the sole source owner has taken the result.
+// The cell owns publication, producer execution and terminal resolution. Queue
+// readiness and execution slots belong exclusively to the scheduler. Executing
+// covers only the protected producer interval inside an acquired dispatch.
 internal union Phase
 {
     Admitted;
-    Ready;
-    Running;
-    Waiting;
+    Active;
+    Executing;
     Terminal;
     Resolved;
 }

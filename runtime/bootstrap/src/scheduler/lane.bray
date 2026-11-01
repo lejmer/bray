@@ -1,0 +1,175 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap.host.product;
+
+// Capability bits: cooperative, local, migratable, blocking, compute, main.
+// Workload bits retain every checked requirement; blocking and compute compose.
+internal func choose_lane(pos capabilities: u32, pos main: u64, pos requirements: Requirements) -> (Lane, u32)
+{
+    let workloads = requirements.workloads & 3;
+
+    let empty: Lane =
+    {
+        placement = 0,
+        workload = workloads,
+        thread = 0
+    };
+
+    if workloads == 0 && (capabilities & 1) == 0
+    {
+        return (empty, 1);
+    }
+
+    if (workloads & 1) != 0 && (capabilities & 8) == 0
+    {
+        return (empty, 3);
+    }
+
+    if (workloads & 2) != 0 && (capabilities & 16) == 0
+    {
+        return (empty, 4);
+    }
+
+    let main_required = requirements.affinity == 2 || (requirements.workloads & 4) != 0;
+
+    if main_required
+    {
+        if requirements.affinity == 1 && requirements.origin != main
+        {
+            return (empty, 6);
+        }
+
+        if (capabilities & 32) == 0
+        {
+            return (empty, 5);
+        }
+
+        return (
+            {
+                placement = 3,
+                workload = workloads,
+                thread = main
+            },
+            0
+        );
+    }
+
+    if requirements.affinity == 1
+    {
+        if (capabilities & 2) == 0
+        {
+            return (empty, 2);
+        }
+
+        return (
+            {
+                placement = 2,
+                workload = workloads,
+                thread = requirements.origin
+            },
+            0
+        );
+    }
+
+    if (capabilities & 4) != 0
+    {
+        return (empty, 0);
+    }
+
+    return (
+        {
+            placement = 1,
+            workload = workloads,
+            thread = requirements.origin
+        },
+        0
+    );
+}
+
+@abi(c)
+trusted internal func selection(
+    pos pointer: DataPointer<Reference>,
+    pos requirements_pointer: DataPointer<Requirements>,
+    pos output: DataPointer<Lane>
+) -> u32
+    requires(
+        trusted reference_slot(pointer = pointer),
+        trusted requirements_slot(pointer = requirements_pointer),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+{
+    let requirements = trusted read_requirements(requirements_pointer);
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let (lane, status) = choose_lane(value.capabilities, value.main, requirements);
+
+    if status == 0
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<Lane>(output, lane);
+    }
+
+    return status;
+}
+
+internal func same_lane(pos first: Lane, pos second: Lane) -> bool
+{
+    return first.placement == second.placement && first.workload == second.workload && first.thread == second.thread;
+}
+
+// The caller lends its active dispatch lane. Observing a thread identity alone
+// never creates workload or main-lane authority.
+@abi(c)
+trusted internal func compatibility(
+    pos current_pointer: DataPointer<Lane>,
+    pos required_pointer: DataPointer<Requirements>,
+    pos thread: u64
+) -> u32
+    requires(trusted lane_slot(pointer = current_pointer), trusted requirements_slot(pointer = required_pointer))
+{
+    let required = trusted read_requirements(required_pointer);
+    let current = trusted read_lane(current_pointer);
+    let workloads = required.workloads & 3;
+
+    if (current.workload & workloads) != workloads
+    {
+        return 0;
+    }
+
+    if required.affinity == 1 && (thread == 0 || required.origin != thread)
+    {
+        return 0;
+    }
+
+    if required.affinity == 2 || (required.workloads & 4) != 0
+    {
+        if current.placement != 3 || current.thread != thread
+        {
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+trusted internal predicate requirements_slot(pointer: DataPointer<Requirements>);
+
+trusted internal func read_requirements(pos pointer: DataPointer<Requirements>) -> Requirements
+    requires(trusted requirements_slot(pointer = pointer))
+    executes(pure, total)
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Requirements>)
+        requires(trusted requirements_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Requirements>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Requirements>(pointer = pointer),
+            trusted core.memory.initialized_as<Requirements>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Requirements>(pointer);
+}

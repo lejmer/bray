@@ -1,0 +1,196 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.sync;
+using internal std.sync.spin_lock;
+using internal bray.runtime.bootstrap.heap;
+using internal bray.runtime.bootstrap.host.product;
+
+@abi(c)
+trusted internal func creation(
+    pos capabilities: u32,
+    pos main: u64,
+    pos limit: usize,
+    pos output: DataPointer<Reference>
+) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let bytes = std.memory.stride_of<Domain>();
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(bytes, align = std.memory.align_of<Domain>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return 1;
+    }
+
+    let reference = trusted initialize(allocation, capabilities, main, limit);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, reference);
+    return 0;
+}
+
+// Consume the actual allocation into one initialized scheduler owner.
+trusted internal func initialize(
+    pos allocation: DataPointer<u8>,
+    pos capabilities: u32,
+    pos main: u64,
+    pos limit: usize
+) -> Reference
+    requires(
+        trusted core.memory.owned_allocation(
+            pointer = allocation,
+            bytes = std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        ),
+        trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
+    )
+    ensures(trusted retained(owner = &result))
+    uses(raw_memory, unchecked_init)
+{
+    let typed = trusted lambda(pos allocation: DataPointer<u8>) -> DataPointer<Domain>
+        requires(
+            trusted core.memory.owned_allocation(
+                pointer = allocation,
+                bytes = std.memory.stride_of<Domain>(),
+                align = std.memory.align_of<Domain>()
+            ),
+            trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
+        )
+        ensures(
+            trusted core.memory.valid_write<Domain>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Domain>(pointer = result)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Domain, u8>(allocation);
+    };
+
+    let pointer = trusted typed(allocation);
+
+    trusted std.memory.write<Domain>(
+        pointer,
+        {
+            capabilities = capabilities,
+            main = main,
+            limit = limit,
+            state = trusted std.sync.SpinLock<State>(
+                {
+                    entries = none,
+                    queues = none,
+                    free_queue = 0,
+                    free = 0,
+                    head = 0,
+                    tail = 0,
+                    running = 0,
+                    waiters = [0; 2]
+                }
+            ),
+            signals = [core.atomic.initialize<u32>(0), core.atomic.initialize<u32>(0)]
+        }
+    );
+
+    return
+    {
+        pointer = pointer
+    };
+}
+
+trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
+    requires(trusted reference_slot(pointer = pointer))
+    ensures(trusted retained(owner = &result))
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = pointer),
+            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.read<Reference>(pointer);
+}
+
+trusted internal func domain(pos owner: &Reference) -> &Domain
+    requires(trusted retained(owner = owner))
+    ensures(trusted std.sync.spin_lock.valid(&result.state.prepared.instance))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted lambda(pos owner: &Reference) -> DataPointer<Domain>
+        requires(trusted retained(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Domain>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Domain>(pointer = result),
+            trusted core.memory.initialized_as<Domain>(pointer = result),
+            trusted core.memory.shared_alias_valid<Domain>(pointer = result),
+            trusted core.memory.epoch_current<Domain>(pointer = result),
+            trusted core.memory.synchronized_access<Domain>(pointer = result),
+            trusted core.memory.movement_stable<Domain>(pointer = result),
+            trusted core.memory.finalization_pending<Domain>(pointer = result)
+        )
+        executes(pure, total)
+    {
+        return owner.pointer;
+    };
+
+    return trusted std.memory.borrow_from<Domain, Reference>(owner, trusted pointer(owner));
+}
+
+trusted internal func lock(pos value: &Domain) -> std.sync.SpinLockGuard<State>
+    requires(trusted std.sync.spin_lock.valid(&value.state.prepared.instance))
+    ensures(
+        trusted std.sync.spin_lock.valid(&value.state.prepared.instance),
+        trusted std.sync.spin_lock.acquired(&result.acquisition)
+    )
+{
+    return trusted value.state.lock();
+}
+
+// This entry belongs to the sole native owner after all domain borrowers retire.
+trusted internal predicate retirement_entry(pointer: DataPointer<Reference>);
+
+@abi(c)
+trusted internal func destruction(pos pointer: DataPointer<Reference>)
+    requires(trusted reference_slot(pointer = pointer), trusted retirement_entry(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted take_domain(&owner);
+
+    trusted bray.runtime.bootstrap.heap.deallocate_bytes(
+        std.memory.byte_address<Domain>(owner.pointer),
+        std.memory.stride_of<Domain>(),
+        align = std.memory.align_of<Domain>()
+    );
+}
+
+trusted internal func take_domain(pos owner: &Reference) -> Domain
+    requires(trusted retained(owner = owner))
+    ensures(
+        trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
+        trusted core.memory.owned_allocation(
+            pointer = std.memory.byte_address<Domain>(owner.pointer),
+            bytes = std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        )
+    )
+    uses(raw_memory)
+{
+    let permit = trusted lambda(pos owner: &Reference)
+        requires(trusted retained(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
+            trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
+            trusted core.memory.initialized_as<Domain>(pointer = owner.pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner);
+    return trusted std.memory.read<Domain>(owner.pointer);
+}

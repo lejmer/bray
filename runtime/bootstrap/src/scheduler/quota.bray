@@ -1,0 +1,79 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.target;
+
+// Lending a slot does not release the exclusive dispatch claim. Only its
+// enclosing native callback can reacquire and return this continuation.
+@abi(c)
+trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+    uses(intrinsic)
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let notifications: u32 =
+    {
+        let mut guard = trusted lock(value);
+        let state = trusted guard.get();
+        let index = trusted index_of(state, registration);
+
+        if index == 0
+        {
+            return 2;
+        }
+
+        let row = trusted entry(state, index);
+
+        if !row.slot
+        {
+            return 0;
+        }
+
+        if row.phase != 2
+        {
+            trusted core.target.abort();
+        }
+
+        row.slot = false;
+        state.running -= 1;
+        yield trusted prepare_signal(value, &state);
+    };
+
+    trusted notify(value, notifications);
+    return 1;
+}
+
+@abi(c)
+trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos registration: u64) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+    uses(intrinsic)
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+    let index = trusted index_of(state, registration);
+
+    if index == 0
+    {
+        return 2;
+    }
+
+    if state.running == value.limit
+    {
+        return 0;
+    }
+
+    let row = trusted entry(state, index);
+
+    if row.phase != 2 || row.slot
+    {
+        trusted core.target.abort();
+    }
+
+    row.slot = true;
+    state.running += 1;
+    return 1;
+}

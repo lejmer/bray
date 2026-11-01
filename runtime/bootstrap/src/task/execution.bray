@@ -43,11 +43,10 @@ internal func snapshot_value(pos owner: &Control) -> Snapshot
     let phase: u32 = match owner.phase
     {
         case Phase.Admitted { yield 0; }
-        case Phase.Ready { yield 1; }
-        case Phase.Running { yield 2; }
-        case Phase.Waiting { yield 3; }
-        case Phase.Terminal { yield 4; }
-        case Phase.Resolved { yield 5; }
+        case Phase.Active { yield 1; }
+        case Phase.Executing { yield 2; }
+        case Phase.Terminal { yield 3; }
+        case Phase.Resolved { yield 4; }
     };
 
     return

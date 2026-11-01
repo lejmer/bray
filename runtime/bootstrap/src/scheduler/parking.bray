@@ -1,0 +1,135 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.scheduler;
+
+using core.atomic;
+using core.target;
+using std.numeric;
+using internal std.atomic;
+
+// A registration keeps its group's word from resetting. A signal therefore
+// cannot disappear between checking work and entering the target wait. Two
+// groups let new waiters park while the previous broadcast drains, without a
+// wrapping generation counter or per-wait allocation/identity registry.
+@abi(c)
+trusted internal func parking_registration(pos pointer: DataPointer<Reference>) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+    let mut group: usize = 0;
+
+    while group < 2
+    {
+        if core.atomic.load<u32, 1>(&value.signals[group]) == 0
+        {
+            state.waiters[group] += 1;
+            return std.numeric.truncate_to<u32, usize>(group);
+        }
+
+        group += 1;
+    }
+
+    // Both committed broadcasts are still being acknowledged. Recheck work
+    // immediately. No new waiter may clear either outstanding signal.
+    return 2;
+}
+
+@abi(c)
+trusted internal func parking_withdrawal(pos pointer: DataPointer<Reference>, pos group: u32)
+    requires(trusted reference_slot(pointer = pointer))
+    uses(intrinsic)
+{
+    if group == 2
+    {
+        return;
+    }
+
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+    let index = group as usize;
+
+    if state.waiters[index] == 0
+    {
+        trusted core.target.abort();
+    }
+
+    state.waiters[index] -= 1;
+
+    if state.waiters[index] == 0
+    {
+        core.atomic.store<u32, 4>(&value.signals[index], 0);
+    }
+}
+
+trusted internal func prepare_signal(pos value: &Domain, pos state: &State) -> u32
+{
+    let mut notifications: u32 = 0;
+    let mut group: usize = 0;
+
+    while group < 2
+    {
+        if state.waiters[group] != 0 && core.atomic.load<u32, 1>(&value.signals[group]) == 0
+        {
+            core.atomic.store<u32, 4>(&value.signals[group], 1);
+            notifications |= 1 << (std.numeric.truncate_to<u32, usize>(group));
+        }
+
+        group += 1;
+    }
+
+    return notifications;
+}
+
+trusted internal func notify(pos value: &Domain, pos notifications: u32)
+{
+    // Target notification runs after collection release. With no parked
+    // consumers, queue transitions make no wait-system call at all.
+    if (notifications & 1) != 0
+    {
+        core.atomic.notify_all<u32>(&value.signals[0]);
+    }
+
+    if (notifications & 2) != 0
+    {
+        core.atomic.notify_all<u32>(&value.signals[1]);
+    }
+}
+
+@abi(c)
+trusted internal func notification(pos pointer: DataPointer<Reference>)
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    let notifications: u32 =
+    {
+        let mut guard = trusted lock(value);
+
+        let state = trusted guard.get();
+
+        yield trusted prepare_signal(value, &state);
+    };
+
+    trusted notify(value, notifications);
+}
+
+@abi(c)
+trusted internal func parking(pos pointer: DataPointer<Reference>, pos group: u32, pos milliseconds: u32)
+    requires(trusted reference_slot(pointer = pointer))
+    requires(blocking_execution())
+{
+    if group == 2
+    {
+        return;
+    }
+
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+
+    trusted internal std.atomic.platform_wait_word_for(&value.signals[group as usize], 0, milliseconds);
+}

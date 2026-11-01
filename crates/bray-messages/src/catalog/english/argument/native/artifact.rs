@@ -166,7 +166,10 @@ pub(crate) fn format_english_native_product_failure(
         Kind::CodegenMirCapacityExceeded => {
             "generated executable code exceeded the compiler implementation capacity"
         }
-        Kind::CodegenInvalidAbiMapping(_) => "a callable ABI mapping is invalid",
+        Kind::CodegenInvalidAbiMapping(Some(detail)) => {
+            return format_runtime_role_abi_failure(detail);
+        }
+        Kind::CodegenInvalidAbiMapping(None) => "a callable ABI mapping is invalid",
         Kind::CodegenUnsupportedType(_) => {
             "the native-code generator cannot represent a required type"
         }
@@ -182,6 +185,53 @@ pub(crate) fn format_english_native_product_failure(
     };
 
     message.to_owned()
+}
+
+fn format_runtime_role_abi_failure(
+    detail: &bray_diagnostics::DiagnosticNativeProductFailureDetail,
+) -> String {
+    use bray_diagnostics::DiagnosticFailureValue as Value;
+
+    let message = match detail.reason() {
+        "codegen_invalid_runtime_role_source_binding" => {
+            "a runtime role source signature does not match the required native ABI"
+        }
+        "codegen_invalid_runtime_role_source_contract" => {
+            "a runtime role source function does not satisfy its entry contract"
+        }
+        _ => "a callable ABI mapping is invalid",
+    };
+
+    let mut output = message.to_owned();
+
+    for field in detail.context() {
+        let label = match field.name() {
+            "role" => "runtime role",
+            "expected_abi" => "expected ABI",
+            "actual_abi" => "actual ABI",
+            "expected_variadic" => "expected variadic signature",
+            "actual_variadic" => "actual variadic signature",
+            "expected_panic_report_context" => "expected panic report context",
+            "actual_panic_report_context" => "actual panic report context",
+            "expected_parameters" => "expected parameter count",
+            "actual_parameters" => "actual parameter count",
+            _ => continue,
+        };
+
+        let value = match field.value() {
+            Value::Text(value) => value.clone(),
+            Value::Boolean(value) => value.to_string(),
+            Value::IdentityList(values) => values.len().to_string(),
+            _ => continue,
+        };
+
+        output.push_str(". ");
+        output.push_str(label);
+        output.push_str(": ");
+        output.push_str(&value);
+    }
+
+    output
 }
 
 fn format_english_fact_runtime_failure(

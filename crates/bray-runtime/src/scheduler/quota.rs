@@ -1,68 +1,50 @@
 use std::sync::Arc;
 
-use crate::TaskId;
+use super::engine::{SchedulerData, TaskRegistration};
+use super::native;
+use super::wait::Parking;
 
-use super::engine::{DispatchState, SchedulerData, TaskRegistration};
-
-/// Temporarily lends a blocked native callback's execution capacity to other work.
-/// The enclosing dispatch keeps exclusive ownership of its task throughout.
+/// A lent execution slot with its exclusive enclosing dispatch retained.
 pub(crate) struct ExecutionPark {
     scheduler: Arc<SchedulerData>,
-    task: TaskId,
+    registration: u64,
 }
 
 impl TaskRegistration {
     pub(crate) fn park_execution(&self) -> Option<ExecutionPark> {
         let scheduler = self.scheduler.upgrade()?;
-        let mut state = scheduler.state.lock().expect("execution quota remains available");
-        let task = state.tasks.get_mut(&self.task)?;
 
-        if !task.execution_slot {
-            return None;
+        let status = native::bray_runtime_scheduler_slot_release(
+            &scheduler.source.reference,
+            self.registration,
+        );
+
+        match status {
+            0 | 2 => None,
+            1 => Some(ExecutionPark {
+                scheduler,
+                registration: self.registration,
+            }),
+            _ => panic!("Bray slot release returned unknown status {status}"),
         }
-
-        assert!(matches!(task.dispatch, DispatchState::Running { .. }),
-            "an execution slot belongs to an exclusive running dispatch");
-
-        task.execution_slot = false;
-        state.running_count -= 1;
-
-        drop(state);
-
-        let _ = scheduler.event.wake_handle().wake();
-
-        Some(ExecutionPark { scheduler, task: self.task })
     }
 }
 
 impl Drop for ExecutionPark {
     fn drop(&mut self) {
         loop {
-            let observed = self.scheduler.event.observe()
-                .expect("execution quota retains its admitted native event");
+            let parking = Parking::register(&self.scheduler);
 
-            {
-                let mut state = self.scheduler.state.lock().expect("execution quota remains available");
+            let status = native::bray_runtime_scheduler_slot_acquisition(
+                &self.scheduler.source.reference,
+                self.registration,
+            );
 
-                if !state.tasks.contains_key(&self.task) {
-                    return;
-                }
-
-                if state.running_count < self.scheduler.limits.tasks().get() {
-                    let task = state.tasks.get_mut(&self.task).expect("the parked dispatch remains registered");
-
-                    assert!(matches!(task.dispatch, DispatchState::Running { .. }) && !task.execution_slot,
-                        "parking preserves exclusive dispatch ownership");
-
-                    task.execution_slot = true;
-                    state.running_count += 1;
-
-                    return;
-                }
+            match status {
+                1 | 2 => return,
+                0 => parking.wait(None),
+                _ => panic!("Bray slot acquisition returned unknown status {status}"),
             }
-
-            self.scheduler.event.wait(observed, None)
-                .expect("execution quota retains its admitted native event");
         }
     }
 }

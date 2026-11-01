@@ -6,51 +6,7 @@ use bray_runtime_model::{
     ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
-use crate::{ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameExecutionState};
-
-use super::super::state::{current_native_task, with_runtime};
-
-pub(in crate::native) fn execution_lane(
-    execution: &FrameExecutionState,
-) -> Result<ExecutionLane, NativeRuntimeStatus> {
-    let task = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-    with_runtime(|runtime| {
-        runtime.retained_task(task).map(|task| {
-            task.registration
-                .execution_lane(execution)
-                .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
-        })
-    })
-    .and_then(|result| result)
-    .and_then(|result| result)
-}
-
-pub(in crate::native) fn lane_allows(current: ExecutionLane, required: ExecutionLane) -> bool {
-    if required.workload() != ExecutionWorkload::Cooperative
-        && current.workload() != required.workload()
-    {
-        return false;
-    }
-
-    let required_placement = required.placement();
-
-    match required_placement {
-        ExecutionLanePlacement::Migratable => true,
-        ExecutionLanePlacement::MainThread(required)
-        | ExecutionLanePlacement::OriginThread(required)
-        | ExecutionLanePlacement::PinnedWorker(required) => match current.placement() {
-            ExecutionLanePlacement::MainThread(current)
-            | ExecutionLanePlacement::OriginThread(current)
-            | ExecutionLanePlacement::PinnedWorker(current) => current == required,
-            ExecutionLanePlacement::Migratable => {
-                !matches!(required_placement, ExecutionLanePlacement::MainThread(_))
-                    && crate::bootstrap::current_runtime_thread()
-                        .is_some_and(|thread| thread.id() == required)
-            }
-        },
-    }
-}
+use crate::FrameExecutionState;
 
 pub(in crate::native) fn frame_state(
     native: NativeFrameState,
@@ -135,55 +91,53 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
 pub extern "C" fn bray_runtime_activation_action_readiness(
     snapshot: &NativeActivationExecution,
 ) -> u32 {
-    let Some(current) = crate::context::current_task_execution_lane() else {
-        return synchronous_readiness(snapshot).code();
+    let current = crate::context::current_task_execution_lane()
+        .map(crate::scheduler::native::to_native)
+        .unwrap_or_default();
+
+    let required = bray_runtime_abi::NativeSchedulerRequirements {
+        affinity: snapshot.requirements.affinity().code(),
+        workloads: snapshot.requirements.lane_requirements().bits(),
+        origin: snapshot.origin,
     };
 
-    let execution = execution(snapshot);
-
-    let required = match execution_lane(&execution) {
-        Ok(required) => required,
-        Err(status) => return status.code(),
+    let thread = if required.affinity != 0
+        || required.workloads & NativeLaneRequirements::MAIN_THREAD.bits() != 0
+    {
+        match super::super::state::current_runtime() {
+            Some(runtime) => runtime.thread.runtime().id().raw(),
+            // Synchronous foreign entry has an attachment without a scheduler.
+            None => {
+                crate::bootstrap::current_runtime_thread().map_or(0, |thread| thread.id().raw())
+            }
+        }
+    } else {
+        0
     };
 
-    if lane_allows(current, required) {
+    if crate::scheduler::native::bray_runtime_scheduler_compatibility(&current, &required, thread)
+        != 0
+    {
         NativeRuntimeStatus::SUCCESS.code()
     } else {
         NativeRuntimeStatus::PENDING.code()
     }
 }
 
-// A foreign entry supplies no execution capabilities. Attachment identity can
-// establish origin affinity, but cannot grant workload or main-thread authority.
-fn synchronous_readiness(snapshot: &NativeActivationExecution) -> NativeRuntimeStatus {
-    if snapshot.requirements.lane_requirements() != NativeLaneRequirements::NONE {
-        return NativeRuntimeStatus::PENDING;
-    }
-
-    let allowed = match snapshot.requirements.affinity() {
-        bray_runtime_abi::NativeFrameAffinity::MOVABLE => true,
-        bray_runtime_abi::NativeFrameAffinity::ORIGIN_THREAD => {
-            crate::bootstrap::current_runtime_thread()
-                .is_some_and(|thread| thread.id().raw() == snapshot.origin)
-        }
-        bray_runtime_abi::NativeFrameAffinity::MAIN_THREAD => false,
-        affinity => panic!("activation supplies an invalid affinity {affinity:?}"),
+// Admission checks the selected runtime before the inactive child transfers.
+// The current dispatch already retains its native services; no registry lookup
+// or runtime-derived replacement of the checked affinity is needed.
+pub(in crate::native) extern "C" fn admission(snapshot: &NativeActivationExecution) -> u32 {
+    let Some(task) = super::super::state::current_services() else {
+        return NativeRuntimeStatus::INVALID_ARGUMENT.code();
     };
 
-    if allowed {
-        NativeRuntimeStatus::SUCCESS
-    } else {
-        NativeRuntimeStatus::PENDING
-    }
-}
-
-// Composition checks capability before consuming the inactive owner. It need not
-// run the child on the current lane. The dispatcher selects that lane on entry.
-pub(in crate::native) extern "C" fn admission(snapshot: &NativeActivationExecution) -> u32 {
-    execution_lane(&execution(snapshot)).map_or_else(
-        |status| status.code(),
-        |_| NativeRuntimeStatus::SUCCESS.code(),
-    )
+    task.registration
+        .execution_lane(&execution(snapshot))
+        .map_or_else(
+            |_| NativeRuntimeStatus::RUNTIME_FAILURE.code(),
+            |_| NativeRuntimeStatus::SUCCESS.code(),
+        )
 }
 
 #[cfg(test)]
@@ -232,7 +186,10 @@ mod tests {
                 ..NativeActivationExecution::default()
             };
 
-            assert_eq!(super::synchronous_readiness(&snapshot), expected);
+            assert_eq!(
+                super::bray_runtime_activation_action_readiness(&snapshot),
+                expected.code()
+            );
         }
     }
 }
