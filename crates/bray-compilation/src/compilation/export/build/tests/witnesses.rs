@@ -172,6 +172,36 @@ const API: &str = r"
             break none;
         };
     }
+
+    func forward_owned_inferred(pos value: Receipt?, pos state: &mut State) -> (u32, Receipt?)
+        requires(trusted owned(owner = &value))
+    {
+        state.value += 1;
+        return (0, value);
+    }
+
+    func forward_nullable_inferred(pos value: Receipt?, pos state: &mut State) -> Receipt?
+        requires(trusted owned(owner = &value))
+    {
+        state.value += 1;
+        return value;
+    }
+
+    func create_owned_tuple_inferred(pos state: &mut State) -> (u32, Receipt?)
+    {
+        state.value += 1;
+        return (0, make_owned());
+    }
+
+    func forward_address_inferred(pos value: Address, pos state: &mut State) -> (u32, Address)
+        requires(
+            trusted held(owner = &value.marker),
+            trusted core.memory.valid_read<u32>(pointer = value.pointer, count = 1)
+        )
+    {
+        state.value += 1;
+        return (0, value);
+    }
     ";
 
 const CASES: &[(&str, &str, bool)] = &[
@@ -1142,6 +1172,134 @@ const CASES: &[(&str, &str, bool)] = &[
         }
     ",
         false,
+    ),
+    (
+        "owned_tuple_inferred",
+        r"
+        let value =
+        {
+            let mut state: api.State =
+            {
+                value = 0
+            };
+
+            yield api.forward_owned_inferred(api.make_owned(), &mut state);
+        };
+
+        api.observe_tuple(&value);
+    ",
+        true,
+    ),
+    (
+        "owned_tuple_inferred_live",
+        r"
+        let mut state: api.State =
+        {
+            value = 0
+        };
+
+        let value = api.forward_owned_inferred(api.make_owned(), &mut state);
+
+        api.observe_tuple(&value);
+    ",
+        true,
+    ),
+    (
+        "owned_nullable_inferred",
+        r"
+        let value =
+        {
+            let mut state: api.State =
+            {
+                value = 0
+            };
+
+            yield api.forward_nullable_inferred(api.make_owned(), &mut state);
+        };
+
+        api.observe_owned(&value);
+    ",
+        true,
+    ),
+    (
+        "new_owned_tuple_inferred",
+        r"
+        let value =
+        {
+            let mut state: api.State =
+            {
+                value = 0
+            };
+
+            yield api.create_owned_tuple_inferred(&mut state);
+        };
+
+        api.observe_tuple(&value);
+    ",
+        true,
+    ),
+    (
+        "tuple_inferred_observe_address_marker",
+        r"
+        let value =
+        {
+            let payload: u32 = 7;
+
+            yield
+            {
+                let mut state: api.State =
+                {
+                    value = 0
+                };
+
+                yield api.forward_address_inferred(api.make_address(&payload), &mut state);
+            };
+        };
+
+        api.observe_address_marker(&value.1);
+    ",
+        true,
+    ),
+    (
+        "tuple_inferred_observe_address",
+        r"
+        let value =
+        {
+            let payload: u32 = 7;
+
+            yield
+            {
+                let mut state: api.State =
+                {
+                    value = 0
+                };
+
+                yield api.forward_address_inferred(api.make_address(&payload), &mut state);
+            };
+        };
+
+        api.observe_address(&value.1);
+    ",
+        false,
+    ),
+    (
+        "tuple_inferred_address_live",
+        r"
+        let payload: u32 = 7;
+
+        let value =
+        {
+            let mut state: api.State =
+            {
+                value = 0
+            };
+
+            yield api.forward_address_inferred(api.make_address(&payload), &mut state);
+        };
+
+        api.observe_address(&value.1);
+    ",
+        true,
     ),
 ];
 

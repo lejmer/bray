@@ -355,3 +355,46 @@ fn boolean_constants_normalize_symbolic_completion_implications() {
         }
     }
 }
+
+#[test]
+fn owned_renaming_reaches_compact_input_fields_without_equating_borrows() {
+    let root = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+    let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+    let replacement = ExecutionCondition::Result.component(first);
+    let specific = ExecutionCondition::Result.component(second);
+
+    let replacements = [
+        (root.clone(), replacement.clone()),
+        (root.clone().component(first), specific.clone()),
+    ]
+    .into();
+
+    for (subject, expected) in [
+        (
+            root.clone().component(second).borrowed(),
+            replacement.component(second).borrowed(),
+        ),
+        (
+            root.component(first).component(second).borrowed(),
+            specific.component(second).borrowed(),
+        ),
+    ] {
+        assert_eq!(
+            subject.with_joined_values(&replacements, &replacements),
+            expected
+        );
+
+        assert_eq!(subject.with_equalities(&replacements), subject);
+
+        let entry = ExecutionCondition::Entry {
+            condition: Arc::new(subject),
+            captured: true,
+        };
+
+        assert_eq!(
+            entry.with_joined_values(&replacements, &replacements),
+            entry
+        );
+    }
+}
