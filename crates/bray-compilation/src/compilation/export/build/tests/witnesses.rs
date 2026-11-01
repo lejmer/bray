@@ -1,5 +1,14 @@
 use super::fixtures::{compilation, execution_consumer};
 
+const NESTED_ORDERS: [[usize; 3]; 6] = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+];
+
 const API: &str = r"
     trusted module api;
 
@@ -203,6 +212,38 @@ const API: &str = r"
         return (0, value);
     }
     ";
+
+fn api_source() -> String {
+    let mut source = API.to_owned();
+
+    for (index, order) in NESTED_ORDERS.into_iter().enumerate() {
+        for valid in [true, false] {
+            let receipt = if valid {
+                "make()"
+            } else {
+                "Receipt { marker = Marker {} }"
+            };
+
+            let existing = format!("Choice.Existing({receipt})");
+            let selection = nested_selection(order, [&existing, "Choice.Backing", "none"]);
+
+            source.push_str(&format!(
+                "func choose_nested_nullable_{index}_{valid}(pos existing: bool, pos repeat: bool) -> Choice? {{ return {selection}; }}\n"
+            ));
+        }
+    }
+
+    source
+}
+
+fn nested_selection(order: [usize; 3], values: [&str; 3]) -> String {
+    let [first, second, third] = order;
+
+    format!(
+        "if existing {{ yield {}; }} else if repeat {{ yield {}; }} else {{ yield {}; }}",
+        values[first], values[second], values[third]
+    )
+}
 
 const CASES: &[(&str, &str, bool)] = &[
     (
@@ -1305,20 +1346,22 @@ const CASES: &[(&str, &str, bool)] = &[
 
 #[test]
 fn witness_ownership_survives_source_control_flow() {
+    let api = api_source();
+
     for (name, body, valid) in cases() {
         let body = body.replace("api.", "");
 
         let source = compilation(&format!(
-            "{API}\nfunc caller(pos existing: bool, pos repeat: bool) {{ {body} }}"
+            "{api}\nfunc caller(pos existing: bool, pos repeat: bool) {{ {body} }}"
         ));
 
-        assert_witness_result(name, &source, valid);
+        assert_witness_result(&name, &source, valid);
     }
 }
 
 #[test]
 fn witness_ownership_survives_imported_control_flow() {
-    let provider = compilation(API);
+    let provider = compilation(&api_source());
 
     assert!(
         !provider.check_diagnostics().has_errors(),
@@ -1336,11 +1379,11 @@ fn witness_ownership_survives_imported_control_flow() {
             ),
         );
 
-        assert_witness_result(name, &consumer, valid);
+        assert_witness_result(&name, &consumer, valid);
     }
 }
 
-fn cases() -> impl Iterator<Item = (&'static str, String, bool)> {
+fn cases() -> impl Iterator<Item = (String, String, bool)> {
     let scale = [
         ("unrelated_scalars_valid", 70, false, true),
         ("unrelated_scalars_forged", 70, false, false),
@@ -1367,13 +1410,63 @@ fn cases() -> impl Iterator<Item = (&'static str, String, bool)> {
             .expect("scale fixtures reuse the existing valid and forged branch cases")
             .1;
 
-        (name, format!("{prefix}{body}"), valid)
+        (name.to_owned(), format!("{prefix}{body}"), valid)
+    });
+
+    let matching = r"
+        match consume selected
+        {
+            case ?choice
+            {
+                match consume choice
+                {
+                    case api.Choice.Existing(value) { api.observe(&value); }
+                    case api.Choice.Backing {}
+                }
+            }
+            case none {}
+        }
+    ";
+
+    let nested = NESTED_ORDERS.into_iter().flat_map(move |order| {
+        [true, false].into_iter().map(move |valid| {
+            let receipt = if valid {
+                "api.make()"
+            } else {
+                "api.Receipt { marker = api.Marker {} }"
+            };
+
+            let existing = format!("api.Choice.Existing({receipt})");
+            let selection = nested_selection(order, [&existing, "api.Choice.Backing", "none"]);
+
+            let [first, second, third] = order;
+
+            let body = format!("let selected: api.Choice? = {selection}; {matching}");
+
+            (
+                format!("nested_nullable_{first}_{second}_{third}_{valid}"),
+                body,
+                valid,
+            )
+        })
+    });
+
+    let provider = NESTED_ORDERS.into_iter().enumerate().flat_map(move |(index, _)| {
+        [true, false].into_iter().map(move |valid| {
+            (
+                format!("nested_nullable_provider_{index}_{valid}"),
+                format!("let selected = api.choose_nested_nullable_{index}_{valid}(existing, repeat); {matching}"),
+                valid,
+            )
+        })
     });
 
     CASES
         .iter()
-        .map(|&(name, body, valid)| (name, body.to_owned(), valid))
+        .map(|&(name, body, valid)| (name.to_owned(), body.to_owned(), valid))
         .chain(scale)
+        .chain(nested)
+        .chain(provider)
 }
 
 fn assert_witness_result(name: &str, compilation: &crate::Compilation, valid: bool) {
