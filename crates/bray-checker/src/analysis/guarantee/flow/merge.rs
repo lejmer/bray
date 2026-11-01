@@ -75,12 +75,12 @@ pub(in crate::analysis) fn merge(
     changed |= before != target.assumptions.len();
 
     // Proven truth is intersected below; retain every possible carrier obligation.
-    for (carrier, conditions) in &incoming.witness_carriers {
-        let retained = target.witness_carriers.entry(carrier.clone()).or_default();
-        let before = retained.len();
-
-        retained.extend(conditions.iter().cloned());
-        changed |= before != retained.len();
+    for (carrier, witness) in &incoming.witnesses {
+        changed |= target
+            .witnesses
+            .entry(carrier.clone())
+            .or_default()
+            .merge(witness);
     }
 
     let before = target.trusted_assumptions.len();
@@ -108,18 +108,6 @@ pub(in crate::analysis) fn merge(
             entry.insert(ExecutionCondition::Unknown);
             changed = true;
         }
-    }
-
-    for (carrier, dependencies) in &incoming.witness_dependencies {
-        let retained = target
-            .witness_dependencies
-            .entry(carrier.clone())
-            .or_default();
-
-        let before = retained.len();
-
-        retained.extend(dependencies.iter().cloned());
-        changed |= before != retained.len();
     }
 
     changed |= merge_values(&mut target.current, &incoming.current);

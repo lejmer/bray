@@ -354,18 +354,17 @@ impl Compilation {
             conditions.push(decode(predicate)?);
         }
 
+        let (witness_subjects, address_subjects) =
+            self.trusted_predicate_subjects(&guarantees, result, cancellation, diagnostics)?;
+
         Ok(TrustedCallContract {
             arguments: Default::default(),
             transferred_inputs: Vec::new(),
             completes: result.is_some(),
             checks_preconditions: behavior.has_runtime_requirements(),
             preserves_inputs: false,
-            witness_subjects: self.trusted_predicate_subjects(
-                &guarantees,
-                result,
-                cancellation,
-                diagnostics,
-            )?,
+            witness_subjects,
+            address_subjects,
             requirements,
             execution_requirements,
             preconditions,

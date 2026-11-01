@@ -304,14 +304,8 @@ pub struct ExecutionDomain {
 /// Authority carried by an unchanged owned input across a checked forwarding call.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub(crate) struct ExecutionValueEvidence {
-    pub(crate) carriers: std::collections::BTreeMap<
-        super::ExecutionCondition,
-        std::collections::BTreeSet<super::ExecutionCondition>,
-    >,
-    pub(crate) dependencies: std::collections::BTreeMap<
-        super::ExecutionCondition,
-        std::collections::BTreeSet<super::ExecutionPlace>,
-    >,
+    pub(crate) witnesses:
+        std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionWitness>,
     pub(crate) allocations:
         std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition>,
 }

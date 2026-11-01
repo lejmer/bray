@@ -139,8 +139,15 @@ impl Compilation {
         result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Vec<(ExecutionCondition, ExecutionCondition)>, FactQueryError> {
+    ) -> Result<
+        (
+            Vec<(ExecutionCondition, ExecutionCondition)>,
+            Vec<(ExecutionCondition, ExecutionCondition)>,
+        ),
+        FactQueryError,
+    > {
         let context = self.binding_context(cancellation)?;
+        let values = self.semantic_value_store()?;
 
         let mut pending = conditions
             .iter()
@@ -148,11 +155,13 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         let mut subjects = Vec::new();
+        let mut addresses = Vec::new();
 
         while let Some((guarantee, condition)) = pending.pop() {
             match condition {
                 ExecutionCondition::Trusted(condition) => {
-                    let ExecutionCondition::Predicate(predicate, _, arguments) = condition.as_ref()
+                    let ExecutionCondition::Predicate(predicate, substitution, arguments) =
+                        condition.as_ref()
                     else {
                         continue;
                     };
@@ -166,7 +175,47 @@ impl Compilation {
                     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
                     if !signature.diagnostics().has_errors() && signature.value().is_trusted() {
-                        for argument in arguments.iter() {
+                        let templates = signature
+                            .value()
+                            .parameters()
+                            .iter()
+                            .map(|parameter| parameter.ty().clone())
+                            .collect::<Vec<_>>();
+
+                        let checked = self.checked_constant_terms_for_templates_with_cancellation(
+                            templates.iter(),
+                            cancellation,
+                        )?;
+
+                        diagnostics.add_range(checked.diagnostics().iter().cloned());
+
+                        if checked.diagnostics().has_errors() {
+                            continue;
+                        }
+
+                        assert_eq!(
+                            templates.len(),
+                            arguments.len(),
+                            "checked predicate retains its signature arity"
+                        );
+
+                        for (template, argument) in templates.iter().zip(arguments.iter()) {
+                            let ty = bray_checker::resolve_type_expression_template(
+                                values, template, checked.value(),
+                            ).expect("checked predicate parameter template resolves before trusted analysis");
+
+                            let ty = values.substitute_type(ty, *substitution)?;
+
+                            if matches!(values.type_data(ty).as_ref(),
+                                bray_symbols::TypeData::Named { definition, .. }
+                                if matches!(crate::compilation::foreign::compiler_known_representation(self, *definition),
+                                    Some(bray_compiler_known::RepresentationRole::RawPointer
+                                        | bray_compiler_known::RepresentationRole::FunctionPointer
+                                        | bray_compiler_known::RepresentationRole::DevicePointer)))
+                            {
+                                addresses.push((guarantee.clone(), argument.clone()));
+                            }
+
                             let subject = if argument.observes_completion_result() {
                                 if let Some(result) = result {
                                     let (carrier, ty) = argument
@@ -201,7 +250,7 @@ impl Compilation {
             }
         }
 
-        Ok(subjects)
+        Ok((subjects, addresses))
     }
 
     pub(super) fn trusted_result_is_witness(

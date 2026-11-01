@@ -2,6 +2,7 @@ mod borrows;
 mod carriers;
 mod check;
 mod completion;
+mod observations;
 mod proof;
 mod transfers;
 

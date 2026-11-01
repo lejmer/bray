@@ -18,3 +18,6 @@ pub(in crate::compilation) use fixtures::{
 
 #[cfg(test)]
 mod sync;
+
+#[cfg(test)]
+mod addresses;

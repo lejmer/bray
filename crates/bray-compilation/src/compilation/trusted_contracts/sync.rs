@@ -4329,3 +4329,42 @@ fn production_constant_owner_factories_preserve_pairing_and_reject_fabrication()
         }
     }
 }
+
+#[test]
+fn independent_witness_survives_a_released_production_guard_in_a_loop() {
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+        using core.memory;
+        using std.sync;
+        struct Marker {}
+        struct Receipt { marker: Marker; pointer: DataPointer<u32>; }
+        trusted predicate held(owner: &Marker);
+        trusted func produce(pos payload: &u32) -> Receipt
+            ensures(trusted held(owner = &result.marker))
+        { return { marker = Marker {}, pointer = core.memory.address_of<u32>(payload) }; }
+        func observe(pos receipt: Receipt) requires(trusted held(owner = &receipt.marker)) {}
+        func production_probe() {
+            let lock = std.sync.SpinLock<u32>(7);
+            loop {
+                let receipt = {
+                    let mut guard = lock.lock();
+                    let payload = guard.get();
+                    yield produce(&payload);
+                };
+                observe(receipt);
+            }
+        }
+        "#,
+    );
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "production_probe"))
+        .expect("guarded witness consumer lowers");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:#?}",
+        checked.diagnostics()
+    );
+}
