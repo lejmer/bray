@@ -9,6 +9,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn result_guarantee_owners(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
         owners: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
         address_subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
@@ -17,10 +18,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         BTreeSet<crate::ExecutionPlace>,
         crate::execution_guarantees::AddressDependencies,
     ) {
+        let arguments = entry;
         let mut retained = BTreeSet::new();
 
         let mut addresses = self.input_guarantee_addresses(
             invocation,
+            entry,
             guarantee,
             owners,
             address_subjects,
@@ -101,7 +104,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             expression,
                             call,
                             dependencies,
-                            instantiate,
+                            entry,
                         );
                     }
                 }
@@ -155,7 +158,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .entry()
                         .expect("selected returned borrow retains its input");
 
-                    let input = instantiate(&reference_subject(self.dependencies, call, entry));
+                    let input = entry_subject(arguments, &reference_subject(self.dependencies, call, entry));
                     let owners = source.addresses.get(&input).unwrap_or(owners);
 
                     addresses
@@ -178,7 +181,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: bray_bound_tree::BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         dependencies: &bray_bound_tree::BoundCallDependencyContracts,
-        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+        arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) {
         let mut known = false;
         let mut unknown = false;
@@ -205,7 +208,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let source = reference_subject(self.dependencies, call, entry);
 
-            let source = instantiate(&source);
+            let source = entry_subject(arguments, &source);
 
             if let Some(owners) = sources.get(&source) {
                 addresses
@@ -231,6 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn input_guarantee_addresses(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
         sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
         subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
@@ -269,7 +273,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     };
 
                     for path in paths {
-                        let value = instantiate(path);
+                        let value = entry_subject(entry, path);
 
                         if let Some(storage) = source.addresses.get(&value) {
                             owners.extend(storage.iter().cloned());
@@ -330,6 +334,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let addresses = self.input_guarantee_addresses(
                 invocation,
+                &state.entries.get(&invocation)
+                    .expect("completed invocation retains its captured arguments").arguments,
                 template,
                 sources,
                 subjects,
@@ -397,6 +403,18 @@ fn reference_subject(
     super::carriers::result_projection(dependencies, subject.projections()).substitute(
         &|_| ExecutionCondition::Unknown,
         &root,
+        &mut { ExecutionCondition::WORK_LIMIT },
+    )
+}
+
+/// Checked entry paths observe the original input, independently of final mutable contents.
+fn entry_subject(
+    arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    subject: &ExecutionCondition,
+) -> ExecutionCondition {
+    subject.substitute(
+        &|input| input.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
+        &ExecutionCondition::Unknown,
         &mut { ExecutionCondition::WORK_LIMIT },
     )
 }

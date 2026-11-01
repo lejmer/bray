@@ -3336,3 +3336,64 @@ trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses
         }
     }
 }
+
+#[test]
+fn imported_mutated_address_sources_preserve_their_entry_bounds() {
+    let provider = r#"trusted module api;
+using core.memory;
+struct Addresses { mut pointer: DataPointer<u32>; }
+func empty() -> Addresses { return { pointer = core.memory.null<u32>() }; }
+trusted func produce(pos payload: &u32) -> Addresses
+    ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+{ return { pointer = core.memory.address_of<u32>(payload) }; }
+trusted func transfer(pos destination: &mut Addresses, pos source: &mut Addresses)
+    requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+    ensures(trusted core.memory.valid_read<u32>(pointer = destination.pointer, count = 1))
+{
+    destination.pointer = source.pointer;
+    source.pointer = core.memory.null<u32>();
+}
+trusted func take(pos source: &mut Addresses) -> Addresses
+    requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+    ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+{
+    let pointer = source.pointer;
+    source.pointer = core.memory.null<u32>();
+    return { pointer = pointer };
+}
+func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+impl Addresses {
+    trusted mut func take() -> Addresses
+        requires(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+        ensures(trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1))
+    { return take(&mut self); }
+    trusted mut func receive(pos source: &mut Addresses)
+        requires(trusted core.memory.valid_read<u32>(pointer = source.pointer, count = 1))
+        ensures(trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1))
+    { transfer(&mut self, source); }
+}
+"#;
+
+    for operation in ["transfer(&mut destination, &mut source);", "destination = take(&mut source);", "destination.receive(&mut source);", "destination = source.take();"] {
+        for clear in [false, true] {
+            for expired in [false, true] {
+                let provider = if clear { provider.to_owned() } else { provider.replace("source.pointer = core.memory.null<u32>();", "") };
+                let payload = if expired { "expired" } else { "retained" };
+                let body = format!("let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);");
+
+                let provider = compilation(&provider);
+                let mut body = body;
+
+                for function in ["produce", "empty", "observe"] { body = body.replace(&format!("{function}("), &format!("example.package.api.{function}(")); }
+                body = body.replace(" transfer(", " example.package.api.transfer(").replace("= take(", "= example.package.api.take(");
+
+                let consumer = execution_consumer(&provider, &format!("trusted module app; using example.package.api; func caller() {{ {body} }}"));
+                let diagnostics = consumer.check_diagnostics();
+
+                assert_eq!(!diagnostics.has_errors(), !expired, "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}");
+
+                if expired { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+            }
+        }
+    }
+}
