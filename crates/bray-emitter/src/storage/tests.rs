@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime};
 
 use super::index::ManagedStore;
 use super::record::{EntryKind, EntryState, StorageOwner};
-use crate::test_support::{product_identity, target_identity};
+use crate::test_support::{product_identity, target_identity, wait_for_lease_release};
 use crate::{
     ManagedCache, ManagedOperation, StorageCategory, StoragePolicy, StorageSelection,
     inspect_storage,
@@ -212,6 +212,8 @@ fn cache_budget_evicts_the_least_recently_used_entry() {
     std::fs::write(new_path.join("cache"), b"new").expect("fixture contents must be written");
     drop(older);
     drop(newer);
+    wait_for_lease_release(&old_path.join("entry.lock"));
+    wait_for_lease_release(&new_path.join("entry.lock"));
 
     let now = SystemTime::now();
     let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
@@ -260,8 +262,13 @@ fn storage_report_marks_the_least_recently_used_cache_over_budget() {
     std::fs::write(newer.directory().join("cache"), b"new")
         .expect("fixture contents must be written");
 
+    let old_lease = older.directory().join("entry.lock");
+    let new_lease = newer.directory().join("entry.lock");
+
     drop(older);
     drop(newer);
+    wait_for_lease_release(&old_lease);
+    wait_for_lease_release(&new_lease);
 
     let now = SystemTime::now();
     let mut store = ManagedStore::open(root.path()).expect("fixture file must open");
@@ -466,6 +473,13 @@ fn cache_age_and_budget_never_evict_an_active_linker() {
 
     drop(cache);
 
+    wait_for_lease_release(
+        &path
+            .parent()
+            .expect("fixture cache must have a directory")
+            .join("entry.lock"),
+    );
+
     store
         .maintain_at(policy, SystemTime::now(), 16, &|| false)
         .expect("fixture `maintain_at` call must succeed");
@@ -501,6 +515,11 @@ fn repeated_operations_reclaim_completed_intermediates_and_keep_live_work() {
 
         std::fs::write(operation.directory().join("temporary"), b"completed output")
             .expect("fixture contents must be written");
+
+        let lease = operation.directory().join("entry.lock");
+
+        drop(operation);
+        wait_for_lease_release(&lease);
     }
 
     let next = ManagedOperation::begin(
@@ -710,7 +729,10 @@ fn cleanup_rejects_symlinks_without_touching_their_target() {
     std::os::unix::fs::symlink(&file, cache.directory().join("link"))
         .expect("fixture `std::os::unix::fs::symlink` call must succeed");
 
+    let lease = cache.directory().join("entry.lock");
+
     drop(cache);
+    wait_for_lease_release(&lease);
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
         .expect_err("symlink in managed storage must be rejected");
