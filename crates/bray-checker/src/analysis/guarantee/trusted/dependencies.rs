@@ -19,8 +19,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let mut retained = BTreeSet::new();
 
-        let mut addresses =
-            input_guarantee_addresses(guarantee, owners, address_subjects, instantiate);
+        let mut addresses = self.input_guarantee_addresses(
+            invocation,
+            guarantee,
+            owners,
+            address_subjects,
+            instantiate,
+        );
 
         let call = self.observation_call(invocation);
 
@@ -28,17 +33,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (input, source) in owners {
             let (Some((expression, call)), Some(dependencies)) = (call, dependencies) else {
-                match source {
-                    GuaranteeSource::Borrowed(owners) => retained.extend(owners.iter().cloned()),
-                    GuaranteeSource::Addresses(addresses) => {
-                        retained.extend(addresses.values().flatten().cloned())
-                    }
-                }
+                retained.extend(source.borrowed.iter().cloned());
+                retained.extend(source.addresses.values().flatten().cloned());
 
                 continue;
             };
 
-            if let GuaranteeSource::Addresses(sources) = source {
+            if source.borrowed.is_empty() {
+                let sources = &source.addresses;
+
                 let subjects = address_subjects
                     .iter()
                     .filter(|(condition, _, _)| condition == guarantee)
@@ -106,9 +109,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let GuaranteeSource::Borrowed(owners) = source else {
-                unreachable!("address sources were handled above");
-            };
+            let owners = &source.borrowed;
 
             if owners.is_empty()
                 || dependencies
@@ -149,6 +150,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 );
 
                 if guarantee.observes(&address) {
+                    let entry = reference
+                        .relation()
+                        .entry()
+                        .expect("selected returned borrow retains its input");
+
+                    let input = instantiate(&reference_subject(self.dependencies, call, entry));
+                    let owners = source.addresses.get(&input).unwrap_or(owners);
+
                     addresses
                         .entry(instantiate(&address))
                         .or_insert_with(BTreeSet::new)
@@ -194,16 +203,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let ordinal = call
-                .input_ordinal(entry.subject_root())
-                .expect("checked reference has its formal input");
-
-            let value = ExecutionCondition::Input(crate::ExecutionPlace::argument(ordinal));
-
-            let source = super::carriers::result_projection(self.dependencies, entry.projections())
-                .substitute(&|_| ExecutionCondition::Unknown, &value, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                });
+            let source = reference_subject(self.dependencies, call, entry);
 
             let source = instantiate(&source);
 
@@ -226,90 +226,177 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-/// Input access promises are bounded by the supplied storage, without tying unrelated clauses to it.
-pub(super) fn input_guarantee_addresses(
-    guarantee: &ExecutionCondition,
-    sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-    subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
-    instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
-) -> crate::execution_guarantees::AddressDependencies {
-    let mut addresses = BTreeMap::new();
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    /// Input access promises are bounded by the supplied storage, without tying unrelated clauses to it.
+    pub(super) fn input_guarantee_addresses(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        guarantee: &ExecutionCondition,
+        sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
+        subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
+        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) -> crate::execution_guarantees::AddressDependencies {
+        let mut addresses = BTreeMap::new();
 
-    for (_, subject, _) in subjects.iter().filter(|(condition, subject, _)| {
-        condition == guarantee
-            && !subject.observes_completion_result()
-            && subject.inputs().iter().any(|input| {
-                matches!(
-                    input.root,
-                    crate::execution_guarantees::ExecutionInput::Argument(_)
-                )
-            })
-    }) {
-        let address = instantiate(subject);
+        for (_, subject, _) in subjects.iter().filter(|(condition, subject, _)| {
+            condition == guarantee
+                && !subject.observes_completion_result()
+                && subject.inputs().iter().any(|input| {
+                    matches!(
+                        input.root,
+                        crate::execution_guarantees::ExecutionInput::Argument(_)
+                    )
+                })
+        }) {
+            let address = instantiate(subject);
 
-        let owners = addresses
-            .entry(address.clone())
-            .or_insert_with(BTreeSet::new);
+            let owners = addresses
+                .entry(address.clone())
+                .or_insert_with(BTreeSet::new);
 
-        // An existing address identifies its storage across raw-value inputs. Other
-        // raw addresses may describe values written there, rather than that storage.
-        let known_address = sources.values().any(|source| {
-            matches!(source, GuaranteeSource::Addresses(known) if known.contains_key(&address))
-        });
+            // An existing address identifies its storage across raw-value inputs. Other
+            // raw addresses may describe values written there, rather than that storage.
+            let known_address = sources
+                .values()
+                .any(|source| source.addresses.contains_key(&address));
 
-        for source in sources.values() {
-            match source {
-                GuaranteeSource::Borrowed(storage) => owners.extend(storage.iter().cloned()),
-                GuaranteeSource::Addresses(known) => {
-                    if let Some(storage) = known.get(&address) {
+            let origins = self.input_address_origins(invocation, subject);
+
+            for (input, source) in sources {
+                if let Some(origins) = &origins {
+                    let Some(paths) = origins.get(input) else {
+                        continue;
+                    };
+
+                    for path in paths {
+                        let value = instantiate(path);
+
+                        if let Some(storage) = source.addresses.get(&value) {
+                            owners.extend(storage.iter().cloned());
+                        } else {
+                            owners.extend(source.borrowed.iter().cloned());
+
+                            if value == ExecutionCondition::Unknown
+                                || path
+                                    .inputs()
+                                    .iter()
+                                    .any(|input| input.projections.is_empty())
+                            {
+                                owners.extend(source.addresses.values().flatten().cloned());
+                            }
+                        }
+                    }
+                } else {
+                    owners.extend(source.borrowed.iter().cloned());
+
+                    if let Some(storage) = source.addresses.get(&address) {
                         owners.extend(storage.iter().cloned());
                     } else if !known_address {
-                        owners.extend(known.values().flatten().cloned());
+                        owners.extend(source.addresses.values().flatten().cloned());
                     }
                 }
             }
         }
+
+        addresses
     }
 
-    addresses
+    /// Copyable input access facts can describe an address without observing its borrowed carrier.
+    pub(super) fn carry_input_access_guarantees(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        state: &mut super::super::state::ExecutionState,
+        subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
+        sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
+        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
+    ) {
+        for (template, subject, _) in subjects.iter().filter(|(_, subject, owning)| {
+            !*owning
+                && !subject.observes_completion_result()
+                && subject.inputs().iter().any(|input| {
+                    matches!(
+                        input.root,
+                        crate::execution_guarantees::ExecutionInput::Argument(_)
+                    )
+                })
+        }) {
+            let address = instantiate(subject);
+
+            if address == ExecutionCondition::Unknown {
+                continue;
+            }
+
+            let guarantee = instantiate(template);
+
+            let addresses = self.input_guarantee_addresses(
+                invocation,
+                template,
+                sources,
+                subjects,
+                instantiate,
+            );
+
+            let carrier = state
+                .witnesses
+                .entry(address.owner_identity().clone())
+                .or_default();
+
+            for clause in guarantee
+                .conjuncts()
+                .filter(|clause| clause.observes(&address))
+            {
+                carrier.carry(clause, false, &addresses);
+            }
+        }
+    }
+
+    /// Resolve a mutated input address through the checked entry/exit relationship.
+    fn input_address_origins(
+        &self,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        subject: &ExecutionCondition,
+    ) -> Option<BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<ExecutionCondition>>> {
+        let (expression, call) = self.observation_call(invocation)?;
+
+        let dependencies = self.dependencies.calls().get(&invocation)?;
+        let mut origins = BTreeMap::<_, BTreeSet<_>>::new();
+
+        for reference in dependencies.references().iter().filter(|reference| {
+            let relation = reference.relation();
+
+            relation.kind() == bray_symbols::DependencyReferenceKind::Address
+                && reference_subject(self.dependencies, call, relation.exit()) == *subject
+        }) {
+            let entry = reference.relation().entry()?;
+
+            origins
+                .entry(call.input_site(expression, entry.subject_root())?)
+                .or_default()
+                .insert(reference_subject(self.dependencies, call, entry));
+        }
+
+        (!origins.is_empty()).then_some(origins)
+    }
 }
 
-/// Copyable input access facts can describe an address without observing its borrowed carrier.
-pub(super) fn carry_input_access_guarantees(
-    state: &mut super::super::state::ExecutionState,
-    subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
-    sources: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-    instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
-) {
-    for (template, subject, _) in subjects.iter().filter(|(_, subject, owning)| {
-        !*owning
-            && !subject.observes_completion_result()
-            && subject.inputs().iter().any(|input| {
-                matches!(
-                    input.root,
-                    crate::execution_guarantees::ExecutionInput::Argument(_)
-                )
-            })
-    }) {
-        let address = instantiate(subject);
+/// Express a checked formal reference path in receiver-first argument order.
+fn reference_subject(
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    call: &bray_bound_tree::SelectedCall,
+    subject: &bray_symbols::DependencySubject,
+) -> ExecutionCondition {
+    let root = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
+        ExecutionCondition::Result
+    } else {
+        ExecutionCondition::Input(crate::ExecutionPlace::argument(
+            call.input_ordinal(subject.subject_root())
+                .expect("checked reference has its formal input"),
+        ))
+    };
 
-        if address == ExecutionCondition::Unknown {
-            continue;
-        }
-
-        let guarantee = instantiate(template);
-        let addresses = input_guarantee_addresses(template, sources, subjects, instantiate);
-
-        let carrier = state
-            .witnesses
-            .entry(address.owner_identity().clone())
-            .or_default();
-
-        for clause in guarantee
-            .conjuncts()
-            .filter(|clause| clause.observes(&address))
-        {
-            carrier.carry(clause, false, &addresses);
-        }
-    }
+    super::carriers::result_projection(dependencies, subject.projections()).substitute(
+        &|_| ExecutionCondition::Unknown,
+        &root,
+        &mut { ExecutionCondition::WORK_LIMIT },
+    )
 }
