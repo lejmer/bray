@@ -6,20 +6,11 @@ use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition};
 
-/// Ordinary borrowed storage bounds the value, while an address bounds only access clauses.
-pub(super) enum GuaranteeSource {
-    Borrowed(BTreeSet<crate::ExecutionPlace>),
-    Addresses(crate::execution_guarantees::AddressDependencies),
-}
-
-impl GuaranteeSource {
-    fn borrowed_owners(&mut self) -> &mut BTreeSet<crate::ExecutionPlace> {
-        let Self::Borrowed(owners) = self else {
-            unreachable!("one selected input has one reference kind");
-        };
-
-        owners
-    }
+/// An input can provide borrowed storage and independently bounded raw-address fields.
+#[derive(Default)]
+pub(super) struct GuaranteeSource {
+    pub(super) borrowed: BTreeSet<crate::ExecutionPlace>,
+    pub(super) addresses: crate::execution_guarantees::AddressDependencies,
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
@@ -71,7 +62,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
     ) {
         let mut carriers = Vec::new();
-        let mut owners = BTreeMap::new();
+        let mut owners = BTreeMap::<_, GuaranteeSource>::new();
 
         for argument in call.arguments() {
             let (parameter, ordinal, ty) = match argument {
@@ -111,10 +102,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let reference = crate::representation::reference_kind(self.request, ty);
 
-            if reference != Some(bray_symbols::DependencyReferenceKind::Borrow)
-                && let Some(addresses) = address_sources.get(&ordinal)
-            {
-                owners.insert(operand, GuaranteeSource::Addresses(addresses.clone()));
+            if let Some(addresses) = address_sources.get(&ordinal) {
+                owners.entry(operand).or_default().addresses = addresses.clone();
             }
 
             if reference.is_none() {
@@ -156,11 +145,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
                     {
-                        owners
-                            .entry(operand)
-                            .or_insert_with(|| GuaranteeSource::Borrowed(BTreeSet::new()))
-                            .borrowed_owners()
-                            .insert(owner);
+                        owners.entry(operand).or_default().borrowed.insert(owner);
                     }
                 }
 
@@ -173,10 +158,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // the alias. Its returned view can outlive that slot while the input lives.
             if retain_carriers {
                 self.retain_trusted_borrow_owners(
-                    owners
-                        .entry(operand)
-                        .or_insert_with(|| GuaranteeSource::Borrowed(BTreeSet::new()))
-                        .borrowed_owners(),
+                    &mut owners.entry(operand).or_default().borrowed,
                     operand,
                     &place,
                     origins,
@@ -199,19 +181,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             arguments.insert(ordinal, value);
         }
 
-        if let Some(receiver) = call.receiver()
-            && matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Consuming
-                    | bray_symbols::ReceiverMode::ConsumingMutable
-            )
-            && let Some(addresses) = address_sources.get(&crate::ExecutionPlace::argument(
-                bray_symbols::SymbolOrdinal::new(0),
-            ))
-            && let Some(input) =
-                call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
+        if let Some(addresses) = address_sources.get(&crate::ExecutionPlace::argument(
+            bray_symbols::SymbolOrdinal::new(0),
+        )) && let Some(input) =
+            call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
         {
-            owners.insert(input, GuaranteeSource::Addresses(addresses.clone()));
+            owners.entry(input).or_default().addresses = addresses.clone();
         }
 
         if let Some(receiver) = call.receiver()
@@ -230,10 +205,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if retain_carriers {
                 self.retain_trusted_borrow_owners(
-                    owners
-                        .entry(input)
-                        .or_insert_with(|| GuaranteeSource::Borrowed(BTreeSet::new()))
-                        .borrowed_owners(),
+                    &mut owners.entry(input).or_default().borrowed,
                     input,
                     &place,
                     origins,

@@ -319,7 +319,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for carrier in &carriers {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    let addresses = super::dependencies::input_guarantee_addresses(
+                    let addresses = self.input_guarantee_addresses(
+                        invocation,
                         template,
                         &owners,
                         &address_subjects,
@@ -335,7 +336,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        super::dependencies::carry_input_access_guarantees(
+        self.carry_input_access_guarantees(
+            invocation,
             state,
             &address_subjects,
             &owners,

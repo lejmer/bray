@@ -28,7 +28,11 @@ fn storing_address_bits_does_not_bind_destination_initialization_to_the_pointee(
 
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{after}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{after}: {diagnostics:#?}"
+        );
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
@@ -492,6 +496,144 @@ fn forwarding_keeps_sibling_address_lifetimes_distinct() {
                 !diagnostics.has_errors(),
                 valid,
                 "{forwarding}\n{field}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn input_address_postconditions_preserve_independent_field_origins() {
+    let provider = r#"trusted module app;
+using core.memory;
+struct Addresses { mut left: DataPointer<u32>; mut right: DataPointer<u32>; }
+func empty() -> Addresses { return { left = core.memory.null<u32>(), right = core.memory.null<u32>() }; }
+trusted func set(pos values: &mut Addresses, pos left: &u32, pos right: &u32)
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{
+    values.left = core.memory.address_of<u32>(left);
+    values.right = core.memory.address_of<u32>(right);
+}
+func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {}
+impl Addresses {
+    trusted mut func set(pos left: &u32, pos right: &u32)
+        ensures(
+            trusted core.memory.valid_read<u32>(pointer = self.left, count = 1),
+            trusted core.memory.valid_read<u32>(pointer = self.right, count = 1)
+        )
+    { set(&mut self, left, right); }
+}
+trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
+    )
+{ return { left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }; }
+trusted func copy_owned(pos values: &mut Addresses, pos sources: Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = sources.left; values.right = sources.right; }
+trusted func copy_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = sources.left; values.right = sources.right; }
+trusted func copy_from(pos sources: &Addresses) -> Addresses
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = result.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = result.right, count = 1)
+    )
+{ return { left = sources.left, right = sources.right }; }
+
+trusted func derive_owned(pos values: &mut Addresses, pos sources: Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+
+trusted func derive_borrowed(pos values: &mut Addresses, pos sources: &Addresses)
+    requires(
+        trusted core.memory.valid_read<u32>(pointer = sources.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = sources.right, count = 1)
+    )
+    ensures(
+        trusted core.memory.valid_read<u32>(pointer = values.left, count = 1),
+        trusted core.memory.valid_read<u32>(pointer = values.right, count = 1)
+    )
+{ values.left = core.memory.offset<u32>(sources.left, elements = 0); values.right = core.memory.offset<u32>(sources.right, elements = 0); }
+"#;
+
+    for (call, returned) in [
+        ("set(&mut values, &expired, &retained);", false),
+        ("values.set(&expired, &retained);", false),
+        (
+            "let sources = produce(&expired, &retained); copy_owned(&mut values, sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); copy_borrowed(&mut values, &sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); derive_owned(&mut values, sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); derive_borrowed(&mut values, &sources);",
+            false,
+        ),
+        (
+            "let sources = produce(&expired, &retained); yield copy_from(&sources);",
+            true,
+        ),
+    ] {
+        for (field, valid) in [("left", false), ("right", true)] {
+            let body = if returned {
+                format!(
+                    "let retained: u32 = 1; let values = {{ let expired: u32 = 0; {call} }}; observe(values.{field});"
+                )
+            } else {
+                format!(
+                    "let retained: u32 = 1; let mut values = empty(); {{ let expired: u32 = 0; {call} }} observe(values.{field});"
+                )
+            };
+
+            let application = compilation(&format!("{provider} func caller() {{ {body} }}"));
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{call}: {field}: {diagnostics:#?}"
             );
 
             if !valid {
