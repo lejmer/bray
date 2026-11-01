@@ -147,6 +147,31 @@ const API: &str = r"
             yield AddressChoice.Backing;
         };
     }
+
+    func choose_nullable_implicit(pos existing: bool) -> Receipt?
+    {
+        return if existing
+        {
+            yield make();
+        }
+        else
+        {
+            yield none;
+        };
+    }
+
+    func choose_nullable_break(pos existing: bool) -> Receipt?
+    {
+        return loop
+        {
+            if existing
+            {
+                break make();
+            }
+
+            break none;
+        };
+    }
     ";
 
 const CASES: &[(&str, &str, bool)] = &[
@@ -831,6 +856,137 @@ const CASES: &[(&str, &str, bool)] = &[
         {
             case api.AddressChoice.Existing(value) { api.observe_address(&value); }
             case api.AddressChoice.Backing {}
+        }
+    ",
+        false,
+    ),
+    (
+        "implicit_yield",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.make();
+        }
+        else
+        {
+            yield none;
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "implicit_block_yield",
+        r"
+        let selected: api.Receipt? =
+        {
+            yield api.make();
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "implicit_break",
+        r"
+        let selected: api.Receipt? = loop
+        {
+            if existing
+            {
+                break api.make();
+            }
+
+            break none;
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "implicit_match_repack",
+        r"
+        let choice = api.choose(existing);
+
+        let selected: api.Receipt? = match consume choice
+        {
+            case api.Choice.Existing(value)
+            {
+                api.observe(&value);
+                yield value;
+            }
+            case api.Choice.Backing { yield none; }
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "forwarded_implicit_yield",
+        r"
+        let selected = api.choose_nullable_implicit(existing);
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "forwarded_implicit_break",
+        r"
+        let selected = api.choose_nullable_break(existing);
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "implicit_forged",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.make();
+        }
+        else
+        {
+            yield api.Receipt
+            {
+                marker = api.Marker
+                {
+                }
+            };
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
         }
     ",
         false,

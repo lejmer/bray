@@ -120,7 +120,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
                 AnalysisCallPhase::Attempt => {
-                    let source = invocation.expression()
+                    let source = invocation
+                        .expression()
                         .and_then(|expression| self.task_effect_source(state, expression));
 
                     let observed = match invocation {
@@ -601,7 +602,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if let Some(target) = self.yield_targets.get(&expression) {
                     let value = transfer
                         .operand()
-                        .map(|operand| self.value(state, operand))
+                        .map(|operand| {
+                            self.value(state, operand).coerce(
+                                self.request.semantic_values(),
+                                self.semantics
+                                    .types()
+                                    .expression(operand)
+                                    .expect("transfer operand retains its checked type")
+                                    .ty(),
+                                self.semantics
+                                    .types()
+                                    .expression(*target)
+                                    .expect("transfer target retains its checked type")
+                                    .ty(),
+                            )
+                        })
                         .unwrap_or(ExecutionCondition::Unknown);
 
                     state.pending_results.insert(*target, value);
