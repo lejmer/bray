@@ -2803,3 +2803,95 @@ fn interleaved_guarded_postconditions_round_trip_in_source_order() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn imported_address_retirement_preserves_independent_returned_guarantees() {
+    let provider = compilation(
+        r#"
+        trusted module api;
+        using core.memory;
+        struct Marker {}
+        struct Receipt { marker: Marker; pointer: DataPointer<u32>; }
+        trusted predicate held(owner: &Marker);
+        trusted func produce(pos payload: &u32) -> Receipt
+            ensures(
+                trusted held(owner = &result.marker),
+                trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
+            )
+        { return { marker = Marker {}, pointer = core.memory.address_of<u32>(payload) }; }
+        trusted func shifted(pos pointer: DataPointer<u32>) -> Receipt
+            requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1))
+            ensures(
+                trusted held(owner = &result.marker),
+                trusted core.memory.valid_read<u32>(pointer = result.pointer, count = 1)
+            )
+        { return { marker = Marker {}, pointer = core.memory.offset<u32>(pointer, elements = 0) }; }
+        func observe_marker(pos receipt: &Receipt)
+            requires(trusted held(owner = &receipt.marker)) {}
+        func observe_address(pos receipt: &Receipt)
+            requires(trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) {}
+        "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (value, after, valid) in [
+        (
+            "example.package.api.produce(&payload)",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+        ),
+        (
+            "example.package.api.produce(&payload)",
+            "example.package.api.observe_address(&receipt);",
+            false,
+        ),
+        (
+            "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_marker(&receipt);",
+            true,
+        ),
+        (
+            "example.package.api.shifted(core.memory.address_of<u32>(&payload))",
+            "example.package.api.observe_address(&receipt);",
+            false,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            using core.memory;
+            func caller() {{
+                let receipt = {{
+                    let payload: u32 = 0;
+                    yield trusted {value};
+                }};
+                {after}
+            }}
+        "#
+            ),
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{after}: {diagnostics:#?}"
+        );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
