@@ -5,22 +5,66 @@ use crate::ExecutionCondition;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
 impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
-    /// Decode portable carrier promises using the admitted invocation observations.
-    pub(super) fn inferred_result_guarantees(
+    /// Combine declared completion clauses with checked portable carrier promises.
+    pub(super) fn completion_guarantees(
         &self,
         invocation: bray_bound_tree::BoundExecutionSite,
+        contract: &crate::TrustedCallContract,
         capture: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
-    ) -> Vec<(ExecutionCondition, ExecutionCondition)> {
-        self.dependencies.calls().get(&invocation).into_iter()
+    ) -> (
+        Vec<ExecutionCondition>,
+        Vec<(ExecutionCondition, ExecutionCondition)>,
+    ) {
+        let inferred = self
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .into_iter()
             .flat_map(|dependencies| {
                 dependencies.carriers().iter().map(|carrier| {
                     let condition = crate::execution_condition_from_type_term(
-                        self.request.semantic_values(), carrier.guarantee(), dependencies.input_count(),
-                    ).expect("checked carrier condition decodes in the same semantic store");
+                        self.request.semantic_values(),
+                        carrier.guarantee(),
+                        dependencies.input_count(),
+                    )
+                    .expect("checked carrier condition decodes in the same semantic store");
 
-                    (capture(&condition), result_projection(self.dependencies, carrier.path()))
+                    (
+                        capture(&condition),
+                        result_projection(self.dependencies, carrier.path()),
+                    )
                 })
-            }).collect()
+            })
+            .collect::<Vec<_>>();
+
+        let guarantees = contract
+            .guarantees
+            .iter()
+            .map(capture)
+            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
+            .collect::<Vec<_>>();
+
+        let mut subjects = contract
+            .witness_subjects
+            .iter()
+            .filter_map(|(guarantee, subject)| {
+                let guarantee = capture(guarantee);
+
+                if subject.observes_completion_result()
+                    && inferred
+                        .iter()
+                        .any(|(condition, _)| *condition == guarantee)
+                {
+                    None
+                } else {
+                    Some((guarantee, subject.clone()))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        subjects.extend(inferred);
+
+        (guarantees, subjects)
     }
 }
 

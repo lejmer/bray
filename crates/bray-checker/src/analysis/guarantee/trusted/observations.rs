@@ -37,8 +37,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let visible = match invocation {
             bray_bound_tree::BoundExecutionSite::Node(_) => true,
-            bray_bound_tree::BoundExecutionSite::CallInput { ordinal, .. } => selection.input(ordinal)
-                .is_some_and(|input| matches!(input.default_provider(), Some(bray_symbols::DefaultValueProvider::CallableParameter(_)))),
+            bray_bound_tree::BoundExecutionSite::CallInput { ordinal, .. } => {
+                selection.input(ordinal).is_some_and(|input| {
+                    matches!(
+                        input.default_provider(),
+                        Some(bray_symbols::DefaultValueProvider::CallableParameter(_))
+                    )
+                })
+            }
             _ => false,
         };
 
@@ -48,7 +54,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(super) fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
-        invocation: bray_bound_tree::BoundExecutionSite,
         expression: BoundExpressionId,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
@@ -67,19 +72,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let mut carriers = Vec::new();
         let mut owners = BTreeMap::new();
-
-        // Whole-owner guarantees follow the returned value's dependency contract.
-        // Address and field guarantees also depend on the borrowed storage that
-        // established them, even when the raw value has no ordinary borrow.
-        let returned = |operand| {
-            retain_carriers
-                && self
-                    .dependencies
-                    .calls()
-                    .get(&invocation)
-                    .and_then(|dependencies| dependencies.retained_inputs())
-                    .is_none_or(|inputs| inputs.contains(&operand))
-        };
 
         for argument in call.arguments() {
             let (parameter, ordinal, ty) = match argument {
@@ -159,7 +151,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for access in self
                     .storage
                     .occurrence_plans(operand)
-                    .filter(|_| returned(operand))
+                    .filter(|_| retain_carriers)
                 {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
@@ -179,7 +171,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            if returned(operand) {
+            if retain_carriers {
                 self.retain_trusted_borrow_owners(
                     owners
                         .entry(operand)
@@ -236,7 +228,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = self.current_input(state, input);
 
-            if returned(input) {
+            if retain_carriers {
                 self.retain_trusted_borrow_owners(
                     owners
                         .entry(input)
@@ -283,147 +275,5 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Provisional execution analysis has no completed storage transition yet.
             owners.insert(place.clone());
         }
-    }
-
-    /// Classifies actual value lifetimes separately from raw-address access.
-    pub(super) fn result_guarantee_owners(
-        &self,
-        invocation: bray_bound_tree::BoundExecutionSite,
-        guarantee: &ExecutionCondition,
-        owners: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-        address_subjects: &[(ExecutionCondition, ExecutionCondition)],
-        instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
-    ) -> (
-        BTreeSet<crate::ExecutionPlace>,
-        crate::execution_guarantees::AddressDependencies,
-    ) {
-        let mut retained = BTreeSet::new();
-        let mut addresses = BTreeMap::new();
-
-        let call = self.observation_call(invocation);
-
-        let dependencies = self.dependencies.calls().get(&invocation);
-
-        for (input, source) in owners {
-            let (Some((expression, call)), Some(dependencies)) = (call, dependencies) else {
-                match source {
-                    GuaranteeSource::Borrowed(owners) => retained.extend(owners.iter().cloned()),
-                    GuaranteeSource::Addresses(addresses) => {
-                        retained.extend(addresses.values().flatten().cloned())
-                    }
-                }
-
-                continue;
-            };
-
-            if let GuaranteeSource::Addresses(sources) = source {
-                let subjects = address_subjects
-                    .iter()
-                    .filter(|(condition, _)| condition == guarantee)
-                    .map(|(_, subject)| subject.clone())
-                    .chain(
-                        dependencies
-                            .references()
-                            .iter()
-                            .filter(|reference| {
-                                reference.relation().kind()
-                                    == bray_symbols::DependencyReferenceKind::Address
-                                    && reference.relation().exit().subject_root()
-                                        == bray_symbols::DependencySubjectRoot::Result
-                            })
-                            .map(|reference| {
-                                super::carriers::result_projection(
-                                    self.dependencies,
-                                    reference.relation().exit().projections(),
-                                )
-                            })
-                            .filter(|subject| guarantee.observes(subject)),
-                    )
-                    .collect::<BTreeSet<_>>();
-
-                for subject in subjects {
-                    let address = instantiate(&subject);
-
-                    let retained_input = dependencies
-                        .retained_inputs()
-                        .is_none_or(|inputs| inputs.contains(input));
-
-                    let independent = dependencies.references().iter().any(|reference| {
-                        reference.relation().entry().is_none()
-                            && reference.relation().is_exact()
-                            && reference.relation().kind()
-                                == bray_symbols::DependencyReferenceKind::Address
-                            && subject
-                                == super::carriers::result_projection(
-                                    self.dependencies,
-                                    reference.relation().exit().projections(),
-                                )
-                    });
-
-                    for (source, owners) in sources {
-                        if address.owner_identity() == source.owner_identity()
-                            || (subject.observes_completion_result()
-                                && retained_input
-                                && !independent)
-                        {
-                            addresses
-                                .entry(address.clone())
-                                .or_insert_with(BTreeSet::new)
-                                .extend(owners.iter().cloned());
-                        }
-                    }
-                }
-
-                continue;
-            }
-
-            let GuaranteeSource::Borrowed(owners) = source else {
-                unreachable!("address sources were handled above");
-            };
-
-            if owners.is_empty() {
-                continue;
-            }
-
-            let mut references = dependencies
-                .references()
-                .iter()
-                .filter(|reference| {
-                    let relation = reference.relation();
-
-                    relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
-                        && relation
-                            .entry()
-                            .and_then(|entry| call.input_site(expression, entry.subject_root()))
-                            == Some(*input)
-                })
-                .peekable();
-
-            if dependencies.retained_inputs().is_none()
-                || references.peek().is_none()
-                || references.clone().any(|reference| {
-                    reference.relation().kind() != bray_symbols::DependencyReferenceKind::Address
-                })
-            {
-                retained.extend(owners.iter().cloned());
-                continue;
-            }
-
-            for reference in references {
-                let address = super::carriers::result_projection(
-                    self.dependencies,
-                    reference.relation().exit().projections(),
-                );
-
-                if guarantee.observes(&address) {
-                    addresses
-                        .entry(instantiate(&address))
-                        .or_insert_with(BTreeSet::new)
-                        .extend(owners.iter().cloned());
-                }
-            }
-        }
-
-        (retained, addresses)
     }
 }

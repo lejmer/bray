@@ -80,7 +80,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                 || contract
                     .address_subjects
                     .iter()
-                    .any(|(_, subject)| subject.observes_completion_result())
+                    .any(|(_, subject, _)| subject.observes_completion_result())
         })
         || template
             .borrows()

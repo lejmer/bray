@@ -22,6 +22,30 @@ pub(crate) struct ExecutionWitness {
 }
 
 impl ExecutionWitness {
+    /// Keep each clause on its complete carrier with only the addresses it observes.
+    pub(crate) fn carry(
+        &mut self,
+        condition: &ExecutionCondition,
+        owning: bool,
+        addresses: &AddressDependencies,
+    ) {
+        for clause in condition.conjuncts() {
+            let retained = self.conditions.entry(clause.clone()).or_default();
+
+            retained.witness |= owning;
+
+            for (address, owners) in addresses {
+                if clause.observes(address) {
+                    retained
+                        .addresses
+                        .entry(address.clone())
+                        .or_default()
+                        .extend(owners.iter().cloned());
+                }
+            }
+        }
+    }
+
     pub(crate) fn merge(&mut self, incoming: &Self) -> bool {
         let before = self.dependencies.len();
         let mut changed = false;

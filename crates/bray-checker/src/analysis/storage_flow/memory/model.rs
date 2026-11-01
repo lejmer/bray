@@ -274,7 +274,8 @@ impl Transfer {
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
-    pub(super) entry_borrows: std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
+    pub(super) entry_borrows:
+        std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) returned_inputs: BTreeMap<Place, References>,
@@ -452,6 +453,14 @@ fn merge_references<K: Clone + Ord>(
     changed
 }
 
+/// Whether a boundary origin is known independently of its exact cell identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::analysis::storage_flow) enum ReferenceBounds {
+    Known,
+    Displaced,
+    Unknown,
+}
+
 /// Reference values at a unit boundary, with the live-payload conditions used by the same join.
 #[derive(Clone, Debug, Default)]
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
@@ -483,14 +492,20 @@ impl ReferenceExit {
 
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
-    ) -> impl Iterator<Item = (&Place, &Origin, bool, bool)> {
+    ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
         self.slots.iter().flat_map(|(slot, references)| {
             references.targets.iter().map(move |target| {
                 (
                     slot,
                     &target.origin,
                     references.is_exact(),
-                    !references.unknown && !references.displaced,
+                    if references.unknown {
+                        ReferenceBounds::Unknown
+                    } else if references.displaced {
+                        ReferenceBounds::Displaced
+                    } else {
+                        ReferenceBounds::Known
+                    },
                 )
             })
         })

@@ -193,39 +193,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        let inferred = self.inferred_result_guarantees(invocation, &capture);
-
-        let guarantees = contract
-            .guarantees
-            .iter()
-            .map(capture)
-            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
-            .collect::<Vec<_>>();
-
-        let mut subjects = contract
-            .witness_subjects
-            .iter()
-            .filter_map(|(guarantee, subject)| {
-                let guarantee = capture(guarantee);
-
-                if subject.observes_completion_result()
-                    && inferred
-                        .iter()
-                        .any(|(condition, _)| *condition == guarantee)
-                {
-                    None
-                } else {
-                    Some((guarantee, subject.clone()))
-                }
-            })
-            .collect::<Vec<_>>();
-
-        subjects.extend(inferred);
+        let (guarantees, subjects) = self.completion_guarantees(invocation, contract, &capture);
 
         let address_subjects = contract
             .address_subjects
             .iter()
-            .map(|(guarantee, subject)| (capture(guarantee), subject.clone()))
+            .map(|(guarantee, subject, owning)| (capture(guarantee), subject.clone(), *owning))
             .collect::<Vec<_>>();
 
         let postconditions = contract
@@ -266,7 +239,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // Completion clauses observe final contents, independently of trusted authority.
             self.prepare_call_observations(
                 state,
-                invocation,
                 expression,
                 call,
                 &mut arguments,
@@ -347,10 +319,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for carrier in &carriers {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    state.carry_guarantee(carrier.clone(), guarantee.clone());
+                    let addresses = super::dependencies::input_guarantee_addresses(
+                        template,
+                        &owners,
+                        &address_subjects,
+                        &instantiate,
+                    );
+
+                    state
+                        .witnesses
+                        .entry(carrier.owner_identity().clone())
+                        .or_default()
+                        .carry(&guarantee, true, &addresses);
                 }
             }
         }
+
+        super::dependencies::carry_input_access_guarantees(
+            state,
+            &address_subjects,
+            &owners,
+            &instantiate,
+        );
 
         for template in guarantees
             .iter()
@@ -419,21 +409,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         witness.dependencies.extend(dependencies);
 
-        for clause in guarantee.conjuncts() {
-            let entry = witness.conditions.entry(clause.clone()).or_default();
-
-            entry.witness |= owning;
-
-            for (address, owners) in &addresses {
-                if clause.observes(address) {
-                    entry
-                        .addresses
-                        .entry(address.clone())
-                        .or_default()
-                        .extend(owners.iter().cloned());
-                }
-            }
-        }
+        witness.carry(guarantee, owning, &addresses);
 
         // Copyable raw-address facts do not own allocation authority. Only a complete
         // owning carrier restricts which transferred values may supply that authority.

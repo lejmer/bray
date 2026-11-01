@@ -142,7 +142,7 @@ impl Compilation {
     ) -> Result<
         (
             Vec<(ExecutionCondition, ExecutionCondition)>,
-            Vec<(ExecutionCondition, ExecutionCondition)>,
+            Vec<(ExecutionCondition, ExecutionCondition, bool)>,
         ),
         FactQueryError,
     > {
@@ -153,6 +153,8 @@ impl Compilation {
             .iter()
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
+
+        let storage_predicates = self.copyable_storage_predicates();
 
         let mut subjects = Vec::new();
         let mut addresses = Vec::new();
@@ -213,7 +215,9 @@ impl Compilation {
                                         | bray_compiler_known::RepresentationRole::FunctionPointer
                                         | bray_compiler_known::RepresentationRole::DevicePointer)))
                             {
-                                addresses.push((guarantee.clone(), argument.clone()));
+                                let owning = !storage_predicates.contains(predicate);
+
+                                addresses.push((guarantee.clone(), argument.clone(), owning));
                             }
 
                             let subject = if argument.observes_completion_result() {
@@ -253,37 +257,12 @@ impl Compilation {
         Ok((subjects, addresses))
     }
 
-    pub(super) fn trusted_result_is_witness(
+    fn copyable_storage_predicates(
         &self,
-        ty: bray_symbols::TypeId,
-        guarantees: &[ExecutionCondition],
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<bool, FactQueryError> {
-        let mut result_guarantees = guarantees
-            .iter()
-            .filter(|condition| condition.observes_completion_result())
-            .peekable();
-
-        if result_guarantees.peek().is_none() {
-            return Ok(false);
-        }
-
-        let values = self.semantic_value_store()?;
-
-        if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Named { definition, .. }
-            if crate::compilation::foreign::compiler_known_representation(self, *definition).is_some_and(|role|
-                role.numeric_kind().is_some()
-                    || matches!(role, bray_compiler_known::RepresentationRole::RawPointer
-                        | bray_compiler_known::RepresentationRole::FunctionPointer
-                        | bray_compiler_known::RepresentationRole::DevicePointer)))
-        {
-            return Ok(true);
-        }
-
+    ) -> std::collections::BTreeSet<bray_symbols::PredicateDefinitionSymbolId> {
         let provider = self.available_compiler_known_symbols().provider();
 
-        let storage_predicates = [
+        [
             "ValidRead",
             "ValidWrite",
             "AlignedFor",
@@ -314,7 +293,38 @@ impl Compilation {
                 .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
                 .map(bray_symbols::PredicateDefinitionSymbolId::from)
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>()
+    }
+
+    pub(super) fn trusted_result_is_witness(
+        &self,
+        ty: bray_symbols::TypeId,
+        guarantees: &[ExecutionCondition],
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<bool, FactQueryError> {
+        let mut result_guarantees = guarantees
+            .iter()
+            .filter(|condition| condition.observes_completion_result())
+            .peekable();
+
+        if result_guarantees.peek().is_none() {
+            return Ok(false);
+        }
+
+        let values = self.semantic_value_store()?;
+
+        if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Named { definition, .. }
+            if crate::compilation::foreign::compiler_known_representation(self, *definition).is_some_and(|role|
+                role.numeric_kind().is_some()
+                    || matches!(role, bray_compiler_known::RepresentationRole::RawPointer
+                        | bray_compiler_known::RepresentationRole::FunctionPointer
+                        | bray_compiler_known::RepresentationRole::DevicePointer)))
+        {
+            return Ok(true);
+        }
+
+        let storage_predicates = self.copyable_storage_predicates();
 
         // Addresses and range extents describe checked storage without owning its authority.
         // Their guarantees retain source dependencies. Custom predicates still create witnesses.
