@@ -85,6 +85,8 @@ internal struct Domain
 
 trusted internal predicate retained(owner: &Reference);
 
+trusted internal predicate retiring(owner: &Reference);
+
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 
 internal func empty_entry(pos next: usize) -> Entry

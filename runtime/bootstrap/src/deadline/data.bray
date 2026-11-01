@@ -36,6 +36,8 @@ internal struct Entry
 
 trusted internal predicate retained(owner: &Reference);
 
+trusted internal predicate retiring(owner: &Reference);
+
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 
 trusted internal predicate retirement_entry(pointer: DataPointer<Reference>);
