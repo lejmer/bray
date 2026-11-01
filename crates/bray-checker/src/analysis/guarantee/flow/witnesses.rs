@@ -43,10 +43,6 @@ pub(super) fn conditional_guarantees(
         }
     }
 
-    if guards.is_empty() {
-        return Vec::new();
-    }
-
     let candidates = [left, right]
         .into_iter()
         .flat_map(|(state, values, identities)| {
@@ -93,6 +89,22 @@ pub(super) fn conditional_guarantees(
                 (state, inputs, evidence)
             });
 
+        let proved = |clause: &ExecutionCondition| {
+            predecessors.iter().all(|(state, inputs, evidence)| {
+                clause
+                    .with_joined_values(inputs, inputs)
+                    .prove_trusted(evidence, &state.assumptions)
+                    == Some(true)
+            })
+        };
+
+        // An existing guarded claim can already hold on both paths without
+        // discovering a new discriminant or adding a redundant outer guard.
+        if proved(&condition) {
+            retained.push((owner, condition.clone(), condition));
+            continue;
+        }
+
         for (parent, guard) in &guards {
             if !owner.is_owned_projection_of(parent) && !parent.is_owned_projection_of(&owner) {
                 continue;
@@ -114,12 +126,7 @@ pub(super) fn conditional_guarantees(
 
             // These are actual predecessor snapshots of moved owners, not ordinary
             // equal-content substitutions for borrowed observations.
-            if predecessors.iter().all(|(state, inputs, evidence)| {
-                clause
-                    .with_joined_values(inputs, inputs)
-                    .prove_trusted(evidence, &state.assumptions)
-                    == Some(true)
-            }) {
+            if proved(&clause) {
                 retained.push((owner.clone(), condition.clone(), clause));
             }
         }
@@ -150,13 +157,11 @@ pub(super) fn retain_conditional_guarantees(
             // A predecessor can prove the clause through a differently guarded
             // premise. Preserve every matching address bound on that carrier.
             for source in witness.conditions.values() {
-                for (address, owners) in source.addresses.iter().filter(|(address, _)| {
-                    // Tag guards observe their aggregate, not the raw access
-                    // authority of every field inside that aggregate.
-                    condition.observations().any(|claim| {
-                        matches!(claim, ExecutionCondition::Trusted(_)) && claim.observes(address)
-                    })
-                }) {
+                for (address, owners) in source
+                    .addresses
+                    .iter()
+                    .filter(|(address, _)| condition.observes_trusted(address))
+                {
                     guarantee
                         .addresses
                         .entry(address.clone())

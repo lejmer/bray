@@ -65,7 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                     reference.relation().exit().projections(),
                                 )
                             })
-                            .filter(|subject| guarantee.observes(subject)),
+                            .filter(|subject| guarantee.observes_trusted(subject)),
                     )
                     .collect::<BTreeSet<_>>();
 
@@ -152,13 +152,17 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     reference.relation().exit().projections(),
                 );
 
-                if guarantee.observes(&address) {
+                if guarantee.observes_trusted(&address) {
                     let entry = reference
                         .relation()
                         .entry()
                         .expect("selected returned borrow retains its input");
 
-                    let input = entry_subject(arguments, &reference_subject(self.dependencies, call, entry));
+                    let input = entry_subject(
+                        arguments,
+                        &reference_subject(self.dependencies, call, entry),
+                    );
+
                     let owners = source.addresses.get(&input).unwrap_or(owners);
 
                     addresses
@@ -334,8 +338,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let addresses = self.input_guarantee_addresses(
                 invocation,
-                &state.entries.get(&invocation)
-                    .expect("completed invocation retains its captured arguments").arguments,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
                 template,
                 sources,
                 subjects,
@@ -349,7 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for clause in guarantee
                 .conjuncts()
-                .filter(|clause| clause.observes(&address))
+                .filter(|clause| clause.observes_trusted(&address))
             {
                 carrier.carry(clause, false, &addresses);
             }
@@ -413,7 +420,11 @@ fn entry_subject(
     subject: &ExecutionCondition,
 ) -> ExecutionCondition {
     subject.substitute(
-        &|input| input.value_in(arguments).unwrap_or(ExecutionCondition::Unknown),
+        &|input| {
+            input
+                .value_in(arguments)
+                .unwrap_or(ExecutionCondition::Unknown)
+        },
         &ExecutionCondition::Unknown,
         &mut { ExecutionCondition::WORK_LIMIT },
     )
