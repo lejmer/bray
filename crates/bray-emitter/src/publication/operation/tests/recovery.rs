@@ -99,6 +99,7 @@ fn interrupted_publication_recovery_restarts_before_removing_uncommitted_compani
     let journal = store.join("pending-publication.json");
 
     drop(product);
+    crate::test_support::wait_for_lease_release(&store.join("entry.lock"));
 
     std::fs::write(
         &journal,

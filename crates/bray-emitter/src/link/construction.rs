@@ -574,6 +574,7 @@ mod tests {
         LinkerDriverKind, LinkerOperationalCapabilities, LinkerTargetCapabilities,
         SectionGarbageCollectionPolicy, StagingPathKey,
     };
+    use bray_native_artifact::NativeUnitResolver;
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
         RuntimeArtifactComponentMetadata, RuntimeArtifactId, RuntimeArtifactMetadata,
@@ -1052,22 +1053,11 @@ mod tests {
             .plan(RuntimeArtifactPurpose::Product, host.requirements())
             .unwrap_or_else(|error| panic!("test runtime must select: {error:?}"));
 
-        let units = runtime
-            .native_index()
-            .units()
-            .iter()
-            .filter(|unit| LinkInputKind::from(unit.kind()) == LinkInputKind::Archive)
-            .chain(
-                runtime
-                    .native_index()
-                    .units()
-                    .iter()
-                    .filter(|unit| LinkInputKind::from(unit.kind()) != LinkInputKind::Archive),
-            )
-            .map(|unit| unit.digest())
-            .collect::<Vec<_>>();
+        let selection = NativeUnitResolver::new([runtime.native_index().clone()])
+            .select(runtime.native_demands().iter().cloned())
+            .expect("test runtime demands must resolve");
 
-        let runtime = runtime.finish(units);
+        let runtime = runtime.finish(&selection, 0);
 
         let request = EmissionRequest::try_new(
             product_identity(),

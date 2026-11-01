@@ -7,7 +7,7 @@ use bray_base::{
     Cancellation, StableDigestHasher, atomic_rename_exclusive, lowercase_hex, sync_directory,
 };
 
-use super::error::{StorageError, StorageErrorKind, StorageOperation};
+use super::error::{StorageError, StorageOperation};
 use super::files::{create_managed_path, managed_directory_exists};
 use super::index::ManagedStore;
 use super::lease::StorageLease;
@@ -77,7 +77,7 @@ impl ManagedStore {
         }
 
         if !managed_directory_exists(&self.metadata, Path::new(key))? {
-            self.index.entries.remove(key);
+            self.forget_entry(key);
             self.forget_content_directory(&path)?;
 
             return Ok(());
@@ -163,7 +163,7 @@ impl ManagedStore {
             check_cancelled(&self.metadata, cancellation)?;
 
             if !managed_directory_exists(&self.metadata, Path::new(&key))? {
-                self.index.entries.remove(&key);
+                self.forget_entry(&key);
                 continue;
             }
 
@@ -196,21 +196,24 @@ impl ManagedStore {
     }
 
     pub(super) fn entry_path(&self, key: &str) -> Result<std::path::PathBuf, StorageError> {
+        let source = self.metadata.join(key);
+
         if managed_directory_exists(&self.metadata, Path::new(key))? {
-            return Ok(self.metadata.join(key));
+            return Ok(source);
         }
 
         let retired = self.retirement_path(key);
 
         let relative = retired
             .strip_prefix(&self.metadata)
-            .map_err(|_| StorageError::new(&retired, StorageErrorKind::UnsafePath))?;
+            .expect("retirement path must be constructed beneath managed metadata");
 
-        if !managed_directory_exists(&self.metadata, relative)? {
-            return Err(StorageError::new(&retired, StorageErrorKind::Unavailable));
+        if managed_directory_exists(&self.metadata, relative)? {
+            return Ok(retired);
         }
 
-        Ok(retired)
+        // Durable ownership can precede directory formation or outlive completed file removal.
+        Ok(source)
     }
 
     pub(super) fn finish_retirement(
@@ -258,13 +261,23 @@ impl ManagedStore {
         }
 
         remove_owned_tree(&destination, cancellation)?;
-        self.index.entries.remove(key);
-
-        self.index
-            .public_paths
-            .retain(|_, claim| claim.owner != key);
+        self.forget_entry(key);
 
         self.save()
+    }
+
+    fn forget_entry(&mut self, key: &str) {
+        let record = self
+            .index
+            .entries
+            .remove(key)
+            .expect("entry must remain indexed until its ownership is retired");
+
+        if record.kind == EntryKind::Product {
+            self.index
+                .public_paths
+                .retain(|_, claim| claim.owner != key);
+        }
     }
 }
 
