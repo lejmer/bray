@@ -482,6 +482,7 @@ fn result_replacements(
     identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
 ) {
     if value == joined
+        || value == joined.owner_identity()
         || joined == &ExecutionCondition::Unknown
         || matches!(
             value,
@@ -521,7 +522,7 @@ fn result_replacements(
             for (field, component) in fields.iter() {
                 result_replacements(
                     component,
-                    &joined.clone().project(*field),
+                    &joined.owner_identity().clone().project(*field),
                     stable_values,
                     stable_identities,
                     values,
@@ -533,6 +534,7 @@ fn result_replacements(
             result_replacements(
                 component,
                 &joined
+                    .owner_identity()
                     .clone()
                     .project(bray_bound_tree::StorageProjection::NullableValue),
                 stable_values,
@@ -624,15 +626,22 @@ fn common_components(
         return ExecutionCondition::Unknown;
     }
 
-    let fields = |value: &ExecutionCondition| match value {
-        ExecutionCondition::Constructed(_, fields) => fields
-            .iter()
-            .map(|(field, _)| *field)
-            .collect::<std::collections::BTreeSet<_>>(),
-        ExecutionCondition::Present(_) => {
-            [bray_bound_tree::StorageProjection::NullableValue].into()
+    let fields = |mut value: &ExecutionCondition| {
+        while let Some(snapshot) = value.nullable_payload_snapshot() {
+            value = snapshot;
         }
-        _ => Default::default(),
+
+        match value {
+            ExecutionCondition::Constructed(_, fields) => fields
+                .iter()
+                .map(|(field, _)| *field)
+                .collect::<std::collections::BTreeSet<_>>(
+            ),
+            ExecutionCondition::Present(_) => {
+                [bray_bound_tree::StorageProjection::NullableValue].into()
+            }
+            _ => Default::default(),
+        }
     };
 
     let mut projections = fields(left);
@@ -707,7 +716,16 @@ fn common_components(
             {
                 // The joined nullable owns its payload only on the present path.
                 // Keep that conditional owner just as for inactive union payloads.
-                return (projection, identity.clone().project(projection));
+                let present = if absent(left) { right } else { left };
+
+                return (
+                    projection,
+                    owned_snapshot(
+                        &present.clone().project(projection),
+                        identity.clone().project(projection),
+                        budget,
+                    ),
+                );
             }
 
             let left = left.clone().project(projection);
@@ -725,6 +743,53 @@ fn common_components(
         .collect();
 
     ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
+}
+
+/// Only the present predecessor initializes these components. Keep its contents
+/// under the joined payload identity; the absent predecessor owns no payload.
+fn owned_snapshot(
+    source: &ExecutionCondition,
+    identity: ExecutionCondition,
+    budget: &mut usize,
+) -> ExecutionCondition {
+    let Some(remaining) = budget.checked_sub(1) else {
+        return ExecutionCondition::Unknown;
+    };
+
+    *budget = remaining;
+
+    if let Some(snapshot) = source.nullable_payload_snapshot() {
+        return owned_snapshot(snapshot, identity, budget);
+    }
+
+    match source {
+        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
+            std::sync::Arc::new(owned_snapshot(base, identity.clone(), budget)),
+            fields
+                .iter()
+                .map(|(field, value)| {
+                    (
+                        *field,
+                        owned_snapshot(value, identity.clone().project(*field), budget),
+                    )
+                })
+                .collect(),
+        ),
+        ExecutionCondition::Tagged(variant, _) => {
+            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
+        }
+        ExecutionCondition::Present(value) => owned_snapshot(
+            value,
+            identity.project(bray_bound_tree::StorageProjection::NullableValue),
+            budget,
+        )
+        .present(),
+        ExecutionCondition::Borrowed(_)
+        | ExecutionCondition::Boolean(_)
+        | ExecutionCondition::Literal(_)
+        | ExecutionCondition::Unknown => source.clone(),
+        _ => identity,
+    }
 }
 
 #[cfg(test)]

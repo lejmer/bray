@@ -398,3 +398,37 @@ fn owned_renaming_reaches_compact_input_fields_without_equating_borrows() {
         );
     }
 }
+
+#[test]
+fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let first = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+    let second = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1));
+    let unchanged = owner.clone().component(second);
+
+    let snapshot = ExecutionCondition::Constructed(
+        Arc::new(owner.clone()),
+        [
+            (
+                bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0)),
+                ExecutionCondition::Boolean(true),
+            ),
+            (
+                bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1)),
+                unchanged.clone(),
+            ),
+        ]
+        .into(),
+    );
+
+    let snapshots = [(owner.clone(), snapshot.clone())].into();
+
+    assert_eq!(owner.clone().with_snapshots(&snapshots), snapshot);
+
+    assert_eq!(
+        owner.component(first).with_snapshots(&snapshots),
+        ExecutionCondition::Boolean(true)
+    );
+
+    assert_eq!(unchanged.with_snapshots(&snapshots), unchanged);
+}

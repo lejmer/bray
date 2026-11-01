@@ -76,7 +76,7 @@ pub(super) fn conditional_guarantees(
         // variant needs no trusted evidence, but another carrier cannot lend it.
         let predecessors =
             [(left.0, &left_inputs), (right.0, &right_inputs)].map(|(state, inputs)| {
-                let source = owner.with_joined_values(inputs, inputs);
+                let source = owner.with_snapshots(inputs);
                 let mut evidence = BTreeSet::new();
 
                 if let Some(witness) = state.witnesses.get(source.owner_identity()) {
@@ -94,7 +94,7 @@ pub(super) fn conditional_guarantees(
         let proved = |clause: &ExecutionCondition| {
             predecessors.iter().all(|(state, inputs, evidence)| {
                 clause
-                    .with_joined_values(inputs, inputs)
+                    .with_snapshots(inputs)
                     .prove_trusted(evidence, &state.assumptions)
                     == Some(true)
             })
@@ -196,7 +196,9 @@ fn collect_observations(
         return;
     }
 
-    let owner = joined.owner_identity().clone();
+    // A snapshot supplies predecessor contents; paths identify the joined owner.
+    let joined = joined.owner_identity();
+    let owner = joined.clone();
 
     if source.owner_identity() != &owner
         && !matches!(
