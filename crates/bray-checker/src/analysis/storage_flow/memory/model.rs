@@ -274,6 +274,7 @@ impl Transfer {
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
+    pub(super) entry_borrows: std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) unaddressed_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
     pub(super) returned_inputs: BTreeMap<Place, References>,

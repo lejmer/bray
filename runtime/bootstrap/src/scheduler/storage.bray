@@ -79,6 +79,7 @@ trusted internal func initialize(
             limit = limit,
             state = trusted std.sync.SpinLock<State>(
                 {
+                    deadline_closed = false,
                     entries = none,
                     queues = none,
                     free_queue = 0,

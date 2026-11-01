@@ -63,6 +63,7 @@ internal struct Entry
 
 internal struct State
 {
+    mut deadline_closed: bool;
     mut entries: std.memory.RawBuffer<Entry>?;
     mut queues: std.memory.RawBuffer<Queue>?;
     mut free_queue: usize;

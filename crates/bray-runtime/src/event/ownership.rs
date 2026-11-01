@@ -1,6 +1,6 @@
 use bray_runtime_abi::{NativeEventReference, NativeRuntimeStatus};
 
-use super::{EventWake, native};
+use super::{NativeCallback, native};
 use crate::CancellationContext;
 use crate::context::with_independent_execution_context as independent;
 
@@ -28,7 +28,7 @@ impl Event {
         &self,
         observed: u64,
         target: CancellationContext,
-        wake: &EventWake,
+        wake: &NativeCallback,
     ) -> Result<EventRegistration, NativeRuntimeStatus> {
         let descriptor = wake.retain();
 

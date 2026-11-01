@@ -3200,3 +3200,41 @@ fn returned_null_does_not_invent_an_outside_origin() {
         Some(Vec::new())
     );
 }
+
+#[test]
+fn incoming_exclusive_borrows_have_disjoint_immediate_referents() {
+    use bray_bound_tree::{StorageOrigin, StorageRelationship};
+    use bray_symbols::BorrowKind;
+
+    let ([left, right, raw, _], _) = places();
+
+    let state = State {
+        entry_borrows: Arc::new(std::collections::BTreeMap::from([
+            (left.root, BorrowKind::Mutable),
+            (right.root, BorrowKind::Shared),
+        ])),
+        ..State::default()
+    };
+
+    let target = |path: Place| Target { previous: false, origin: StorageOrigin::entry(path) };
+    let left = target(left);
+    let right = target(right);
+    let raw = target(raw);
+
+    assert_eq!(state.target_relationship(&left, &right), StorageRelationship::Disjoint);
+    assert_eq!(state.target_relationship(&left, &left), StorageRelationship::Identical);
+    assert_eq!(state.target_relationship(&left, &raw), StorageRelationship::PotentiallyOverlapping);
+
+    assert_eq!(
+        state.target_relationship(&left.project(&[StorageProjection::OwnedTarget]), &right),
+        StorageRelationship::PotentiallyOverlapping,
+    );
+
+    let mut nested = left.clone();
+
+    if let StorageOrigin::Entry { layer, .. } = &mut nested.origin {
+        *layer = 2;
+    }
+
+    assert_eq!(state.target_relationship(&nested, &right), StorageRelationship::PotentiallyOverlapping);
+}

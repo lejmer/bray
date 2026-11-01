@@ -17,7 +17,7 @@ use bray_test_protocol::{
 };
 
 use bray_runtime::{
-    RootCancellationHandle, RootCancellationSource, RunCancellationTimer, RunTimeoutScheduler,
+    RootCancellationHandle, RootCancellationSource, TimerRegistration, register_run_timeout,
 };
 
 use bray_runtime::native::implementation::NativeHostCallbacks;
@@ -36,8 +36,7 @@ struct NativeTestSession {
     suppressed: Vec<Observation>,
     capture_failed: bool,
     cancellation: Option<RootCancellationHandle>,
-    timeouts: Option<RunTimeoutScheduler>,
-    timer: Option<RunCancellationTimer>,
+    timer: Option<TimerRegistration>,
 }
 
 // Callback-time history owns fallibly allocated bytes. Protocol sharing is built after cleanup.
@@ -182,15 +181,8 @@ pub(super) fn register_timeout(cancellation: RootCancellationHandle) {
             return;
         };
 
-        let Ok(timeouts) = RunTimeoutScheduler::start() else {
-            session.fail(TestInfrastructureFailureKind::Host);
-
-            return;
-        };
-
-        match timeouts.register(limit.duration(), cancellation) {
+        match register_run_timeout(limit.duration(), &cancellation) {
             Ok(timer) => {
-                session.timeouts = Some(timeouts);
                 session.timer = Some(timer);
             }
             Err(_) => session.fail(TestInfrastructureFailureKind::Host),
@@ -384,7 +376,6 @@ impl NativeTestSession {
             suppressed: Vec::new(),
             capture_failed: false,
             cancellation: None,
-            timeouts: None,
             timer: None,
         })
     }
@@ -601,7 +592,6 @@ mod tests {
             suppressed: Vec::new(),
             capture_failed: false,
             cancellation: None,
-            timeouts: None,
             timer: None,
         }
     }

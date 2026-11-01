@@ -1,0 +1,139 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal std.memory;
+using internal bray.runtime.bootstrap.event;
+
+trusted internal func earlier(pos left: &Entry, pos right: &Entry) -> bool
+{
+    return left.deadline < right.deadline || (left.deadline == right.deadline && left.identity < right.identity);
+}
+
+trusted internal func swap(pos entries: &mut std.memory.RawBuffer<Entry>, pos left: usize, pos right: usize)
+    uses(raw_memory, unchecked_init)
+{
+    if left == right
+    {
+        return;
+    }
+
+    let rows = trusted std.memory.initialized_slice_mut<Entry>(entries);
+    let left_pointer = std.memory.address_of_mut<Entry>(&mut rows[left]);
+    let saved = trusted std.memory.read<Entry>(left_pointer);
+    let right_pointer = std.memory.address_of_mut<Entry>(&mut rows[right]);
+    let replacement = trusted std.memory.read<Entry>(right_pointer);
+
+    trusted std.memory.write<Entry>(left_pointer, replacement);
+    trusted std.memory.write<Entry>(right_pointer, saved);
+}
+
+trusted internal func sift_up(pos entries: &mut std.memory.RawBuffer<Entry>, pos mut index: usize)
+    uses(raw_memory)
+{
+    while index != 0
+    {
+        let parent = (index - 1) / 2;
+
+        let ordered: bool =
+        {
+            let rows = trusted std.memory.initialized_slice<Entry>(&entries);
+
+            yield !trusted earlier(&rows[index], &rows[parent]);
+        };
+
+        if ordered
+        {
+            return;
+        }
+
+        trusted swap(entries, index, parent);
+        index = parent;
+    }
+}
+
+trusted internal func sift_down(pos entries: &mut std.memory.RawBuffer<Entry>, pos mut index: usize)
+    uses(raw_memory)
+{
+    while index < entries.initialized / 2
+    {
+        let mut child = index * 2 + 1;
+
+        let ordered: bool =
+        {
+            let rows = trusted std.memory.initialized_slice<Entry>(&entries);
+
+            if child + 1 < entries.initialized && trusted earlier(&rows[child + 1], &rows[child])
+            {
+                child += 1;
+            }
+
+            yield !trusted earlier(&rows[child], &rows[index]);
+        };
+
+        if ordered
+        {
+            return;
+        }
+
+        trusted swap(entries, index, child);
+        index = child;
+    }
+}
+
+trusted internal func remove_at(pos owner: &mut State, pos index: usize) -> Entry
+    requires(trusted heap_owned(owner = &owner))
+    ensures(trusted heap_owned(owner = &owner), trusted entry_owned(owner = &result))
+    uses(intrinsic)
+{
+    if let ?entries = owner.entries
+    {
+        let last = entries.initialized - 1;
+
+        trusted swap(&mut entries, index, last);
+
+        let removed = trusted internal std.memory.take_last<Entry>(&mut entries);
+
+        if index < entries.initialized
+        {
+            trusted sift_up(&mut entries, index);
+            trusted sift_down(&mut entries, index);
+        }
+
+        return removed;
+    }
+
+    return trusted core.target.abort();
+}
+
+trusted internal func release(pos domain: &Reference, pos owner: Entry, pos deliver: bool) -> u32
+    requires(trusted retained(owner = domain), trusted entry_owned(owner = &owner))
+    ensures(trusted retained(owner = domain))
+{
+    let callback = trusted take_callback(&owner);
+
+    let status = if deliver
+    {
+        yield trusted bray.runtime.bootstrap.event.invoke_callback(&callback, 1);
+    }
+    else
+    {
+        yield 0;
+    };
+
+    trusted bray.runtime.bootstrap.event.release_callback(callback);
+    return status;
+}
+
+trusted internal func take_callback(pos owner: &Entry) -> bray.runtime.bootstrap.event.Callback
+    requires(trusted entry_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.event.callback_owned(owner = &result))
+{
+    return
+    {
+        context = owner.callback.context,
+        call = owner.callback.call
+    };
+}

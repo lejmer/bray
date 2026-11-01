@@ -131,7 +131,7 @@ pub(super) fn scheduler_snapshot(
             ));
         }
 
-        let timers = state.timers.len();
+        let timers = scheduler.deadlines.get().map_or(0, super::deadline::BrayDeadlines::count);
 
         drop(state);
         tasks.sort_unstable_by_key(ScheduledTaskSnapshot::task);
