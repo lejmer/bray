@@ -2758,11 +2758,11 @@ fn interleaved_guarded_postconditions_round_trip_in_source_order() {
     let provider = compilation(
         r"
         trusted module api;
-        public struct Reference { address: usize; }
-        public trusted predicate retained(owner: &Reference);
-        public trusted predicate owned(owner: &Reference);
-        public trusted predicate available(owner: &Reference);
-        public trusted func preserve(pos owner: &Reference)
+        struct Reference { address: usize; }
+        trusted predicate retained(owner: &Reference);
+        trusted predicate owned(owner: &Reference);
+        trusted predicate available(owner: &Reference);
+        trusted func preserve(pos owner: &Reference)
             requires(trusted retained(owner = owner))
             ensures(trusted retained(owner = owner))
             when(trusted owned(owner = owner))
