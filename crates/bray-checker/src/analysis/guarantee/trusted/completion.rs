@@ -261,18 +261,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
 
         let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
-            && let bray_bound_tree::BoundExecutionSite::Node(
-                bray_bound_tree::AnyBoundNodeId::Expression(expression),
-            ) = invocation
-            && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                self.semantics.selections().expression(expression)
+            && let Some((expression, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
             self.prepare_call_observations(
                 state,
+                invocation,
                 expression,
                 call,
                 &mut arguments,
+                &entry.addresses,
                 observations,
                 !guarantees.is_empty(),
             )

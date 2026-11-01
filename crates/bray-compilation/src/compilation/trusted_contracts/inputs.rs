@@ -34,8 +34,10 @@ impl Compilation {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;
         }
 
-        // Predicate units check obligations, without inferring returned witness authority.
-        inputs.infer_result_witnesses = callable_body && !trusted;
+        // Runtime defaults preserve checked witness authority like explicit argument expressions.
+        // Predicate units check obligations without inferring returned authority.
+        inputs.infer_result_witnesses = !trusted
+            && (callable_body || key.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault);
 
         if callable_body && key.kind() != bray_bound_tree::BoundUnitKind::ConstantTemplate {
             inputs.inputs = self.execution_unit_inputs(key, cancellation)?;

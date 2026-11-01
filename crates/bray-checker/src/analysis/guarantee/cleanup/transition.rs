@@ -545,6 +545,7 @@ impl Lifecycle {
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
             returned: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,

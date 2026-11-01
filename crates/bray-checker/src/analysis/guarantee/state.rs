@@ -152,41 +152,49 @@ impl ExecutionState {
         }
     }
 
-    /// Retain permission bounds without turning a raw address into an owning witness.
-    pub(super) fn address_owners(
+    /// Snapshot access bounds independently of the owning carrier's later consumption.
+    pub(super) fn address_dependencies(
         &self,
-        address: &ExecutionCondition,
-    ) -> BTreeSet<crate::ExecutionPlace> {
-        let mut owners = BTreeSet::new();
-        let mut carrier = address.owner_identity().clone();
+        value: &ExecutionCondition,
+    ) -> crate::execution_guarantees::AddressDependencies {
+        let mut addresses = crate::execution_guarantees::AddressDependencies::new();
 
-        loop {
-            if let Some(witness) = self.witnesses.get(&carrier) {
-                for (condition, guarantee) in &witness.conditions {
-                    if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions)
-                        == Some(true)
-                    {
-                        for (observed, dependencies) in &guarantee.addresses {
-                            if observed.owner_identity() == address.owner_identity() {
-                                owners.extend(dependencies.iter().cloned());
+        for value in value.owned_values() {
+            let mut carrier = value.owner_identity().clone();
+
+            loop {
+                if let Some(witness) = self.witnesses.get(&carrier) {
+                    for (condition, guarantee) in &witness.conditions {
+                        if condition.prove_trusted(&self.trusted_assumptions, &self.assumptions)
+                            != Some(true)
+                        {
+                            continue;
+                        }
+
+                        for (address, owners) in &guarantee.addresses {
+                            if address.is_owned_projection_of(value) {
+                                addresses
+                                    .entry(address.clone())
+                                    .or_default()
+                                    .extend(owners.iter().cloned());
                             }
                         }
                     }
                 }
+
+                carrier = match carrier {
+                    ExecutionCondition::Projection(_, parent) => parent.owner_identity().clone(),
+                    ExecutionCondition::Input(mut place) if !place.projections.is_empty() => {
+                        place.projections = place.projections[..place.projections.len() - 1].into();
+
+                        ExecutionCondition::Input(place)
+                    }
+                    _ => break,
+                };
             }
-
-            carrier = match carrier {
-                ExecutionCondition::Projection(_, parent) => parent.owner_identity().clone(),
-                ExecutionCondition::Input(mut place) if !place.projections.is_empty() => {
-                    place.projections = place.projections[..place.projections.len() - 1].into();
-
-                    ExecutionCondition::Input(place)
-                }
-                _ => break,
-            };
         }
 
-        owners
+        addresses
     }
 
     pub(super) fn directly_carries_witness(&self, value: &ExecutionCondition) -> bool {
@@ -526,6 +534,31 @@ mod tests {
     }
 
     #[test]
+    fn call_join_retains_possible_address_bounds_without_preserving_unproven_facts() {
+        let argument = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let address = input(2);
+        let condition = permission(2);
+        let mut left = crate::ExecutionCallEvidence::default();
+        let mut right = crate::ExecutionCallEvidence::default();
+
+        for (entry, owner) in [(&mut left, 30), (&mut right, 31)] {
+            entry.addresses.entry(argument.clone()).or_default().insert(
+                address.clone(),
+                BTreeSet::from([ExecutionPlace::argument(SymbolOrdinal::new(owner))]),
+            );
+        }
+
+        condition
+            .clone()
+            .assume(true, &mut left.trusted_assumptions);
+
+        assert!(left.intersect(&right));
+        assert_eq!(left.addresses[&argument][&address].len(), 2);
+        assert!(!left.proves_trusted(&[condition]));
+        assert!(!left.intersect(&right));
+    }
+
+    #[test]
     fn address_bounds_lookup_uses_only_live_facts_on_the_complete_carrier() {
         let owner = ExecutionPlace::argument(SymbolOrdinal::new(30));
         let carrier = input(2);
@@ -548,12 +581,17 @@ mod tests {
             .addresses
             .insert(address.clone(), BTreeSet::from([owner.clone()]));
 
-        assert!(state.address_owners(&address).is_empty());
+        assert!(state.address_dependencies(&address).is_empty());
         access.clone().assume(true, &mut state.trusted_assumptions);
-        assert_eq!(state.address_owners(&address), BTreeSet::from([owner]));
-        assert!(state.address_owners(&input(3)).is_empty());
+
+        assert_eq!(
+            state.address_dependencies(&address),
+            std::collections::BTreeMap::from([(address.clone(), BTreeSet::from([owner]))])
+        );
+
+        assert!(state.address_dependencies(&input(3)).is_empty());
         state.trusted_assumptions.clear();
-        assert!(state.address_owners(&address).is_empty());
+        assert!(state.address_dependencies(&address).is_empty());
     }
 
     #[test]
@@ -875,6 +913,7 @@ mod tests {
             occurrence,
             crate::ExecutionCallEvidence {
                 returned: Default::default(),
+                addresses: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: true,
                 pending_execution: true,
