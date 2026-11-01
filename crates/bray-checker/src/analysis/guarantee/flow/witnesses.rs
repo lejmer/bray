@@ -27,18 +27,21 @@ pub(super) fn conditional_guarantees(
     let mut guards = BTreeSet::new();
     let mut left_inputs = BTreeMap::new();
     let mut right_inputs = BTreeMap::new();
-    let mut budget = ExecutionCondition::WORK_LIMIT;
 
     for (state, inputs) in [(left.0, &mut left_inputs), (right.0, &mut right_inputs)] {
         for (place, joined) in current {
             if let Some(value) = place.value_in(&state.current) {
-                collect_observations(&value, joined, inputs, &mut guards, &mut budget);
+                collect_observations(&value, joined, inputs, &mut guards, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                });
             }
         }
 
         for (expression, joined) in results {
             if let Some(value) = state.pending_results.get(expression) {
-                collect_observations(value, joined, inputs, &mut guards, &mut budget);
+                collect_observations(value, joined, inputs, &mut guards, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                });
             }
         }
     }
@@ -60,7 +63,6 @@ pub(super) fn conditional_guarantees(
                 })
             })
         })
-        .take(ExecutionCondition::WORK_LIMIT)
         .collect::<BTreeSet<_>>();
 
     let mut retained = Vec::new();
@@ -109,12 +111,6 @@ pub(super) fn conditional_guarantees(
             if !owner.is_owned_projection_of(parent) && !parent.is_owned_projection_of(&owner) {
                 continue;
             }
-
-            let Some(remaining) = budget.checked_sub(1) else {
-                return retained;
-            };
-
-            budget = remaining;
 
             let clause = ExecutionCondition::operation(
                 BoundOperator::LogicalOr,
