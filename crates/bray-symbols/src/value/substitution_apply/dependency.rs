@@ -286,11 +286,17 @@ impl SemanticValueStore {
                         .map(|term| self.substitute_constant_term_data(term, substitution))
                         .transpose()?,
                 )
-                .with_returned_input(
+                .with_owned_transfers(
                     template
-                        .returned_input()
-                        .map(|input| self.substitute_constant_term_data(input, substitution))
-                        .transpose()?,
+                        .owned_transfers()
+                        .iter()
+                        .map(|transfer| {
+                            Ok(super::super::DependencyOwnedTransfer::new(
+                                self.substitute_constant_term_data(transfer.input(), substitution)?,
+                                transfer.output().iter().copied(),
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
                 )
                 .with_effects(effects),
         )

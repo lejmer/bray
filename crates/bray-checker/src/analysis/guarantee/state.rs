@@ -62,8 +62,8 @@ impl ExecutionState {
         &mut self,
         returned: crate::execution_guarantees::ExecutionValueEvidence,
     ) {
-        // Checked whole-input forwarding has no storage effects on a normal exit.
-        // Failure paths never reach this restoration and retain their original invalidation.
+        // Call effects have already retired invalid captured evidence.
+        // Only normal completion restores surviving ownership to the caller.
         for (carrier, witness) in returned.witnesses {
             for condition in witness.conditions.keys() {
                 condition
@@ -242,13 +242,20 @@ impl ExecutionState {
     pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
         let stale = |value: &ExecutionCondition| value.depends_on(mutation);
 
-        self.witnesses.retain(|value, witness| {
-            witness.conditions.retain(|condition, guarantee| {
-                !stale(condition) && !guarantee.addresses.keys().any(stale)
-            });
+        for witnesses in std::iter::once(&mut self.witnesses).chain(
+            self.entries
+                .values_mut()
+                .map(|entry| &mut entry.returned.witnesses),
+        ) {
+            witnesses.retain(|value, witness| {
+                witness.conditions.retain(|condition, guarantee| {
+                    !stale(condition) && !guarantee.addresses.keys().any(stale)
+                });
 
-            !stale(value) && (!witness.conditions.is_empty() || !witness.dependencies.is_empty())
-        });
+                !stale(value)
+                    && (!witness.conditions.is_empty() || !witness.dependencies.is_empty())
+            });
+        }
 
         self.deferred_invocations.retain(|value, source| {
             !stale(value)
@@ -262,23 +269,19 @@ impl ExecutionState {
 
         self.assumptions.retain(|(condition, _)| !stale(condition));
 
-        self.allocation_owners
-            .retain(|condition, owner| !stale(condition) && !stale(owner));
+        for allocations in std::iter::once(&mut self.allocation_owners).chain(
+            self.entries
+                .values_mut()
+                .map(|entry| &mut entry.returned.allocations),
+        ) {
+            allocations.retain(|condition, owner| !stale(condition) && !stale(owner));
+        }
 
         for entry in self
             .entries
             .values_mut()
             .filter(|entry| entry.pending_execution)
         {
-            if entry
-                .returned
-                .witnesses
-                .iter()
-                .any(|(carrier, witness)| stale(carrier) || witness.conditions.keys().any(stale))
-            {
-                entry.returned = Default::default();
-            }
-
             entry.arguments.retain(|_, value| !stale(value));
             entry.assumptions.retain(|(condition, _)| !stale(condition));
 
@@ -354,6 +357,25 @@ impl ExecutionState {
 
             !witness.conditions.is_empty()
         });
+
+        for entry in self.entries.values_mut() {
+            entry.returned.witnesses.retain(|carrier, witness| {
+                if !stable_owners
+                    .iter()
+                    .any(|owner| carrier.is_owned_projection_of(owner))
+                {
+                    return false;
+                }
+
+                witness
+                    .conditions
+                    .retain(|condition, _| condition.observes_only(stable_values));
+
+                !witness.conditions.is_empty()
+            });
+
+            entry.returned.allocations.clear();
+        }
 
         // Opaque predicates cannot observe mutable state absent from their arguments.
         // Preserve established facts with no observations, without creating new evidence.

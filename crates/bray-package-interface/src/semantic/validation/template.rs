@@ -424,8 +424,8 @@ fn validate_template(
         semantics.validate_execution_term(term, template.inputs().len(), false, surface)?;
     }
 
-    if let Some(input) = result_dependencies.returned_input {
-        semantics.validate_returned_input(input, template.inputs().len(), surface)?;
+    for transfer in &*result_dependencies.owned_transfers {
+        semantics.validate_owned_transfer(transfer, template.inputs().len(), surface)?;
     }
 
     for carrier in &*result_dependencies.carriers {

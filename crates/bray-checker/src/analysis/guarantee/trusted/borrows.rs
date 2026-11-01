@@ -44,31 +44,69 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn returned_input_value(
+    fn returned_owned_values(
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-    ) -> Option<ExecutionCondition> {
-        let dependencies = self.dependencies.calls().get(&invocation)?;
+    ) -> BTreeMap<Vec<StorageProjection>, ExecutionCondition> {
+        use bray_symbols::ConstantProjectionKind;
 
-        let input = crate::execution_condition_from_type_term(
-            self.request.semantic_values(),
-            dependencies.returned_input()?,
-            dependencies.input_count(),
-        )
-        .expect("checked returned input decodes in the same semantic store");
+        let mut fields = BTreeMap::new();
 
-        let value = input.substitute(
-            &|place| {
-                place
-                    .value_in(arguments)
-                    .unwrap_or(ExecutionCondition::Unknown)
-            },
-            &ExecutionCondition::Unknown,
-            &mut { ExecutionCondition::WORK_LIMIT },
-        );
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
+            return fields;
+        };
 
-        (value != ExecutionCondition::Unknown).then_some(value)
+        for transfer in dependencies.owned_transfers() {
+            let input = crate::execution_condition_from_type_term(
+                self.request.semantic_values(),
+                transfer.input(),
+                dependencies.input_count(),
+            )
+            .expect("checked owned input decodes in the same semantic store");
+
+            let value = input.substitute(
+                &|place| {
+                    place
+                        .value_in(arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
+                &ExecutionCondition::Unknown,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            );
+
+            if value == ExecutionCondition::Unknown {
+                continue;
+            }
+
+            let path = transfer
+                .output()
+                .iter()
+                .map(|projection| match projection {
+                    ConstantProjectionKind::ProductField(field) => {
+                        StorageProjection::ProductField(*field)
+                    }
+                    ConstantProjectionKind::UnionPayloadField(field) => {
+                        StorageProjection::ActiveUnionPayloadField {
+                            field: *field,
+                            variant: self.dependencies.projection_variant(*field),
+                        }
+                    }
+                    ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+                    ConstantProjectionKind::TupleElement(ordinal) => {
+                        StorageProjection::TupleElement(*ordinal)
+                    }
+                    ConstantProjectionKind::ArrayElementOrdinal(ordinal) => {
+                        StorageProjection::ElementFromStart(*ordinal)
+                    }
+                    _ => unreachable!("checked transfer contains only owning projections"),
+                })
+                .collect();
+
+            fields.insert(path, value);
+        }
+
+        fields
     }
 
     pub(in crate::analysis::guarantee) fn returned_value_evidence(
@@ -77,16 +115,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> crate::execution_guarantees::ExecutionValueEvidence {
-        let Some(value) = self.returned_input_value(invocation, arguments) else {
+        let values = self.returned_owned_values(invocation, arguments);
+
+        if values.is_empty() {
             return Default::default();
-        };
+        }
 
         let witnesses = state
             .witnesses
             .iter()
             .filter(|(carrier, _)| {
-                value
-                    .owned_values()
+                values
+                    .values()
+                    .flat_map(ExecutionCondition::owned_values)
                     .any(|owner| carrier.is_owned_projection_of(owner))
             })
             .filter_map(|(carrier, witness)| {
@@ -150,7 +191,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         };
 
-        for condition in dependencies.returned_input_conditions() {
+        for condition in dependencies.returned_value_conditions() {
             let condition = crate::execution_condition_from_type_term(
                 self.request.semantic_values(),
                 *condition,
@@ -172,9 +213,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         state.refine_witnesses();
 
-        if let Some(value) = self.returned_input_value(invocation, arguments) {
-            return value;
-        }
+        let result = construct(
+            result,
+            self.returned_owned_values(invocation, arguments),
+            true,
+        );
 
         let has_receiver = match self.semantics.selections().expression(source) {
             Some(bray_bound_tree::SemanticSelection::Call(call)) => call.receiver().is_some(),
@@ -245,7 +288,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             fields.insert(path, value);
         }
 
-        construct(result, fields)
+        construct(result, fields, false)
     }
 }
 
@@ -278,6 +321,7 @@ fn projection(projection: DependencyProjection) -> Option<StorageProjection> {
 fn construct(
     root: ExecutionCondition,
     fields: BTreeMap<Vec<StorageProjection>, ExecutionCondition>,
+    owns: bool,
 ) -> ExecutionCondition {
     let mut children =
         BTreeMap::<StorageProjection, BTreeMap<Vec<StorageProjection>, ExecutionCondition>>::new();
@@ -297,16 +341,43 @@ fn construct(
         return root;
     }
 
-    ExecutionCondition::Constructed(
-        std::sync::Arc::new(root.clone()),
-        children
-            .into_iter()
-            .map(|(projection, fields)| {
-                (
-                    projection,
-                    construct(root.clone().project(projection), fields),
-                )
-            })
-            .collect(),
-    )
+    if children.len() == 1
+        && let Some(fields) = children.remove(&StorageProjection::NullableValue)
+    {
+        if owns || matches!(root, ExecutionCondition::Present(_)) {
+            return ExecutionCondition::Present(std::sync::Arc::new(construct(
+                root.project(StorageProjection::NullableValue),
+                fields,
+                owns,
+            )));
+        }
+
+        children.insert(StorageProjection::NullableValue, fields);
+    }
+
+    let root = if owns
+        && let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) =
+            children.keys().next()
+    {
+        ExecutionCondition::Tagged(*variant, std::sync::Arc::new(root))
+    } else {
+        root
+    };
+
+    let (base, mut components) = match root {
+        ExecutionCondition::Constructed(base, fields) => {
+            (base, fields.iter().cloned().collect::<BTreeMap<_, _>>())
+        }
+        root => (std::sync::Arc::new(root), BTreeMap::new()),
+    };
+
+    for (projection, fields) in children {
+        let prior = components
+            .remove(&projection)
+            .unwrap_or_else(|| base.as_ref().clone().project(projection));
+
+        components.insert(projection, construct(prior, fields, owns));
+    }
+
+    ExecutionCondition::Constructed(base, components.into_iter().collect())
 }

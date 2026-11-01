@@ -473,6 +473,28 @@ impl InterfaceSemantics {
         Ok(())
     }
 
+    pub(in crate::semantic::validation) fn validate_owned_transfer(
+        &self,
+        transfer: &bray_symbols::DependencyOwnedTransfer<
+            crate::InterfaceConstantProjection,
+            InterfaceConstantTermId,
+        >,
+        inputs: usize,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        self.validate_returned_input(transfer.input(), inputs, surface)?;
+
+        if transfer.output().len() > bray_symbols::EXECUTION_CONDITION_WORK_LIMIT {
+            return Err(invalid());
+        }
+
+        for projection in transfer.output() {
+            validate_projection(projection, surface)?;
+        }
+
+        Ok(())
+    }
+
     pub(in crate::semantic::validation) fn validate_returned_input(
         &self,
         mut term: InterfaceConstantTermId,

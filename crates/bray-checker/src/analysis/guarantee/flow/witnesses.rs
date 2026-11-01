@@ -29,9 +29,16 @@ pub(super) fn conditional_guarantees(
     let mut right_inputs = BTreeMap::new();
 
     for (state, inputs) in [(left.0, &mut left_inputs), (right.0, &mut right_inputs)] {
+        let absent = state
+            .assumptions
+            .iter()
+            .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
+            .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
+            .collect::<BTreeMap<_, _>>();
+
         for (place, joined) in current {
             if let Some(value) = place.value_in(&state.current) {
-                collect_observations(&value, joined, inputs, &mut guards, &mut {
+                collect_observations(&value, joined, inputs, &mut guards, &absent, &mut {
                     ExecutionCondition::WORK_LIMIT
                 });
             }
@@ -39,7 +46,7 @@ pub(super) fn conditional_guarantees(
 
         for (expression, joined) in results {
             if let Some(value) = state.pending_results.get(expression) {
-                collect_observations(value, joined, inputs, &mut guards, &mut {
+                collect_observations(value, joined, inputs, &mut guards, &absent, &mut {
                     ExecutionCondition::WORK_LIMIT
                 });
             }
@@ -184,6 +191,7 @@ fn collect_observations(
     joined: &ExecutionCondition,
     inputs: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
     guards: &mut BTreeSet<(ExecutionCondition, ExecutionCondition)>,
+    absent: &BTreeMap<ExecutionCondition, std::sync::Arc<bray_symbols::ConstantValueData>>,
     budget: &mut usize,
 ) {
     let Some(remaining) = budget.checked_sub(1) else {
@@ -218,24 +226,37 @@ fn collect_observations(
             .or_insert_with(|| source.clone());
     }
 
-    match source {
-        ExecutionCondition::Tagged(variant, _) => {
-            insert_guard(guards, &owner, joined.clone().matches_variant(*variant))
-        }
-        ExecutionCondition::Literal(absent)
+    let absence = match source {
+        ExecutionCondition::Literal(value)
             if matches!(
-                absent.kind(),
+                value.kind(),
                 bray_symbols::ConstantValueKind::NullableAbsent
             ) =>
         {
-            insert_guard(
-                guards,
-                &owner,
-                ExecutionCondition::operation(
-                    BoundOperator::NotEqual,
-                    vec![joined.clone(), ExecutionCondition::Literal(absent.clone())],
-                ),
-            );
+            Some(value)
+        }
+        _ => absent
+            .get(source)
+            .or_else(|| absent.get(source.owner_identity())),
+    };
+
+    if let Some(absent) = absence {
+        insert_guard(
+            guards,
+            &owner,
+            ExecutionCondition::operation(
+                BoundOperator::NotEqual,
+                vec![
+                    joined.clone(),
+                    ExecutionCondition::Literal(std::sync::Arc::clone(absent)),
+                ],
+            ),
+        );
+    }
+
+    match source {
+        ExecutionCondition::Tagged(variant, _) => {
+            insert_guard(guards, &owner, joined.clone().matches_variant(*variant))
         }
         ExecutionCondition::Constructed(base, fields) => {
             if let ExecutionCondition::Tagged(variant, _) = base.as_ref() {
@@ -255,6 +276,7 @@ fn collect_observations(
                     &joined.clone().project(*field),
                     inputs,
                     guards,
+                    absent,
                     budget,
                 );
             }
@@ -266,6 +288,7 @@ fn collect_observations(
                 .project(bray_bound_tree::StorageProjection::NullableValue),
             inputs,
             guards,
+            absent,
             budget,
         ),
         _ => {}

@@ -155,11 +155,15 @@ impl StructuralValueEncoder<'_, '_> {
             }
         }
 
-        self.digest
-            .write_u8(u8::from(data.returned_input().is_some()));
+        self.length(data.owned_transfers().len());
 
-        if let Some(input) = data.returned_input() {
-            self.constant_term(input)?;
+        for transfer in data.owned_transfers() {
+            self.constant_term(transfer.input())?;
+            self.length(transfer.output().len());
+
+            for projection in transfer.output() {
+                self.constant_projection_kind(*projection)?;
+            }
         }
 
         self.digest
