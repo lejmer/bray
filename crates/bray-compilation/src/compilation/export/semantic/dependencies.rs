@@ -113,10 +113,21 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let returned_input = data
-            .returned_input()
-            .map(|input| self.constant_term_id(input))
-            .transpose()?;
+        let owned_transfers = data
+            .owned_transfers()
+            .iter()
+            .map(|transfer| {
+                Ok(bray_symbols::DependencyOwnedTransfer::new(
+                    self.constant_term_id(transfer.input())?,
+                    transfer
+                        .output()
+                        .iter()
+                        .copied()
+                        .map(|kind| self.constant_projection_kind(kind))
+                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
         let mut contract = InterfaceDependencyContract::new(requirements);
 
@@ -132,7 +143,7 @@ impl<'a> SemanticExporter<'a> {
         let contract = contract
             .with_borrows(borrows)
             .with_carriers(carriers)
-            .with_returned_input(returned_input)
+            .with_owned_transfers(owned_transfers)
             .with_observed_result(
                 data.observed_result()
                     .map(|term| self.constant_term_id(term))

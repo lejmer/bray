@@ -146,7 +146,21 @@ pub(super) fn decode_dependency_contract(
         borrows.push(relation);
     }
 
-    let returned_input = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut owned_transfers = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let input = InterfaceConstantTermId::new(read_u32(reader)?);
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut output = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            output.push(super::value::decode_constant_projection(reader, context)?);
+        }
+
+        owned_transfers.push(bray_symbols::DependencyOwnedTransfer::new(input, output));
+    }
+
     let observed_result = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -204,7 +218,7 @@ pub(super) fn decode_dependency_contract(
     Ok(contract
         .with_borrows(borrows)
         .with_carriers(carriers)
-        .with_returned_input(returned_input)
+        .with_owned_transfers(owned_transfers)
         .with_observed_result(observed_result)
         .with_effects(effects)
         .with_synchronous_cleanup(synchronous_cleanup)

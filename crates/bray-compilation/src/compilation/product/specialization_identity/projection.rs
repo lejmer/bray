@@ -9,7 +9,14 @@ impl StructuralValueEncoder<'_, '_> {
     ) -> Result<(), FactQueryError> {
         self.constant_term(projection.subject())?;
 
-        match projection.kind() {
+        self.constant_projection_kind(projection.kind())
+    }
+
+    pub(super) fn constant_projection_kind(
+        &mut self,
+        kind: ConstantProjectionKind,
+    ) -> Result<(), FactQueryError> {
+        match kind {
             ConstantProjectionKind::TupleElement(ordinal) => {
                 self.tag(0);
                 self.ordinal(ordinal);

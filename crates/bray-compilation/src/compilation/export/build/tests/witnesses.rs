@@ -211,25 +211,179 @@ const API: &str = r"
         state.value += 1;
         return (0, value);
     }
+
+    func select_inactive_result(
+        pos prior: Result<Receipt?, usize>,
+        pos existing: bool,
+        pos repeat: bool
+    ) -> Result<Receipt?, usize>
+    {
+        return if existing
+        {
+            yield Ok(none);
+        }
+        else if repeat && prior matches Error(_)
+        {
+            yield prior;
+        }
+        else
+        {
+            yield Ok(make());
+        };
+    }
+
+    func select_active_result(
+        pos prior: Result<Receipt?, usize>,
+        pos existing: bool,
+        pos repeat: bool
+    ) -> Result<Receipt?, usize>
+    {
+        return if existing
+        {
+            yield Ok(make());
+        }
+        else if repeat && prior matches Ok(_)
+        {
+            yield prior;
+        }
+        else
+        {
+            yield Error(1);
+        };
+    }
+
+    func select_absent_choice(pos prior: Choice?, pos existing: bool, pos repeat: bool) -> Choice?
+    {
+        return if existing
+        {
+            yield Choice.Existing(make());
+        }
+        else if repeat && prior matches none
+        {
+            yield prior;
+        }
+        else
+        {
+            yield Choice.Backing;
+        };
+    }
+
+    func select_present_choice(pos prior: Choice?, pos existing: bool, pos repeat: bool) -> Choice?
+    {
+        return if existing
+        {
+            yield Choice.Existing(make());
+        }
+        else if repeat && prior matches ?_
+        {
+            yield prior;
+        }
+        else
+        {
+            yield Choice.Backing;
+        };
+    }
     ";
+
+const NESTED_SHAPES: &[(&str, &str, [&str; 3], &str)] = &[
+    (
+        "nullable_choice",
+        "api.Choice?",
+        [
+            "api.Choice.Existing(api.make())",
+            "api.Choice.Backing",
+            "none",
+        ],
+        r"
+        match consume selected
+        {
+            case ?choice
+            {
+                match consume choice
+                {
+                    case api.Choice.Existing(value) { api.observe(&value); }
+                    case api.Choice.Backing {}
+                }
+            }
+            case none {}
+        }
+    ",
+    ),
+    (
+        "result_nullable",
+        "Result<api.Receipt?, usize>",
+        ["Ok(api.make())", "Ok(none)", "Error(1)"],
+        r"
+        match consume selected
+        {
+            case Ok(optional)
+            {
+                match consume optional
+                {
+                    case ?value { api.observe(&value); }
+                    case none {}
+                }
+            }
+            case Error(_) {}
+        }
+    ",
+    ),
+    (
+        "result_nullable_choice",
+        "Result<api.Choice?, usize>",
+        [
+            "Ok(api.Choice.Backing)",
+            "Error(1)",
+            "Ok(api.Choice.Existing(api.make()))",
+        ],
+        r"
+        match consume selected
+        {
+            case Ok(optional)
+            {
+                match consume optional
+                {
+                    case ?choice
+                    {
+                        match consume choice
+                        {
+                            case api.Choice.Existing(value) { api.observe(&value); }
+                            case api.Choice.Backing {}
+                        }
+                    }
+                    case none {}
+                }
+            }
+            case Error(_) {}
+        }
+    ",
+    ),
+];
+
+fn nested_values(values: [&str; 3], valid: bool) -> [String; 3] {
+    values.map(|value| {
+        if valid {
+            value.to_owned()
+        } else {
+            value.replace("api.make()", "api.Receipt { marker = api.Marker {} }")
+        }
+    })
+}
 
 fn api_source() -> String {
     let mut source = API.to_owned();
 
-    for (index, order) in NESTED_ORDERS.into_iter().enumerate() {
-        for valid in [true, false] {
-            let receipt = if valid {
-                "make()"
-            } else {
-                "Receipt { marker = Marker {} }"
-            };
+    for &(kind, ty, values, _) in NESTED_SHAPES {
+        for (index, order) in NESTED_ORDERS.into_iter().enumerate() {
+            for valid in [true, false] {
+                let values = nested_values(values, valid).map(|value| value.replace("api.", ""));
+                let selection = nested_selection(order, values.each_ref().map(String::as_str));
+                let ty = ty.replace("api.", "");
 
-            let existing = format!("Choice.Existing({receipt})");
-            let selection = nested_selection(order, [&existing, "Choice.Backing", "none"]);
-
-            source.push_str(&format!(
-                "func choose_nested_nullable_{index}_{valid}(pos existing: bool, pos repeat: bool) -> Choice? {{ return {selection}; }}\n"
-            ));
+                source.push_str(&format!(
+                    "func choose_nested_{kind}_{index}_{valid}(pos existing: bool, pos repeat: bool) -> {ty} {{ return {selection}; }}\n"
+                ));
+            }
         }
     }
 
@@ -1413,52 +1567,48 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         (name.to_owned(), format!("{prefix}{body}"), valid)
     });
 
-    let matching = r"
-        match consume selected
-        {
-            case ?choice
-            {
-                match consume choice
-                {
-                    case api.Choice.Existing(value) { api.observe(&value); }
-                    case api.Choice.Backing {}
-                }
-            }
-            case none {}
-        }
-    ";
+    let nested = NESTED_SHAPES
+        .iter()
+        .flat_map(|&(kind, ty, values, matching)| {
+            NESTED_ORDERS.into_iter().flat_map(move |order| {
+                [true, false].into_iter().map(move |valid| {
+                    let values = nested_values(values, valid);
+                    let selection = nested_selection(order, values.each_ref().map(String::as_str));
 
-    let nested = NESTED_ORDERS.into_iter().flat_map(move |order| {
-        [true, false].into_iter().map(move |valid| {
-            let receipt = if valid {
-                "api.make()"
-            } else {
-                "api.Receipt { marker = api.Marker {} }"
-            };
+                    let [first, second, third] = order;
 
-            let existing = format!("api.Choice.Existing({receipt})");
-            let selection = nested_selection(order, [&existing, "api.Choice.Backing", "none"]);
+                    let body = format!("let selected: {ty} = {selection}; {matching}");
 
-            let [first, second, third] = order;
+                    (
+                        format!("{kind}_{first}_{second}_{third}_{valid}"),
+                        body,
+                        valid,
+                    )
+                })
+            })
+        });
 
-            let body = format!("let selected: api.Choice? = {selection}; {matching}");
-
-            (
-                format!("nested_nullable_{first}_{second}_{third}_{valid}"),
-                body,
-                valid,
-            )
+    let provider = NESTED_SHAPES.iter().flat_map(|&(kind, _, _, matching)| {
+        NESTED_ORDERS.into_iter().enumerate().flat_map(move |(index, _)| {
+            [true, false].into_iter().map(move |valid| {
+                (
+                    format!("{kind}_provider_{index}_{valid}"),
+                    format!("let selected = api.choose_nested_{kind}_{index}_{valid}(existing, repeat); {matching}"),
+                    valid,
+                )
+            })
         })
     });
 
-    let provider = NESTED_ORDERS.into_iter().enumerate().flat_map(move |(index, _)| {
-        [true, false].into_iter().map(move |valid| {
-            (
-                format!("nested_nullable_provider_{index}_{valid}"),
-                format!("let selected = api.choose_nested_nullable_{index}_{valid}(existing, repeat); {matching}"),
-                valid,
-            )
-        })
+    let guarded = [
+        ("guarded_error_input", "let selected = api.select_inactive_result(Error(1), existing, repeat);", 1, true),
+        ("guarded_error_forged", "let selected = api.select_active_result(Ok(api.Receipt { marker = api.Marker {} }), existing, repeat);", 1, false),
+        ("guarded_none_input", "let selected = api.select_absent_choice(none, existing, repeat);", 0, true),
+        ("guarded_present_forged", "let selected = api.select_present_choice(api.Choice.Existing(api.Receipt { marker = api.Marker {} }), existing, repeat);", 0, false),
+    ]
+    .into_iter()
+    .map(|(name, body, shape, valid)| {
+        (name.to_owned(), format!("{body}{}", NESTED_SHAPES[shape].3), valid)
     });
 
     CASES
@@ -1467,6 +1617,7 @@ fn cases() -> impl Iterator<Item = (String, String, bool)> {
         .chain(scale)
         .chain(nested)
         .chain(provider)
+        .chain(guarded)
 }
 
 fn assert_witness_result(name: &str, compilation: &crate::Compilation, valid: bool) {

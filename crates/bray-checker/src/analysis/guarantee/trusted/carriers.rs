@@ -294,6 +294,16 @@ fn returned_owners(
 
         match value {
             ExecutionCondition::Present(value) => {
+                // Presence snapshots can name the joined owner through their payload.
+                let reconstructed = value.owner_identity().clone().present();
+
+                if !matches!(
+                    reconstructed,
+                    ExecutionCondition::Present(_) | ExecutionCondition::Unknown
+                ) {
+                    owners.insert(reconstructed.owner_identity().clone(), path.clone());
+                }
+
                 let mut path = path;
 
                 path.push(DependencyProjection::NullableValue);
@@ -425,41 +435,112 @@ impl ExecutionState {
     }
 }
 
-/// An exact entry snapshot can transport an unknown witness only as a complete owned value.
-pub(super) fn returned_input<C: crate::CheckerRequestContext + ?Sized>(
+/// Preserve exact owned inputs embedded in the checked normal result.
+pub(super) fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
     domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
     result: &ExecutionCondition,
-) -> Option<bray_symbols::ConstantTermId> {
-    let inputs = domain.request.trusted_contracts()?;
+) -> BTreeSet<bray_symbols::DependencyOwnedTransfer> {
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantProjectionKind, DependencyOwnedTransfer};
 
-    if !inputs.infer_result_witnesses {
-        return None;
-    }
+    let mut transfers = BTreeSet::new();
 
-    let ty = domain.semantics.types().callable_result_type()?;
-
-    if domain.storage.copyable_types().contains(&ty) {
-        return None;
-    }
-
-    let mut input = result;
-
-    while let ExecutionCondition::Projection(_, value) = input {
-        input = value;
-    }
-
-    let ExecutionCondition::Input(place) = input else {
-        return None;
+    let Some(inputs) = domain.request.trusted_contracts() else {
+        return transfers;
     };
 
-    if !place.is_callable_input()
-        || domain
-            .borrowed_inputs
-            .iter()
-            .any(|borrow| borrow.contains(place))
-    {
-        return None;
+    if !inputs.infer_result_witnesses {
+        return transfers;
     }
 
-    portable(domain.request, result)
+    let Some(ty) = domain.semantics.types().callable_result_type() else {
+        return transfers;
+    };
+
+    if domain.storage.copyable_types().contains(&ty) {
+        return transfers;
+    }
+
+    let mut pending = vec![(result, Vec::new())];
+
+    while let Some((source, path)) = pending.pop() {
+        if path.len() > ExecutionCondition::WORK_LIMIT {
+            continue;
+        }
+
+        let mut input = source;
+        let mut projections = Vec::new();
+
+        while let ExecutionCondition::Projection(field, parent) = input {
+            projections.push(*field);
+            input = parent;
+        }
+
+        if let ExecutionCondition::Input(place) = input {
+            let place = projections
+                .into_iter()
+                .rev()
+                .fold(place.clone(), |place, field| place.component(field));
+
+            if !place.is_callable_input()
+                || domain
+                    .borrowed_inputs
+                    .iter()
+                    .any(|borrow| borrow.contains(&place))
+            {
+                continue;
+            }
+
+            let input = ExecutionCondition::Input(place);
+
+            let ty = domain
+                .observation_type(&input)
+                .expect("returned input retains its checked observation type");
+
+            if !domain.storage.copyable_types().contains(&ty)
+                && let Some(term) = portable(domain.request, &input)
+            {
+                transfers.insert(DependencyOwnedTransfer::new(term, path));
+            }
+
+            continue;
+        }
+
+        match source {
+            ExecutionCondition::Present(value) => {
+                let mut path = path;
+
+                path.push(ConstantProjectionKind::NullableValue);
+                pending.push((value, path));
+            }
+            ExecutionCondition::Constructed(_, fields) => {
+                for (field, value) in fields.iter() {
+                    let projection = match field {
+                        StorageProjection::ProductField(field) => {
+                            ConstantProjectionKind::ProductField(*field)
+                        }
+                        StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                            ConstantProjectionKind::UnionPayloadField(*field)
+                        }
+                        StorageProjection::TupleElement(ordinal) => {
+                            ConstantProjectionKind::TupleElement(*ordinal)
+                        }
+                        StorageProjection::ElementFromStart(ordinal) => {
+                            ConstantProjectionKind::ArrayElementOrdinal(*ordinal)
+                        }
+                        StorageProjection::NullableValue => ConstantProjectionKind::NullableValue,
+                        _ => continue,
+                    };
+
+                    let mut path = path.clone();
+
+                    path.push(projection);
+                    pending.push((value, path));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transfers
 }

@@ -3918,7 +3918,7 @@ fn production_owner_transport_and_async_observations_preserve_authority() {
             name,
         );
 
-        assert!(summary.returned_input().is_some(), "{name}: {summary:?}");
+        assert!(!summary.owned_transfers().is_empty(), "{name}: {summary:?}");
     }
 
     let failures = [

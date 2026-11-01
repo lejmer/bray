@@ -474,6 +474,37 @@ impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition
     }
 }
 
+/// One unchanged owned input embedded in the normal result on every completing path.
+/// This records identity rather than equality, borrowing, or a new trusted guarantee.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyOwnedTransfer<
+    Projection = super::ConstantProjectionKind,
+    Input = ConstantTermId,
+> {
+    input: Input,
+    output: Arc<[Projection]>,
+}
+
+impl<Projection, Input: Copy> DependencyOwnedTransfer<Projection, Input> {
+    /// Records the exact input and its owning path within the returned value.
+    pub fn new(input: Input, output: impl IntoIterator<Item = Projection>) -> Self {
+        Self {
+            input,
+            output: shared_slice(output),
+        }
+    }
+
+    /// Returns the formal input or owned input projection.
+    pub const fn input(&self) -> Input {
+        self.input
+    }
+
+    /// Returns the owning path relative to the complete result.
+    pub fn output(&self) -> &[Projection] {
+        &self.output
+    }
+}
+
 /// A normalized source-independent dependency-contract template.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyContractTemplateData {
@@ -481,7 +512,7 @@ pub struct DependencyContractTemplateData {
     completion_reports: Option<Arc<[DependencyRequirement]>>,
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
-    returned_input: Option<ConstantTermId>,
+    owned_transfers: Arc<[DependencyOwnedTransfer]>,
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
@@ -504,18 +535,19 @@ impl DependencyContractTemplateData {
         self.observed_result
     }
 
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// Normal completion must have no observable storage mutation or cleanup effects.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<ConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records exact owned inputs retained inside every normal result.
+    pub fn with_owned_transfers(
+        mut self,
+        transfers: impl IntoIterator<Item = DependencyOwnedTransfer>,
+    ) -> Self {
+        self.owned_transfers = sorted_unique_shared_slice(transfers);
 
         self
     }
 
-    /// Returns the checked whole-value transport, without introducing trusted guarantees.
-    pub const fn returned_input(&self) -> Option<ConstantTermId> {
-        self.returned_input
+    /// Returns the checked ownership transfers, without introducing guarantees.
+    pub fn owned_transfers(&self) -> &[DependencyOwnedTransfer] {
+        &self.owned_transfers
     }
 
     /// Attaches dependencies of reports that can accompany normal completion.
@@ -646,7 +678,7 @@ impl DependencyContractTemplateData {
             completion_reports: None,
             abnormal_reports: None,
             borrows: Arc::new([]),
-            returned_input: None,
+            owned_transfers: Arc::new([]),
             observed_result: None,
             carriers: Arc::new([]),
             effects: Arc::new(super::DependencyStorageEffect::opaque_call()),
@@ -668,7 +700,7 @@ impl DependencyContractTemplateData {
             abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
-            returned_input: self.returned_input,
+            owned_transfers: Arc::clone(&self.owned_transfers),
             observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),

@@ -105,8 +105,8 @@ impl BoundCallReference {
 pub struct BoundCallDependencyContracts {
     synchronous_cleanup: Arc<[bray_symbols::DependencyRequirement]>,
     input_count: usize,
-    returned_input: Option<bray_symbols::ConstantTermId>,
-    returned_input_conditions: Arc<[bray_symbols::ConstantTermId]>,
+    owned_transfers: Arc<[bray_symbols::DependencyOwnedTransfer]>,
+    returned_value_conditions: Arc<[bray_symbols::ConstantTermId]>,
     carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
@@ -125,33 +125,34 @@ pub struct BoundCallDependencyContracts {
 }
 
 impl BoundCallDependencyContracts {
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// Normal completion must have no observable storage mutation or cleanup effects.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<bray_symbols::ConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records exact owned inputs retained inside the result.
+    pub fn with_owned_transfers(
+        mut self,
+        transfers: impl IntoIterator<Item = bray_symbols::DependencyOwnedTransfer>,
+    ) -> Self {
+        self.owned_transfers = transfers.into_iter().collect();
 
         self
     }
 
-    /// Returns the checked whole-value transport, without introducing trusted guarantees.
-    pub const fn returned_input(&self) -> Option<bray_symbols::ConstantTermId> {
-        self.returned_input
+    /// Returns the checked normal-result ownership transfers.
+    pub fn owned_transfers(&self) -> &[bray_symbols::DependencyOwnedTransfer] {
+        &self.owned_transfers
     }
 
     /// Retains presence facts implied by successfully returning the checked input projection.
-    pub fn with_returned_input_conditions(
+    pub fn with_returned_value_conditions(
         mut self,
         conditions: impl IntoIterator<Item = bray_symbols::ConstantTermId>,
     ) -> Self {
-        self.returned_input_conditions = conditions.into_iter().collect();
+        self.returned_value_conditions = conditions.into_iter().collect();
 
         self
     }
 
-    /// Returns ordinary presence facts prepared from the selected whole-value transport.
-    pub fn returned_input_conditions(&self) -> &[bray_symbols::ConstantTermId] {
-        &self.returned_input_conditions
+    /// Returns ordinary presence facts prepared from the selected input transfers.
+    pub fn returned_value_conditions(&self) -> &[bray_symbols::ConstantTermId] {
+        &self.returned_value_conditions
     }
 
     /// Creates the instantiated phase contracts for a selected call.
@@ -163,8 +164,8 @@ impl BoundCallDependencyContracts {
         Self {
             invocation,
             result,
-            returned_input: None,
-            returned_input_conditions: Arc::new([]),
+            owned_transfers: Arc::new([]),
+            returned_value_conditions: Arc::new([]),
             carriers: Arc::new([]),
             input_count: 0,
             synchronous_cleanup: Arc::new([]),

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::BoundOperator;
 use bray_symbols::ConstantValueKind;
@@ -172,7 +172,14 @@ fn join_observations<'a>(
         } else if value.owner_identity() == other.owner_identity()
             && value.owner_identity() != &ExecutionCondition::Unknown
         {
-            join_components(&value, &other)
+            common_components(
+                &value,
+                &other,
+                None,
+                (&target.assumptions, &incoming.assumptions),
+                &mut joined_facts,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            )
         } else {
             ExecutionCondition::Joined(
                 block.unit(),
@@ -254,6 +261,7 @@ fn join_observations<'a>(
             value,
             other,
             Some(ExecutionCondition::Expression(expression)),
+            (&target.assumptions, &incoming.assumptions),
             &mut joined_facts,
             &mut { ExecutionCondition::WORK_LIMIT },
         );
@@ -587,16 +595,14 @@ fn insert_replacement(
         .or_insert_with(|| joined.clone());
 }
 
-fn join_components(left: &ExecutionCondition, right: &ExecutionCondition) -> ExecutionCondition {
-    common_components(left, right, None, &mut Vec::new(), &mut {
-        ExecutionCondition::WORK_LIMIT
-    })
-}
-
 fn common_components(
     left: &ExecutionCondition,
     right: &ExecutionCondition,
     result: Option<ExecutionCondition>,
+    conditions: (
+        &BTreeSet<(ExecutionCondition, bool)>,
+        &BTreeSet<(ExecutionCondition, bool)>,
+    ),
     facts: &mut Vec<(ExecutionCondition, bool)>,
     budget: &mut usize,
 ) -> ExecutionCondition {
@@ -617,7 +623,7 @@ fn common_components(
     if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
     {
         // Joining an owned result does not identify different borrowed referents.
-        return common_components(left, right, None, facts, budget).borrowed();
+        return common_components(left, right, None, conditions, facts, budget).borrowed();
     }
 
     if matches!(left, ExecutionCondition::Borrowed(_))
@@ -703,25 +709,49 @@ fn common_components(
         }
     });
 
-    let absent = |value: &ExecutionCondition| {
-        matches!(value, ExecutionCondition::Literal(value)
-        if matches!(value.kind(), ConstantValueKind::NullableAbsent))
-    };
-
     let fields = projections
         .into_iter()
         .map(|projection| {
-            if projection == bray_bound_tree::StorageProjection::NullableValue
-                && (absent(left) || absent(right))
-            {
-                // The joined nullable owns its payload only on the present path.
-                // Keep that conditional owner just as for inactive union payloads.
-                let present = if absent(left) { right } else { left };
+            let inactive =
+                |value: &ExecutionCondition, conditions: &BTreeSet<(ExecutionCondition, bool)>| {
+                    match projection {
+                        bray_bound_tree::StorageProjection::NullableValue => {
+                            matches!(value, ExecutionCondition::Literal(value)
+                    if matches!(value.kind(), ConstantValueKind::NullableAbsent))
+                                || conditions.iter().any(|(condition, holds)| {
+                                    condition.nullable_absence(*holds).is_some_and(
+                                        |(subject, _)| {
+                                            subject == value || subject == value.owner_identity()
+                                        },
+                                    )
+                                })
+                        }
+                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
+                            variant,
+                            ..
+                        } => {
+                            value
+                                .clone()
+                                .matches_variant(variant)
+                                .prove(conditions, &mut { ExecutionCondition::WORK_LIMIT })
+                                == Some(false)
+                        }
+                        _ => false,
+                    }
+                };
+
+            let left_inactive = inactive(left, conditions.0);
+            let right_inactive = inactive(right, conditions.1);
+
+            if left_inactive != right_inactive {
+                // Only the active predecessor initializes this payload. Retain
+                // its components under the joined conditional owner.
+                let initialized = if left_inactive { right } else { left };
 
                 return (
                     projection,
                     owned_snapshot(
-                        &present.clone().project(projection),
+                        &initialized.clone().project(projection),
                         identity.clone().project(projection),
                         budget,
                     ),
@@ -737,7 +767,7 @@ fn common_components(
 
             (
                 projection,
-                common_components(&left, &right, result, facts, budget),
+                common_components(&left, &right, result, conditions, facts, budget),
             )
         })
         .collect();
@@ -745,8 +775,8 @@ fn common_components(
     ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
 }
 
-/// Only the present predecessor initializes these components. Keep its contents
-/// under the joined payload identity; the absent predecessor owns no payload.
+/// Keep initialized components under the joined conditional payload identity.
+/// The inactive predecessor owns no payload.
 fn owned_snapshot(
     source: &ExecutionCondition,
     identity: ExecutionCondition,
@@ -778,12 +808,13 @@ fn owned_snapshot(
         ExecutionCondition::Tagged(variant, _) => {
             ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
         }
-        ExecutionCondition::Present(value) => owned_snapshot(
-            value,
-            identity.project(bray_bound_tree::StorageProjection::NullableValue),
-            budget,
-        )
-        .present(),
+        ExecutionCondition::Present(value) => {
+            ExecutionCondition::Present(std::sync::Arc::new(owned_snapshot(
+                value,
+                identity.project(bray_bound_tree::StorageProjection::NullableValue),
+                budget,
+            )))
+        }
         ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
         | ExecutionCondition::Literal(_)
@@ -794,11 +825,27 @@ fn owned_snapshot(
 
 #[cfg(test)]
 mod tests {
-    use super::join_components;
+    use super::common_components;
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_bound_tree::{BoundUnitId, StorageProjection};
     use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
     use std::sync::Arc;
+
+    fn join_components(
+        left: &ExecutionCondition,
+        right: &ExecutionCondition,
+    ) -> ExecutionCondition {
+        let conditions = Default::default();
+
+        common_components(
+            left,
+            right,
+            None,
+            (&conditions, &conditions),
+            &mut Vec::new(),
+            &mut { ExecutionCondition::WORK_LIMIT },
+        )
+    }
 
     #[test]
     fn joins_keep_matching_nested_observations_without_inventing_identity() {

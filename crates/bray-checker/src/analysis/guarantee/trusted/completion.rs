@@ -215,11 +215,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         // Publish the admitted entry snapshot independently of current mutable contents.
-        state
+        let completed = state
             .entries
             .get_mut(&invocation)
-            .expect("completed invocation retains its captured entry")
-            .assumptions = entry.assumptions;
+            .expect("completed invocation retains its captured entry");
+
+        completed.assumptions = entry.assumptions;
+        completed.returned = Default::default();
 
         state.restore_returned_evidence(entry.returned);
 

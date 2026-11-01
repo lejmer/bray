@@ -142,9 +142,9 @@ impl InterfaceSemantics {
             )?;
         }
 
-        if let Some(input) = result_dependencies.returned_input {
-            self.validate_returned_input(
-                input,
+        for transfer in &*result_dependencies.owned_transfers {
+            self.validate_owned_transfer(
+                transfer,
                 signature.parameters.len() + usize::from(signature.receiver.is_some()),
                 surface,
             )?;

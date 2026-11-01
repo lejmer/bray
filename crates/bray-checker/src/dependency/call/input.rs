@@ -162,7 +162,7 @@ fn input_contract<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
-        .with_returned_input(template.returned_input())
+        .with_owned_transfers(template.owned_transfers().iter().cloned())
         .with_normal_completion(template.normal_completion())
         .with_normal_storage_preservation(template.preserves_storage_on_normal_return())
         .with_reports(reports);

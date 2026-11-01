@@ -117,14 +117,27 @@ impl InternState {
                 continue;
             };
 
-            let returned_input = if let Some(input) = input.returned_input {
-                let Some(input) = self.constant_term_id(input) else {
-                    continue;
-                };
+            let owned_transfers = input
+                .owned_transfers
+                .iter()
+                .map(|transfer| {
+                    let Some(term) = self.constant_term_id(transfer.input()) else {
+                        return Ok(None);
+                    };
 
-                Some(input)
-            } else {
-                None
+                    let output = transfer
+                        .output()
+                        .iter()
+                        .map(|projection| self.convert_constant_projection(projection, symbols))
+                        .collect::<Result<Option<Vec<_>>, _>>()?;
+
+                    Ok(output
+                        .map(|output| bray_symbols::DependencyOwnedTransfer::new(term, output)))
+                })
+                .collect::<Result<Option<Vec<_>>, InterfaceSemanticInternError>>()?;
+
+            let Some(owned_transfers) = owned_transfers else {
+                continue;
             };
 
             let observed_result = if let Some(term) = input.observed_result {
@@ -142,7 +155,7 @@ impl InternState {
                     contract
                         .with_borrows(borrows)
                         .with_carriers(carriers)
-                        .with_returned_input(returned_input)
+                        .with_owned_transfers(owned_transfers)
                         .with_observed_result(observed_result)
                         .with_effects(effects)
                         .with_synchronous_cleanup(synchronous_cleanup)

@@ -78,7 +78,17 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 }
             }
 
-            write_optional_u32(encoder, contract.returned_input.map(|input| input.raw()));
+            write_count(encoder, contract.owned_transfers.len());
+
+            for transfer in &*contract.owned_transfers {
+                encoder.write_u32(transfer.input().raw());
+                write_count(encoder, transfer.output().len());
+
+                for projection in transfer.output() {
+                    super::value::encode_constant_projection(encoder, projection);
+                }
+            }
+
             write_optional_u32(encoder, contract.observed_result.map(|term| term.raw()));
             write_count(encoder, contract.carriers.len());
 
