@@ -22,14 +22,20 @@ static int check_event_cold_shutdown(void)
     uint64_t runtime = bray_runtime_task_control_creation();
     uintptr_t identity = bray_runtime_event_creation(runtime, &event);
 
-    if (!identity || bray_runtime_structured_shutdown() != 4 ||
-        bray_runtime_event_destruction(runtime, identity) != 0)
+    if (
+        !identity ||
+        bray_runtime_structured_shutdown() != 4 ||
+        bray_runtime_event_destruction(runtime, identity) != 0
+    )
         return 225;
 
     bray_runtime_event_release(&event);
 
-    if (bray_runtime_structured_shutdown() != 0 || atomic_load(&live_allocations) != 0 ||
-        bray_runtime_event_signal(identity) != 3)
+    if (
+        bray_runtime_structured_shutdown() != 0 ||
+        atomic_load(&live_allocations) != 0 ||
+        bray_runtime_event_signal(identity) != 3
+    )
         return 226;
 
     return 0;
@@ -168,7 +174,8 @@ static int prepare_event(EventContext* context, uint64_t runtime)
 
     context->identity = bray_runtime_event_creation(runtime, &context->event);
 
-    return !task || !context->identity ||
+    return !task ||
+        !context->identity ||
         bray_runtime_task_control_retention(runtime, task, &context->target) != 0;
 }
 
@@ -177,8 +184,10 @@ static void release_event_context(EventContext* context, int destroyed)
     if (!destroyed && bray_runtime_event_destruction(context->runtime, context->identity) != 0)
         abort();
 
-    if ((!context->resolved && bray_runtime_task_control_destruction(&context->target) != 0) ||
-        bray_runtime_task_control_reference_release(&context->target) != 0)
+    if (
+        (!context->resolved && bray_runtime_task_control_destruction(&context->target) != 0) ||
+        bray_runtime_task_control_reference_release(&context->target) != 0
+    )
         abort();
 
     if (!context->released_event)
@@ -209,10 +218,13 @@ static int check_event_runtime(void)
 
     EventReference rejected = {0};
 
-    if (bray_runtime_event_acquisition(runtime + 1, context.identity, &rejected) != 3 ||
+    if (
+        bray_runtime_event_acquisition(runtime + 1, context.identity, &rejected) != 3 ||
         bray_runtime_event_acquisition(0, context.identity, &rejected) != 3 ||
         bray_runtime_event_destruction(runtime + 1, context.identity) != 3 ||
-        bray_runtime_event_signal(0) != 3 || bray_runtime_event_creation(0, &rejected) != 0)
+        bray_runtime_event_signal(0) != 3 ||
+        bray_runtime_event_creation(0, &rejected) != 0
+    )
         return 220;
 
     unsigned allocation_before = bray_allocation_probe_begin();
@@ -226,10 +238,24 @@ static int check_event_runtime(void)
     uint64_t generation = 0;
     uint32_t changed = 0;
 
-    if (bray_runtime_event_notification(&context.event, 0, &generation, &changed) != 0 || generation != 1 || changed != 1 ||
-        bray_runtime_event_registration(&context.event, 0, &context.target, &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
-        context.wakes != 1 || context.releases != 1 || bray_runtime_event_readiness(&context.target) != 1 ||
-        bray_runtime_event_withdrawal(&context.target) != 1)
+    if (
+        bray_runtime_event_notification(&context.event, 0, &generation, &changed) != 0 ||
+        generation != 1 ||
+        changed != 1 ||
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context,
+                event_wake
+            }
+        ) != 0 ||
+        context.wakes != 1 ||
+        context.releases != 1 ||
+        bray_runtime_event_readiness(&context.target) != 1 ||
+        bray_runtime_event_withdrawal(&context.target) != 1
+    )
         return 202;
 
     // Task admission has already backed every mandatory wait/delivery link.
@@ -237,15 +263,28 @@ static int check_event_runtime(void)
 
     for (unsigned index = 0; index < 2000; ++index)
     {
-        if (bray_runtime_event_registration(&context.event, generation, &context.target, &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
-            bray_runtime_event_readiness(&context.target) != 0)
+        if (
+            bray_runtime_event_registration(
+                &context.event,
+                generation,
+                &context.target,
+                &(EventCallback) {
+                    (uintptr_t)&context,
+                    event_wake
+                }
+            ) != 0 ||
+            bray_runtime_event_readiness(&context.target) != 0
+        )
             return 203;
 
         if (index % 2 == 0 && bray_runtime_event_withdrawal(&context.target) != 1)
             return 204;
 
-        if (bray_runtime_event_notification(&context.event, 0, &generation, &changed) != 0 || changed != 1 ||
-            bray_runtime_event_readiness(&context.target) != 1)
+        if (
+            bray_runtime_event_notification(&context.event, 0, &generation, &changed) != 0 ||
+            changed != 1 ||
+            bray_runtime_event_readiness(&context.target) != 1
+        )
             return 205;
     }
 
@@ -265,7 +304,17 @@ static int check_event_runtime(void)
 
         atomic_store_explicit(&signal.start, 1, memory_order_release);
 
-        if (bray_runtime_event_registration(&context.event, 0, &context.target, &(EventCallback){ (uintptr_t)&context, event_wake }) != 0)
+        if (
+            bray_runtime_event_registration(
+                &context.event,
+                0,
+                &context.target,
+                &(EventCallback) {
+                    (uintptr_t)&context,
+                    event_wake
+                }
+            ) != 0
+        )
             return 208;
 
         join_event_signal(thread);
@@ -284,6 +333,7 @@ static int check_event_runtime(void)
         _Bool closed;
         uint64_t head, tail;
     } EventState;
+
     typedef struct
     {
         atomic_size_t references;
@@ -295,18 +345,38 @@ static int check_event_runtime(void)
 
     ((EventStorage*)context.event.address)->state.generation = UINT64_MAX;
 
-    if (bray_runtime_event_registration(&context.event, UINT64_MAX, &context.target,
-            &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
+    if (
+        bray_runtime_event_registration(
+            &context.event,
+            UINT64_MAX, &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context,
+                event_wake
+            }
+        ) != 0 ||
         bray_runtime_event_notification(&context.event, 0, &generation, &changed) != 8 ||
-        generation != UINT64_MAX || changed != 1 || context.wakes != 1 || context.releases != 1 ||
+        generation != UINT64_MAX ||
+        changed != 1 ||
+        context.wakes != 1 ||
+        context.releases != 1 ||
         bray_runtime_event_observation(&context.event, &generation) != 1 ||
-        bray_runtime_event_signal(context.identity) != 0)
+        bray_runtime_event_signal(context.identity) != 0
+    )
         return 218;
 
     // Closure permits immediate delivery but never publishes another membership.
-    if (bray_runtime_event_registration(&context.event, UINT64_MAX, &context.target,
-            &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
-        context.wakes != 2 || context.releases != 2)
+    if (
+        bray_runtime_event_registration(
+            &context.event,
+            UINT64_MAX,
+            &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context,
+                event_wake
+            }
+        ) != 0 ||
+        context.wakes != 2 || context.releases != 2
+    )
         return 219;
 
     release_event_context(&context, 0);
@@ -319,10 +389,29 @@ static int check_event_runtime(void)
 
     context.failure = 4;
 
-    if (bray_runtime_event_registration(&context.event, 0, &context.target, &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
-        bray_runtime_event_registration(&context.event, 0, &second.target, &(EventCallback){ (uintptr_t)&second, event_wake }) != 0 ||
-        bray_runtime_event_signal(context.identity) != 4 || context.wakes != 1 || second.wakes != 1 ||
-        context.releases != 1 || second.releases != 1)
+    if (
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context, event_wake
+            }
+        ) != 0 ||
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &second.target,
+            &(EventCallback) {
+                (uintptr_t)&second, event_wake
+            }
+        ) != 0 ||
+        bray_runtime_event_signal(context.identity) != 4 ||
+        context.wakes != 1 ||
+        second.wakes != 1 ||
+        context.releases != 1 ||
+        second.releases != 1
+    )
         return 216;
 
     release_event_context(&context, 0);
@@ -335,8 +424,26 @@ static int check_event_runtime(void)
     context.block = 1;
     context.destroy = 1;
 
-    if (bray_runtime_event_registration(&context.event, 0, &context.target, &(EventCallback){ (uintptr_t)&context, event_wake }) != 0 ||
-        bray_runtime_event_registration(&context.event, 0, &second.target, &(EventCallback){ (uintptr_t)&second, event_wake }) != 0)
+    if (
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context,
+                event_wake
+            }
+        ) != 0 ||
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &second.target,
+            &(EventCallback) {
+                (uintptr_t)&second,
+                event_wake
+            }
+        ) != 0
+    )
         return 211;
 
     EventSignal signal = { .identity = context.identity };
@@ -355,10 +462,15 @@ static int check_event_runtime(void)
 
     // The membership was popped before entry, so withdrawal succeeds without
     // releasing the independently committed callback or its context.
-    if (bray_runtime_event_readiness(&context.target) != 1 || bray_runtime_event_readiness(&second.target) != 0 ||
-        bray_runtime_event_withdrawal(&context.target) != 1 || context.releases != 0 ||
-        bray_runtime_event_signal(context.identity) != 3 || bray_runtime_event_withdrawal(&second.target) != 0 ||
-        bray_runtime_task_control_destruction(&second.target) != 0)
+    if (
+        bray_runtime_event_readiness(&context.target) != 1 ||
+        bray_runtime_event_readiness(&second.target) != 0 ||
+        bray_runtime_event_withdrawal(&context.target) != 1 ||
+        context.releases != 0 ||
+        bray_runtime_event_signal(context.identity) != 3 ||
+        bray_runtime_event_withdrawal(&second.target) != 0 ||
+        bray_runtime_task_control_destruction(&second.target) != 0
+    )
         return 212;
 
     second.resolved = 1;
@@ -369,8 +481,10 @@ static int check_event_runtime(void)
     if (signal.status != 0 || context.wakes != 1 || context.releases != 1)
         return 213;
 
-    if (bray_runtime_event_acquisition(runtime, context.identity, &rejected) != 3 ||
-        bray_runtime_event_acquisition(runtime + 1, context.identity, &rejected) != 3)
+    if (
+        bray_runtime_event_acquisition(runtime, context.identity, &rejected) != 3 ||
+        bray_runtime_event_acquisition(runtime + 1, context.identity, &rejected) != 3
+    )
         return 214;
 
     release_event_context(&context, 1);
@@ -381,8 +495,17 @@ static int check_event_runtime(void)
 
     context.destroy = 1;
 
-    if (bray_runtime_event_registration(&context.event, 0, &context.target,
-            &(EventCallback){ (uintptr_t)&context, event_wake }) != 0)
+    if (
+        bray_runtime_event_registration(
+            &context.event,
+            0,
+            &context.target,
+            &(EventCallback) {
+                (uintptr_t)&context,
+                event_wake
+            }
+        ) != 0
+    )
         return 223;
 
     bray_runtime_event_release(&context.event);
@@ -396,6 +519,8 @@ static int check_event_runtime(void)
 
     release_event_context(&context, 1);
     bray_runtime_event_clear(runtime);
+
     puts("event delivery: stale/register/withdraw/commit/unattached/close/denied-allocation passed");
+
     return 0;
 }
