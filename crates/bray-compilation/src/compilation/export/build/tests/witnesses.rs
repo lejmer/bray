@@ -991,6 +991,158 @@ const CASES: &[(&str, &str, bool)] = &[
     ",
         false,
     ),
+    (
+        "nullable_mixed",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.choose_nullable(repeat);
+        }
+        else
+        {
+            yield api.make();
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_mixed_reverse",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.make();
+        }
+        else
+        {
+            yield api.choose_nullable(repeat);
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_mixed_explicit",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.choose_nullable(repeat);
+        }
+        else
+        {
+            let value: api.Receipt? = api.make();
+
+            yield value;
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_mixed_inline",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield if repeat
+            {
+                yield api.make();
+            }
+            else
+            {
+                yield none;
+            };
+        }
+        else
+        {
+            yield api.make();
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_mixed_assignment",
+        r"
+        let mut selected = api.choose_nullable(repeat);
+
+        if existing
+        {
+            selected = api.make();
+        }
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_both_conditional",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.choose_nullable(repeat);
+        }
+        else
+        {
+            yield api.choose_nullable(existing);
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        true,
+    ),
+    (
+        "nullable_mixed_forged",
+        r"
+        let selected: api.Receipt? = if existing
+        {
+            yield api.choose_nullable(repeat);
+        }
+        else
+        {
+            yield api.Receipt
+            {
+                marker = api.Marker
+                {
+                }
+            };
+        };
+
+        match consume selected
+        {
+            case ?value { api.observe(&value); }
+            case none {}
+        }
+    ",
+        false,
+    ),
 ];
 
 #[test]

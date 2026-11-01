@@ -320,6 +320,12 @@ impl ExecutionCondition {
             .any(|condition| condition == value || condition.overlaps_observation(value))
     }
 
+    /// Observes an access subject through trusted claims, excluding ordinary guards.
+    pub(crate) fn observes_trusted(&self, value: &Self) -> bool {
+        self.observations()
+            .any(|condition| matches!(condition, Self::Trusted(_)) && condition.observes(value))
+    }
+
     /// Reports whether a completion clause observes its result. Unknown meaning
     /// conservatively retains result authority until the owning query resolves it.
     pub fn observes_completion_result(&self) -> bool {

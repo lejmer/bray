@@ -709,6 +709,63 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_nullable_guards_do_not_share_sibling_address_bounds() {
+        let root = input(0);
+
+        let payload = root
+            .clone()
+            .component(ConstantProjectionKind::NullableValue);
+
+        let marker = payload
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+        let address =
+            payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(),
+            bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![root, absent],
+        );
+
+        let guarded = |claim| {
+            ExecutionCondition::operation(
+                bray_bound_tree::BoundOperator::LogicalOr,
+                vec![guard.clone(), claim],
+            )
+        };
+
+        let marker = guarded(permission(1).with_equalities(&[(input(1), marker)].into()));
+        let access = guarded(permission(2).with_equalities(&[(input(2), address.clone())].into()));
+
+        let condition = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalAnd,
+            vec![marker.clone(), access.clone()],
+        );
+
+        let owners = BTreeSet::from([ExecutionPlace::argument(SymbolOrdinal::new(30))]);
+        let mut witness = crate::execution_guarantees::ExecutionWitness::default();
+
+        witness.carry(
+            &condition,
+            true,
+            &[(address.clone(), owners.clone())].into(),
+        );
+
+        assert!(witness.conditions[&marker].addresses.is_empty());
+
+        assert_eq!(
+            witness.conditions[&access].addresses.get(&address),
+            Some(&owners)
+        );
+    }
+
+    #[test]
     fn guarded_refinement_preserves_only_the_derived_clauses_address_dependencies() {
         for select_marker in [false, true] {
             let carrier = input(20);
