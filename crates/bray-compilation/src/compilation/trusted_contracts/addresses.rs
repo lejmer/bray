@@ -3,6 +3,43 @@ use bray_diagnostics::DiagnosticKind;
 use crate::test_support::compilation;
 
 #[test]
+fn storing_address_bits_does_not_bind_destination_initialization_to_the_pointee() {
+    for (after, valid) in [
+        ("_ = bits;", true),
+        ("_ = trusted core.memory.read<u32>(bits);", false),
+    ] {
+        let application = compilation(&format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            trusted func caller() uses(raw_memory, unchecked_init) {{
+                let mut storage: DataPointer<u32> = core.memory.null<u32>();
+                let slot = core.memory.address_of_mut<DataPointer<u32>>(&mut storage);
+                {{
+                    let payload: u32 = 7;
+                    let pointer = core.memory.address_of<u32>(&payload);
+                    trusted core.memory.write<DataPointer<u32>>(slot, pointer);
+                }}
+                let bits = trusted core.memory.read<DataPointer<u32>>(slot);
+                {after}
+            }}
+            "#
+        ));
+
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{after}: {diagnostics:#?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
+    }
+}
+
+#[test]
 fn address_retirement_preserves_only_independent_returned_guarantees() {
     for (after, valid) in [
         ("observe_marker(&receipt);", true),
@@ -339,13 +376,130 @@ fn indirect_owned_inputs_keep_address_bounds_through_callable_values() {
             }}
         "#
         ));
+
         let diagnostics = application.check_diagnostics();
+
         assert_eq!(!diagnostics.has_errors(), valid, "{body}: {diagnostics:#?}");
+
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+        }
+    }
+}
+
+#[test]
+fn input_postconditions_expire_only_their_address_access() {
+    for (setter, call) in [
+        (
+            "trusted func set(pos receipt: &mut Receipt, pos payload: &u32) requires(trusted held(owner = &receipt.marker)) ensures(trusted held(owner = &receipt.marker), trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) { receipt.pointer = core.memory.address_of<u32>(payload); }",
+            "set(&mut receipt, &payload)",
+        ),
+        (
+            "impl Receipt { trusted mut func set(pos payload: &u32) requires(trusted held(owner = &self.marker)) ensures(trusted held(owner = &self.marker), trusted core.memory.valid_read<u32>(pointer = self.pointer, count = 1)) { self.pointer = core.memory.address_of<u32>(payload); } }",
+            "receipt.set(&payload)",
+        ),
+        (
+            "trusted func set(pos receipt: &mut Receipt, pos payload: &u32) -> Marker requires(trusted held(owner = &receipt.marker)) ensures(trusted held(owner = &result) && trusted held(owner = &receipt.marker) && trusted core.memory.valid_read<u32>(pointer = receipt.pointer, count = 1)) { receipt.pointer = core.memory.address_of<u32>(payload); return Marker {}; }",
+            "set(&mut receipt, &payload)",
+        ),
+    ] {
+        for (body, valid) in [
+            (
+                format!("let payload: u32 = 0; let returned = {call}; observe(receipt.pointer);"),
+                true,
+            ),
+            (
+                format!(
+                    "let returned = {{ let payload: u32 = 0; yield {call}; }}; observe(receipt.pointer);"
+                ),
+                false,
+            ),
+            (
+                format!(
+                    "let returned = {{ let payload: u32 = 0; yield {call}; }}; observe_marker(&receipt);"
+                ),
+                true,
+            ),
+        ] {
+            let application = compilation(&format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                struct Marker {{}}
+                struct Receipt {{ marker: Marker; mut pointer: DataPointer<u32>; }}
+                trusted predicate held(owner: &Marker);
+                trusted func produce() -> Receipt ensures(trusted held(owner = &result.marker))
+                {{ return {{ marker = Marker {{}}, pointer = core.memory.null<u32>() }}; }}
+                func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
+                func observe_marker(pos receipt: &Receipt) requires(trusted held(owner = &receipt.marker)) {{}}
+                {setter}
+                func caller() {{ let mut receipt = produce(); {body} }}
+            "#
+            ));
+
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{setter}\n{body}\n{diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn forwarding_keeps_sibling_address_lifetimes_distinct() {
+    for forwarding in [
+        "return values;",
+        "return { left = core.memory.offset<u32>(values.left, elements = 0), right = core.memory.offset<u32>(values.right, elements = 0) };",
+    ] {
+        for (field, valid) in [("left", false), ("right", true)] {
+            let application = compilation(&format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                struct Addresses {{ left: DataPointer<u32>; right: DataPointer<u32>; }}
+                trusted func produce(pos left: &u32, pos right: &u32) -> Addresses
+                    ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
+                {{ return {{ left = core.memory.address_of<u32>(left), right = core.memory.address_of<u32>(right) }}; }}
+                trusted func forward(pos values: Addresses) -> Addresses
+                    requires(trusted core.memory.valid_read<u32>(pointer = values.left, count = 1), trusted core.memory.valid_read<u32>(pointer = values.right, count = 1))
+                    ensures(trusted core.memory.valid_read<u32>(pointer = result.left, count = 1), trusted core.memory.valid_read<u32>(pointer = result.right, count = 1))
+                {{ {forwarding} }}
+                func observe(pos pointer: DataPointer<u32>) requires(trusted core.memory.valid_read<u32>(pointer = pointer, count = 1)) {{}}
+                func caller() {{
+                    let retained: u32 = 1;
+                    let values = {{ let expired: u32 = 0; yield forward(produce(&expired, &retained)); }};
+                    observe(values.{field});
+                }}
+            "#
+            ));
+
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{forwarding}\n{field}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
         }
     }
 }

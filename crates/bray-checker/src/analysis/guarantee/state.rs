@@ -143,13 +143,7 @@ impl ExecutionState {
             .entry(carrier.owner_identity().clone())
             .or_default();
 
-        for condition in condition.conjuncts() {
-            witness
-                .conditions
-                .entry(condition.clone())
-                .or_default()
-                .witness = true;
-        }
+        witness.carry(&condition, true, &Default::default());
     }
 
     /// Snapshot access bounds independently of the owning carrier's later consumption.

@@ -1,6 +1,6 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Origin, Place};
+use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
 use bray_symbols::{DependencySubjectRoot, TypeData};
@@ -51,7 +51,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut unbounded = std::collections::BTreeSet::new();
         let summary = std::mem::take(&mut self.results).summary();
 
-        for (slot, target, exact, bounded) in self
+        for (slot, target, exact, bounds) in self
             .references
             .iter()
             .flat_map(|references| references.targets())
@@ -65,6 +65,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             if let Some(relation) = self.result_reference(slot, target, ty, exact)? {
+                let bounded = match bounds {
+                    ReferenceBounds::Known => true,
+                    ReferenceBounds::Displaced => {
+                        relation.kind() == bray_symbols::DependencyReferenceKind::Address
+                    }
+                    ReferenceBounds::Unknown => false,
+                };
+
                 if bounded {
                     let exact = exact && relation.entry().is_some();
 
