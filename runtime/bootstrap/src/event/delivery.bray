@@ -1,0 +1,289 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.event;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.task;
+
+@abi(c)
+trusted internal func observation(pos pointer: DataPointer<Reference>, pos output: DataPointer<u64>) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let mut owner = trusted read_reference(pointer);
+    let (generation, closed) = trusted observe(&owner);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, generation);
+
+    return if closed
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+trusted internal func observe(pos owner: &Reference) -> (u64, bool)
+    requires(trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained(owner = owner))
+    when(trusted owned_reference(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = owner))
+    }
+    uses(intrinsic)
+{
+    let lease = trusted event_access(owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted event_anchor(owner, &lease);
+    let state = trusted event_state(&lease, &mut anchor);
+
+    return (state.generation, state.closed);
+}
+
+@abi(c)
+trusted internal func notification(
+    pos pointer: DataPointer<Reference>,
+    pos close: u32,
+    pos output: DataPointer<u64>,
+    pos changed: DataPointer<u32>
+) -> u32
+    requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let mut owner = trusted read_reference(pointer);
+    let (generation, transition, status) = trusted notify(&owner, close != 0);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<u64>(output, generation);
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<u32>(
+        changed,
+        if transition
+        {
+            yield 1;
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
+    return status;
+}
+
+trusted internal func notify(pos owner: &Reference, pos close: bool) -> (u64, bool, u32)
+    requires(trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained(owner = owner))
+    when(trusted owned_reference(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = owner))
+    }
+{
+    let (generation, exhausted, delivery) = trusted commit(owner, close);
+
+    if delivery matches none
+    {
+        return (generation, false, 0);
+    }
+
+    let committed = trusted take_delivery(delivery);
+    let status = trusted deliver(owner, committed);
+
+    return (
+        generation,
+        true,
+        if exhausted
+        {
+            yield 8;
+        }
+        else
+        {
+            yield status;
+        }
+    );
+}
+
+trusted internal func take_delivery(
+    pos owner: bray.runtime.bootstrap.task.Delivery?
+) -> bray.runtime.bootstrap.task.Delivery
+    requires(owner matches ?_, trusted optional_delivery(owner = &owner))
+    ensures(trusted bray.runtime.bootstrap.task.delivery_owned(owner = &result))
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+trusted internal func commit(
+    pos owner: &Reference,
+    pos close: bool
+) -> (u64, bool, bray.runtime.bootstrap.task.Delivery?)
+    requires(trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained(owner = owner))
+    when(trusted owned_reference(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = owner))
+    }
+    ensures(trusted optional_delivery(owner = &result.2))
+    uses(intrinsic)
+{
+    let lease = trusted event_access(owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted event_anchor(owner, &lease);
+
+    return trusted commit_locked(&lease, &mut anchor, close);
+}
+
+trusted internal func commit_locked(
+    pos lease: &bray.runtime.bootstrap.host.HostLease,
+    pos anchor: &mut Anchor,
+    pos close: bool
+) -> (u64, bool, bray.runtime.bootstrap.task.Delivery?)
+    requires(
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted anchored(owner = &anchor),
+        trusted anchor_matches(anchor = &anchor, lease = lease)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
+        trusted optional_delivery(owner = &result.2)
+    )
+{
+    let state = trusted event_state(lease, anchor);
+
+    if state.closed
+    {
+        return (state.generation, false, none);
+    }
+
+    let delivery = trusted detach(state);
+
+    let exhausted = !close && state.generation == std.numeric.U64_MAX;
+
+    if close || exhausted
+    {
+        state.closed = true;
+    }
+    else
+    {
+        state.generation += 1;
+    }
+
+    let committed: bray.runtime.bootstrap.task.Delivery? = delivery;
+
+    return (state.generation, exhausted, committed);
+}
+
+trusted internal func detach(pos owner: &mut State) -> bray.runtime.bootstrap.task.Delivery
+    requires(trusted collection_owned(owner = &owner))
+    ensures(trusted bray.runtime.bootstrap.task.delivery_owned(owner = &result))
+{
+    let next = owner.head;
+
+    owner.head = 0;
+    owner.tail = 0;
+
+    return
+    {
+        next = next
+    };
+}
+
+trusted internal predicate optional_delivery(owner: &(bray.runtime.bootstrap.task.Delivery?));
+
+trusted internal func deliver(pos event: &Reference, pos mut delivery: bray.runtime.bootstrap.task.Delivery) -> u32
+    requires(
+        trusted retained(owner = event),
+        trusted bray.runtime.bootstrap.task.delivery_owned(owner = &delivery),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(trusted retained(owner = event))
+    when(trusted owned_reference(owner = event))
+    {
+        ensures(trusted owned_reference(owner = event))
+    }
+{
+    let mut status: u32 = 0;
+
+    while delivery.next != 0
+    {
+        delivery = trusted deliver_one(event, delivery, &mut status);
+    }
+
+    return status;
+}
+
+trusted internal func deliver_one(
+    pos event: &Reference,
+    pos delivery: bray.runtime.bootstrap.task.Delivery,
+    pos status: &mut u32
+) -> bray.runtime.bootstrap.task.Delivery
+    requires(
+        trusted retained(owner = event),
+        delivery.next != 0,
+        trusted bray.runtime.bootstrap.task.delivery_owned(owner = &delivery),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted retained(owner = event),
+        trusted bray.runtime.bootstrap.task.delivery_owned(owner = &result),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    when(trusted owned_reference(owner = event))
+    {
+        ensures(trusted owned_reference(owner = event))
+    }
+{
+    let (wait, remaining) = trusted bray.runtime.bootstrap.task.pop_delivery(delivery);
+    let callback_status = trusted wake_waiter(&wait);
+
+    trusted bray.runtime.bootstrap.task.release_wait(wait);
+
+    if status == 0 && callback_status != 0
+    {
+        status = callback_status;
+    }
+
+    return remaining;
+}
+
+trusted internal func wake_waiter(pos owner: &bray.runtime.bootstrap.task.WaitRegistration) -> u32
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = owner))
+{
+    let callback = trusted bray.runtime.bootstrap.task.event_callback(owner);
+
+    return trusted invoke_callback(callback, 1);
+}
+
+trusted internal func release_callback(pos owner: Callback)
+    requires(trusted callback_owned(owner = &owner))
+{
+    _ = trusted invoke_callback(&owner, 0);
+}
+
+trusted internal func invoke_callback(pos owner: &Callback, pos notify: u32) -> u32
+    requires(trusted callback_owned(owner = owner))
+    ensures(trusted callback_owned(owner = owner))
+    uses(foreign_call)
+{
+    return trusted owner.call(owner.context, notify);
+}

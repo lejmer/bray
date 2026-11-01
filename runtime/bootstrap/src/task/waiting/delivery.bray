@@ -4,6 +4,7 @@ trusted internal module bray.runtime.bootstrap.task;
 using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
 // The detached chain owns the directory registrations until each is popped.
@@ -150,19 +151,35 @@ trusted internal func release_wait(pos owner: WaitRegistration)
         requires(trusted registration_owned(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
         ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     {
-        let take = trusted lambda(pos owner: &WaitRegistration) -> Reference
-            requires(trusted registration_owned(owner = owner))
-            ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+        match owner.target
         {
-            return
+            case WaitTarget.Task(_)
             {
-                pointer = owner.target.pointer,
-                runtime = owner.target.runtime,
-                handle = owner.target.handle
-            };
-        };
+                let take = trusted lambda(pos owner: &WaitRegistration) -> Reference
+                    requires(trusted registration_owned(owner = owner))
+                    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+                {
+                    let reference = trusted registration_target(owner);
 
-        _ = trusted dispose_reference(trusted take(&owner));
+                    return
+                    {
+                        pointer = reference.pointer,
+                        runtime = reference.runtime,
+                        handle = reference.handle
+                    };
+                };
+
+                _ = trusted dispose_reference(trusted take(&owner));
+            }
+            case WaitTarget.Event(_, _, _)
+            {
+                let event = trusted take_event_reference(&owner);
+                let callback = trusted take_event_callback(&owner);
+
+                trusted bray.runtime.bootstrap.event.release_callback(callback);
+                trusted bray.runtime.bootstrap.event.release_event(event);
+            }
+        }
 
         return
         {
@@ -173,4 +190,40 @@ trusted internal func release_wait(pos owner: WaitRegistration)
     };
 
     _ = trusted dispose_reference(trusted release_target(owner));
+}
+
+// These projections consume the independently retained components only while
+// release_wait owns the whole registration, after any entered callback drains.
+trusted internal func take_event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
+    requires(trusted registration_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.event.retained(owner = &result),
+        trusted bray.runtime.bootstrap.event.owned_reference(owner = &result)
+    )
+    uses(intrinsic)
+{
+    return match owner.target
+    {
+        case WaitTarget.Event(reference, _, _)
+        {
+            yield
+            {
+                address = reference.address
+            };
+        }
+        case WaitTarget.Task(_) { yield trusted core.target.abort(); }
+    };
+}
+
+trusted internal func take_event_callback(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Callback
+    requires(trusted registration_owned(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.event.callback_owned(owner = &result))
+{
+    let callback = trusted event_callback(owner);
+
+    return
+    {
+        context = callback.context,
+        call = callback.call
+    };
 }

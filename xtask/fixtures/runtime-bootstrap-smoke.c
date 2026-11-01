@@ -35,6 +35,8 @@ static unsigned deallocation_reentries;
 static unsigned deallocation_reentry_status;
 static void reenter_pool_on_release(void);
 static int check_numeric_runtime(void);
+static int check_event_runtime(void);
+static int check_event_cold_shutdown(void);
 static atomic_uint recursive_attachment_status;
 static atomic_uint recursive_attachment_leave_status;
 extern uint32_t bray_runtime_thread_attachment_enter(void);
@@ -3226,6 +3228,11 @@ int main(void)
     allocation_callback = before_allocation;
     release_callback = before_release;
 
+    int event_shutdown_status = check_event_cold_shutdown();
+
+    if (event_shutdown_status != 0)
+        return event_shutdown_status;
+
     int attachment_status = check_primitive_attachment();
 
     if (attachment_status != 0)
@@ -3283,6 +3290,11 @@ int main(void)
 
     if (cancellation_status != 0)
         return cancellation_status;
+
+    int event_status = check_event_runtime();
+
+    if (event_status != 0)
+        return event_status;
 
     int stream_status = stream_without_allocation();
 

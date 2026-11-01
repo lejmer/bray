@@ -6,6 +6,7 @@ using std.memory;
 using std.sync;
 using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
 trusted internal func take_registration(pos entries: &mut Entries, pos parent: u64) -> WaitRegistration?
@@ -44,7 +45,7 @@ trusted internal func withdraw_wait(pos parent: &Reference) -> bool
         }
 
         let registration = trusted take_optional_registration(taken);
-        let committed = trusted wait_committed(&registration);
+        let committed = trusted wait_committed(&registration, &lease);
         let mut entries = &mut host.tasks;
 
         if committed
@@ -53,7 +54,7 @@ trusted internal func withdraw_wait(pos parent: &Reference) -> bool
             return false;
         }
 
-        trusted unlink_registration(&mut entries, &registration);
+        trusted unlink_registration(&mut entries, &registration, &lease);
         yield registration;
     };
 
@@ -61,10 +62,30 @@ trusted internal func withdraw_wait(pos parent: &Reference) -> bool
     return true;
 }
 
-trusted internal func wait_committed(pos owner: &WaitRegistration) -> bool
-    requires(trusted registration_owned(owner = owner))
-    ensures(trusted registration_owned(owner = owner))
+trusted internal func wait_committed(
+    pos owner: &WaitRegistration,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+) -> bool
+    requires(
+        trusted registration_owned(owner = owner),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(
+        trusted registration_owned(owner = owner),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
 {
+    if let WaitTarget.Event(_, observed, _) = owner.target
+    {
+        let mut retained_event = trusted event_reference(owner);
+        let mut mutation = trusted bray.runtime.bootstrap.event.event_anchor(&retained_event, lease);
+        let event = trusted bray.runtime.bootstrap.event.event_state(lease, &mut mutation);
+
+        return event.closed || event.generation != observed;
+    }
+
     let observed = trusted registration_target(owner);
     let mut guard = trusted lock_cell(observed);
     let child = trusted guard.get();
@@ -79,37 +100,70 @@ trusted internal func wait_committed(pos owner: &WaitRegistration) -> bool
     };
 }
 
-trusted internal func unlink_registration(pos mut entries: &mut Entries, pos owner: &WaitRegistration)
-    requires(trusted registration_owned(owner = owner))
-    ensures(trusted registration_owned(owner = owner))
+trusted internal func unlink_registration(
+    pos mut entries: &mut Entries,
+    pos owner: &WaitRegistration,
+    pos lease: &bray.runtime.bootstrap.host.HostLease
+)
+    requires(
+        trusted registration_owned(owner = owner),
+        lease.active,
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
+    )
+    ensures(
+        trusted registration_owned(owner = owner),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
     uses(intrinsic)
 {
+    match owner.target
     {
-        if owner.previous == 0
+        case WaitTarget.Task(reference)
         {
-            let observed_slot = trusted wait_slot(&mut entries, owner.target.handle);
+            if owner.previous == 0
+            {
+                let observed_slot = trusted wait_slot(&mut entries, reference.handle);
 
-            if owner.retirement == 0
-            {
-                observed_slot.terminal_waiters = owner.next;
+                if owner.retirement == 0
+                {
+                    observed_slot.terminal_waiters = owner.next;
+                }
+                else
+                {
+                    observed_slot.retirement_waiters = owner.next;
+                }
             }
-            else
+        }
+        case WaitTarget.Event(_, _, _)
+        {
+            let retained_event = trusted event_reference(owner);
+            let mut mutation = trusted bray.runtime.bootstrap.event.event_anchor(&retained_event, lease);
+            let event = trusted bray.runtime.bootstrap.event.event_state(lease, &mut mutation);
+
+            if owner.previous == 0
             {
-                observed_slot.retirement_waiters = owner.next;
+                event.head = owner.next;
             }
+
+            if owner.next == 0
+            {
+                event.tail = owner.previous;
+            }
+        }
+    }
+
+    if owner.previous != 0
+    {
+        let previous = trusted wait_slot(&mut entries, owner.previous);
+
+        if let ?registration = previous.registration
+        {
+            registration.next = owner.next;
         }
         else
         {
-            let previous = trusted wait_slot(&mut entries, owner.previous);
-
-            if let ?registration = previous.registration
-            {
-                registration.next = owner.next;
-            }
-            else
-            {
-                trusted core.target.abort();
-            }
+            trusted core.target.abort();
         }
     }
 

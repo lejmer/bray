@@ -2,6 +2,20 @@ pub(crate) fn contains_symbol(contents: &str, symbol: &str) -> bool {
     symbol_tokens(contents).any(|token| token == symbol)
 }
 
+pub(crate) fn contains_archive(contents: &str, stem: &str) -> bool {
+    let names = [
+        format!("lib{stem}.a"),
+        format!("{stem}.a"),
+        format!("{stem}.lib"),
+    ];
+
+    contents
+        .split(|character: char| character.is_whitespace() || matches!(character, '(' | ')' | ':'))
+        .filter_map(|token| token.rsplit(['/', '\\']).next())
+        .map(|name| name.trim_matches(['"', '\'']))
+        .any(|name| names.iter().any(|archive| archive == name))
+}
+
 pub(crate) fn symbol_tokens(contents: &str) -> impl Iterator<Item = &str> {
     contents
         .lines()
@@ -12,7 +26,32 @@ pub(crate) fn symbol_tokens(contents: &str) -> impl Iterator<Item = &str> {
 
 #[cfg(test)]
 mod tests {
-    use super::contains_symbol;
+    use super::{contains_archive, contains_symbol};
+
+    #[test]
+    fn archive_matching_distinguishes_native_symbols_and_archive_members() {
+        assert!(!contains_archive(
+            "bray_runtime_event_signal\n_bray_runtime_event_creation",
+            "bray_runtime_event"
+        ));
+
+        assert!(contains_archive(
+            "/runtime/libbray_runtime_event.a(member.o)",
+            "bray_runtime_event"
+        ));
+
+        assert!(contains_archive(
+            "bray_runtime_event.lib:member.obj",
+            "bray_runtime_event"
+        ));
+
+        assert!(!contains_archive("/runtime/libbray_std.a(member.o)", "std"));
+
+        assert!(contains_archive(
+            "\"C:\\native output\\bray_runtime_event.lib\":member.obj",
+            "bray_runtime_event"
+        ));
+    }
 
     #[test]
     fn symbol_matching_ignores_mach_o_dead_stripped_entries() {

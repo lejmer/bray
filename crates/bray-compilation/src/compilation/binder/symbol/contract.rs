@@ -230,6 +230,8 @@ fn bind_callable_predicate_contracts(
         }
     }
 
+    predicates.sort_by_key(|clause| clause.ordinal());
+
     Ok(DiagnosticResult::new(predicates.into(), diagnostics))
 }
 

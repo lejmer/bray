@@ -230,3 +230,55 @@ trusted internal func lock_cell(pos owner: &Reference) -> std.sync.SpinLockGuard
 
     trusted core.target.abort();
 }
+
+// Duplicate the storage claim of a known live cell. The resident address comes
+// from the already admitted slot, without another external runtime/handle check.
+trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    uses(intrinsic)
+{
+    let runtime = owner.runtime;
+    let handle = owner.handle;
+    let lease = trusted registration_access(owner);
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(&lease);
+    let host = trusted bray.runtime.bootstrap.host.host_value(&lease, &mut anchor);
+    let slot = trusted wait_slot(&mut host.tasks, handle);
+
+    let issue = trusted lambda(
+        pos lease: &bray.runtime.bootstrap.host.HostLease,
+        pos slot: &Slot,
+        pos runtime: u64,
+        pos handle: u64
+    ) -> Reference
+        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+        ensures(trusted retained(owner = &result))
+        executes(total)
+    {
+        return
+        {
+            pointer = std.memory.address_of<Slot>(slot),
+            runtime = runtime,
+            handle = handle
+        };
+    };
+
+    let reference = trusted issue(&lease, &slot, runtime, handle);
+
+    {
+        let mut guard = trusted lock_cell(&reference);
+
+        if !trusted retain(trusted guard.get())
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    return reference;
+}
