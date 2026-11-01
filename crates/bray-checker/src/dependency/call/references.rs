@@ -76,7 +76,10 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
         .trusted_contracts()
         .and_then(|contracts| contracts.calls.get(&invocation))
         .is_some_and(|contract| {
-            contract.result_guarantees_name_whole_owner()
+            contract
+                .witness_subjects
+                .iter()
+                .any(|(_, subject)| subject.observes_completion_result())
                 || contract
                     .address_subjects
                     .iter()

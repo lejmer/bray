@@ -7,6 +7,7 @@ mod operation;
 mod prepare;
 mod refinement;
 mod value;
+mod witnesses;
 
 pub(in crate::analysis) use merge::merge as merge_execution;
 pub(super) use model::ExecutionFlow;

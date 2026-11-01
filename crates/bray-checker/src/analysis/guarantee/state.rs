@@ -777,6 +777,32 @@ mod tests {
     }
 
     #[test]
+    fn guarded_refinement_never_promotes_unproved_carrier_obligations() {
+        for guard_holds in [false, true] {
+            let predicate = permission(2);
+            let guard = input(3);
+
+            let conditional = ExecutionCondition::operation(
+                bray_bound_tree::BoundOperator::LogicalOr,
+                vec![guard.clone(), predicate.clone()],
+            );
+
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(input(0), predicate.clone());
+            state.carry_guarantee(input(0), conditional.clone());
+            conditional.assume(true, &mut state.trusted_assumptions);
+            state.assumptions.insert((guard, guard_holds));
+            state.refine_witnesses();
+
+            assert_eq!(
+                state.trusted_assumptions.contains(&(predicate, true)),
+                !guard_holds
+            );
+        }
+    }
+
+    #[test]
     fn discharging_a_guard_never_borrows_authority_from_another_carrier() {
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
             "ValidWrite",
