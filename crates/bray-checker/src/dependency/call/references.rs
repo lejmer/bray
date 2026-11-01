@@ -85,6 +85,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                     .iter()
                     .any(|(_, subject, _)| subject.observes_completion_result())
         })
+        || !template.carriers().is_empty()
         || template
             .borrows()
             .iter()

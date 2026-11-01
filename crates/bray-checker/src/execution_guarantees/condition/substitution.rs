@@ -275,6 +275,33 @@ fn rewrite_equalities(
             )),
             captured,
         },
+        ExecutionCondition::Input(place) if identities.is_some() => {
+            let mut rewritten = None;
+
+            // Input paths compact projections into their place. An owned root
+            // rename must reach those fields just as it reaches Projection nodes.
+            for length in (0..place.projections.len()).rev() {
+                let mut prefix = place.clone();
+
+                prefix.projections = place.projections[..length].into();
+
+                let prefix = ExecutionCondition::Input(prefix);
+
+                if replacements.contains_key(&prefix) {
+                    let root = rewrite_equalities(&prefix, replacements, identities, budget);
+
+                    rewritten = Some(
+                        place.projections[length..]
+                            .iter()
+                            .fold(root, |value, field| value.component(*field)),
+                    );
+
+                    break;
+                }
+            }
+
+            rewritten.unwrap_or(ExecutionCondition::Input(place))
+        }
         ExecutionCondition::Projection(field, base) => {
             rewrite_equalities(&base, replacements, identities, budget).component(field)
         }
