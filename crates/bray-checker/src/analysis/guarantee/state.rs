@@ -62,8 +62,8 @@ impl ExecutionState {
         &mut self,
         returned: crate::execution_guarantees::ExecutionValueEvidence,
     ) {
-        // Checked whole-input forwarding has no storage effects on a normal exit.
-        // Failure paths never reach this restoration and retain their original invalidation.
+        // Call effects have already retired invalid captured evidence.
+        // Only normal completion restores surviving ownership to the caller.
         for (carrier, witness) in returned.witnesses {
             for condition in witness.conditions.keys() {
                 condition
@@ -242,13 +242,20 @@ impl ExecutionState {
     pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
         let stale = |value: &ExecutionCondition| value.depends_on(mutation);
 
-        self.witnesses.retain(|value, witness| {
-            witness.conditions.retain(|condition, guarantee| {
-                !stale(condition) && !guarantee.addresses.keys().any(stale)
-            });
+        for witnesses in std::iter::once(&mut self.witnesses).chain(
+            self.entries
+                .values_mut()
+                .map(|entry| &mut entry.returned.witnesses),
+        ) {
+            witnesses.retain(|value, witness| {
+                witness.conditions.retain(|condition, guarantee| {
+                    !stale(condition) && !guarantee.addresses.keys().any(stale)
+                });
 
-            !stale(value) && (!witness.conditions.is_empty() || !witness.dependencies.is_empty())
-        });
+                !stale(value)
+                    && (!witness.conditions.is_empty() || !witness.dependencies.is_empty())
+            });
+        }
 
         self.deferred_invocations.retain(|value, source| {
             !stale(value)
@@ -262,23 +269,19 @@ impl ExecutionState {
 
         self.assumptions.retain(|(condition, _)| !stale(condition));
 
-        self.allocation_owners
-            .retain(|condition, owner| !stale(condition) && !stale(owner));
+        for allocations in std::iter::once(&mut self.allocation_owners).chain(
+            self.entries
+                .values_mut()
+                .map(|entry| &mut entry.returned.allocations),
+        ) {
+            allocations.retain(|condition, owner| !stale(condition) && !stale(owner));
+        }
 
         for entry in self
             .entries
             .values_mut()
             .filter(|entry| entry.pending_execution)
         {
-            if entry
-                .returned
-                .witnesses
-                .iter()
-                .any(|(carrier, witness)| stale(carrier) || witness.conditions.keys().any(stale))
-            {
-                entry.returned = Default::default();
-            }
-
             entry.arguments.retain(|_, value| !stale(value));
             entry.assumptions.retain(|(condition, _)| !stale(condition));
 
@@ -354,6 +357,25 @@ impl ExecutionState {
 
             !witness.conditions.is_empty()
         });
+
+        for entry in self.entries.values_mut() {
+            entry.returned.witnesses.retain(|carrier, witness| {
+                if !stable_owners
+                    .iter()
+                    .any(|owner| carrier.is_owned_projection_of(owner))
+                {
+                    return false;
+                }
+
+                witness
+                    .conditions
+                    .retain(|condition, _| condition.observes_only(stable_values));
+
+                !witness.conditions.is_empty()
+            });
+
+            entry.returned.allocations.clear();
+        }
 
         // Opaque predicates cannot observe mutable state absent from their arguments.
         // Preserve established facts with no observations, without creating new evidence.
@@ -709,6 +731,63 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_nullable_guards_do_not_share_sibling_address_bounds() {
+        let root = input(0);
+
+        let payload = root
+            .clone()
+            .component(ConstantProjectionKind::NullableValue);
+
+        let marker = payload
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+        let address =
+            payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(),
+            bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![root, absent],
+        );
+
+        let guarded = |claim| {
+            ExecutionCondition::operation(
+                bray_bound_tree::BoundOperator::LogicalOr,
+                vec![guard.clone(), claim],
+            )
+        };
+
+        let marker = guarded(permission(1).with_equalities(&[(input(1), marker)].into()));
+        let access = guarded(permission(2).with_equalities(&[(input(2), address.clone())].into()));
+
+        let condition = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalAnd,
+            vec![marker.clone(), access.clone()],
+        );
+
+        let owners = BTreeSet::from([ExecutionPlace::argument(SymbolOrdinal::new(30))]);
+        let mut witness = crate::execution_guarantees::ExecutionWitness::default();
+
+        witness.carry(
+            &condition,
+            true,
+            &[(address.clone(), owners.clone())].into(),
+        );
+
+        assert!(witness.conditions[&marker].addresses.is_empty());
+
+        assert_eq!(
+            witness.conditions[&access].addresses.get(&address),
+            Some(&owners)
+        );
+    }
+
+    #[test]
     fn guarded_refinement_preserves_only_the_derived_clauses_address_dependencies() {
         for select_marker in [false, true] {
             let carrier = input(20);
@@ -773,6 +852,32 @@ mod tests {
             );
 
             assert!(!state.trusted_assumptions.contains(&(access, true)));
+        }
+    }
+
+    #[test]
+    fn guarded_refinement_never_promotes_unproved_carrier_obligations() {
+        for guard_holds in [false, true] {
+            let predicate = permission(2);
+            let guard = input(3);
+
+            let conditional = ExecutionCondition::operation(
+                bray_bound_tree::BoundOperator::LogicalOr,
+                vec![guard.clone(), predicate.clone()],
+            );
+
+            let mut state = ExecutionState::default();
+
+            state.carry_guarantee(input(0), predicate.clone());
+            state.carry_guarantee(input(0), conditional.clone());
+            conditional.assume(true, &mut state.trusted_assumptions);
+            state.assumptions.insert((guard, guard_holds));
+            state.refine_witnesses();
+
+            assert_eq!(
+                state.trusted_assumptions.contains(&(predicate, true)),
+                !guard_holds
+            );
         }
     }
 

@@ -35,7 +35,7 @@ impl ExecutionWitness {
             retained.witness |= owning;
 
             for (address, owners) in addresses {
-                if clause.observes(address) {
+                if clause.observes_trusted(address) {
                     retained
                         .addresses
                         .entry(address.clone())

@@ -280,10 +280,16 @@ fn remap_dependency_contract(
         .map(|term| maps.constant_term_id(term))
         .transpose()?;
 
-    contract.returned_input = contract
-        .returned_input
-        .map(|input| maps.constant_term_id(input))
-        .transpose()?;
+    contract.owned_transfers = contract
+        .owned_transfers
+        .iter()
+        .map(|transfer| {
+            Ok(bray_symbols::DependencyOwnedTransfer::new(
+                maps.constant_term_id(transfer.input())?,
+                transfer.output().iter().cloned(),
+            ))
+        })
+        .collect::<Result<Arc<[_]>, InterfaceValidationError>>()?;
 
     let carriers = contract
         .carriers

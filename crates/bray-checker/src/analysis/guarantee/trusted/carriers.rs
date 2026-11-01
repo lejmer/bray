@@ -162,7 +162,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
         for condition in witness
             .conditions
             .iter()
-            .filter(|(_, guarantee)| guarantee.witness)
+            .filter(|(condition, guarantee)| {
+                guarantee.witness
+                    && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        == Some(true)
+            })
             .map(|(condition, _)| condition)
         {
             // Rename actual returned storage identities, never ordinary field equalities.
@@ -237,7 +241,11 @@ fn collect(
             for condition in witness
                 .conditions
                 .iter()
-                .filter(|(_, guarantee)| guarantee.witness)
+                .filter(|(condition, guarantee)| {
+                    guarantee.witness
+                        && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                            == Some(true)
+                })
                 .map(|(condition, _)| condition)
             {
                 // The temporary proof set owns its conditions independently of the exit state.
@@ -286,13 +294,23 @@ fn returned_owners(
 
         match value {
             ExecutionCondition::Present(value) => {
+                // Presence snapshots can name the joined owner through their payload.
+                let reconstructed = value.owner_identity().clone().present();
+
+                if !matches!(
+                    reconstructed,
+                    ExecutionCondition::Present(_) | ExecutionCondition::Unknown
+                ) {
+                    owners.insert(reconstructed.owner_identity().clone(), path.clone());
+                }
+
                 let mut path = path;
 
                 path.push(DependencyProjection::NullableValue);
                 pending.push((value, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
-                for (projection, value) in fields.iter() {
+                for (projection, component) in fields.iter() {
                     let projection = match projection {
                         bray_bound_tree::StorageProjection::ProductField(field) => {
                             DependencyProjection::ProductField(*field)
@@ -313,7 +331,18 @@ fn returned_owners(
                     let mut child = path.clone();
 
                     child.push(projection);
-                    pending.push((value, child));
+
+                    if projection == DependencyProjection::NullableValue {
+                        // Nullable extraction retains the complete snapshot's identity.
+                        owners.insert(
+                            value
+                                .clone()
+                                .project(bray_bound_tree::StorageProjection::NullableValue),
+                            child.clone(),
+                        );
+                    }
+
+                    pending.push((component, child));
                 }
             }
             _ => {}
@@ -338,7 +367,11 @@ impl ExecutionState {
 
             let mut evidence = BTreeSet::new();
 
-            for condition in witness.conditions.keys() {
+            for condition in witness.conditions.keys().filter(|condition| {
+                condition.prove_mixed(&self.trusted_assumptions, &self.assumptions, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                }) == Some(true)
+            }) {
                 condition.clone().assume(true, &mut evidence);
             }
 
@@ -402,41 +435,98 @@ impl ExecutionState {
     }
 }
 
-/// An exact entry snapshot can transport an unknown witness only as a complete owned value.
-pub(super) fn returned_input<C: crate::CheckerRequestContext + ?Sized>(
+/// Preserve exact owned inputs embedded in the checked normal result.
+pub(super) fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
     domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
     result: &ExecutionCondition,
-) -> Option<bray_symbols::ConstantTermId> {
-    let inputs = domain.request.trusted_contracts()?;
+) -> BTreeSet<bray_symbols::DependencyOwnedTransfer> {
+    use bray_bound_tree::StorageProjection;
+    use bray_symbols::{ConstantProjectionKind, DependencyOwnedTransfer};
 
-    if !inputs.infer_result_witnesses {
-        return None;
-    }
+    let mut transfers = BTreeSet::new();
 
-    let ty = domain.semantics.types().callable_result_type()?;
-
-    if domain.storage.copyable_types().contains(&ty) {
-        return None;
-    }
-
-    let mut input = result;
-
-    while let ExecutionCondition::Projection(_, value) = input {
-        input = value;
-    }
-
-    let ExecutionCondition::Input(place) = input else {
-        return None;
+    let Some(inputs) = domain.request.trusted_contracts() else {
+        return transfers;
     };
 
-    if !place.is_callable_input()
-        || domain
-            .borrowed_inputs
-            .iter()
-            .any(|borrow| borrow.contains(place))
-    {
-        return None;
+    if !inputs.infer_result_witnesses {
+        return transfers;
     }
 
-    portable(domain.request, result)
+    let mut pending = vec![(result, Vec::new())];
+
+    while let Some((source, path)) = pending.pop() {
+        if path.len() > ExecutionCondition::WORK_LIMIT {
+            continue;
+        }
+
+        let mut input = source;
+        let mut projections = Vec::new();
+
+        while let ExecutionCondition::Projection(field, parent) = input {
+            projections.push(*field);
+            input = parent;
+        }
+
+        if let ExecutionCondition::Input(place) = input {
+            let place = projections
+                .into_iter()
+                .rev()
+                .fold(place.clone(), |place, field| place.component(field));
+
+            if !place.is_callable_input()
+                || domain
+                    .borrowed_inputs
+                    .iter()
+                    .any(|borrow| borrow.contains(&place))
+            {
+                continue;
+            }
+
+            let input = ExecutionCondition::Input(place);
+
+            if let Some(term) = portable(domain.request, &input) {
+                transfers.insert(DependencyOwnedTransfer::new(term, path));
+            }
+
+            continue;
+        }
+
+        match source {
+            ExecutionCondition::Present(value) => {
+                let mut path = path;
+
+                path.push(ConstantProjectionKind::NullableValue);
+                pending.push((value, path));
+            }
+            ExecutionCondition::Constructed(_, fields) => {
+                for (field, value) in fields.iter() {
+                    let projection = match field {
+                        StorageProjection::ProductField(field) => {
+                            ConstantProjectionKind::ProductField(*field)
+                        }
+                        StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                            ConstantProjectionKind::UnionPayloadField(*field)
+                        }
+                        StorageProjection::TupleElement(ordinal) => {
+                            ConstantProjectionKind::TupleElement(*ordinal)
+                        }
+                        StorageProjection::ElementFromStart(ordinal) => {
+                            ConstantProjectionKind::ArrayElementOrdinal(*ordinal)
+                        }
+                        StorageProjection::NullableValue => ConstantProjectionKind::NullableValue,
+                        _ => continue,
+                    };
+
+                    let mut path = path.clone();
+
+                    path.push(projection);
+                    pending.push((value, path));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    transfers
 }

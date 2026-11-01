@@ -108,7 +108,7 @@ pub(crate) fn selected_operation_contracts<C: CheckerRequestContext + ?Sized>(
             .with_effects(template.template.effects().iter().cloned())
             .with_synchronous_cleanup(template.template.synchronous_cleanup())
             .with_carriers(template.template.carriers().iter().cloned())
-            .with_returned_input(template.template.returned_input())
+            .with_owned_transfers(template.template.owned_transfers().iter().cloned())
             .with_normal_completion(template.template.normal_completion())
             .with_normal_storage_preservation(
                 template.template.preserves_storage_on_normal_return(),

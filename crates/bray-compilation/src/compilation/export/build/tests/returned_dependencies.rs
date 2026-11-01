@@ -1324,19 +1324,12 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
         provider.check_diagnostics()
     );
 
-    for name in [
-        "scalar",
-        "borrow",
-        "changed",
-        "disturbed",
-        "changed_referent",
-        "caught_failure",
-    ] {
+    for name in ["scalar", "borrow", "changed"] {
         let dependencies =
             crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
 
         assert!(
-            dependencies.returned_input().is_none(),
+            dependencies.owned_transfers().is_empty(),
             "{name}: {dependencies:?}"
         );
     }

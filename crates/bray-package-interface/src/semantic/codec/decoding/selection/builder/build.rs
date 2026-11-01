@@ -974,8 +974,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::ConstantTerm(term.raw()));
         }
 
-        if let Some(input) = contract.returned_input {
-            self.enqueue(PendingRecord::ConstantTerm(input.raw()));
+        for transfer in &*contract.owned_transfers {
+            self.enqueue(PendingRecord::ConstantTerm(transfer.input().raw()));
         }
 
         for carrier in &*contract.carriers {

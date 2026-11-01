@@ -130,19 +130,12 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                     ))
                     .expect("canonical conversion input belongs to the checked semantic store");
 
-                let input = if matches!(conversion.target(), ConversionTarget::NullablePresent) {
-                    values
-                        .intern_constant_term(bray_symbols::ConstantTermData::NullablePresent(
-                            input,
-                        ))
-                        .expect(
-                            "canonical nullable conversion belongs to the checked semantic store",
-                        )
-                } else {
-                    input
-                };
+                let output = matches!(conversion.target(), ConversionTarget::NullablePresent)
+                    .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
 
-                result = result.with_returned_input(Some(input));
+                result = result.with_owned_transfers([bray_symbols::DependencyOwnedTransfer::new(
+                    input, output,
+                )]);
             }
 
             Ok(result)

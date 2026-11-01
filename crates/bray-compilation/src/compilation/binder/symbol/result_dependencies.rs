@@ -454,13 +454,17 @@ fn body_result_dependencies(
     } else {
         None
     })
-    .with_returned_input(if !previous.normal_completion() {
-        checked.returned_input()
-    } else if !checked.normal_completion() || previous.returned_input() == checked.returned_input()
-    {
-        previous.returned_input()
+    .with_owned_transfers(if !previous.normal_completion() {
+        checked.owned_transfers().to_vec()
+    } else if !checked.normal_completion() {
+        previous.owned_transfers().to_vec()
     } else {
-        None
+        previous
+            .owned_transfers()
+            .iter()
+            .filter(|transfer| checked.owned_transfers().contains(transfer))
+            .cloned()
+            .collect()
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(

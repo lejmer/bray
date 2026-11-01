@@ -171,42 +171,7 @@ impl<'a> SemanticExporter<'a> {
                     },
                     ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
                         subject: self.constant_term_id(projection.subject())?,
-                        kind: match projection.kind() {
-                            ConstantProjectionKind::TupleElement(ordinal) => {
-                                InterfaceConstantProjection::TupleElement(ordinal)
-                            }
-                            ConstantProjectionKind::ArrayElementOrdinal(index) => {
-                                InterfaceConstantProjection::ArrayElementOrdinal(index)
-                            }
-                            ConstantProjectionKind::ArrayElement(index) => {
-                                InterfaceConstantProjection::ArrayElement(
-                                    self.constant_term_id(index)?,
-                                )
-                            }
-                            ConstantProjectionKind::ArraySlice { lower, upper } => {
-                                InterfaceConstantProjection::ArraySlice {
-                                    lower: lower
-                                        .map(|bound| self.constant_term_id(bound))
-                                        .transpose()?,
-                                    upper: upper
-                                        .map(|bound| self.constant_term_id(bound))
-                                        .transpose()?,
-                                }
-                            }
-                            ConstantProjectionKind::ProductField(field) => {
-                                InterfaceConstantProjection::ProductField(
-                                    self.symbol_reference(field.into())?,
-                                )
-                            }
-                            ConstantProjectionKind::UnionPayloadField(field) => {
-                                InterfaceConstantProjection::UnionPayloadField(
-                                    self.symbol_reference(field.into())?,
-                                )
-                            }
-                            ConstantProjectionKind::NullableValue => {
-                                InterfaceConstantProjection::NullableValue
-                            }
-                        },
+                        kind: self.constant_projection_kind(projection.kind())?,
                     },
                 };
 
@@ -487,5 +452,38 @@ impl<'a> SemanticExporter<'a> {
             }
             _ => Err(incomplete(symbol)),
         }
+    }
+    pub(super) fn constant_projection_kind(
+        &mut self,
+        kind: ConstantProjectionKind,
+    ) -> Result<InterfaceConstantProjection, PackageInterfaceExportError> {
+        Ok(match kind {
+            ConstantProjectionKind::TupleElement(ordinal) => {
+                InterfaceConstantProjection::TupleElement(ordinal)
+            }
+            ConstantProjectionKind::ArrayElementOrdinal(index) => {
+                InterfaceConstantProjection::ArrayElementOrdinal(index)
+            }
+            ConstantProjectionKind::ArrayElement(index) => {
+                InterfaceConstantProjection::ArrayElement(self.constant_term_id(index)?)
+            }
+            ConstantProjectionKind::ArraySlice { lower, upper } => {
+                InterfaceConstantProjection::ArraySlice {
+                    lower: lower
+                        .map(|bound| self.constant_term_id(bound))
+                        .transpose()?,
+                    upper: upper
+                        .map(|bound| self.constant_term_id(bound))
+                        .transpose()?,
+                }
+            }
+            ConstantProjectionKind::ProductField(field) => {
+                InterfaceConstantProjection::ProductField(self.symbol_reference(field.into())?)
+            }
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                InterfaceConstantProjection::UnionPayloadField(self.symbol_reference(field.into())?)
+            }
+            ConstantProjectionKind::NullableValue => InterfaceConstantProjection::NullableValue,
+        })
     }
 }

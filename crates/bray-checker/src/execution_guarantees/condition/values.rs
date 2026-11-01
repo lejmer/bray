@@ -135,8 +135,60 @@ impl ExecutionCondition {
             Self::Constructed(base, fields) => Self::component_base(&base, &fields)
                 .clone()
                 .matches_variant(variant),
-            value => Self::VariantTest(variant, Arc::new(value)),
+            value => {
+                if let Some(snapshot) = value.nullable_payload_snapshot() {
+                    snapshot.clone().matches_variant(variant)
+                } else {
+                    Self::VariantTest(variant, Arc::new(value))
+                }
+            }
         }
+    }
+
+    /// Recognizes an ordinary comparison that establishes nullable absence.
+    pub(crate) fn nullable_absence(
+        &self,
+        holds: bool,
+    ) -> Option<(&Self, &Arc<bray_symbols::ConstantValueData>)> {
+        let Self::Operation(operator, operands) = self else {
+            return None;
+        };
+
+        if !matches!(
+            (operator, holds),
+            (BoundOperator::Equal, true) | (BoundOperator::NotEqual, false)
+        ) {
+            return None;
+        }
+
+        match operands.as_ref() {
+            [subject, Self::Literal(absent)] | [Self::Literal(absent), subject]
+                if matches!(
+                    absent.kind(),
+                    bray_symbols::ConstantValueKind::NullableAbsent
+                ) =>
+            {
+                Some((subject, absent))
+            }
+            _ => None,
+        }
+    }
+
+    /// Reads nullable payload contents while retaining the extraction's owning observation.
+    pub(crate) fn nullable_payload_snapshot(&self) -> Option<&Self> {
+        let Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, owner) = self
+        else {
+            return None;
+        };
+
+        let Self::Constructed(_, fields) = owner.as_ref() else {
+            return None;
+        };
+
+        fields
+            .iter()
+            .find(|(field, _)| *field == bray_bound_tree::StorageProjection::NullableValue)
+            .map(|(_, value)| value)
     }
 
     pub(crate) fn present(self) -> Self {

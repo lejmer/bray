@@ -18,7 +18,8 @@ pub(in crate::analysis) struct TrustedChecks {
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
-    pub(in crate::analysis) returned_input: Option<Option<bray_symbols::ConstantTermId>>,
+    pub(in crate::analysis) owned_transfers:
+        Option<BTreeSet<bray_symbols::DependencyOwnedTransfer>>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
@@ -173,12 +174,11 @@ impl TrustedChecks {
             }
         }
 
-        let input = super::carriers::returned_input(domain, &result);
+        let transfers = super::carriers::owned_transfers(domain, &result);
 
-        match &mut self.returned_input {
-            Some(previous) if *previous != input => *previous = None,
-            Some(_) => {}
-            None => self.returned_input = Some(input),
+        match &mut self.owned_transfers {
+            Some(previous) => previous.retain(|transfer| transfers.contains(transfer)),
+            None => self.owned_transfers = Some(transfers),
         }
     }
 

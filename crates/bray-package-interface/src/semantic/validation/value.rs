@@ -98,8 +98,16 @@ impl InterfaceSemantics {
                 }
             }
 
-            if let Some(input) = contract.returned_input {
-                validate_index(input.to_index(), self.constant_terms.len())?;
+            for transfer in &*contract.owned_transfers {
+                validate_index(transfer.input().to_index(), self.constant_terms.len())?;
+
+                for projection in transfer.output() {
+                    if matches!(projection, InterfaceConstantProjection::ArrayElement(_) | InterfaceConstantProjection::ArraySlice { .. }) {
+                        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                    }
+
+                    self.validate_constant_projection(projection, symbol_count, dependency_count)?;
+                }
             }
 
             for carrier in &*contract.carriers {
@@ -873,6 +881,31 @@ mod tests {
         InterfaceValidationLimits,
     };
     use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn owned_transfer_outputs_reject_computation_even_without_a_callable() {
+        use crate::{InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantTermId};
+
+        let input = InterfaceConstantTermId::new(0);
+
+        for (projection, valid) in [
+            (InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0)), true),
+            (InterfaceConstantProjection::ArrayElementOrdinal(SymbolOrdinal::new(0)), true),
+            (InterfaceConstantProjection::NullableValue, true),
+            (InterfaceConstantProjection::ArrayElement(input), false),
+            (InterfaceConstantProjection::ArraySlice { lower: None, upper: None }, false),
+        ] {
+            let semantics = InterfaceSemantics {
+                constant_terms: vec![InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0))].into(),
+                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_owned_transfers([
+                    bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
+                ])].into(),
+                ..InterfaceSemantics::default()
+            };
+
+            assert_eq!(semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default()).is_ok(), valid);
+        }
+    }
 
     #[test]
     fn dependency_variables_must_address_an_enclosing_equation() {

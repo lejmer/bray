@@ -567,6 +567,48 @@ mod tests {
     };
 
     #[test]
+    fn owned_transfer_identities_preserve_mapping_independently_of_interning() {
+        use bray_symbols::{ConstantProjectionKind, ConstantTermData, DependencyContractTemplateData, DependencyOwnedTransfer, SemanticValueStore, SymbolOrdinal};
+
+        let compilation = crate::test_support::compilation("module app;");
+        let context = compilation.binding_context(&compilation.state.cancellation).expect("fixture binding context");
+        let mut by_order = Vec::new();
+
+        for order in [[0, 1], [1, 0]] {
+            let values = SemanticValueStore::try_new().expect("fixture semantic store");
+
+            let inputs = order.into_iter().map(|ordinal| {
+                let term = values.intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))).expect("fixture input term");
+
+                (ordinal, term)
+            }).collect::<std::collections::BTreeMap<_, _>>();
+
+            let mut identities = Vec::new();
+
+            for swapped in [false, true] {
+                let transfers = [0, 1].map(|ordinal| DependencyOwnedTransfer::new(
+                    inputs[&ordinal], [ConstantProjectionKind::TupleElement(SymbolOrdinal::new(if swapped { 1 - ordinal } else { ordinal }))],
+                ));
+
+                let contract = values.intern_dependency_contract_template(DependencyContractTemplateData::new([]).with_effects([]).with_owned_transfers(transfers)).expect("fixture ownership contract");
+
+                let mut encoder = super::StructuralValueEncoder {
+                    values: &values, binding_context: &context,
+                    digest: bray_base::StableDigestHasher::new(), allow_static_address: false,
+                };
+
+                encoder.dependency_contract(contract).expect("fixture ownership identity");
+                identities.push(encoder.digest.finalize());
+            }
+
+            assert_ne!(identities[0], identities[1]);
+            by_order.push(identities);
+        }
+
+        assert_eq!(by_order[0], by_order[1]);
+    }
+
+    #[test]
     fn witness_dependencies_distinguish_specialization_identities() {
         use bray_binder::SymbolQueryProvider;
 

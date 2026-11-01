@@ -446,6 +446,22 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
         retain(std::slice::from_ref(projection));
     }
 
+    for transfer in contracts
+        .calls()
+        .values()
+        .flat_map(|call| call.owned_transfers())
+    {
+        fields.extend(
+            transfer
+                .output()
+                .iter()
+                .filter_map(|projection| match projection {
+                    bray_symbols::ConstantProjectionKind::UnionPayloadField(field) => Some(*field),
+                    _ => None,
+                }),
+        );
+    }
+
     let mut variants = BTreeMap::new();
 
     for entry in selections.entries() {

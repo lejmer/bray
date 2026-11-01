@@ -155,12 +155,7 @@ impl StructuralValueEncoder<'_, '_> {
             }
         }
 
-        self.digest
-            .write_u8(u8::from(data.returned_input().is_some()));
-
-        if let Some(input) = data.returned_input() {
-            self.constant_term(input)?;
-        }
+        self.dependency_set(data.owned_transfers(), Self::dependency_owned_transfer)?;
 
         self.digest
             .write_u8(u8::from(data.observed_result().is_some()));
@@ -196,6 +191,20 @@ impl StructuralValueEncoder<'_, '_> {
             bray_symbols::DependencyReferenceKind::Borrow => 1,
             bray_symbols::DependencyReferenceKind::Address => 2,
         });
+
+        Ok(())
+    }
+
+    pub(in crate::compilation) fn dependency_owned_transfer(
+        &mut self,
+        transfer: &bray_symbols::DependencyOwnedTransfer,
+    ) -> Result<(), FactQueryError> {
+        self.constant_term(transfer.input())?;
+        self.length(transfer.output().len());
+
+        for projection in transfer.output() {
+            self.constant_projection_kind(*projection)?;
+        }
 
         Ok(())
     }

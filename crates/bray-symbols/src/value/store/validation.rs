@@ -308,8 +308,20 @@ pub(super) fn validate_dependency_template_data(
         tables.constant_terms.get(store, result);
     }
 
-    if let Some(input) = data.returned_input() {
-        tables.constant_terms.get(store, input);
+    for transfer in data.owned_transfers() {
+        tables.constant_terms.get(store, transfer.input());
+
+        assert!(
+            transfer.output().iter().all(|projection| matches!(
+                projection,
+                super::super::ConstantProjectionKind::ProductField(_)
+                    | super::super::ConstantProjectionKind::UnionPayloadField(_)
+                    | super::super::ConstantProjectionKind::TupleElement(_)
+                    | super::super::ConstantProjectionKind::ArrayElementOrdinal(_)
+                    | super::super::ConstantProjectionKind::NullableValue
+            )),
+            "ownership transfers contain only owning projections"
+        );
     }
 
     for carrier in data.carriers() {
