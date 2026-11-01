@@ -281,6 +281,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             owning: bool| {
             let sources = self.result_guarantee_owners(
                 invocation,
+                &state.entries.get(&invocation)
+                    .expect("completed invocation retains its captured arguments").arguments,
                 template,
                 &owners,
                 &address_subjects,
@@ -321,6 +323,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
                     let addresses = self.input_guarantee_addresses(
                         invocation,
+                        &state.entries.get(&invocation)
+                            .expect("completed invocation retains its captured arguments").arguments,
                         template,
                         &owners,
                         &address_subjects,
