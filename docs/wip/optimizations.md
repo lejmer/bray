@@ -33,7 +33,7 @@ LLVM generally cannot change a layout after Bray has committed to its offsets an
 
 For these, `None` means selecting a good canonical layout at every level. Representation should agree across development and release builds. Ordinary source fields cannot simply become bitfields when borrowing or addressability should change.
 
-The current [nullable and aggregate layout implementation](/workspace/bray/crates/bray-compilation/src/compilation/product/realization/aggregate.rs:296) provides direct evidence for the first five gaps.
+The current [nullable and aggregate layout implementation](/crates/bray-compilation/src/compilation/product/realization/aggregate.rs:296) provides direct evidence for the first five gaps.
 
 **Storage, movement, allocation, and reference counting**
 
@@ -121,7 +121,7 @@ LLVM cannot reconstruct Bray’s suspension, cancellation, stable-address, and c
 
 Direct await already has its own execution mechanism. It is not missing as a feature. The outstanding work concerns its costs and coverage.
 
-The current [frame layout](/workspace/bray/crates/bray-codegen-llvm/src/translation/frame/core.rs:130) assigns separate storage fields; lifetime-based overlap is a concrete gap.
+The current [frame layout](/crates/bray-codegen-llvm/src/translation/frame/core.rs:130) assigns separate storage fields; lifetime-based overlap is a concrete gap.
 
 **Generators, strings, formatting, and bulk operations**
 
