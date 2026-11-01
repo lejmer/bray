@@ -219,62 +219,18 @@ fn join_observations<'a>(
         super::super::state::update_parent_observations(&mut joined_values, place, value);
     }
 
-    for (place, joined) in &joined_values {
-        let value = place
-            .value_in(&target.current)
-            .unwrap_or(ExecutionCondition::Unknown);
-
-        let other = place
-            .value_in(&incoming.current)
-            .unwrap_or(ExecutionCondition::Unknown);
-
-        for (map, identities, value) in [
-            (&mut left, &mut left_identities, &value),
-            (&mut right, &mut right_identities, &other),
-        ] {
-            // Rename the complete current observation only for an established owner.
-            // Both predecessors must still establish the predicate after renaming.
-            // Snapshots share immutable components, so borrowed keys need no tree copy.
-            if value != joined
-                && value.owner_identity().observation_path().is_some()
-                && joined.owner_identity().observation_path().is_some()
-            {
-                let borrowed = value.clone().borrowed();
-
-                if !stable_values.contains(&borrowed) {
-                    insert_replacement(map, &borrowed, &joined.clone().borrowed());
-                }
-            }
-
-            needs_condition_proof |= value != joined && stable_values.contains(value);
-
-            // Literal payloads are shared by unrelated places and contract constants.
-            // Joining their slots must not rename the constant itself.
-            if value == joined
-                || value == joined.owner_identity()
-                || matches!(
-                    value,
-                    ExecutionCondition::Literal(_)
-                        | ExecutionCondition::Boolean(_)
-                        | ExecutionCondition::Unknown
-                )
-            {
-                continue;
-            }
-
-            // Contents and containing identity have different substitution domains.
-            // A branch-local alias can disappear while another place still holds
-            // the same value on both paths. Rename the changed place, not that value.
-            if !stable_values.contains(value) {
-                insert_replacement(map, value, joined);
-            }
-
-            for identity in [value, value.owner_identity()] {
-                if identity != joined.owner_identity() && !stable_identities.contains(identity) {
-                    insert_replacement(identities, identity, joined.owner_identity());
-                }
-            }
-        }
+    for (current, values, identities) in [
+        (&target.current, &mut left, &mut left_identities),
+        (&incoming.current, &mut right, &mut right_identities),
+    ] {
+        needs_condition_proof |= current_replacements(
+            current,
+            &joined_values,
+            &stable_values,
+            &stable_identities,
+            values,
+            identities,
+        );
     }
 
     for expression in target
@@ -330,11 +286,20 @@ fn join_observations<'a>(
             joined_facts.extend(common_join_conditions(target, incoming, &joined_values));
         }
 
+        let conditional = super::witnesses::conditional_guarantees(
+            (target, &left, &left_identities),
+            (incoming_joined.as_ref(), &right, &right_identities),
+            &joined_values,
+            &results,
+        );
+
         target.join_values(&left, &left_identities);
 
         let incoming = incoming_joined.to_mut();
 
         incoming.join_values(&right, &right_identities);
+
+        super::witnesses::retain_conditional_guarantees(target, incoming, &conditional);
 
         for (condition, holds) in joined_facts {
             condition.clone().assume(holds, &mut target.assumptions);
@@ -355,6 +320,86 @@ fn join_observations<'a>(
     }
 
     (incoming_joined, changed)
+}
+
+fn current_replacements(
+    current: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    joined_values: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    stable_values: &std::collections::BTreeSet<ExecutionCondition>,
+    stable_identities: &std::collections::BTreeSet<ExecutionCondition>,
+    map: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+    identities: &mut BTreeMap<ExecutionCondition, ExecutionCondition>,
+) -> bool {
+    let mut needs_condition_proof = false;
+
+    for (place, joined) in joined_values {
+        let value = place
+            .value_in(current)
+            .unwrap_or(ExecutionCondition::Unknown);
+
+        let value = &value;
+
+        // Rename the complete current observation only for an established owner.
+        // Both predecessors must still establish the predicate after renaming.
+        // Snapshots share immutable components, so borrowed keys need no tree copy.
+        if value != joined
+            && value.owner_identity().observation_path().is_some()
+            && joined.owner_identity().observation_path().is_some()
+        {
+            let borrowed = value.clone().borrowed();
+
+            if !stable_values.contains(&borrowed) {
+                insert_replacement(map, &borrowed, &joined.clone().borrowed());
+            }
+        }
+
+        needs_condition_proof |= value != joined && stable_values.contains(value);
+
+        // Literal payloads are shared by unrelated places and contract constants.
+        // Joining their slots must not rename the constant itself.
+        if value == joined
+            || value == joined.owner_identity()
+            || matches!(
+                value,
+                ExecutionCondition::Literal(_)
+                    | ExecutionCondition::Boolean(_)
+                    | ExecutionCondition::Unknown
+            )
+        {
+            continue;
+        }
+
+        if matches!(
+            value,
+            ExecutionCondition::Constructed(_, _) | ExecutionCondition::Present(_)
+        ) {
+            result_replacements(
+                value,
+                joined,
+                stable_values,
+                stable_identities,
+                map,
+                identities,
+            );
+
+            continue;
+        }
+
+        // Contents and containing identity have different substitution domains.
+        // A branch-local alias can disappear while another place still holds
+        // the same value on both paths. Rename the changed place, not that value.
+        if !stable_values.contains(value) {
+            insert_replacement(map, value, joined);
+        }
+
+        for identity in [value, value.owner_identity()] {
+            if identity != joined.owner_identity() && !stable_identities.contains(identity) {
+                insert_replacement(identities, identity, joined.owner_identity());
+            }
+        }
+    }
+
+    needs_condition_proof
 }
 
 fn common_join_conditions(
@@ -453,23 +498,50 @@ fn result_replacements(
         insert_replacement(values, value, joined);
     }
 
+    // A complete owned snapshot also names its tag through the base observation.
+    // Move that observation with its payload, preserving any independently live alias.
+    let owner = value.owner_identity();
+
+    if owner != value
+        && owner != joined.owner_identity()
+        && !stable_values.contains(owner)
+        && !stable_identities.contains(owner)
+    {
+        insert_replacement(values, owner, joined.owner_identity());
+    }
+
     for identity in [value, value.owner_identity()] {
         if identity != joined.owner_identity() && !stable_identities.contains(identity) {
             insert_replacement(identities, identity, joined.owner_identity());
         }
     }
 
-    if let ExecutionCondition::Constructed(_, fields) = value {
-        for (field, component) in fields.iter() {
+    match value {
+        ExecutionCondition::Constructed(_, fields) => {
+            for (field, component) in fields.iter() {
+                result_replacements(
+                    component,
+                    &joined.clone().project(*field),
+                    stable_values,
+                    stable_identities,
+                    values,
+                    identities,
+                );
+            }
+        }
+        ExecutionCondition::Present(component) => {
             result_replacements(
                 component,
-                &joined.clone().project(*field),
+                &joined
+                    .clone()
+                    .project(bray_bound_tree::StorageProjection::NullableValue),
                 stable_values,
                 stable_identities,
                 values,
                 identities,
             );
         }
+        _ => {}
     }
 }
 
@@ -557,6 +629,9 @@ fn common_components(
             .iter()
             .map(|(field, _)| *field)
             .collect::<std::collections::BTreeSet<_>>(),
+        ExecutionCondition::Present(_) => {
+            [bray_bound_tree::StorageProjection::NullableValue].into()
+        }
         _ => Default::default(),
     };
 
@@ -619,9 +694,22 @@ fn common_components(
         }
     });
 
+    let absent = |value: &ExecutionCondition| {
+        matches!(value, ExecutionCondition::Literal(value)
+        if matches!(value.kind(), ConstantValueKind::NullableAbsent))
+    };
+
     let fields = projections
         .into_iter()
         .map(|projection| {
+            if projection == bray_bound_tree::StorageProjection::NullableValue
+                && (absent(left) || absent(right))
+            {
+                // The joined nullable owns its payload only on the present path.
+                // Keep that conditional owner just as for inactive union payloads.
+                return (projection, identity.clone().project(projection));
+            }
+
             let left = left.clone().project(projection);
             let right = right.clone().project(projection);
 

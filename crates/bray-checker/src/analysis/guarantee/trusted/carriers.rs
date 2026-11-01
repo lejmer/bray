@@ -162,7 +162,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
         for condition in witness
             .conditions
             .iter()
-            .filter(|(_, guarantee)| guarantee.witness)
+            .filter(|(condition, guarantee)| {
+                guarantee.witness
+                    && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        == Some(true)
+            })
             .map(|(condition, _)| condition)
         {
             // Rename actual returned storage identities, never ordinary field equalities.
@@ -237,7 +241,11 @@ fn collect(
             for condition in witness
                 .conditions
                 .iter()
-                .filter(|(_, guarantee)| guarantee.witness)
+                .filter(|(condition, guarantee)| {
+                    guarantee.witness
+                        && condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                            == Some(true)
+                })
                 .map(|(condition, _)| condition)
             {
                 // The temporary proof set owns its conditions independently of the exit state.
@@ -292,7 +300,7 @@ fn returned_owners(
                 pending.push((value, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
-                for (projection, value) in fields.iter() {
+                for (projection, component) in fields.iter() {
                     let projection = match projection {
                         bray_bound_tree::StorageProjection::ProductField(field) => {
                             DependencyProjection::ProductField(*field)
@@ -313,7 +321,18 @@ fn returned_owners(
                     let mut child = path.clone();
 
                     child.push(projection);
-                    pending.push((value, child));
+
+                    if projection == DependencyProjection::NullableValue {
+                        // Nullable extraction retains the complete snapshot's identity.
+                        owners.insert(
+                            value
+                                .clone()
+                                .project(bray_bound_tree::StorageProjection::NullableValue),
+                            child.clone(),
+                        );
+                    }
+
+                    pending.push((component, child));
                 }
             }
             _ => {}
@@ -338,7 +357,11 @@ impl ExecutionState {
 
             let mut evidence = BTreeSet::new();
 
-            for condition in witness.conditions.keys() {
+            for condition in witness.conditions.keys().filter(|condition| {
+                condition.prove_mixed(&self.trusted_assumptions, &self.assumptions, &mut {
+                    ExecutionCondition::WORK_LIMIT
+                }) == Some(true)
+            }) {
                 condition.clone().assume(true, &mut evidence);
             }
 
