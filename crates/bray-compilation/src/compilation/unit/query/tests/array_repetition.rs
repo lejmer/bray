@@ -136,7 +136,9 @@ fn repeated_arrays_of_shared_borrows_prevent_overlapping_mutation() {
         r#"
         module app;
 
-        func observe(pos value: &i32) {}
+        func observe(pos value: &i32)
+        {
+        }
 
         func main()
         {
