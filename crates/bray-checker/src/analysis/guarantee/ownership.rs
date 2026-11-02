@@ -1,13 +1,14 @@
 use super::state::ExecutionState;
 use crate::ExecutionCondition;
-use bray_symbols::{ConstantProjectionKind, DependencyOwnedResult, DependencyOwnedTransfer};
+use bray_bound_tree::StorageProjection;
+use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
 
 impl ExecutionState {
     /// Recovers exact formal ownership through snapshots and previously joined layouts.
     pub(super) fn owned_result(
         &self,
         value: &ExecutionCondition,
-    ) -> DependencyOwnedResult<ConstantProjectionKind, ExecutionCondition> {
+    ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         if let Some(result) = self.owned_results.get(value) {
             return result.clone();
         }
@@ -20,31 +21,22 @@ impl ExecutionState {
                 ))
             }
             ExecutionCondition::Present(value) => {
-                self.prefixed_owned_result(value, ConstantProjectionKind::NullableValue)
+                self.prefixed_owned_result(value, StorageProjection::NullableValue)
             }
             ExecutionCondition::Constructed(_, fields) => {
                 DependencyOwnedResult::all(fields.iter().filter_map(|(field, value)| {
-                    let field = match field {
-                        bray_bound_tree::StorageProjection::ProductField(field) => {
-                            ConstantProjectionKind::ProductField(*field)
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            field,
-                            ..
-                        } => ConstantProjectionKind::UnionPayloadField(*field),
-                        bray_bound_tree::StorageProjection::TupleElement(ordinal) => {
-                            ConstantProjectionKind::TupleElement(*ordinal)
-                        }
-                        bray_bound_tree::StorageProjection::ElementFromStart(ordinal) => {
-                            ConstantProjectionKind::ArrayElementOrdinal(*ordinal)
-                        }
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            ConstantProjectionKind::NullableValue
-                        }
-                        _ => return None,
-                    };
+                    if !matches!(
+                        field,
+                        StorageProjection::ProductField(_)
+                            | StorageProjection::ActiveUnionPayloadField { .. }
+                            | StorageProjection::TupleElement(_)
+                            | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::NullableValue
+                    ) {
+                        return None;
+                    }
 
-                    Some(self.prefixed_owned_result(value, field))
+                    Some(self.prefixed_owned_result(value, *field))
                 }))
             }
             ExecutionCondition::Projection(field, parent) => self
@@ -60,17 +52,19 @@ impl ExecutionState {
                             );
                         };
 
-                        Ok(if first == field {
-                            DependencyOwnedResult::Transfer(
-                                DependencyOwnedTransfer::new(
-                                    transfer.input(),
-                                    rest.iter().copied(),
+                        Ok(
+                            if crate::ExecutionPlace::projection_kind(*first) == Some(*field) {
+                                DependencyOwnedResult::Transfer(
+                                    DependencyOwnedTransfer::new(
+                                        transfer.input(),
+                                        rest.iter().copied(),
+                                    )
+                                    .with_condition(transfer.condition()),
                                 )
-                                .with_condition(transfer.condition()),
-                            )
-                        } else {
-                            DependencyOwnedResult::default()
-                        })
+                            } else {
+                                DependencyOwnedResult::default()
+                            },
+                        )
                     },
                     &mut |condition| Ok(Some(condition.clone())),
                 )
@@ -82,8 +76,8 @@ impl ExecutionState {
     fn prefixed_owned_result(
         &self,
         value: &ExecutionCondition,
-        field: ConstantProjectionKind,
-    ) -> DependencyOwnedResult<ConstantProjectionKind, ExecutionCondition> {
+        field: StorageProjection,
+    ) -> DependencyOwnedResult<StorageProjection, ExecutionCondition> {
         self.owned_result(value)
             .try_map(
                 &mut |transfer| {

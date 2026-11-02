@@ -79,6 +79,18 @@ const API: &str = r"
         return value;
     }
 
+    async func task_result<T>(pos value: T, pos cancel: bool) -> RunResult<T>
+    {
+        let task = pass<T>(value).start();
+
+        if cancel
+        {
+            return await task.cancel();
+        }
+
+        return await task.join();
+    }
+
     func opaque(pos value: Marker) -> Future<Marker>
     {
         return pass<Marker>(value);
@@ -239,6 +251,18 @@ const API: &str = r"
 ";
 
 const CASES: &[(&str, &str, bool)] = &[
+    (
+        "returned_task_outcome",
+        r"let result = await api.task_result(api.make(), choice);
+            if let RunResult.Completed(value) = result { api.observe(&value); }",
+        true,
+    ),
+    (
+        "returned_task_outcome_fabricated",
+        r"let result = await api.task_result(api.Marker {}, choice);
+            if let RunResult.Completed(value) = result { api.observe(&value); }",
+        false,
+    ),
     (
         "unknown_alternative",
         r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); }; let value = await pending; api.observe(&value);",

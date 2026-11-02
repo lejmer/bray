@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::state::ExecutionState;
 use crate::ExecutionCondition;
+use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
 impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
@@ -76,11 +77,14 @@ impl super::check::TrustedChecks {
     pub(super) fn collect_carriers<C: crate::CheckerRequestContext + ?Sized>(
         &mut self,
         request: crate::CheckerUnitView<'_, C>,
-        dependencies: &bray_bound_tree::CheckedDependencyContracts,
         state: &ExecutionState,
         result: &ExecutionCondition,
     ) {
-        let owners = returned_owners(request, result);
+        let owners = if state.witnesses.is_empty() {
+            BTreeMap::new()
+        } else {
+            returned_owners(result)
+        };
 
         collect(state, result, &owners, &self.guarantees, &mut self.carriers);
 
@@ -88,7 +92,7 @@ impl super::check::TrustedChecks {
             .trusted_contracts()
             .is_some_and(|inputs| inputs.infer_result_witnesses)
         {
-            collect_inferred(request, dependencies, state, &owners, &mut self.inferred);
+            collect_inferred(request, state, &owners, &mut self.inferred);
         }
     }
 
@@ -108,12 +112,9 @@ impl super::check::TrustedChecks {
                 if paths.as_ref().is_some_and(|paths| !paths.is_empty())
                     && let Some(term) = portable(request, condition)
                 {
-                    result.extend(
-                        paths
-                            .iter()
-                            .flatten()
-                            .map(|path| DependencyWitnessCarrier::new(term, path.iter().copied())),
-                    );
+                    result.extend(paths.iter().flatten().map(|path| {
+                        DependencyWitnessCarrier::new(term, portable_path(request, path))
+                    }));
                 }
             }
         }
@@ -142,21 +143,11 @@ pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
 
 fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
-    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     state: &ExecutionState,
-    owners: &BTreeMap<ExecutionCondition, Vec<DependencyProjection>>,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
     previous: &mut Option<BTreeSet<DependencyWitnessCarrier>>,
 ) {
-    let identities = owners
-        .iter()
-        .map(|(owner, path)| {
-            (
-                owner.clone(),
-                result_projection(request.semantic_values(), dependencies, path),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
+    let mut identities = None;
     let mut result = BTreeSet::new();
 
     for (owner, witness) in &state.witnesses {
@@ -178,11 +169,29 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             })
             .map(|(condition, _)| condition)
         {
+            let identities = identities.get_or_insert_with(|| {
+                owners
+                    .iter()
+                    .map(|(owner, path)| {
+                        (
+                            owner.clone(),
+                            path.iter()
+                                .fold(ExecutionCondition::Result, |value, projection| {
+                                    value.project(*projection)
+                                }),
+                        )
+                    })
+                    .collect()
+            });
+
             // Rename actual returned storage identities, never ordinary field equalities.
-            let condition = condition.with_joined_values(&identities, &identities);
+            let condition = condition.with_joined_values(identities, identities);
 
             if let Some(term) = portable(request, &condition) {
-                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));
+                result.insert(DependencyWitnessCarrier::new(
+                    term,
+                    portable_path(request, path),
+                ));
             }
         }
     }
@@ -209,9 +218,9 @@ pub(in crate::analysis::guarantee) fn result_projection(
 fn collect(
     state: &ExecutionState,
     result: &ExecutionCondition,
-    owners: &BTreeMap<ExecutionCondition, Vec<DependencyProjection>>,
+    owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
     guarantees: &[(ExecutionCondition, bray_source::SourceSpan)],
-    previous: &mut [Option<BTreeSet<Vec<DependencyProjection>>>],
+    previous: &mut [Option<BTreeSet<Vec<StorageProjection>>>],
 ) {
     if guarantees.is_empty() {
         return;
@@ -282,10 +291,9 @@ fn collect(
     }
 }
 
-fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
-    request: crate::CheckerUnitView<'_, C>,
+fn returned_owners(
     result: &ExecutionCondition,
-) -> BTreeMap<ExecutionCondition, Vec<DependencyProjection>> {
+) -> BTreeMap<ExecutionCondition, Vec<StorageProjection>> {
     let mut owners = BTreeMap::new();
     let mut pending = vec![(result, Vec::new())];
 
@@ -314,60 +322,27 @@ fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
 
                 let mut path = path;
 
-                path.push(DependencyProjection::NullableValue);
+                path.push(StorageProjection::NullableValue);
                 pending.push((value, path));
             }
             ExecutionCondition::Constructed(_, fields) => {
                 for (projection, component) in fields.iter() {
-                    let projection = match projection {
-                        bray_bound_tree::StorageProjection::ProductField(field) => {
-                            DependencyProjection::ProductField(*field)
-                        }
-                        bray_bound_tree::StorageProjection::TupleElement(index) => {
-                            DependencyProjection::TupleElement(*index)
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            field,
-                            ..
-                        } => DependencyProjection::UnionPayloadField(*field),
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            DependencyProjection::NullableValue
-                        }
-                        bray_bound_tree::StorageProjection::ElementFromStart(index) => {
-                            let values = request.semantic_values();
-
-                            let value = values
-                                .intern_constant_value(bray_symbols::ConstantValueData::new(
-                                    crate::representation::representation_type(
-                                        request,
-                                        bray_compiler_known::RepresentationRole::ScalarUsize,
-                                    ),
-                                    bray_symbols::ConstantValueKind::Integer(
-                                        bray_symbols::IntegerConstant::from_u64(u64::from(
-                                            index.raw(),
-                                        )),
-                                    ),
-                                ))
-                                .expect("checked array index belongs to the same semantic store");
-
-                            DependencyProjection::Element(
-                                values
-                                    .intern_constant_term(bray_symbols::ConstantTermData::Value(
-                                        value,
-                                    ))
-                                    .expect(
-                                        "checked array selector belongs to the same semantic store",
-                                    ),
-                            )
-                        }
-                        _ => continue,
-                    };
+                    if !matches!(
+                        projection,
+                        StorageProjection::ProductField(_)
+                            | StorageProjection::TupleElement(_)
+                            | StorageProjection::ActiveUnionPayloadField { .. }
+                            | StorageProjection::NullableValue
+                            | StorageProjection::ElementFromStart(_)
+                    ) {
+                        continue;
+                    }
 
                     let mut child = path.clone();
 
-                    child.push(projection);
+                    child.push(*projection);
 
-                    if projection == DependencyProjection::NullableValue {
+                    if *projection == StorageProjection::NullableValue {
                         // Nullable extraction retains the complete snapshot's identity.
                         owners.insert(
                             value
@@ -385,6 +360,40 @@ fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
     }
 
     owners
+}
+
+/// Convert complete storage paths only when publishing portable carrier contracts.
+fn portable_path<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    path: &[StorageProjection],
+) -> Vec<DependencyProjection> {
+    path.iter()
+        .map(|projection| match projection {
+            StorageProjection::ElementFromStart(index) => {
+                let values = request.semantic_values();
+
+                let value = values
+                    .intern_constant_value(bray_symbols::ConstantValueData::new(
+                        crate::representation::representation_type(
+                            request,
+                            bray_compiler_known::RepresentationRole::ScalarUsize,
+                        ),
+                        bray_symbols::ConstantValueKind::Integer(
+                            bray_symbols::IntegerConstant::from_u64(u64::from(index.raw())),
+                        ),
+                    ))
+                    .expect("checked array index belongs to the same semantic store");
+
+                DependencyProjection::Element(
+                    values
+                        .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                        .expect("checked array selector belongs to the same semantic store"),
+                )
+            }
+            projection => crate::storage::dependency_projection(*projection)
+                .expect("returned owner retains a portable storage projection"),
+        })
+        .collect()
 }
 
 impl ExecutionState {

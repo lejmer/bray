@@ -373,10 +373,7 @@ fn publish_owned_results(
     incoming: &mut std::borrow::Cow<'_, ExecutionState>,
     owned_results: BTreeMap<
         ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<
-            bray_symbols::ConstantProjectionKind,
-            ExecutionCondition,
-        >,
+        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
     >,
 ) -> bool {
     let mut changed = false;

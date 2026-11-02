@@ -113,6 +113,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 self.invocation_reference(state, invocation, DependencySubjectRoot::Receiver)
                     .as_ref(),
                 sources,
+                self.execution.task_cleanup_types(sources, false)?,
             )
         });
 
@@ -753,8 +754,17 @@ pub(super) fn task_effects(
     memory: &crate::analysis::storage_flow::memory::State,
     source: Option<&crate::analysis::storage_flow::memory::Source>,
     sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
+    cleanup: impl IntoIterator<Item = bray_symbols::TypeId>,
 ) -> Option<Vec<Effect>> {
     let mut effects = memory.deferred_effects(source?, sources)?;
+
+    for ty in cleanup {
+        let effect = Effect::Cleanup(ty);
+
+        if !effects.contains(&effect) {
+            effects.push(effect);
+        }
+    }
 
     // Scheduling and resolution can affect external runtime state even when
     // the captured computation has no user storage mutations.

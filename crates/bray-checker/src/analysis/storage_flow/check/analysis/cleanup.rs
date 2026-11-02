@@ -100,13 +100,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 let broadcast_frames = if matches!(identity, StorageMutation::Cancellation { .. }) {
                     task_path
                         .into_iter()
-                        .flat_map(|path| memory.deferred_paths(path))
-                        .filter(|frame| {
-                            memory
-                                .unexposed_storage(std::slice::from_ref(frame), [])
-                                .next()
-                                .is_some()
-                        })
+                        .flat_map(|path| memory.unexposed_deferred_paths(path))
                         .collect::<Vec<_>>()
                 } else {
                     Vec::new()
@@ -116,14 +110,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
                     CleanupMutation::Opaque { ty, .. } => Some(
-                        task_path
-                            .and_then(|path| domain.inactive_future_captures(execution, ty, path))
+                        inactive_captures
+                            .as_ref()
                             .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
                             .or_else(|| {
                                 super::effects::task_effects(
                                     &memory,
                                     task_source.as_ref(),
                                     task_sources.as_ref()?,
+                                    domain.task_cleanup_types(task_sources.as_ref()?, true)?,
                                 )
                             })
                             .or_else(|| {

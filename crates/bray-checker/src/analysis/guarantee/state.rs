@@ -20,10 +20,7 @@ pub(crate) struct ExecutionState {
     pub(super) result: ExecutionCondition,
     pub(super) owned_results: BTreeMap<
         ExecutionCondition,
-        bray_symbols::DependencyOwnedResult<
-            bray_symbols::ConstantProjectionKind,
-            ExecutionCondition,
-        >,
+        bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition>,
     >,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
     pub(super) deferred_invocations: DeferredInvocations,
@@ -523,7 +520,7 @@ impl ExecutionState {
                     .entry(value)
                     .and_modify(
                         |previous: &mut bray_symbols::DependencyOwnedResult<
-                            bray_symbols::ConstantProjectionKind,
+                            bray_bound_tree::StorageProjection,
                             ExecutionCondition,
                         >| {
                             *previous = bray_symbols::DependencyOwnedResult::choice([

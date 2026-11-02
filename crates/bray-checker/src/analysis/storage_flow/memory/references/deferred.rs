@@ -85,7 +85,7 @@ impl State {
         }
     }
 
-    pub(in crate::analysis::storage_flow) fn deferred_paths<'a>(
+    pub(in crate::analysis::storage_flow) fn unexposed_deferred_paths<'a>(
         &'a self,
         root: &'a StoragePath,
     ) -> impl Iterator<Item = StoragePath> + 'a {
@@ -93,6 +93,7 @@ impl State {
             .keys()
             .filter_map(Target::observation_path)
             .filter(move |path| root.contains(path))
+            .filter(move |path| self.unexposed_storage(std::slice::from_ref(path), []).next().is_some())
     }
 
     pub(in crate::analysis::storage_flow) fn deferred_effects(

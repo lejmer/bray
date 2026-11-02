@@ -341,21 +341,8 @@ impl ExecutionCallEvidence {
     ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
         use super::ExecutionCondition as Condition;
 
-        let mut bindings = std::collections::BTreeMap::new();
+        let bindings = self.copy_bindings();
         let mut facts = std::collections::BTreeSet::new();
-
-        for (place, source) in &self.copy_sources {
-            let Some(captured) = place.value_in(&self.arguments) else {
-                continue;
-            };
-
-            bindings.insert(source.clone(), captured.clone());
-
-            bindings.insert(
-                source.owner_identity().clone(),
-                captured.owner_identity().clone(),
-            );
-        }
 
         if bindings.is_empty() {
             return facts;
@@ -380,6 +367,40 @@ impl ExecutionCallEvidence {
         }
 
         facts
+    }
+
+    /// Read historical proof through still-valid copy origins. This projection
+    /// supplies call-entry proof only; it never publishes copied live authority.
+    pub(crate) fn proof_facts<'a>(
+        &self,
+        facts: &'a std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> impl Iterator<Item = (super::ExecutionCondition, bool)> + 'a {
+        let bindings = self.copy_bindings();
+
+        facts
+            .iter()
+            .map(move |(condition, holds)| (condition.with_snapshots(&bindings), *holds))
+    }
+
+    fn copy_bindings(
+        &self,
+    ) -> std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition> {
+        let mut bindings = std::collections::BTreeMap::new();
+
+        for (place, source) in &self.copy_sources {
+            let Some(captured) = place.value_in(&self.arguments) else {
+                continue;
+            };
+
+            bindings.insert(source.clone(), captured.clone());
+
+            bindings.insert(
+                source.owner_identity().clone(),
+                captured.owner_identity().clone(),
+            );
+        }
+
+        bindings
     }
 
     /// Captures only constant argument values, with no trusted authority or runtime execution lane.
@@ -570,9 +591,9 @@ impl ExecutionCallEvidence {
 
         let equalities = super::ExecutionCondition::equalities(&self.assumptions, None);
 
-        let known = assumptions
-            .iter()
-            .map(|(condition, value)| (condition.with_equalities(&equalities), *value))
+        let known = self
+            .proof_facts(assumptions)
+            .map(|(condition, value)| (condition.with_equalities(&equalities), value))
             .collect();
 
         let known = super::trusted_condition_closure(known, &self.assumptions);

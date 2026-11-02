@@ -452,6 +452,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .cloned()?;
 
+        // Completion guards use the same admitted copy observations as entry
+        // proof. Keep this projection local to proof, outside live witness state.
+        if !entry.copy_sources.is_empty() {
+            entry.trusted_assumptions = entry.proof_facts(&entry.trusted_assumptions).collect();
+        }
+
         if entry.pending_execution
             || !contract.completes
                 && matches!(result, ExecutionCondition::Expression(expression) if invocation == (*expression).into())

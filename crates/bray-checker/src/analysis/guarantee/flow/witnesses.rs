@@ -249,7 +249,7 @@ pub(in crate::analysis::guarantee) fn owned_alternatives(
     left: (&ExecutionState, &ExecutionCondition),
     right: (&ExecutionState, &ExecutionCondition),
     joined: &ExecutionCondition,
-) -> bray_symbols::DependencyOwnedResult<bray_symbols::ConstantProjectionKind, ExecutionCondition> {
+) -> bray_symbols::DependencyOwnedResult<bray_bound_tree::StorageProjection, ExecutionCondition> {
     let mut guards = BTreeSet::new();
     let mut inputs = [BTreeMap::new(), BTreeMap::new()];
 

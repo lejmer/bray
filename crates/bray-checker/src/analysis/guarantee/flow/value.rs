@@ -390,7 +390,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.value(state, call.receiver()?.expression())
         };
 
-        self.task_sources(state, &value)
+        state
+            .deferred_entries(&value)?
+            .known_sources(&state.assumptions)
     }
 
     pub(super) fn started_future(
@@ -463,31 +465,38 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        self.task_sources(state, &self.storage_path_value(state, path))
+        state
+            .deferred_entries(&self.storage_path_value(state, path))?
+            .known_sources(&state.assumptions)
     }
 
-    fn task_sources(
+    /// Complete known task effects with the cleanup phases that can execute.
+    /// Observations transfer the body result; disposal also destroys that result.
+    pub(in crate::analysis) fn task_cleanup_types(
         &self,
-        state: &ExecutionState,
-        value: &ExecutionCondition,
-    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
-        let sources = state
-            .deferred_entries(value)?
-            .known_sources(&state.assumptions)?;
+        sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
+        discard_result: bool,
+    ) -> Option<std::collections::BTreeSet<bray_symbols::TypeId>> {
+        let mut types = std::collections::BTreeSet::new();
 
-        // Resolution can destroy unpolled captures or a completed body result.
-        // A body-only effect summary is complete only when neither needs cleanup.
-        sources
-            .iter()
-            .all(|source| {
-                source
-                    .expression()
-                    .and_then(|expression| self.disposal.plan.future_cleanup.get(&expression))
-                    .is_some_and(|(captures, result)| {
-                        captures.is_empty()
-                            && *result == bray_bound_tree::AsyncStorageCleanupRequirement::None
-                    })
-            })
-            .then_some(sources)
+        for source in sources {
+            let expression = source.expression()?;
+
+            let (captures, result) = self.disposal.plan.future_cleanup.get(&expression)?;
+
+            types.extend(captures.iter().copied());
+
+            if discard_result && *result != bray_bound_tree::AsyncStorageCleanupRequirement::None {
+                let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                    self.semantics.selections().expression(expression)
+                else {
+                    unreachable!("prepared future cleanup retains its selected call");
+                };
+
+                types.insert(call.resolution().result().completion_type());
+            }
+        }
+
+        Some(types)
     }
 }
