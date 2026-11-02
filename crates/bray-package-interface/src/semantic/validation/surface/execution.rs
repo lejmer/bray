@@ -484,10 +484,6 @@ impl InterfaceSemantics {
     ) -> Result<(), InterfaceValidationError> {
         self.validate_returned_input(transfer.input(), inputs, surface)?;
 
-        if let Some(condition) = transfer.condition() {
-            self.validate_execution_term(condition, inputs, true, surface)?;
-        }
-
         if transfer.output().len() > bray_symbols::EXECUTION_CONDITION_WORK_LIMIT {
             return Err(invalid());
         }

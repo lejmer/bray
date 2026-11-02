@@ -142,7 +142,16 @@ impl InterfaceSemantics {
             )?;
         }
 
-        for transfer in &*result_dependencies.owned_transfers {
+        for condition in result_dependencies.owned_result.conditions() {
+            self.validate_execution_term(
+                *condition,
+                signature.parameters.len() + usize::from(signature.receiver.is_some()),
+                true,
+                surface,
+            )?;
+        }
+
+        for transfer in result_dependencies.owned_result.transfers() {
             self.validate_owned_transfer(
                 transfer,
                 signature.parameters.len() + usize::from(signature.receiver.is_some()),

@@ -155,7 +155,7 @@ impl StructuralValueEncoder<'_, '_> {
             }
         }
 
-        self.dependency_set(data.owned_transfers(), Self::dependency_owned_transfer)?;
+        self.dependency_owned_result(data.owned_result())?;
 
         self.digest
             .write_u8(u8::from(data.observed_result().is_some()));
@@ -170,6 +170,36 @@ impl StructuralValueEncoder<'_, '_> {
         self.dependency_set(data.synchronous_cleanup(), Self::dependency_requirement)?;
 
         self.dependency_set(data.effects(), Self::dependency_effect)
+    }
+
+    pub(in crate::compilation) fn dependency_owned_result(
+        &mut self,
+        result: &bray_symbols::DependencyOwnedResult,
+    ) -> Result<(), FactQueryError> {
+        use bray_symbols::DependencyOwnedResult;
+
+        match result {
+            DependencyOwnedResult::Case { condition, result } => {
+                self.tag(3);
+                self.constant_term(*condition)?;
+
+                self.dependency_owned_result(result)
+            }
+            DependencyOwnedResult::Transfer(transfer) => {
+                self.tag(0);
+
+                self.dependency_owned_transfer(transfer)
+            }
+            DependencyOwnedResult::All(values) | DependencyOwnedResult::Choice(values) => {
+                self.tag(if matches!(result, DependencyOwnedResult::All(_)) {
+                    1
+                } else {
+                    2
+                });
+
+                self.dependency_set(values, Self::dependency_owned_result)
+            }
+        }
     }
 
     pub(in crate::compilation) fn dependency_borrow(

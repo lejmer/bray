@@ -86,7 +86,7 @@ pub(super) fn conditional_guarantees(
                 let source = owner.with_snapshots(inputs);
                 let mut evidence = BTreeSet::new();
 
-                if let Some(witness) = state.witnesses.get(source.owner_identity()) {
+                for (_, witness) in owned_witnesses(state, &source) {
                     for condition in witness.conditions.keys().filter(|condition| {
                         condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                             == Some(true)
@@ -146,44 +146,112 @@ pub(super) fn retain_conditional_guarantees(
 ) {
     for (owner, original, condition) in conditions {
         let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
+        let mut dependencies = BTreeSet::new();
 
         for state in [&*left, &*right] {
-            let Some(witness) = state.witnesses.get(owner) else {
-                continue;
-            };
+            for (_, witness) in owned_witnesses(state, owner) {
+                dependencies.extend(witness.dependencies.iter().cloned());
 
-            guarantee.witness |= witness
-                .conditions
-                .get(original)
-                .is_some_and(|bound| bound.witness);
+                guarantee.witness |= witness
+                    .conditions
+                    .get(original)
+                    .is_some_and(|bound| bound.witness);
 
-            // A predecessor can prove the clause through a differently guarded
-            // premise. Preserve every matching address bound on that carrier.
-            for source in witness.conditions.values() {
-                for (address, owners) in source
-                    .addresses
-                    .iter()
-                    .filter(|(address, _)| condition.observes_trusted(address))
-                {
-                    guarantee
+                // A predecessor can prove the clause through a differently guarded
+                // premise. Preserve every matching address bound on that carrier.
+                for source in witness.conditions.values() {
+                    for (address, owners) in source
                         .addresses
-                        .entry(address.clone())
-                        .or_default()
-                        .extend(owners.iter().cloned());
+                        .iter()
+                        .filter(|(address, _)| condition.observes_trusted(address))
+                    {
+                        guarantee
+                            .addresses
+                            .entry(address.clone())
+                            .or_default()
+                            .extend(owners.iter().cloned());
+                    }
                 }
             }
         }
 
         for state in [&mut *left, &mut *right] {
-            if let Some(witness) = state.witnesses.get_mut(owner) {
-                witness.carry(condition, guarantee.witness, &guarantee.addresses);
-            }
+            let witness = state.witnesses.entry(owner.clone()).or_default();
+
+            witness.dependencies.extend(dependencies.iter().cloned());
+            witness.carry(condition, guarantee.witness, &guarantee.addresses);
 
             condition
                 .clone()
                 .assume(true, &mut state.trusted_assumptions);
         }
     }
+}
+
+fn owned_witnesses<'a>(
+    state: &'a ExecutionState,
+    source: &ExecutionCondition,
+) -> impl Iterator<
+    Item = (
+        &'a ExecutionCondition,
+        &'a crate::execution_guarantees::ExecutionWitness,
+    ),
+> {
+    let owned = state.owned_values(source).collect::<Vec<_>>();
+
+    state.witnesses.iter().filter(move |(carrier, _)| {
+        owned
+            .iter()
+            .any(|value| carrier.is_owned_projection_of(value))
+    })
+}
+
+pub(in crate::analysis::guarantee) fn owned_alternatives(
+    left: (&ExecutionState, &ExecutionCondition),
+    right: (&ExecutionState, &ExecutionCondition),
+    joined: &ExecutionCondition,
+) -> bray_symbols::DependencyOwnedResult<bray_symbols::ConstantProjectionKind, ExecutionCondition> {
+    let mut guards = BTreeSet::new();
+    let mut inputs = [BTreeMap::new(), BTreeMap::new()];
+
+    for ((state, source), inputs) in [left, right].into_iter().zip(&mut inputs) {
+        let absent = state
+            .assumptions
+            .iter()
+            .filter_map(|(condition, holds)| condition.nullable_absence(*holds))
+            .map(|(subject, absent)| (subject.clone(), std::sync::Arc::clone(absent)))
+            .collect();
+
+        collect_observations(source, joined, inputs, &mut guards, &absent, &mut {
+            ExecutionCondition::WORK_LIMIT
+        });
+    }
+
+    bray_symbols::DependencyOwnedResult::choice([(left, right.0), (right, left.0)].into_iter().zip(inputs).map(
+        |(((state, source), other), inputs)| {
+            let mut result = state.owned_result(source);
+
+            for (condition, holds) in state.assumptions.difference(&other.assumptions) {
+                if matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
+                    let condition = if *holds { condition.clone() } else { ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]) };
+
+                    result = bray_symbols::DependencyOwnedResult::case(condition, result);
+                }
+            }
+
+            for (_, guard) in &guards {
+                if guard
+                    .with_snapshots(&inputs)
+                    .prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                    == Some(true)
+                {
+                    result = bray_symbols::DependencyOwnedResult::case(guard.clone(), result);
+                }
+            }
+
+            result
+        },
+    ))
 }
 
 fn collect_observations(

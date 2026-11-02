@@ -76,7 +76,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         scope: bray_bound_tree::StorageScope,
     ) {
-
         let Some(expired) = self.scope_places.get(&scope) else {
             return;
         };
@@ -223,9 +222,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed.assumptions = entry.assumptions;
         completed.returned = Default::default();
 
-        self.retire_consumed_inputs(state, invocation, &entry.arguments);
-
-        state.restore_returned_evidence(self.complete_returned_evidence(state, invocation, &entry.arguments, &result, entry.returned));
+        self.begin_returned_ownership(state, invocation, &entry.arguments, &result, entry.returned);
 
         let mut arguments = entry.arguments;
 
@@ -285,8 +282,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             owning: bool| {
             let sources = self.result_guarantee_owners(
                 invocation,
-                &state.entries.get(&invocation)
-                    .expect("completed invocation retains its captured arguments").arguments,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
                 template,
                 &owners,
                 &address_subjects,
@@ -327,8 +327,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
                     let addresses = self.input_guarantee_addresses(
                         invocation,
-                        &state.entries.get(&invocation)
-                            .expect("completed invocation retains its captured arguments").arguments,
+                        &state
+                            .entries
+                            .get(&invocation)
+                            .expect("completed invocation retains its captured arguments")
+                            .arguments,
                         template,
                         &owners,
                         &address_subjects,

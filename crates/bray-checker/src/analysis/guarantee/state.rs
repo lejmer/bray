@@ -16,6 +16,13 @@ pub(crate) struct ExecutionState {
     pub(super) expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) pending_results: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) result: ExecutionCondition,
+    pub(super) owned_results: BTreeMap<
+        ExecutionCondition,
+        bray_symbols::DependencyOwnedResult<
+            bray_symbols::ConstantProjectionKind,
+            ExecutionCondition,
+        >,
+    >,
     pub(super) entries: BTreeMap<bray_bound_tree::BoundExecutionSite, crate::ExecutionCallEvidence>,
     pub(super) deferred_invocations:
         BTreeMap<ExecutionCondition, bray_bound_tree::BoundExecutionSite>,
@@ -34,6 +41,7 @@ impl Default for ExecutionState {
             expressions: BTreeMap::new(),
             pending_results: BTreeMap::new(),
             result: ExecutionCondition::Unknown,
+            owned_results: BTreeMap::new(),
             entries: BTreeMap::new(),
             deferred_invocations: BTreeMap::new(),
             completion_dependencies: BTreeSet::new(),
@@ -125,7 +133,9 @@ impl ExecutionState {
         }
 
         self.exclude_live_witnesses(&mut retired);
-        self.trusted_assumptions.retain(|fact| !retired.contains(fact));
+
+        self.trusted_assumptions
+            .retain(|fact| !retired.contains(fact));
 
         // Call effects have already retired invalid captured evidence.
         // Only normal completion restores surviving ownership to the caller.
@@ -305,6 +315,8 @@ impl ExecutionState {
     /// Reusing a finite evaluation identity must not revive a previous iteration's evidence.
     pub(super) fn retire_evaluation(&mut self, mutation: bray_bound_tree::StorageMutation) {
         let stale = |value: &ExecutionCondition| value.depends_on(mutation);
+
+        self.owned_results.retain(|value, _| !stale(value));
 
         for witnesses in std::iter::once(&mut self.witnesses).chain(
             self.entries

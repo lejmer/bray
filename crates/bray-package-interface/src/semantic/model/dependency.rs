@@ -308,11 +308,9 @@ pub enum InterfaceDependencyRequirementKind {
 /// One normalized portable dependency contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceDependencyContract {
-    pub(crate) owned_transfers: Arc<
-        [bray_symbols::DependencyOwnedTransfer<
-            super::InterfaceConstantProjection,
-            super::InterfaceConstantTermId,
-        >],
+    pub(crate) owned_result: bray_symbols::DependencyOwnedResult<
+        super::InterfaceConstantProjection,
+        super::InterfaceConstantTermId,
     >,
     pub(crate) observed_result: Option<super::InterfaceConstantTermId>,
     pub(crate) carriers: Arc<
@@ -351,16 +349,14 @@ impl InterfaceDependencyContract {
     }
 
     /// Records exact input ownership preserved under each normal result condition.
-    pub fn with_owned_transfers(
+    pub fn with_owned_result(
         mut self,
-        transfers: impl IntoIterator<
-            Item = bray_symbols::DependencyOwnedTransfer<
-                super::InterfaceConstantProjection,
-                super::InterfaceConstantTermId,
-            >,
+        result: bray_symbols::DependencyOwnedResult<
+            super::InterfaceConstantProjection,
+            super::InterfaceConstantTermId,
         >,
     ) -> Self {
-        self.owned_transfers = sorted_unique_shared_slice(transfers);
+        self.owned_result = result;
 
         self
     }
@@ -374,7 +370,7 @@ impl InterfaceDependencyContract {
             synchronous_cleanup: Arc::new([]),
             normal_completion: true,
             normal_storage_preserved: false,
-            owned_transfers: Arc::new([]),
+            owned_result: bray_symbols::DependencyOwnedResult::default(),
             observed_result: None,
             carriers: Arc::new([]),
             borrows: Arc::new([]),

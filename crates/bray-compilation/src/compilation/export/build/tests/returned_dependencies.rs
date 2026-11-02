@@ -1329,7 +1329,7 @@ fn generic_owner_forwarding_preserves_only_the_transferred_witness() {
             crate::compilation::result_dependencies::source_function_dependencies(&provider, name);
 
         assert!(
-            dependencies.owned_transfers().is_empty(),
+            dependencies.owned_result().is_empty(),
             "{name}: {dependencies:?}"
         );
     }

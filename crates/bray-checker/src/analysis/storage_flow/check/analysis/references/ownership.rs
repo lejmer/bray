@@ -3,18 +3,20 @@ use crate::CheckerRequestContext;
 use bray_symbols::TypeData;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
-    pub(super) fn owned_transfers(
+    pub(super) fn owned_result(
         &mut self,
-        candidates: std::collections::BTreeMap<
-            bray_symbols::DependencyOwnedTransfer,
-            crate::analysis::guarantee::OwnedReturnCondition,
+        candidates: bray_symbols::DependencyOwnedResult<
+            bray_symbols::ConstantProjectionKind,
+            (
+                bray_symbols::ConstantTermId,
+                crate::analysis::guarantee::OwnedReturnCondition,
+            ),
         >,
-    ) -> crate::CheckerQueryResult<Vec<bray_symbols::DependencyOwnedTransfer>, C::UpstreamError>
-    {
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyOwnedResult, C::UpstreamError> {
         use bray_symbols::ConstantTermData;
 
         if candidates.is_empty() {
-            return Ok(Vec::new());
+            return Ok(bray_symbols::DependencyOwnedResult::default());
         }
 
         let inputs = self
@@ -22,121 +24,136 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .trusted_contracts()
             .expect("owned transfer inference retains formal inputs");
 
-        let mut result = Vec::new();
         let mut copyable = std::collections::BTreeMap::new();
 
-        for (transfer, shape) in candidates {
-            use crate::analysis::guarantee::OwnedReturnCondition;
+        candidates.try_map(
+            &mut |candidate| {
+                let (input, shape) = candidate.input();
 
-            let conditional = shape != OwnedReturnCondition::Unconditional;
-            let presence = shape == OwnedReturnCondition::PresentValue;
-            let mut term = transfer.input();
-            let mut projections = Vec::new();
+                let transfer = bray_symbols::DependencyOwnedTransfer::new(
+                    input,
+                    candidate.output().iter().copied(),
+                );
 
-            let ordinal = loop {
-                match self
-                    .request
-                    .semantic_values()
-                    .constant_term_data(term)
-                    .as_ref()
+                use crate::analysis::guarantee::OwnedReturnCondition;
+
+                let conditional = shape != OwnedReturnCondition::Unconditional;
+                let presence = shape == OwnedReturnCondition::PresentValue;
+                let mut term = transfer.input();
+                let mut projections = Vec::new();
+
+                let ordinal = loop {
+                    match self
+                        .request
+                        .semantic_values()
+                        .constant_term_data(term)
+                        .as_ref()
+                    {
+                        ConstantTermData::CallableArgument(ordinal) => break ordinal.raw(),
+                        ConstantTermData::Projection(projection) => {
+                            projections.push(projection.kind());
+                            term = projection.subject();
+                        }
+                        _ => unreachable!(
+                            "inferred ownership source contains only input projections"
+                        ),
+                    }
+                };
+
+                let input = inputs.inputs
+                    [usize::try_from(ordinal).expect("formal input ordinal fits the target")];
+
+                let target = bray_bound_tree::StorageBindingTarget::from_reference_target(input)
+                    .expect("formal ownership input has a storage binding role");
+
+                let mut ty = match self
+                    .storage
+                    .binding(target)
+                    .expect("formal ownership input retains its checked storage")
                 {
-                    ConstantTermData::CallableArgument(ordinal) => break ordinal.raw(),
-                    ConstantTermData::Projection(projection) => {
-                        projections.push(projection.kind());
-                        term = projection.subject();
-                    }
-                    _ => unreachable!("inferred ownership source contains only input projections"),
-                }
-            };
-
-            let input = inputs.inputs
-                [usize::try_from(ordinal).expect("formal input ordinal fits the target")];
-
-            let target = bray_bound_tree::StorageBindingTarget::from_reference_target(input)
-                .expect("formal ownership input has a storage binding role");
-
-            let mut ty = match self
-                .storage
-                .binding(target)
-                .expect("formal ownership input retains its checked storage")
-            {
-                bray_bound_tree::StorageBinding::Identity(identity) => self
-                    .storage
-                    .storage_type(identity)
-                    .expect("formal ownership input retains its checked type"),
-                bray_bound_tree::StorageBinding::Access(access) => self
-                    .storage
-                    .access(access)
-                    .expect("formal ownership input retains its checked access")
-                    .reached_type(),
-            };
-
-            for projection in projections.into_iter().rev() {
-                ty = self.owned_projection_type(ty, projection)?;
-            }
-
-            let copies = if let Some(copies) = copyable.get(&ty) {
-                *copies
-            } else {
-                let resolved = match crate::storage::type_is_copyable(self.request, ty) {
-                    crate::CheckerOutcome::Complete(result) => result,
-                    crate::CheckerOutcome::Cancelled => {
-                        return Err(crate::CheckerQueryError::Cancelled);
-                    }
-                    crate::CheckerOutcome::UpstreamFailure(error) => {
-                        return Err(crate::CheckerQueryError::Upstream(error));
-                    }
+                    bray_bound_tree::StorageBinding::Identity(identity) => self
+                        .storage
+                        .storage_type(identity)
+                        .expect("formal ownership input retains its checked type"),
+                    bray_bound_tree::StorageBinding::Access(access) => self
+                        .storage
+                        .access(access)
+                        .expect("formal ownership input retains its checked access")
+                        .reached_type(),
                 };
 
-                let (copies, diagnostics) = resolved.into_parts();
+                for projection in projections.into_iter().rev() {
+                    ty = self.owned_projection_type(ty, projection)?;
+                }
 
-                self.diagnostics.add_range(diagnostics);
-                copyable.insert(ty, copies);
-
-                copies
-            };
-
-            if !copies {
-                let condition = if conditional {
-                    self.owned_result_condition(transfer.output(), presence)?
+                let copies = if let Some(copies) = copyable.get(&ty) {
+                    *copies
                 } else {
-                    None
+                    let resolved = match crate::storage::type_is_copyable(self.request, ty) {
+                        crate::CheckerOutcome::Complete(result) => result,
+                        crate::CheckerOutcome::Cancelled => {
+                            return Err(crate::CheckerQueryError::Cancelled);
+                        }
+                        crate::CheckerOutcome::UpstreamFailure(error) => {
+                            return Err(crate::CheckerQueryError::Upstream(error));
+                        }
+                    };
+
+                    let (copies, diagnostics) = resolved.into_parts();
+
+                    self.diagnostics.add_range(diagnostics);
+                    copyable.insert(ty, copies);
+
+                    copies
                 };
 
-                // A conditional whole result needs an observable inactive shape.
-                if conditional && condition.is_none() {
-                    continue;
-                }
+                if !copies {
+                    let condition = if conditional {
+                        self.owned_result_condition(transfer.output(), presence)?
+                    } else {
+                        None
+                    };
 
-                let transfer = if presence {
-                    let values = self.request.semantic_values();
+                    // A conditional whole result needs an observable inactive shape.
+                    if conditional && condition.is_none() {
+                        return Ok(bray_symbols::DependencyOwnedResult::default());
+                    }
 
-                    let input = values
-                        .intern_constant_term(bray_symbols::ConstantTermData::Projection(
-                            bray_symbols::ConstantProjection::new(
-                                transfer.input(),
-                                bray_symbols::ConstantProjectionKind::NullableValue,
-                            ),
-                        ))
-                        .expect("conditional nullable input belongs to the same semantic store");
+                    let transfer = if presence {
+                        let values = self.request.semantic_values();
 
-                    bray_symbols::DependencyOwnedTransfer::new(
-                        input,
+                        let input = values
+                            .intern_constant_term(bray_symbols::ConstantTermData::Projection(
+                                bray_symbols::ConstantProjection::new(
+                                    transfer.input(),
+                                    bray_symbols::ConstantProjectionKind::NullableValue,
+                                ),
+                            ))
+                            .expect(
+                                "conditional nullable input belongs to the same semantic store",
+                            );
+
+                        bray_symbols::DependencyOwnedTransfer::new(
+                            input,
+                            transfer
+                                .output()
+                                .iter()
+                                .copied()
+                                .chain([bray_symbols::ConstantProjectionKind::NullableValue]),
+                        )
+                    } else {
                         transfer
-                            .output()
-                            .iter()
-                            .copied()
-                            .chain([bray_symbols::ConstantProjectionKind::NullableValue]),
-                    )
-                } else {
-                    transfer
-                };
+                    };
 
-                result.push(transfer.with_condition(condition));
-            }
-        }
+                    return Ok(bray_symbols::DependencyOwnedResult::Transfer(
+                        transfer.with_condition(condition),
+                    ));
+                }
 
-        Ok(result)
+                Ok(bray_symbols::DependencyOwnedResult::default())
+            },
+            &mut |(condition, _)| Ok(Some(*condition)),
+        )
     }
 
     fn owned_projection_type(

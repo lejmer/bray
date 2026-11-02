@@ -7,6 +7,7 @@ mod dependency;
 mod error;
 mod id;
 mod numeric;
+mod ownership;
 mod store;
 mod substitution;
 mod substitution_apply;
@@ -23,10 +24,9 @@ pub use constant::{
 };
 pub use dependency::{
     DependencyBorrowRelation, DependencyCallInput, DependencyCallOutput,
-    DependencyContractTemplateData, DependencyGuard, DependencyOwnedTransfer, DependencyProjection,
-    DependencyReferenceKind, DependencyRequirement, DependencyRequirementKind, DependencySubject,
-    DependencySubjectRoot, DependencyWitnessCarrier, GuardedDependencyRequirement,
-    LifecycleObligationKind,
+    DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyReferenceKind,
+    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    DependencyWitnessCarrier, GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};
 pub use id::{
@@ -46,3 +46,5 @@ pub use ty::{
 };
 
 pub use numeric::NumericTruncation;
+
+pub use ownership::{DependencyOwnedResult, DependencyOwnedTransfer};

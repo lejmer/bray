@@ -524,6 +524,214 @@ const API: &str = r"
 
     func observe_address(pos value: &Address)
         requires(trusted core.memory.valid_read<u32>(pointer = value.pointer, count = 1)) {}
+    trusted func permission_box() -> Box<Permit>
+        ensures(trusted permitted(id = result.value.id))
+    {
+        return
+        {
+            value = Permit
+            {
+                id = 1
+            }
+        };
+    }
+
+    func select_inputs<T>(pos left: T, pos right: T, pos first: bool) -> (u32, T)
+    {
+        if first
+        {
+            return (0, left);
+        }
+
+        return (0, right);
+    }
+
+    func select_join<T>(pos left: T, pos right: T, pos first: bool) -> (u32, T)
+    {
+        return (0, if first
+        {
+            yield left;
+        }
+        else
+        {
+            yield right;
+        });
+    }
+
+    func select_forward<T>(pos left: T, pos right: T, pos first: bool) -> (u32, T)
+    {
+        return select_join<T>(left, right, first);
+    }
+
+    func swap<T>(pos left: T, pos right: T, pos first: bool) -> (T, T)
+    {
+        if first
+        {
+            return (left, right);
+        }
+
+        return (right, left);
+    }
+
+    func swap_join<T>(pos left: T, pos right: T, pos first: bool) -> (T, T)
+    {
+        return if first
+        {
+            yield (left, right);
+        }
+        else
+        {
+            yield (right, left);
+        };
+    }
+
+    func mixed<T>(pos left: Box<T>, pos right: T, pos first: bool) -> Box<T>
+    {
+        if first
+        {
+            return left;
+        }
+
+        return
+        {
+            value = right
+        };
+    }
+
+    func mixed_join<T>(pos left: Box<T>, pos right: T, pos first: bool) -> Box<T>
+    {
+        return if first
+        {
+            yield left;
+        }
+        else
+        {
+            let alternative: Box<T> =
+            {
+                value = right
+            };
+
+            yield alternative;
+        };
+    }
+
+    func select_direct<T>(pos left: T, pos right: T, pos first: bool) -> T
+    {
+        if first
+        {
+            return left;
+        }
+
+        return right;
+    }
+
+    func select_direct_join<T>(pos left: T, pos right: T, pos first: bool) -> T
+    {
+        return if first
+        {
+            yield left;
+        }
+        else
+        {
+            yield right;
+        };
+    }
+
+    func select_loop<T>(pos left: T, pos right: T, pos first: bool) -> T
+    {
+        let mut selected = left;
+
+        while first
+        {
+            selected = right;
+            break;
+        }
+
+        return selected;
+    }
+
+    func select_nullable_inputs_exits<T>(pos left: T, pos right: T, pos first: bool, pos take: bool) -> T?
+    {
+        if !take
+        {
+            return none;
+        }
+
+        if first
+        {
+            return left;
+        }
+
+        return right;
+    }
+
+    func select_nullable_inputs_join<T>(pos left: T, pos right: T, pos first: bool, pos take: bool) -> T?
+    {
+        return if !take
+        {
+            yield none;
+        }
+        else
+        {
+            let value = if first
+            {
+                yield left;
+            }
+            else
+            {
+                yield right;
+            };
+
+            yield value;
+        };
+    }
+
+    func select_variant_inputs_exits<T>(
+        pos left: T,
+        pos right: T,
+        pos first: bool,
+        pos take: bool,
+    ) -> Choice<T>
+    {
+        if !take
+        {
+            return .Empty;
+        }
+
+        if first
+        {
+            return .Value(left);
+        }
+
+        return .Value(right);
+    }
+
+    func select_variant_inputs_join<T>(
+        pos left: T,
+        pos right: T,
+        pos first: bool,
+        pos take: bool,
+    ) -> Choice<T>
+    {
+        return if !take
+        {
+            yield .Empty;
+        }
+        else
+        {
+            let value = if first
+            {
+                yield left;
+            }
+            else
+            {
+                yield right;
+            };
+
+            yield .Value(value);
+        };
+    }
+
 ";
 
 fn check_owned_transfers(imported: bool) {
@@ -627,81 +835,376 @@ fn check_owned_transfers(imported: bool) {
     }
 
     for (name, body, valid) in [
-        ("nullable_payload_join", "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield none; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }", true),
-        ("nullable_payload_fabricated", "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield api.Marker {}; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }", false),
-        ("array_factory", "let [left, right] = api.factory(); api.observe(&left); api.observe(&right);", true),
-        ("array_payload_factory", "let [left, right] = api.marker_factory(); api.inspect_marker(&left); api.inspect_marker(&right);", true),
-        ("array_conditional_factory", "let [left, right] = api.conditional_factory(choice); match consume left { case ?item { api.inspect_marker(&item); } case none {} } match consume right { case ?item { api.inspect_marker(&item); } case none {} }", true),
-        ("conditional_absent_input", "let result = api.select_variant<(api.Receipt?)>(api.absent(), choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }", true),
-        ("conditional_optional_exits", "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
-        ("conditional_optional_join", "let result = api.select_optional_join<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
-        ("conditional_copy", "let original = api.stamp(); let result = api.select_variant<api.Stamp>(original, choice); match consume result { case .Value(value) { api.observe_stamp(&value); } case .Empty {} }", false),
-        ("conditional_live_address", "let payload: u32 = 4; let result = api.select_variant<api.Address>(api.address(&payload), choice); match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
-        ("conditional_expired_address", "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", false),
-        ("conditional_independent_marker", "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }", true),
-        ("conditional_authority_before", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);", false),
-        ("conditional_authority_active", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
-        ("conditional_authority_inactive", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
-        ("independent_permission", "let permit = api.permission(); let other = api.permission(); let id = other.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);", true),
-        ("conditional_consuming_receiver", "let result = api.select_variant<api.Resource>(api.resource(), choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }", true),
-        ("conditional_consuming_receiver_forged", "let result = api.select_variant<api.Resource>(api.Resource { marker = api.Marker {} }, choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }", false),
-        ("consuming_receiver_external_mutation", "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_related(&owner, &state);", false),
-        ("consuming_receiver_independent_claim", "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_independent(&owner);", true),
-        ("consumed_permission", "let permit = api.permission(); let id = permit.id; api.discard<api.Permit>(permit); api.inspect_permission(id);", false),
-        ("deferred_consumed_permission", "let permit = api.permission(); let id = permit.id; await api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);", false),
-        ("copied_original_authority", "let original = api.stamp(); api.discard<api.Stamp>(original); api.observe_stamp(&original);", false),
-        ("consumed_independent_permission", "let permit = api.permission(); let other = api.permission(); let id = other.id; api.discard<api.Permit>(permit); api.inspect_permission(id);", true),
-        ("deferred_authority_active", "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
-        ("deferred_authority_inactive", "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
-        ("deferred_live_capture", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);", true),
-        ("deferred_dropped_capture", "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); yield id; }; api.inspect_permission(id);", false),
-        ("deferred_dropped_nested_capture", "let id = { let permit = api.permission(); let id = permit.id; let pending = (0, api.deferred_discard<api.Permit>(permit)); yield id; }; api.inspect_permission(id);", false),
-        ("conditional_future_active", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
-        ("conditional_future_inactive", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
-        ("conditional_future_dropped", "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); yield id; }; api.inspect_permission(id);", false),
-        ("extract_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract<api.Marker>(wrapped); api.inspect_marker(&result.1);", true),
-        ("extract_partial_input", "let result = api.extract<api.Marker>(api.marker_box()); api.inspect_marker(&result.1);", false),
-        ("deferred_partial_input_inactive", "let pending = api.deferred_extract<api.Marker>(api.marker_box());", true),
-        ("deferred_partial_input_awaited", "let result = await api.deferred_extract<api.Marker>(api.marker_box()); api.inspect_marker(&result);", false),
-        ("deferred_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract<api.Marker>(wrapped); api.inspect_marker(&result);", true),
-        ("partial_optional_inactive", "let result = api.extract_optional<api.Marker>(api.marker_box(), false);", true),
-        ("partial_optional_active", "let result = api.extract_optional<api.Marker>(api.marker_box(), true);", false),
-        ("partial_optional_unknown", "let result = api.extract_optional<api.Marker>(api.marker_box(), choice);", false),
-        ("partial_optional_inactive_path", "if choice { return; } let result = api.extract_optional<api.Marker>(api.marker_box(), choice);", true),
-        ("partial_optional_active_path", "if !choice { return; } let result = api.extract_optional<api.Marker>(api.marker_box(), choice);", false),
-        ("partial_optional_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract_optional<api.Marker>(wrapped, choice); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
-        ("deferred_partial_optional_inactive", "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), false);", true),
-        ("deferred_partial_optional_active", "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), true);", false),
-        ("deferred_partial_optional_unknown", "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);", false),
-        ("deferred_partial_optional_inactive_path", "if choice { return; } let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);", true),
-        ("deferred_partial_optional_active_path", "if !choice { return; } let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);", false),
-        ("deferred_partial_optional_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract_optional<api.Marker>(wrapped, choice); match consume result { case ?value { api.inspect_marker(&value); } case none {} }", true),
-        ("partial_choice_inactive", "let result = api.extract_choice<api.Marker>(api.marker_box(), false);", true),
-        ("partial_choice_active", "let result = api.extract_choice<api.Marker>(api.marker_box(), true);", false),
-        ("partial_choice_unknown", "let result = api.extract_choice<api.Marker>(api.marker_box(), choice);", false),
-        ("partial_choice_inactive_path", "if choice { return; } let result = api.extract_choice<api.Marker>(api.marker_box(), choice);", true),
-        ("partial_choice_active_path", "if !choice { return; } let result = api.extract_choice<api.Marker>(api.marker_box(), choice);", false),
-        ("partial_choice_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract_choice<api.Marker>(wrapped, choice); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", true),
-        ("deferred_partial_choice_inactive", "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), false);", true),
-        ("deferred_partial_choice_active", "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), true);", false),
-        ("deferred_partial_choice_unknown", "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);", false),
-        ("deferred_partial_choice_inactive_path", "if choice { return; } let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);", true),
-        ("deferred_partial_choice_active_path", "if !choice { return; } let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);", false),
-        ("deferred_partial_choice_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract_choice<api.Marker>(wrapped, choice); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }", true),
-        ("partial_future_unpolled", "let pending = api.deferred_extract_optional<api.Marker>(api.marker_box(), true);", true),
-        ("consuming_constructor", "let permit = api.permission(); let id = permit.id; let sink = api.Sink(permit); api.inspect_permission(id);", false),
-        ("suspending_live_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
-        ("suspending_aliased_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
-        ("suspending_selected_owner", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); let selected = if choice { yield pending; } else { yield pending; }; yield await selected; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
-        ("suspending_replaced_borrow", "let outer: u32 = 4; let mut outer_state: api.State = { count = 0 }; let result = { let payload: u32 = 5; let mut state: api.State = { count = 0 }; let mut pending = api.select_await<(&u32)>(&outer, choice, &mut outer_state); pending = api.select_await<(&u32)>(&payload, choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", false),
-        ("suspending_borrow_active", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", true),
-        ("suspending_borrow_expired", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", false),
-        ("suspending_expired_address", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", false),
-        ("suspending_independent_marker", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }", true),
-        ("unchanged_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.keep(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);", true),
-        ("changed_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);", false),
-        ("independent_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_independent(&result.1);", true),
-
+        (
+            "nullable_payload_join",
+            "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield none; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }",
+            true,
+        ),
+        (
+            "nullable_payload_fabricated",
+            "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield api.Marker {}; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }",
+            false,
+        ),
+        (
+            "array_factory",
+            "let [left, right] = api.factory(); api.observe(&left); api.observe(&right);",
+            true,
+        ),
+        (
+            "array_payload_factory",
+            "let [left, right] = api.marker_factory(); api.inspect_marker(&left); api.inspect_marker(&right);",
+            true,
+        ),
+        (
+            "array_conditional_factory",
+            "let [left, right] = api.conditional_factory(choice); match consume left { case ?item { api.inspect_marker(&item); } case none {} } match consume right { case ?item { api.inspect_marker(&item); } case none {} }",
+            true,
+        ),
+        (
+            "conditional_absent_input",
+            "let result = api.select_variant<(api.Receipt?)>(api.absent(), choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_optional_exits",
+            "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }",
+            true,
+        ),
+        (
+            "conditional_optional_join",
+            "let result = api.select_optional_join<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }",
+            true,
+        ),
+        (
+            "conditional_copy",
+            "let original = api.stamp(); let result = api.select_variant<api.Stamp>(original, choice); match consume result { case .Value(value) { api.observe_stamp(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "conditional_live_address",
+            "let payload: u32 = 4; let result = api.select_variant<api.Address>(api.address(&payload), choice); match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_expired_address",
+            "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "conditional_independent_marker",
+            "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_authority_before",
+            "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "conditional_authority_active",
+            "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_authority_inactive",
+            "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }",
+            false,
+        ),
+        (
+            "independent_permission",
+            "let permit = api.permission(); let other = api.permission(); let id = other.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);",
+            true,
+        ),
+        (
+            "conditional_consuming_receiver",
+            "let result = api.select_variant<api.Resource>(api.resource(), choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_consuming_receiver_forged",
+            "let result = api.select_variant<api.Resource>(api.Resource { marker = api.Marker {} }, choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "consuming_receiver_external_mutation",
+            "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_related(&owner, &state);",
+            false,
+        ),
+        (
+            "consuming_receiver_independent_claim",
+            "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_independent(&owner);",
+            true,
+        ),
+        (
+            "consumed_permission",
+            "let permit = api.permission(); let id = permit.id; api.discard<api.Permit>(permit); api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "deferred_consumed_permission",
+            "let permit = api.permission(); let id = permit.id; await api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "copied_original_authority",
+            "let original = api.stamp(); api.discard<api.Stamp>(original); api.observe_stamp(&original);",
+            false,
+        ),
+        (
+            "consumed_independent_permission",
+            "let permit = api.permission(); let other = api.permission(); let id = other.id; api.discard<api.Permit>(permit); api.inspect_permission(id);",
+            true,
+        ),
+        (
+            "deferred_authority_active",
+            "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }",
+            true,
+        ),
+        (
+            "deferred_authority_inactive",
+            "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }",
+            false,
+        ),
+        (
+            "deferred_live_capture",
+            "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);",
+            true,
+        ),
+        (
+            "deferred_dropped_capture",
+            "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); yield id; }; api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "deferred_dropped_nested_capture",
+            "let id = { let permit = api.permission(); let id = permit.id; let pending = (0, api.deferred_discard<api.Permit>(permit)); yield id; }; api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "conditional_future_active",
+            "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }",
+            true,
+        ),
+        (
+            "conditional_future_inactive",
+            "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }",
+            false,
+        ),
+        (
+            "conditional_future_dropped",
+            "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); yield id; }; api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "extract_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract<api.Marker>(wrapped); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "extract_partial_input",
+            "let result = api.extract<api.Marker>(api.marker_box()); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "deferred_partial_input_inactive",
+            "let pending = api.deferred_extract<api.Marker>(api.marker_box());",
+            true,
+        ),
+        (
+            "deferred_partial_input_awaited",
+            "let result = await api.deferred_extract<api.Marker>(api.marker_box()); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "deferred_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract<api.Marker>(wrapped); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "partial_optional_inactive",
+            "let result = api.extract_optional<api.Marker>(api.marker_box(), false);",
+            true,
+        ),
+        (
+            "partial_optional_active",
+            "let result = api.extract_optional<api.Marker>(api.marker_box(), true);",
+            false,
+        ),
+        (
+            "partial_optional_unknown",
+            "let result = api.extract_optional<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "partial_optional_inactive_path",
+            "if choice { return; } let result = api.extract_optional<api.Marker>(api.marker_box(), choice);",
+            true,
+        ),
+        (
+            "partial_optional_active_path",
+            "if !choice { return; } let result = api.extract_optional<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "partial_optional_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract_optional<api.Marker>(wrapped, choice); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "deferred_partial_optional_inactive",
+            "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), false);",
+            true,
+        ),
+        (
+            "deferred_partial_optional_active",
+            "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), true);",
+            false,
+        ),
+        (
+            "deferred_partial_optional_unknown",
+            "let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "deferred_partial_optional_inactive_path",
+            "if choice { return; } let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);",
+            true,
+        ),
+        (
+            "deferred_partial_optional_active_path",
+            "if !choice { return; } let result = await api.deferred_extract_optional<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "deferred_partial_optional_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract_optional<api.Marker>(wrapped, choice); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "partial_choice_inactive",
+            "let result = api.extract_choice<api.Marker>(api.marker_box(), false);",
+            true,
+        ),
+        (
+            "partial_choice_active",
+            "let result = api.extract_choice<api.Marker>(api.marker_box(), true);",
+            false,
+        ),
+        (
+            "partial_choice_unknown",
+            "let result = api.extract_choice<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "partial_choice_inactive_path",
+            "if choice { return; } let result = api.extract_choice<api.Marker>(api.marker_box(), choice);",
+            true,
+        ),
+        (
+            "partial_choice_active_path",
+            "if !choice { return; } let result = api.extract_choice<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "partial_choice_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract_choice<api.Marker>(wrapped, choice); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "deferred_partial_choice_inactive",
+            "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), false);",
+            true,
+        ),
+        (
+            "deferred_partial_choice_active",
+            "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), true);",
+            false,
+        ),
+        (
+            "deferred_partial_choice_unknown",
+            "let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "deferred_partial_choice_inactive_path",
+            "if choice { return; } let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);",
+            true,
+        ),
+        (
+            "deferred_partial_choice_active_path",
+            "if !choice { return; } let result = await api.deferred_extract_choice<api.Marker>(api.marker_box(), choice);",
+            false,
+        ),
+        (
+            "deferred_partial_choice_complete_child",
+            "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract_choice<api.Marker>(wrapped, choice); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "partial_future_unpolled",
+            "let pending = api.deferred_extract_optional<api.Marker>(api.marker_box(), true);",
+            true,
+        ),
+        (
+            "consuming_constructor",
+            "let permit = api.permission(); let id = permit.id; let sink = api.Sink(permit); api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "suspending_live_address",
+            "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "suspending_aliased_address",
+            "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "suspending_selected_owner",
+            "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); let selected = if choice { yield pending; } else { yield pending; }; yield await selected; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "suspending_replaced_borrow",
+            "let outer: u32 = 4; let mut outer_state: api.State = { count = 0 }; let result = { let payload: u32 = 5; let mut state: api.State = { count = 0 }; let mut pending = api.select_await<(&u32)>(&outer, choice, &mut outer_state); pending = api.select_await<(&u32)>(&payload, choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "suspending_borrow_active",
+            "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "suspending_borrow_expired",
+            "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "suspending_expired_address",
+            "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "suspending_independent_marker",
+            "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "unchanged_dependency",
+            "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.keep(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);",
+            true,
+        ),
+        (
+            "changed_dependency",
+            "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);",
+            false,
+        ),
+        (
+            "independent_dependency",
+            "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_independent(&result.1);",
+            true,
+        ),
         (
             "projected_input",
             "let result = api.extract<(api.Receipt?)>(api.product<(api.Receipt?)>(api.make())); api.observe(&result.1);",
@@ -762,6 +1265,551 @@ fn check_owned_transfers(imported: bool) {
             "let result = { let payload: u32 = 4; yield api.with_reference<(api.Receipt?)>(api.make(), &payload); }; api.observe(&result.0); api.reference(result.1);",
             false,
         ),
+        (
+            "select_exits_both",
+            "let result = api.select_inputs<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_exits_left",
+            "let result = api.select_inputs<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_exits_right",
+            "let result = api.select_inputs<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_join_both",
+            "let result = api.select_join<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_join_left",
+            "let result = api.select_join<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_join_right",
+            "let result = api.select_join<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_forward_both",
+            "let result = api.select_forward<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_forward_left",
+            "let result = api.select_forward<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_forward_right",
+            "let result = api.select_forward<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "swap_both",
+            "let result = api.swap<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "swap_left",
+            "let result = api.swap<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "swap_right",
+            "let result = api.swap<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "swap_join_both",
+            "let result = api.swap_join<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "swap_join_left",
+            "let result = api.swap_join<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "swap_join_right",
+            "let result = api.swap_join<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.0); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "mixed_both",
+            "let result = api.mixed<api.Marker>(api.marker_box(), api.make_marker(), choice); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_left",
+            "let result = api.mixed<api.Marker>(api.marker_box(), api.Marker {}, choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_right",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed<api.Marker>(left, api.make_marker(), choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_both",
+            "let result = api.mixed_join<api.Marker>(api.marker_box(), api.make_marker(), choice); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_join_left",
+            "let result = api.mixed_join<api.Marker>(api.marker_box(), api.Marker {}, choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_right",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed_join<api.Marker>(left, api.make_marker(), choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_permission",
+            "let result = api.mixed<api.Permit>(api.permission_box(), api.permission(), choice); api.inspect_permission(result.value.id);",
+            true,
+        ),
+        (
+            "mixed_permission_fabricated",
+            "let result = api.mixed<api.Permit>(api.permission_box(), api.Permit { id = 1 }, choice); api.inspect_permission(result.value.id);",
+            false,
+        ),
+        (
+            "mixed_expired_address",
+            "let outer: u32 = 4; let result = { let inner: u32 = 5; yield api.mixed<api.Address>(api.product<api.Address>(api.address(&outer)), api.address(&inner), choice); }; api.observe_address(&result.value);",
+            false,
+        ),
+        (
+            "mixed_independent_address",
+            "let outer: u32 = 4; let result = { let inner: u32 = 5; yield api.mixed<api.Address>(api.product<api.Address>(api.address(&outer)), api.address(&inner), choice); }; api.observe_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_join_permission",
+            "let result = api.mixed_join<api.Permit>(api.permission_box(), api.permission(), choice); api.inspect_permission(result.value.id);",
+            true,
+        ),
+        (
+            "mixed_join_permission_fabricated",
+            "let result = api.mixed_join<api.Permit>(api.permission_box(), api.Permit { id = 1 }, choice); api.inspect_permission(result.value.id);",
+            false,
+        ),
+        (
+            "mixed_join_expired_address",
+            "let outer: u32 = 4; let result = { let inner: u32 = 5; yield api.mixed_join<api.Address>(api.product<api.Address>(api.address(&outer)), api.address(&inner), choice); }; api.observe_address(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_independent_address",
+            "let outer: u32 = 4; let result = { let inner: u32 = 5; yield api.mixed_join<api.Address>(api.product<api.Address>(api.address(&outer)), api.address(&inner), choice); }; api.observe_marker(&result.value);",
+            true,
+        ),
+        (
+            "select_inputs_fabricated",
+            "let result = api.select_inputs<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_join_fabricated",
+            "let result = api.select_join<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_forward_fabricated",
+            "let result = api.select_forward<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "swap_fabricated",
+            "let result = api.swap<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result.0);",
+            false,
+        ),
+        (
+            "swap_join_fabricated",
+            "let result = api.swap_join<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result.0);",
+            false,
+        ),
+        (
+            "mixed_fabricated",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed<api.Marker>(left, api.Marker {}, choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_fabricated",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed_join<api.Marker>(left, api.Marker {}, choice); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "select_direct_both",
+            "let result = api.select_direct<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_left",
+            "let result = api.select_direct<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_right",
+            "let result = api.select_direct<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_neither",
+            "let result = api.select_direct<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_join_both",
+            "let result = api.select_direct_join<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_join_left",
+            "let result = api.select_direct_join<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_join_right",
+            "let result = api.select_direct_join<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_join_neither",
+            "let result = api.select_direct_join<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_loop_both",
+            "let result = api.select_loop<api.Marker>(api.make_marker(), api.make_marker(), choice); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_loop_left",
+            "let result = api.select_loop<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_loop_right",
+            "let result = api.select_loop<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_loop_neither",
+            "let result = api.select_loop<api.Marker>(api.Marker {}, api.Marker {}, choice); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_nullable_inputs_exits_both",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "select_nullable_inputs_exits_left",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_exits_right",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.Marker {}, api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_exits_neither",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.Marker {}, api.Marker {}, choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_join_both",
+            "let result = api.select_nullable_inputs_join<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "select_nullable_inputs_join_left",
+            "let result = api.select_nullable_inputs_join<api.Marker>(api.make_marker(), api.Marker {}, choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_join_right",
+            "let result = api.select_nullable_inputs_join<api.Marker>(api.Marker {}, api.make_marker(), choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_join_neither",
+            "let result = api.select_nullable_inputs_join<api.Marker>(api.Marker {}, api.Marker {}, choice, active); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_exits_both",
+            "let result = api.select_variant_inputs_exits<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "select_variant_inputs_exits_left",
+            "let result = api.select_variant_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_exits_right",
+            "let result = api.select_variant_inputs_exits<api.Marker>(api.Marker {}, api.make_marker(), choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_exits_neither",
+            "let result = api.select_variant_inputs_exits<api.Marker>(api.Marker {}, api.Marker {}, choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_join_both",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.make_marker(), api.make_marker(), choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "select_variant_inputs_join_left",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.make_marker(), api.Marker {}, choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_join_right",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.Marker {}, api.make_marker(), choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_join_neither",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.Marker {}, api.Marker {}, choice, active); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "alternative_disposed",
+            "let result = api.select_direct<api.Permit>(api.permission(), api.permission(), choice); api.discard(result); api.inspect_permission(1);",
+            false,
+        ),
+        (
+            "alternative_old_scalar",
+            "let result = api.select_direct<api.Permit>(api.permission(), api.permission(), choice); let id = result.id; api.discard(result); api.inspect_permission(id);",
+            false,
+        ),
+        (
+            "alternative_independent",
+            "let other = api.permission(); let result = api.select_direct<api.Permit>(api.permission(), api.permission(), choice); api.discard(result); api.inspect_permission(other.id);",
+            true,
+        ),
+        (
+            "alternative_array",
+            "let result = [api.select_direct<api.Marker>(api.make_marker(), api.make_marker(), choice)]; let [value] = result; api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "alternative_product",
+            "let result = api.product<api.Marker>(api.select_direct<api.Marker>(api.make_marker(), api.make_marker(), choice)); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "alternative_nullable",
+            "let result = api.select_nullable<api.Marker>(api.select_direct<api.Marker>(api.make_marker(), api.make_marker(), choice), choice); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "alternative_union",
+            "let result = api.select_variant<api.Marker>(api.select_direct<api.Marker>(api.make_marker(), api.make_marker(), choice), choice); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "select_inputs_known_True_True",
+            "let result = api.select_inputs<api.Marker>(api.make_marker(), api.Marker {}, true); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_inputs_known_True_False",
+            "let result = api.select_inputs<api.Marker>(api.Marker {}, api.make_marker(), true); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_inputs_known_False_True",
+            "let result = api.select_inputs<api.Marker>(api.Marker {}, api.make_marker(), false); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_inputs_known_False_False",
+            "let result = api.select_inputs<api.Marker>(api.make_marker(), api.Marker {}, false); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_join_known_True_True",
+            "let result = api.select_join<api.Marker>(api.make_marker(), api.Marker {}, true); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_join_known_True_False",
+            "let result = api.select_join<api.Marker>(api.Marker {}, api.make_marker(), true); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_join_known_False_True",
+            "let result = api.select_join<api.Marker>(api.Marker {}, api.make_marker(), false); api.inspect_marker(&result.1);",
+            true,
+        ),
+        (
+            "select_join_known_False_False",
+            "let result = api.select_join<api.Marker>(api.make_marker(), api.Marker {}, false); api.inspect_marker(&result.1);",
+            false,
+        ),
+        (
+            "select_direct_known_True_True",
+            "let result = api.select_direct<api.Marker>(api.make_marker(), api.Marker {}, true); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_known_True_False",
+            "let result = api.select_direct<api.Marker>(api.Marker {}, api.make_marker(), true); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_known_False_True",
+            "let result = api.select_direct<api.Marker>(api.Marker {}, api.make_marker(), false); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_known_False_False",
+            "let result = api.select_direct<api.Marker>(api.make_marker(), api.Marker {}, false); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_join_known_True_True",
+            "let result = api.select_direct_join<api.Marker>(api.make_marker(), api.Marker {}, true); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_join_known_True_False",
+            "let result = api.select_direct_join<api.Marker>(api.Marker {}, api.make_marker(), true); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_direct_join_known_False_True",
+            "let result = api.select_direct_join<api.Marker>(api.Marker {}, api.make_marker(), false); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_direct_join_known_False_False",
+            "let result = api.select_direct_join<api.Marker>(api.make_marker(), api.Marker {}, false); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_nullable_inputs_exits_known_True_True",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, true, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "select_nullable_inputs_exits_known_True_False",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.Marker {}, api.make_marker(), true, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_nullable_inputs_exits_known_False_True",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.Marker {}, api.make_marker(), false, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            true,
+        ),
+        (
+            "select_nullable_inputs_exits_known_False_False",
+            "let result = api.select_nullable_inputs_exits<api.Marker>(api.make_marker(), api.Marker {}, false, true); match consume result { case ?value { api.inspect_marker(&value); } case none {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_join_known_True_True",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.make_marker(), api.Marker {}, true, true); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "select_variant_inputs_join_known_True_False",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.Marker {}, api.make_marker(), true, true); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_variant_inputs_join_known_False_True",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.Marker {}, api.make_marker(), false, true); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            true,
+        ),
+        (
+            "select_variant_inputs_join_known_False_False",
+            "let result = api.select_variant_inputs_join<api.Marker>(api.make_marker(), api.Marker {}, false, true); match consume result { case .Value(value) { api.inspect_marker(&value); } case .Empty {} }",
+            false,
+        ),
+        (
+            "select_context_left",
+            "if choice { let result = api.select_join<api.Marker>(api.make_marker(), api.Marker {}, choice); api.inspect_marker(&result.1); }",
+            true,
+        ),
+        (
+            "select_context_right",
+            "if !choice { let result = api.select_inputs<api.Marker>(api.Marker {}, api.make_marker(), choice); api.inspect_marker(&result.1); }",
+            true,
+        ),
+        (
+            "select_loop_known_True_True",
+            "let result = api.select_loop<api.Marker>(api.Marker {}, api.make_marker(), true); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_loop_known_True_False",
+            "let result = api.select_loop<api.Marker>(api.make_marker(), api.Marker {}, true); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "select_loop_known_False_True",
+            "let result = api.select_loop<api.Marker>(api.make_marker(), api.Marker {}, false); api.inspect_marker(&result);",
+            true,
+        ),
+        (
+            "select_loop_known_False_False",
+            "let result = api.select_loop<api.Marker>(api.Marker {}, api.make_marker(), false); api.inspect_marker(&result);",
+            false,
+        ),
+        (
+            "mixed_known_True_True",
+            "let result = api.mixed<api.Marker>(api.marker_box(), api.Marker {}, true); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_known_True_False",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed<api.Marker>(left, api.make_marker(), true); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_known_False_True",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed<api.Marker>(left, api.make_marker(), false); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_known_False_False",
+            "let result = api.mixed<api.Marker>(api.marker_box(), api.Marker {}, false); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_known_True_True",
+            "let result = api.mixed_join<api.Marker>(api.marker_box(), api.Marker {}, true); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_join_known_True_False",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed_join<api.Marker>(left, api.make_marker(), true); api.inspect_marker(&result.value);",
+            false,
+        ),
+        (
+            "mixed_join_known_False_True",
+            "let left: api.Box<api.Marker> = { value = api.Marker {} }; let result = api.mixed_join<api.Marker>(left, api.make_marker(), false); api.inspect_marker(&result.value);",
+            true,
+        ),
+        (
+            "mixed_join_known_False_False",
+            "let result = api.mixed_join<api.Marker>(api.marker_box(), api.Marker {}, false); api.inspect_marker(&result.value);",
+            false,
+        ),
     ] {
         if let Some(failure) = check(&provider, imported, name, body, valid) {
             failures.push(failure);
@@ -784,17 +1832,18 @@ fn check(
         ""
     };
 
-    let source =
-        format!(r"
+    let source = format!(
+        r"
         module app;
 
         using api;
 
-        {effect}func caller(pos choice: bool)
+        {effect}func caller(pos choice: bool, pos active: bool)
         {{
             {body}
         }}
-    ");
+    "
+    );
 
     let consumer = if imported {
         execution_consumer(

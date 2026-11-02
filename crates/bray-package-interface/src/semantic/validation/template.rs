@@ -424,7 +424,11 @@ fn validate_template(
         semantics.validate_execution_term(term, template.inputs().len(), false, surface)?;
     }
 
-    for transfer in &*result_dependencies.owned_transfers {
+    for condition in result_dependencies.owned_result.conditions() {
+        semantics.validate_execution_term(*condition, template.inputs().len(), true, surface)?;
+    }
+
+    for transfer in result_dependencies.owned_result.transfers() {
         semantics.validate_owned_transfer(transfer, template.inputs().len(), surface)?;
     }
 

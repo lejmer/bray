@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition};
-use bray_symbols::{ConstantProjectionKind, DependencyOwnedTransfer};
+use bray_symbols::{ConstantProjectionKind, DependencyOwnedResult, DependencyOwnedTransfer};
 
 /// The output shape under which a checked identity transfer is available.
-#[derive(Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(in crate::analysis) enum OwnedReturnCondition {
     Unconditional,
     ActivePayload,
@@ -17,7 +17,7 @@ pub(in crate::analysis) enum OwnedReturnCondition {
 pub(super) struct OwnedReturn {
     value: ExecutionCondition,
     assumptions: BTreeSet<(ExecutionCondition, bool)>,
-    transfers: BTreeSet<DependencyOwnedTransfer>,
+    transfers: DependencyOwnedResult,
 }
 
 impl super::check::TrustedChecks {
@@ -35,7 +35,7 @@ impl super::check::TrustedChecks {
             return;
         }
 
-        let returned = OwnedReturn {
+        let mut returned = OwnedReturn {
             value: result.clone(),
             assumptions: state
                 .assumptions
@@ -47,32 +47,101 @@ impl super::check::TrustedChecks {
                 })
                 .cloned()
                 .collect(),
-            transfers: owned_transfers(domain, result),
+            transfers: super::super::flow::owned_alternatives(
+                (state, result),
+                (state, result),
+                &ExecutionCondition::Result,
+            )
+            .try_map(
+                &mut |transfer| {
+                    let ExecutionCondition::Input(place) = transfer.input() else {
+                        unreachable!("owned input lineage retains its formal place");
+                    };
+
+                    let input = (!domain
+                        .borrowed_inputs
+                        .iter()
+                        .any(|borrow| borrow.contains(&place)))
+                    .then(|| {
+                        super::carriers::portable(domain.request, &ExecutionCondition::Input(place))
+                    })
+                    .flatten();
+
+                    Ok::<_, std::convert::Infallible>(
+                        input
+                            .map(|input| {
+                                DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
+                                    input,
+                                    transfer.output().iter().copied(),
+                                ))
+                            })
+                            .unwrap_or_default(),
+                    )
+                },
+                &mut |condition| {
+                    if condition.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                        == Some(true)
+                    {
+                        return Ok(None);
+                    }
+
+                    let mapped = super::super::flow::returned_condition(condition, result);
+
+                    Ok(super::carriers::portable(domain.request, &mapped))
+                },
+            )
+            .expect("formal ownership publication is infallible"),
         };
+
+        for (condition, holds) in state.assumptions.difference(&self.owned_entry_conditions) {
+            if !matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input()) {
+                continue;
+            }
+
+            let condition = if *holds {
+                condition.clone()
+            } else {
+                ExecutionCondition::operation(
+                    bray_bound_tree::BoundOperator::LogicalNot,
+                    vec![condition.clone()],
+                )
+            };
+
+            let condition = super::carriers::portable(domain.request, &condition)
+                .expect("formal Boolean exit condition is portable");
+
+            returned.transfers = DependencyOwnedResult::case(condition, returned.transfers);
+        }
 
         if !self.owned_returns.contains(&returned) {
             self.owned_returns.push(returned);
         }
     }
 
-    pub(in crate::analysis) fn owned_transfers<C: CheckerRequestContext + ?Sized>(
+    pub(in crate::analysis) fn owned_result<C: CheckerRequestContext + ?Sized>(
         &self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
-    ) -> BTreeMap<DependencyOwnedTransfer, OwnedReturnCondition> {
+    ) -> DependencyOwnedResult<
+        ConstantProjectionKind,
+        (bray_symbols::ConstantTermId, OwnedReturnCondition),
+    > {
         let candidates = self
             .owned_returns
             .iter()
-            .flat_map(|returned| returned.transfers.iter())
+            .flat_map(|returned| returned.transfers.transfers())
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        let mut retained = BTreeMap::new();
+        let mut shared = BTreeMap::new();
+        let mut shapes = BTreeMap::new();
 
         for transfer in candidates {
             let mut conditional = false;
             let mut presence = false;
 
-            let valid = self.owned_returns.iter().all(|returned| {
+            let mut valid = true;
+
+            for returned in &self.owned_returns {
                 let (active, leaf_absent) = activity(
                     domain,
                     &returned.value,
@@ -80,34 +149,74 @@ impl super::check::TrustedChecks {
                     &returned.assumptions,
                 );
 
-                if returned.transfers.contains(&transfer) {
-                    conditional |= active.is_none();
+                let contains = returned
+                    .transfers
+                    .transfers()
+                    .any(|candidate| candidate == &transfer);
 
-                    true
-                } else if active == Some(false) {
+                if active == Some(false) {
                     conditional = true;
                     presence |= leaf_absent;
-
-                    true
                 } else {
-                    false
+                    conditional |= contains && active.is_none();
+
+                    valid &= every_active_layout_transfers(
+                        domain,
+                        &returned.transfers,
+                        &transfer,
+                        &BTreeSet::new(),
+                    );
                 }
-            });
+            }
+
+            let shape = if presence {
+                OwnedReturnCondition::PresentValue
+            } else if conditional {
+                OwnedReturnCondition::ActivePayload
+            } else {
+                OwnedReturnCondition::Unconditional
+            };
+
+            shapes.insert(transfer.clone(), shape);
 
             if valid {
-                let condition = if presence {
-                    OwnedReturnCondition::PresentValue
-                } else if conditional {
-                    OwnedReturnCondition::ActivePayload
-                } else {
-                    OwnedReturnCondition::Unconditional
-                };
-
-                retained.insert(transfer, condition);
+                shared.insert(transfer, shape);
             }
         }
 
-        retained
+        // Common conditional moves also describe inactive exits. Other exits retain
+        // their complete alternatives, including layouts that transfer no input.
+        DependencyOwnedResult::choice(self.owned_returns.iter().map(|returned| {
+            let local = returned
+                .transfers
+                .try_map(
+                    &mut |transfer| {
+                        if shared.contains_key(transfer) {
+                            return Ok(DependencyOwnedResult::default());
+                        }
+
+                        let shape = shapes[transfer];
+
+                        Ok::<_, std::convert::Infallible>(DependencyOwnedResult::Transfer(
+                            DependencyOwnedTransfer::new(
+                                (transfer.input(), shape),
+                                transfer.output().iter().copied(),
+                            ),
+                        ))
+                    },
+                    &mut |condition| Ok(Some((*condition, OwnedReturnCondition::Unconditional))),
+                )
+                .expect("ownership mapping is infallible");
+
+            DependencyOwnedResult::all(std::iter::once(local).chain(shared.iter().map(
+                |(transfer, shape)| {
+                    DependencyOwnedResult::Transfer(DependencyOwnedTransfer::new(
+                        (transfer.input(), *shape),
+                        transfer.output().iter().copied(),
+                    ))
+                },
+            )))
+        }))
     }
 }
 
@@ -165,6 +274,11 @@ fn activity<C: CheckerRequestContext + ?Sized>(
     }
 
     if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
+        || assumptions.iter().any(|(condition, holds)| {
+            condition
+                .nullable_absence(*holds)
+                .is_some_and(|(subject, _)| subject == &value || subject == value.owner_identity())
+        })
     {
         (Some(false), true)
     } else {
@@ -172,98 +286,49 @@ fn activity<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-/// Preserve exact owned inputs embedded in the checked normal result.
-fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
-    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
-    result: &ExecutionCondition,
-) -> BTreeSet<bray_symbols::DependencyOwnedTransfer> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::{ConstantProjectionKind, DependencyOwnedTransfer};
-
-    let mut transfers = BTreeSet::new();
-
-    let Some(inputs) = domain.request.trusted_contracts() else {
-        return transfers;
-    };
-
-    if !inputs.infer_result_witnesses {
-        return transfers;
+fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    result: &DependencyOwnedResult,
+    transfer: &DependencyOwnedTransfer,
+    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+) -> bool {
+    if activity(
+        domain,
+        &ExecutionCondition::Result,
+        transfer.output(),
+        assumptions,
+    )
+    .0 == Some(false)
+    {
+        return true;
     }
 
-    let mut pending = vec![(result, Vec::new())];
+    match result {
+        DependencyOwnedResult::Transfer(candidate) => candidate == transfer,
+        DependencyOwnedResult::All(values) => values
+            .iter()
+            .any(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
+        DependencyOwnedResult::Choice(values) => values
+            .iter()
+            .all(|value| every_active_layout_transfers(domain, value, transfer, assumptions)),
+        DependencyOwnedResult::Case { condition, result } => {
+            let inputs = domain
+                .request
+                .trusted_contracts()
+                .expect("owned normal return retains its formal inputs");
 
-    while let Some((source, path)) = pending.pop() {
-        if path.len() > ExecutionCondition::WORK_LIMIT {
-            continue;
-        }
+            let condition = crate::execution_condition_from_type_term(
+                domain.request.semantic_values(),
+                *condition,
+                inputs.inputs.len(),
+            )
+            .expect("checked normal-result shape decodes in the same semantic store");
 
-        let mut input = source;
-        let mut projections = Vec::new();
+            let mut assumptions = assumptions.clone();
 
-        while let ExecutionCondition::Projection(field, parent) = input {
-            projections.push(*field);
-            input = parent;
-        }
+            condition.assume(true, &mut assumptions);
 
-        if let ExecutionCondition::Input(place) = input {
-            let place = projections
-                .into_iter()
-                .rev()
-                .fold(place.clone(), |place, field| place.component(field));
-
-            if !place.is_callable_input()
-                || domain
-                    .borrowed_inputs
-                    .iter()
-                    .any(|borrow| borrow.contains(&place))
-            {
-                continue;
-            }
-
-            let input = ExecutionCondition::Input(place);
-
-            if let Some(term) = super::carriers::portable(domain.request, &input) {
-                transfers.insert(DependencyOwnedTransfer::new(term, path));
-            }
-
-            continue;
-        }
-
-        match source {
-            ExecutionCondition::Present(value) => {
-                let mut path = path;
-
-                path.push(ConstantProjectionKind::NullableValue);
-                pending.push((value, path));
-            }
-            ExecutionCondition::Constructed(_, fields) => {
-                for (field, value) in fields.iter() {
-                    let projection = match field {
-                        StorageProjection::ProductField(field) => {
-                            ConstantProjectionKind::ProductField(*field)
-                        }
-                        StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                            ConstantProjectionKind::UnionPayloadField(*field)
-                        }
-                        StorageProjection::TupleElement(ordinal) => {
-                            ConstantProjectionKind::TupleElement(*ordinal)
-                        }
-                        StorageProjection::ElementFromStart(ordinal) => {
-                            ConstantProjectionKind::ArrayElementOrdinal(*ordinal)
-                        }
-                        StorageProjection::NullableValue => ConstantProjectionKind::NullableValue,
-                        _ => continue,
-                    };
-
-                    let mut path = path.clone();
-
-                    path.push(projection);
-                    pending.push((value, path));
-                }
-            }
-            _ => {}
+            every_active_layout_transfers(domain, result, transfer, &assumptions)
         }
     }
-
-    transfers
 }

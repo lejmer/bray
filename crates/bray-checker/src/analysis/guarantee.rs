@@ -7,10 +7,11 @@ pub(crate) use cleanup::{Cleanup, Plan as CleanupPlan};
 mod completion;
 mod integer;
 mod operation;
+mod ownership;
 mod postcondition;
 mod predicate;
-mod state;
 mod retirement;
+mod state;
 mod termination;
 mod trusted;
 

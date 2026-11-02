@@ -49,7 +49,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
         return;
     };
 
-    for transfer in contract.owned_transfers() {
+    for (transfer, cases) in contract.owned_result().guarded_transfers() {
         let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
             domain.request.semantic_values(),
             transfer.input(),
@@ -74,23 +74,33 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                     *projection != bray_symbols::ConstantProjectionKind::NullableValue
                 })
             {
-                let condition = transfer.condition().map(|condition| {
-                    crate::execution_condition_from_type_term(
-                        domain.request.semantic_values(),
-                        condition,
-                        contract.input_count(),
-                    )
-                    .expect("checked ownership condition decodes in the same semantic store")
-                    .substitute(
-                        &|place| {
-                            place
-                                .value_in(&entry.arguments)
-                                .unwrap_or(crate::ExecutionCondition::Unknown)
-                        },
-                        &crate::ExecutionCondition::Result,
-                        &mut { crate::ExecutionCondition::WORK_LIMIT },
-                    )
-                });
+                let condition = cases
+                    .into_iter()
+                    .copied()
+                    .chain(transfer.condition())
+                    .map(|condition| {
+                        crate::execution_condition_from_type_term(
+                            domain.request.semantic_values(),
+                            condition,
+                            contract.input_count(),
+                        )
+                        .expect("checked ownership condition decodes in the same semantic store")
+                        .substitute(
+                            &|place| {
+                                place
+                                    .value_in(&entry.arguments)
+                                    .unwrap_or(crate::ExecutionCondition::Unknown)
+                            },
+                            &crate::ExecutionCondition::Result,
+                            &mut { crate::ExecutionCondition::WORK_LIMIT },
+                        )
+                    })
+                    .reduce(|left, right| {
+                        crate::ExecutionCondition::operation(
+                            bray_bound_tree::BoundOperator::LogicalAnd,
+                            vec![left, right],
+                        )
+                    });
 
                 transfers.push((occurrence, condition));
 

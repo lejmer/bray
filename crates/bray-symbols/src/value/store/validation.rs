@@ -324,12 +324,12 @@ pub(super) fn validate_dependency_template_data(
         tables.constant_terms.get(store, result);
     }
 
-    for transfer in data.owned_transfers() {
-        tables.constant_terms.get(store, transfer.input());
+    for condition in data.owned_result().conditions() {
+        tables.constant_terms.get(store, *condition);
+    }
 
-        if let Some(condition) = transfer.condition() {
-            tables.constant_terms.get(store, condition);
-        }
+    for transfer in data.owned_result().transfers() {
+        tables.constant_terms.get(store, transfer.input());
 
         assert!(
             transfer.output().iter().all(|projection| matches!(

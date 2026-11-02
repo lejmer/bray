@@ -454,17 +454,15 @@ fn body_result_dependencies(
     } else {
         None
     })
-    .with_owned_transfers(if !previous.normal_completion() {
-        checked.owned_transfers().to_vec()
+    .with_owned_result(if !previous.normal_completion() {
+        checked.owned_result().clone()
     } else if !checked.normal_completion() {
-        previous.owned_transfers().to_vec()
+        previous.owned_result().clone()
     } else {
-        previous
-            .owned_transfers()
-            .iter()
-            .filter(|transfer| checked.owned_transfers().contains(transfer))
-            .cloned()
-            .collect()
+        bray_symbols::DependencyOwnedResult::choice([
+            previous.owned_result().clone(),
+            checked.owned_result().clone(),
+        ])
     })
     .with_effects(previous.effects().iter().chain(checked.effects()).cloned())
     .with_synchronous_cleanup(

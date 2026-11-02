@@ -23,6 +23,7 @@ pub(in crate::analysis) struct TrustedChecks {
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
     pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
+    pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
@@ -61,6 +62,7 @@ impl TrustedChecks {
             .collect::<Vec<_>>();
 
         Self {
+            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![false; guarantees.len()],
             carriers: vec![None; guarantees.len()],
             guarantees,

@@ -44,21 +44,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn returned_owned_values(
+    fn returned_owned_values<'a>(
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
-        conditional: Option<bool>,
-    ) -> BTreeMap<Vec<StorageProjection>, ExecutionCondition> {
+        transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
+    ) -> Vec<(Vec<StorageProjection>, ExecutionCondition)> {
         use bray_symbols::ConstantProjectionKind;
 
-        let mut fields = BTreeMap::new();
+        let mut fields = Vec::new();
 
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return fields;
         };
 
-        for transfer in dependencies.owned_transfers().iter().filter(|transfer| conditional.is_none_or(|conditional| conditional == transfer.condition().is_some())) {
+        for transfer in transfers {
             let input = crate::execution_condition_from_type_term(
                 self.request.semantic_values(),
                 transfer.input(),
@@ -104,7 +104,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
                 .collect();
 
-            fields.insert(path, value);
+            fields.push((path, value));
         }
 
         fields
@@ -116,7 +116,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> crate::execution_guarantees::ExecutionValueEvidence {
-        let values = self.returned_owned_values(invocation, arguments, None);
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
+            return Default::default();
+        };
+
+        let values = self.returned_owned_values(
+            invocation,
+            arguments,
+            dependencies.owned_result().transfers(),
+        );
 
         if values.is_empty() {
             return Default::default();
@@ -126,7 +134,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .witnesses
             .iter()
             .filter(|(carrier, _)| {
-                values.values().any(|value| returned_carrier(state, value, carrier))
+                values
+                    .iter()
+                    .any(|(_, value)| returned_carrier(state, value, carrier))
             })
             .filter_map(|(carrier, witness)| {
                 let conditions = witness
@@ -164,6 +174,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
+    pub(super) fn begin_returned_ownership(
+        &self,
+        state: &mut super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        result: &ExecutionCondition,
+        returned: crate::execution_guarantees::ExecutionValueEvidence,
+    ) {
+        self.retire_consumed_inputs(state, invocation, arguments);
+
+        let evidence =
+            self.complete_returned_evidence(state, invocation, arguments, result, returned);
+
+        state.restore_returned_evidence(evidence);
+    }
+
     pub(super) fn retire_consumed_inputs(
         &self,
         state: &mut super::super::state::ExecutionState,
@@ -182,9 +208,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .collect::<Vec<_>>();
 
         let retained = self
-            .returned_owned_values(invocation, arguments, None)
-            .values()
-            .flat_map(|value| state.owned_values(value))
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .map(|dependencies| {
+                self.returned_owned_values(
+                    invocation,
+                    arguments,
+                    dependencies.owned_result().transfers(),
+                )
+            })
+            .unwrap_or_default()
+            .iter()
+            .flat_map(|(_, value)| state.owned_values(value))
             .collect();
 
         state.retire_trusted_values(consumed, &retained);
@@ -229,8 +265,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         let transfers = dependencies
-            .owned_transfers()
-            .iter()
+            .owned_result()
+            .transfers()
             .map(|transfer| {
                 (
                     decode(transfer.input()),
@@ -279,6 +315,176 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         evidence
     }
 
+    fn retire_owned_alternative(
+        &self,
+        state: &mut super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        result: &ExecutionCondition,
+        outside: &std::collections::BTreeSet<ExecutionCondition>,
+    ) {
+        let consumed = state
+            .entries
+            .get(&invocation)
+            .expect("normal return retains its captured entry")
+            .owned_inputs
+            .iter()
+            .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(arguments))
+            .collect::<Vec<_>>();
+
+        let retained = state
+            .owned_values(result)
+            .chain(outside.iter().cloned())
+            .collect();
+
+        state.retire_trusted_values(consumed, &retained);
+    }
+
+    fn complete_owned_result(
+        &self,
+        invocation: BoundExecutionSite,
+        state: &mut super::super::state::ExecutionState,
+        mut result: ExecutionCondition,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        ownership: &bray_symbols::DependencyOwnedResult,
+        outside: &std::collections::BTreeSet<ExecutionCondition>,
+    ) -> Option<ExecutionCondition> {
+        use bray_symbols::DependencyOwnedResult;
+
+        match ownership {
+            DependencyOwnedResult::Case {
+                condition,
+                result: layout,
+            } => {
+                let dependencies = &self.dependencies.calls()[&invocation];
+
+                let condition = crate::execution_condition_from_type_term(
+                    self.request.semantic_values(),
+                    *condition,
+                    dependencies.input_count(),
+                )
+                .expect("checked ordinary ownership condition decodes in the same store")
+                .substitute(
+                    &|place| {
+                        place
+                            .value_in(arguments)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &result,
+                    &mut { ExecutionCondition::WORK_LIMIT },
+                );
+
+                if condition.prove_trusted(&Default::default(), &state.assumptions) == Some(false) {
+                    return None;
+                }
+
+                condition.assume(true, &mut state.assumptions);
+
+                self.complete_owned_result(invocation, state, result, arguments, layout, outside)
+            }
+            DependencyOwnedResult::Transfer(transfer) => {
+                let dependencies = &self.dependencies.calls()[&invocation];
+
+                for term in dependencies.returned_value_conditions(transfer) {
+                    let condition = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        *term,
+                        dependencies.input_count(),
+                    )
+                    .expect("prepared transport condition belongs to the same semantic store")
+                    .substitute(
+                        &|place| {
+                            place
+                                .value_in(arguments)
+                                .unwrap_or(ExecutionCondition::Unknown)
+                        },
+                        &result,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
+
+                    condition.assume(true, &mut state.assumptions);
+                }
+
+                state.refine_witnesses();
+
+                Some(construct(
+                    result,
+                    self.returned_owned_values(invocation, arguments, [transfer])
+                        .into_iter()
+                        .collect(),
+                    transfer.condition().is_none(),
+                ))
+            }
+            DependencyOwnedResult::All(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    let mut retained = outside.clone();
+
+                    retained.extend(
+                        values
+                            .iter()
+                            .enumerate()
+                            .filter(|(other, _)| *other != index)
+                            .flat_map(|(_, sibling)| {
+                                self.returned_owned_values(
+                                    invocation,
+                                    arguments,
+                                    sibling.transfers(),
+                                )
+                            })
+                            .flat_map(|(_, value)| state.owned_values(&value).collect::<Vec<_>>()),
+                    );
+
+                    result = self.complete_owned_result(
+                        invocation, state, result, arguments, value, &retained,
+                    )?;
+                }
+
+                Some(result)
+            }
+            DependencyOwnedResult::Choice(values) => {
+                let baseline = state.clone();
+                let root = result;
+                let mut joined = None;
+
+                for value in values.iter() {
+                    let mut branch = baseline.clone();
+
+                    let Some(value) = self.complete_owned_result(
+                        invocation,
+                        &mut branch,
+                        root.clone(),
+                        arguments,
+                        value,
+                        outside,
+                    ) else {
+                        continue;
+                    };
+
+                    self.retire_owned_alternative(
+                        &mut branch,
+                        invocation,
+                        arguments,
+                        &value,
+                        outside,
+                    );
+
+                    match &mut joined {
+                        None => joined = Some((branch, value)),
+                        Some((previous, previous_value)) => {
+                            *previous_value = super::super::flow::merge_returned(previous, &branch, previous_value, &value, &root, match root.owner_identity() { ExecutionCondition::Expression(expression) => *expression, _ => invocation.expression().expect("normal result alternative retains its invocation expression") });
+                        }
+                    }
+                }
+
+                let (completed, result) = joined?;
+
+                *state = completed;
+
+                Some(result)
+            }
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn complete_returned_values(
         &self,
         invocation: BoundExecutionSite,
@@ -304,39 +510,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         };
 
-        for condition in dependencies.returned_value_conditions() {
-            let condition = crate::execution_condition_from_type_term(
-                self.request.semantic_values(),
-                *condition,
-                dependencies.input_count(),
+        let result = self
+            .complete_owned_result(
+                invocation,
+                state,
+                result,
+                arguments,
+                dependencies.owned_result(),
+                &Default::default(),
             )
-            .expect("prepared transport condition belongs to the same semantic store")
-            .substitute(
-                &|place| {
-                    place
-                        .value_in(arguments)
-                        .unwrap_or(ExecutionCondition::Unknown)
-                },
-                &result,
-                &mut { ExecutionCondition::WORK_LIMIT },
-            );
+            .expect("completed checked call has a feasible ownership layout");
 
-            condition.assume(true, &mut state.assumptions);
-        }
-
-        state.refine_witnesses();
-
-        let result = construct(
-            result,
-            self.returned_owned_values(invocation, arguments, Some(false)),
-            true,
-        );
-
-        let result = construct(
-            result,
-            self.returned_owned_values(invocation, arguments, Some(true)),
-            false,
-        );
+        self.retire_owned_alternative(state, invocation, arguments, &result, &Default::default());
 
         let has_receiver = match self.semantics.selections().expression(source) {
             Some(bray_bound_tree::SemanticSelection::Call(call)) => call.receiver().is_some(),
@@ -412,15 +597,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 /// Compact input paths retain the same nullable owning qualifier as snapshot projections.
-fn returned_carrier(state: &super::super::state::ExecutionState, value: &ExecutionCondition, carrier: &ExecutionCondition) -> bool {
+fn returned_carrier(
+    state: &super::super::state::ExecutionState,
+    value: &ExecutionCondition,
+    carrier: &ExecutionCondition,
+) -> bool {
     state.owned_values(value).any(|owner| {
-        if carrier.is_owned_projection_of(&owner) { return true; }
+        if carrier.is_owned_projection_of(&owner) {
+            return true;
+        }
 
-        let ExecutionCondition::Input(place) = &owner else { return false; };
+        let ExecutionCondition::Input(place) = &owner else {
+            return false;
+        };
 
         let mut length = place.projections.len();
 
-        while length > 0 && place.projections[length - 1] == bray_symbols::ConstantProjectionKind::NullableValue {
+        while length > 0
+            && place.projections[length - 1] == bray_symbols::ConstantProjectionKind::NullableValue
+        {
             length -= 1;
 
             // Input paths share immutable projections, only the nullable qualifier changes.
@@ -428,7 +623,9 @@ fn returned_carrier(state: &super::super::state::ExecutionState, value: &Executi
 
             qualifier.projections = place.projections[..length].into();
 
-            if carrier.is_owned_projection_of(&ExecutionCondition::Input(qualifier)) { return true; }
+            if carrier.is_owned_projection_of(&ExecutionCondition::Input(qualifier)) {
+                return true;
+            }
         }
 
         false

@@ -133,9 +133,9 @@ pub(in crate::dependency::call) fn conversion_dependencies<C: CheckerRequestCont
                 let output = matches!(conversion.target(), ConversionTarget::NullablePresent)
                     .then_some(bray_symbols::ConstantProjectionKind::NullableValue);
 
-                result = result.with_owned_transfers([bray_symbols::DependencyOwnedTransfer::new(
-                    input, output,
-                )]);
+                result = result.with_owned_result(bray_symbols::DependencyOwnedResult::Transfer(
+                    bray_symbols::DependencyOwnedTransfer::new(input, output),
+                ));
             }
 
             Ok(result)

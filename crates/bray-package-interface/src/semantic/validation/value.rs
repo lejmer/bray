@@ -98,16 +98,39 @@ impl InterfaceSemantics {
                 }
             }
 
-            for transfer in &*contract.owned_transfers {
+            let mut pending = vec![(&contract.owned_result, 1_u64)];
+
+            while let Some((result, depth)) = pending.pop() {
+                limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+
+                match result {
+                    bray_symbols::DependencyOwnedResult::Transfer(_) => {}
+                    bray_symbols::DependencyOwnedResult::Case { result, .. } => {
+                        pending.push((result, depth.saturating_add(1)))
+                    }
+                    bray_symbols::DependencyOwnedResult::All(values)
+                    | bray_symbols::DependencyOwnedResult::Choice(values) => {
+                        pending.extend(values.iter().map(|value| (value, depth.saturating_add(1))))
+                    }
+                }
+            }
+
+            for condition in contract.owned_result.conditions() {
+                validate_index(condition.to_index(), self.constant_terms.len())?;
+            }
+
+            for transfer in contract.owned_result.transfers() {
                 validate_index(transfer.input().to_index(), self.constant_terms.len())?;
 
-                if let Some(condition) = transfer.condition() {
-                    validate_index(condition.to_index(), self.constant_terms.len())?;
-                }
-
                 for projection in transfer.output() {
-                    if matches!(projection, InterfaceConstantProjection::ArrayElement(_) | InterfaceConstantProjection::ArraySlice { .. }) {
-                        return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                    if matches!(
+                        projection,
+                        InterfaceConstantProjection::ArrayElement(_)
+                            | InterfaceConstantProjection::ArraySlice { .. }
+                    ) {
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Reference,
+                        ));
                     }
 
                     self.validate_constant_projection(projection, symbol_count, dependency_count)?;
@@ -119,16 +142,26 @@ impl InterfaceSemantics {
 
                 for projection in carrier.path() {
                     if let InterfaceDependencyProjection::Element(term) = projection {
-                        let ordinal = term.to_index().and_then(|index| self.constant_terms.get(index)).and_then(|term| match term {
-                            InterfaceConstantTerm::Value(value) => value.to_index().and_then(|index| self.constant_values.get(index)),
-                            _ => None,
-                        }).and_then(|value| match value.kind() {
-                            InterfaceConstantValueKind::Integer(index) => index.to_u64().and_then(|index| u32::try_from(index).ok()),
-                            _ => None,
-                        });
+                        let ordinal = term
+                            .to_index()
+                            .and_then(|index| self.constant_terms.get(index))
+                            .and_then(|term| match term {
+                                InterfaceConstantTerm::Value(value) => value
+                                    .to_index()
+                                    .and_then(|index| self.constant_values.get(index)),
+                                _ => None,
+                            })
+                            .and_then(|value| match value.kind() {
+                                InterfaceConstantValueKind::Integer(index) => {
+                                    index.to_u64().and_then(|index| u32::try_from(index).ok())
+                                }
+                                _ => None,
+                            });
 
                         if ordinal.is_none() {
-                            return Err(crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference));
+                            return Err(crate::semantic::codec::invalid_value(
+                                crate::InterfaceValidationField::Reference,
+                            ));
                         }
                     }
                 }
@@ -927,47 +960,111 @@ mod tests {
         let input = InterfaceConstantTermId::new(0);
 
         for (projection, valid) in [
-            (InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0)), true),
-            (InterfaceConstantProjection::ArrayElementOrdinal(SymbolOrdinal::new(0)), true),
+            (
+                InterfaceConstantProjection::TupleElement(SymbolOrdinal::new(0)),
+                true,
+            ),
+            (
+                InterfaceConstantProjection::ArrayElementOrdinal(SymbolOrdinal::new(0)),
+                true,
+            ),
             (InterfaceConstantProjection::NullableValue, true),
             (InterfaceConstantProjection::ArrayElement(input), false),
-            (InterfaceConstantProjection::ArraySlice { lower: None, upper: None }, false),
+            (
+                InterfaceConstantProjection::ArraySlice {
+                    lower: None,
+                    upper: None,
+                },
+                false,
+            ),
         ] {
             let semantics = InterfaceSemantics {
-                constant_terms: vec![InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0))].into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_owned_transfers([
-                    bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
-                ])].into(),
+                constant_terms: vec![InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(
+                    0,
+                ))]
+                .into(),
+                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_owned_result(
+                    bray_symbols::DependencyOwnedResult::Transfer(
+                        bray_symbols::DependencyOwnedTransfer::new(input, [projection]),
+                    ),
+                )]
+                .into(),
                 ..InterfaceSemantics::default()
             };
 
-            assert_eq!(semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default()).is_ok(), valid);
+            assert_eq!(
+                semantics
+                    .validate_value_graph(0, 0, InterfaceValidationLimits::default())
+                    .is_ok(),
+                valid
+            );
         }
     }
 
     #[test]
     fn carrier_array_paths_require_fixed_unsigned_ordinals() {
-        use crate::{InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue, InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDependencyProjection, InterfaceType, InterfaceTypeId};
+        use crate::{
+            InterfaceConstantTerm, InterfaceConstantTermId, InterfaceConstantValue,
+            InterfaceConstantValueId, InterfaceConstantValueKind, InterfaceDependencyProjection,
+            InterfaceType, InterfaceTypeId,
+        };
+
         use bray_symbols::{DependencyWitnessCarrier, IntegerConstant};
 
         for (kind, dynamic, valid) in [
-            (InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(0)), false, true),
-            (InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(u64::from(u32::MAX))), false, true),
-            (InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(u64::from(u32::MAX) + 1)), false, false),
+            (
+                InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(0)),
+                false,
+                true,
+            ),
+            (
+                InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(u64::from(u32::MAX))),
+                false,
+                true,
+            ),
+            (
+                InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(
+                    u64::from(u32::MAX) + 1,
+                )),
+                false,
+                false,
+            ),
             (InterfaceConstantValueKind::Boolean(false), false, false),
-            (InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(0)), true, false),
+            (
+                InterfaceConstantValueKind::Integer(IntegerConstant::from_u64(0)),
+                true,
+                false,
+            ),
         ] {
-            let term = if dynamic { InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0)) } else { InterfaceConstantTerm::Value(InterfaceConstantValueId::new(0)) };
+            let term = if dynamic {
+                InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0))
+            } else {
+                InterfaceConstantTerm::Value(InterfaceConstantValueId::new(0))
+            };
 
             let semantics = InterfaceSemantics {
                 types: vec![InterfaceType::Tuple([].into())].into(),
-                constant_values: vec![InterfaceConstantValue::new(InterfaceTypeId::new(0), kind)].into(),
+                constant_values: vec![InterfaceConstantValue::new(InterfaceTypeId::new(0), kind)]
+                    .into(),
                 constant_terms: vec![term].into(),
-                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_carriers([DependencyWitnessCarrier::new(InterfaceConstantTermId::new(0), [InterfaceDependencyProjection::Element(InterfaceConstantTermId::new(0))])])].into(),
+                dependency_contracts: vec![InterfaceDependencyContract::new([]).with_carriers([
+                    DependencyWitnessCarrier::new(
+                        InterfaceConstantTermId::new(0),
+                        [InterfaceDependencyProjection::Element(
+                            InterfaceConstantTermId::new(0),
+                        )],
+                    ),
+                ])]
+                .into(),
                 ..InterfaceSemantics::default()
             };
 
-            assert_eq!(semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default()).is_ok(), valid);
+            assert_eq!(
+                semantics
+                    .validate_value_graph(0, 0, InterfaceValidationLimits::default())
+                    .is_ok(),
+                valid
+            );
         }
     }
 

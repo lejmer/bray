@@ -991,12 +991,12 @@ impl<'bytes> SelectionBuilder<'bytes> {
             self.enqueue(PendingRecord::ConstantTerm(term.raw()));
         }
 
-        for transfer in &*contract.owned_transfers {
-            self.enqueue(PendingRecord::ConstantTerm(transfer.input().raw()));
+        for condition in contract.owned_result.conditions() {
+            self.enqueue(PendingRecord::ConstantTerm(condition.raw()));
+        }
 
-            if let Some(condition) = transfer.condition() {
-                self.enqueue(PendingRecord::ConstantTerm(condition.raw()));
-            }
+        for transfer in contract.owned_result.transfers() {
+            self.enqueue(PendingRecord::ConstantTerm(transfer.input().raw()));
         }
 
         for carrier in &*contract.carriers {

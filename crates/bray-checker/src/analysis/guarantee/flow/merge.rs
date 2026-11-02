@@ -1,7 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use bray_bound_tree::BoundOperator;
-use bray_symbols::ConstantValueKind;
+use super::joins::common_components;
 
 use crate::execution_guarantees::ExecutionCondition;
 
@@ -137,6 +136,7 @@ fn join_observations<'a>(
     let mut places = Vec::new();
     let mut joins = false;
     let mut results = Vec::new();
+    let mut owned_results = BTreeMap::new();
     let mut joined_facts = Vec::new();
     let mut needs_condition_proof = false;
     let mut stable_values = std::collections::BTreeSet::new();
@@ -226,6 +226,23 @@ fn join_observations<'a>(
         super::super::state::update_parent_observations(&mut joined_values, place, value);
     }
 
+    for (place, joined) in &joined_values {
+        if *joined != ExecutionCondition::Unknown {
+            let left = place
+                .value_in(&target.current)
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            let right = place
+                .value_in(&incoming.current)
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            owned_results.insert(
+                joined.clone(),
+                super::witnesses::owned_alternatives((target, &left), (incoming, &right), joined),
+            );
+        }
+    }
+
     for (current, values, identities) in [
         (&target.current, &mut left, &mut left_identities),
         (&incoming.current, &mut right, &mut right_identities),
@@ -286,6 +303,11 @@ fn join_observations<'a>(
             &mut right_identities,
         );
 
+        owned_results.insert(
+            joined.clone(),
+            super::witnesses::owned_alternatives((target, value), (incoming, other), &joined),
+        );
+
         results.push((expression, joined));
     }
 
@@ -325,6 +347,19 @@ fn join_observations<'a>(
             target.pending_results.insert(expression, value.clone());
             incoming.pending_results.insert(expression, value);
         }
+    }
+
+    for (value, ownership) in owned_results {
+        changed |= target.owned_results.get(&value) != Some(&ownership);
+
+        target
+            .owned_results
+            .insert(value.clone(), ownership.clone());
+
+        incoming_joined
+            .to_mut()
+            .owned_results
+            .insert(value, ownership);
     }
 
     (incoming_joined, changed)
@@ -481,7 +516,7 @@ fn common_join_conditions(
         .collect()
 }
 
-fn result_replacements(
+pub(super) fn result_replacements(
     value: &ExecutionCondition,
     joined: &ExecutionCondition,
     stable_values: &std::collections::BTreeSet<ExecutionCondition>,
@@ -593,344 +628,4 @@ fn insert_replacement(
             }
         })
         .or_insert_with(|| joined.clone());
-}
-
-fn common_components(
-    left: &ExecutionCondition,
-    right: &ExecutionCondition,
-    result: Option<ExecutionCondition>,
-    conditions: (
-        &BTreeSet<(ExecutionCondition, bool)>,
-        &BTreeSet<(ExecutionCondition, bool)>,
-    ),
-    facts: &mut Vec<(ExecutionCondition, bool)>,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    if left == right {
-        return left.clone();
-    }
-
-    let Some(next) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = next;
-
-    if left == &ExecutionCondition::Unknown || right == &ExecutionCondition::Unknown {
-        return ExecutionCondition::Unknown;
-    }
-
-    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
-    {
-        // Joining an owned result does not identify different borrowed referents.
-        return common_components(left, right, None, conditions, facts, budget).borrowed();
-    }
-
-    if matches!(left, ExecutionCondition::Borrowed(_))
-        || matches!(right, ExecutionCondition::Borrowed(_))
-    {
-        return ExecutionCondition::Unknown;
-    }
-
-    let fields = |mut value: &ExecutionCondition| {
-        while let Some(snapshot) = value.nullable_payload_snapshot() {
-            value = snapshot;
-        }
-
-        match value {
-            ExecutionCondition::Constructed(_, fields) => fields
-                .iter()
-                .map(|(field, _)| *field)
-                .collect::<std::collections::BTreeSet<_>>(
-            ),
-            ExecutionCondition::Present(_) => {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            ExecutionCondition::Literal(value) if matches!(value.kind(), ConstantValueKind::NullableAbsent) => {
-                [bray_bound_tree::StorageProjection::NullableValue].into()
-            }
-            _ => Default::default(),
-        }
-    };
-
-    let mut projections = fields(left);
-
-    projections.extend(fields(right));
-
-    if projections.is_empty() {
-        let joined = result.unwrap_or(ExecutionCondition::Unknown);
-
-        if joined != ExecutionCondition::Unknown
-            && let (ExecutionCondition::Literal(left), ExecutionCondition::Literal(right)) =
-                (left, right)
-            && matches!(
-                (left.kind(), right.kind()),
-                (ConstantValueKind::Integer(_), ConstantValueKind::Integer(_))
-            )
-            && let Ok(ConstantValueKind::Boolean(ordered)) = crate::constant::fold_binary(
-                BoundOperator::LessEqual,
-                left.kind(),
-                right.kind(),
-                crate::ConstantEvaluationLimits::default().integer_bits(),
-            )
-        {
-            // A yielded result keeps these bounds for this evaluation. Literals
-            // remain independent values and are never renamed to the result.
-            let (lower, upper) = if ordered {
-                (left, right)
-            } else {
-                (right, left)
-            };
-
-            for (operator, bound) in [
-                (BoundOperator::GreaterEqual, lower),
-                (BoundOperator::LessEqual, upper),
-            ] {
-                facts.push((
-                    ExecutionCondition::operation(
-                        operator,
-                        vec![
-                            joined.clone(),
-                            ExecutionCondition::Literal(std::sync::Arc::clone(bound)),
-                        ],
-                    ),
-                    true,
-                ));
-            }
-        }
-
-        return joined;
-    }
-
-    // Ordinary observations retain only a shared identity. Yielded owners instead
-    // move their initialized components under the result region's identity.
-    let identity = result.clone().unwrap_or_else(|| {
-        if left.owner_identity() == right.owner_identity() {
-            left.owner_identity().clone()
-        } else {
-            ExecutionCondition::Unknown
-        }
-    });
-
-    let fields = projections
-        .into_iter()
-        .map(|projection| {
-            let inactive =
-                |value: &ExecutionCondition, conditions: &BTreeSet<(ExecutionCondition, bool)>| {
-                    match projection {
-                        bray_bound_tree::StorageProjection::NullableValue => {
-                            matches!(value, ExecutionCondition::Literal(value)
-                    if matches!(value.kind(), ConstantValueKind::NullableAbsent))
-                                || conditions.iter().any(|(condition, holds)| {
-                                    condition.nullable_absence(*holds).is_some_and(
-                                        |(subject, _)| {
-                                            subject == value || subject == value.owner_identity()
-                                        },
-                                    )
-                                })
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            variant,
-                            ..
-                        } => {
-                            value
-                                .clone()
-                                .matches_variant(variant)
-                                .prove(conditions, &mut { ExecutionCondition::WORK_LIMIT })
-                                == Some(false)
-                        }
-                        _ => false,
-                    }
-                };
-
-            let left_inactive = inactive(left, conditions.0);
-            let right_inactive = inactive(right, conditions.1);
-
-            if left_inactive != right_inactive {
-                // Only the active predecessor initializes this payload. Retain
-                // its components under the joined conditional owner.
-                let initialized = if left_inactive { right } else { left };
-
-                return (
-                    projection,
-                    owned_snapshot(
-                        &initialized.clone().project(projection),
-                        identity.clone().project(projection),
-                        budget,
-                    ),
-                );
-            }
-
-            let left = left.clone().project(projection);
-            let right = right.clone().project(projection);
-
-            let result = result
-                .as_ref()
-                .map(|result| result.clone().project(projection));
-
-            (
-                projection,
-                common_components(&left, &right, result, conditions, facts, budget),
-            )
-        })
-        .collect();
-
-    ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
-}
-
-/// Keep initialized components under the joined conditional payload identity.
-/// The inactive predecessor owns no payload.
-fn owned_snapshot(
-    source: &ExecutionCondition,
-    identity: ExecutionCondition,
-    budget: &mut usize,
-) -> ExecutionCondition {
-    let Some(remaining) = budget.checked_sub(1) else {
-        return ExecutionCondition::Unknown;
-    };
-
-    *budget = remaining;
-
-    if let Some(snapshot) = source.nullable_payload_snapshot() {
-        return owned_snapshot(snapshot, identity, budget);
-    }
-
-    match source {
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(owned_snapshot(base, identity.clone(), budget)),
-            fields
-                .iter()
-                .map(|(field, value)| {
-                    (
-                        *field,
-                        owned_snapshot(value, identity.clone().project(*field), budget),
-                    )
-                })
-                .collect(),
-        ),
-        ExecutionCondition::Tagged(variant, _) => {
-            ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
-        }
-        ExecutionCondition::Present(value) => {
-            ExecutionCondition::Present(std::sync::Arc::new(owned_snapshot(
-                value,
-                identity.project(bray_bound_tree::StorageProjection::NullableValue),
-                budget,
-            )))
-        }
-        ExecutionCondition::Input(_)
-        | ExecutionCondition::Borrowed(_)
-        | ExecutionCondition::Boolean(_)
-        | ExecutionCondition::Literal(_)
-        | ExecutionCondition::Unknown => source.clone(),
-        _ => identity,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::common_components;
-    use crate::{ExecutionCondition, ExecutionPlace};
-    use bray_bound_tree::{BoundUnitId, StorageProjection};
-    use bray_symbols::{ConstantProjectionKind, SymbolOrdinal};
-    use std::sync::Arc;
-
-    fn join_components(
-        left: &ExecutionCondition,
-        right: &ExecutionCondition,
-    ) -> ExecutionCondition {
-        let conditions = Default::default();
-
-        common_components(
-            left,
-            right,
-            None,
-            (&conditions, &conditions),
-            &mut Vec::new(),
-            &mut { ExecutionCondition::WORK_LIMIT },
-        )
-    }
-
-    #[test]
-    fn joins_keep_matching_nested_observations_without_inventing_identity() {
-        let field = StorageProjection::TupleElement(SymbolOrdinal::new(0));
-        let component = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
-        let place = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let identity = ExecutionCondition::Input(place.clone());
-        let marker = ExecutionCondition::Boolean(true);
-
-        let nested = |version| {
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Joined(
-                    BoundUnitId::new(0),
-                    version,
-                    place.clone(),
-                )),
-                [(field, marker.clone())].into(),
-            )
-            .borrowed()
-        };
-
-        let owner = |value| {
-            ExecutionCondition::Constructed(Arc::new(identity.clone()), [(field, value)].into())
-        };
-
-        let joined = join_components(&owner(nested(1)), &owner(nested(2)));
-
-        assert_eq!(joined.owner_identity(), &identity);
-
-        assert_eq!(
-            joined.clone().component(component).component(component),
-            marker
-        );
-
-        let different = owner(
-            ExecutionCondition::Constructed(
-                Arc::new(ExecutionCondition::Unknown),
-                [(field, ExecutionCondition::Boolean(false))].into(),
-            )
-            .borrowed(),
-        );
-
-        assert_eq!(
-            join_components(&joined, &different)
-                .component(component)
-                .component(component),
-            ExecutionCondition::Unknown
-        );
-    }
-
-    #[test]
-    fn disappearing_alias_does_not_rename_a_surviving_observation() {
-        use crate::analysis::guarantee::state::ExecutionState;
-        use crate::analysis::id::AnalysisBlockId;
-
-        let original = ExecutionPlace::argument(SymbolOrdinal::new(0));
-        let alias = ExecutionPlace::argument(SymbolOrdinal::new(1));
-        let value = ExecutionCondition::Input(original.clone());
-        let mut left = ExecutionState::default();
-
-        left.current.insert(original.clone(), value.clone());
-        left.current.insert(alias.clone(), value.clone());
-        left.assumptions.insert((value.clone(), true));
-
-        let mut right = ExecutionState::default();
-
-        right.current.insert(original.clone(), value.clone());
-        right.assumptions.insert((value.clone(), true));
-
-        let mut merged = Some(left);
-
-        super::merge(
-            &mut merged,
-            &Some(right),
-            Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
-        );
-
-        let merged = merged.expect("both predecessors are reachable");
-
-        assert_eq!(merged.current[&original], value);
-        assert_eq!(merged.current[&alias], ExecutionCondition::Unknown);
-        assert!(merged.assumptions.contains(&(value, true)));
-    }
 }

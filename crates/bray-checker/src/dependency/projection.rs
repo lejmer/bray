@@ -449,7 +449,7 @@ pub(super) fn prepare_variants<C: crate::CheckerRequestContext + ?Sized>(
     for transfer in contracts
         .calls()
         .values()
-        .flat_map(|call| call.owned_transfers())
+        .flat_map(|call| call.owned_result().transfers())
     {
         fields.extend(
             transfer

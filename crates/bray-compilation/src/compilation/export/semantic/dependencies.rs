@@ -113,21 +113,7 @@ impl<'a> SemanticExporter<'a> {
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 
-        let owned_transfers = self
-            .dependency_order(data.owned_transfers(), |encoder, item| encoder.dependency_owned_transfer(item))?
-            .into_iter()
-            .map(|transfer| {
-                Ok(bray_symbols::DependencyOwnedTransfer::new(
-                    self.constant_term_id(transfer.input())?,
-                    transfer
-                        .output()
-                        .iter()
-                        .copied()
-                        .map(|kind| self.constant_projection_kind(kind))
-                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
-                ).with_condition(transfer.condition().map(|condition| self.constant_term_id(condition)).transpose()?))
-            })
-            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+        let owned_result = self.dependency_owned_result(data.owned_result())?;
 
         let mut contract = InterfaceDependencyContract::new(requirements);
 
@@ -143,7 +129,7 @@ impl<'a> SemanticExporter<'a> {
         let contract = contract
             .with_borrows(borrows)
             .with_carriers(carriers)
-            .with_owned_transfers(owned_transfers)
+            .with_owned_result(owned_result)
             .with_observed_result(
                 data.observed_result()
                     .map(|term| self.constant_term_id(term))
@@ -161,6 +147,58 @@ impl<'a> SemanticExporter<'a> {
         self.dependency_contract_ids.insert(id, exported);
 
         Ok(exported)
+    }
+
+    fn dependency_owned_result(
+        &mut self,
+        result: &bray_symbols::DependencyOwnedResult,
+    ) -> Result<
+        bray_symbols::DependencyOwnedResult<
+            bray_package_interface::InterfaceConstantProjection,
+            bray_package_interface::InterfaceConstantTermId,
+        >,
+        PackageInterfaceExportError,
+    > {
+        use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
+
+        match result {
+            DependencyOwnedResult::Case { condition, result } => Ok(DependencyOwnedResult::case(
+                self.constant_term_id(*condition)?,
+                self.dependency_owned_result(result)?,
+            )),
+            DependencyOwnedResult::Transfer(transfer) => Ok(DependencyOwnedResult::Transfer(
+                DependencyOwnedTransfer::new(
+                    self.constant_term_id(transfer.input())?,
+                    transfer
+                        .output()
+                        .iter()
+                        .copied()
+                        .map(|kind| self.constant_projection_kind(kind))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+                .with_condition(
+                    transfer
+                        .condition()
+                        .map(|condition| self.constant_term_id(condition))
+                        .transpose()?,
+                ),
+            )),
+            DependencyOwnedResult::All(values) | DependencyOwnedResult::Choice(values) => {
+                let values = self
+                    .dependency_order(values, |encoder, result| {
+                        encoder.dependency_owned_result(result)
+                    })?
+                    .into_iter()
+                    .map(|result| self.dependency_owned_result(result))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(if matches!(result, DependencyOwnedResult::All(_)) {
+                    DependencyOwnedResult::all(values)
+                } else {
+                    DependencyOwnedResult::choice(values)
+                })
+            }
+        }
     }
 
     fn dependency_order<'item, T>(

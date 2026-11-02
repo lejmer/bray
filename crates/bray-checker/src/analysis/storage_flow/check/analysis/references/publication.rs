@@ -35,8 +35,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let observed_result = self.trusted.observed_result.flatten();
 
-        let owned_transfers = self.trusted.owned_transfers(self.execution);
-        let owned_transfers = self.owned_transfers(owned_transfers)?;
+        let owned_result = self.trusted.owned_result(self.execution);
+        let owned_result = self.owned_result(owned_result)?;
 
         self.diagnostics
             .add_range(std::mem::take(&mut self.trusted).finish(self.execution));
@@ -115,7 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .with_borrows(relations)
             .with_normal_completion(self.references.is_some())
             .with_carriers(carriers)
-            .with_owned_transfers(owned_transfers)
+            .with_owned_result(owned_result)
             .with_observed_result(observed_result)
             .with_normal_storage_preservation(!self.has_normal_effects))
     }

@@ -39,10 +39,10 @@ pub(super) fn with_references<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().filter(|_| !deferred).cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
-        .with_owned_transfers(template.owned_transfers().iter().cloned())
+        .with_owned_result(template.owned_result().clone())
         .with_returned_value_conditions(returned_value_conditions(
             request,
-            template.owned_transfers(),
+            template.owned_result().transfers(),
             input_count,
             |ordinal| {
                 let receiver = call.receiver().is_some();
@@ -89,7 +89,7 @@ fn result_retains_inputs<C: CheckerRequestContext + ?Sized>(
                     .any(|(_, subject, _)| subject.observes_completion_result())
         })
         || !template.carriers().is_empty()
-        || !template.owned_transfers().is_empty()
+        || !template.owned_result().is_empty()
         || template
             .borrows()
             .iter()
@@ -130,10 +130,10 @@ pub(super) fn with_hidden_references<C: CheckerRequestContext + ?Sized>(
         .with_effects(template.effects().iter().cloned())
         .with_synchronous_cleanup(template.synchronous_cleanup())
         .with_carriers(template.carriers().iter().cloned())
-        .with_owned_transfers(template.owned_transfers().iter().cloned())
+        .with_owned_result(template.owned_result().clone())
         .with_returned_value_conditions(returned_value_conditions(
             request,
-            template.owned_transfers(),
+            template.owned_result().transfers(),
             input_count,
             |ordinal| {
                 assert_eq!(
@@ -306,9 +306,9 @@ pub(super) fn reference_subject_path<C: CheckerRequestContext + ?Sized>(
     crate::storage::reference_path(request, ty, projections.into(), None)
 }
 
-fn returned_value_conditions<C: CheckerRequestContext + ?Sized>(
+fn returned_value_conditions<'a, C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    transfers: &[bray_symbols::DependencyOwnedTransfer],
+    transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
     input_count: usize,
     mut input_type: impl FnMut(
         u32,
@@ -316,10 +316,18 @@ fn returned_value_conditions<C: CheckerRequestContext + ?Sized>(
         Option<bray_symbols::TypeId>,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<Vec<bray_symbols::ConstantTermId>, CheckerQueryError<C::UpstreamError>> {
-    let mut conditions = Vec::new();
+) -> Result<
+    std::collections::BTreeMap<
+        bray_symbols::DependencyOwnedTransfer,
+        std::sync::Arc<[bray_symbols::ConstantTermId]>,
+    >,
+    CheckerQueryError<C::UpstreamError>,
+> {
+    let mut result = std::collections::BTreeMap::new();
 
     for transfer in transfers {
+        let mut conditions = Vec::new();
+
         let transferred = returned_input_projection_conditions(
             request,
             transfer.input(),
@@ -351,12 +359,13 @@ fn returned_value_conditions<C: CheckerRequestContext + ?Sized>(
 
             conditions.push(condition);
         }
+
+        conditions.sort_unstable();
+        conditions.dedup();
+        result.insert(transfer.clone(), conditions.into());
     }
 
-    conditions.sort_unstable();
-    conditions.dedup();
-
-    Ok(conditions)
+    Ok(result)
 }
 
 fn returned_input_projection_conditions<C: CheckerRequestContext + ?Sized>(
