@@ -5,8 +5,7 @@ Reproducible bugs and tracked work belong in [Issues](https://github.com/lejmer/
 
 ## Categories
 
-The board uses the following categories.
-The description column contains the text for each category's description field.
+Each category has a format and a defined purpose.
 
 | Category | Format | Description |
 | --- | --- | --- |
@@ -58,5 +57,3 @@ The Q&A form asks for the question and any relevant version, attempted solution,
 
 The [GitHub form documentation](https://docs.github.com/en/discussions/managing-discussions-for-your-community/creating-discussion-category-forms)
 describes how GitHub selects and displays these forms.
-
-The [setup guide](set-up-discussions.md) covers category settings, forms, pinned navigation, and a proposal's canonical thread.
