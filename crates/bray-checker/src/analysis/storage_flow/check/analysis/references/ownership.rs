@@ -40,9 +40,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let source = self.invocation_place(occurrence, root)?;
             let input = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
-            let output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+            let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            Some((Target::storage(source).project(&input), Target::storage(destination.clone()).project(&output)))
+            // Default-call slots already contain adapted values. Other invocations
+            // name the actual source storage, before nullable wrapping.
+            let wrapping = if !selection.evaluates_defaults()
+                && let Some(selected) = selection.input(ordinal)
+                && let Some(expression) = selected.expression()
+            {
+                self.reference_wrapping(expression, selected.ty(self.request.semantic_values()))?
+            } else {
+                Vec::new()
+            };
+
+            let input = if let Some(path) = input.strip_prefix(wrapping.as_slice()) {
+                path
+            } else {
+                // Returning the complete adapted owner also returns its wrapper.
+                output.extend_from_slice(wrapping.strip_prefix(input.as_slice())?);
+
+                &[]
+            };
+
+            Some((Target::storage(source).project(input), Target::storage(destination.clone()).project(&output)))
         });
 
         state.memory.stage_deferred_values(occurrence, transfers);

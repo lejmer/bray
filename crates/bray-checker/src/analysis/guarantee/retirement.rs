@@ -52,6 +52,12 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
+        let mut retained_observations = crate::execution_guarantees::ObservationSet::default();
+
+        for value in retained {
+            retained_observations.insert(value.clone());
+        }
+
         let mut dependents = BTreeMap::<ExecutionCondition, BTreeSet<ExecutionCondition>>::new();
 
         let mut input_dependents =
@@ -61,8 +67,10 @@ impl ExecutionState {
         for (carrier, witness) in &self.witnesses {
             // Captured inputs belong to a frame. Ordinary projection identities can
             // survive extraction, so their former containing slot is not a lifetime owner.
+            // A retained captured owner also severs its former frame's ownership edge.
             for owner in carrier
                 .ownership_ancestors()
+                .take_while(|value| !retained_observations.contains(value))
                 .filter_map(|value| match value {
                     ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
                     _ => None,
@@ -114,12 +122,6 @@ impl ExecutionState {
                     }
                 }
             }
-        }
-
-        let mut retained_observations = crate::execution_guarantees::ObservationSet::default();
-
-        for value in retained {
-            retained_observations.insert(value.clone());
         }
 
         let mut invalidated = BTreeSet::new();

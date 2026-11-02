@@ -11,6 +11,16 @@ use crate::execution_guarantees::ExecutionCondition;
 use super::super::state::ExecutionState;
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn observe_move(
+        &self,
+        state: &mut ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+    ) {
+        if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
+            state.assign(place, ExecutionCondition::Unknown);
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn operation(
         &self,
         state: &mut ExecutionState,

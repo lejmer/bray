@@ -324,8 +324,7 @@ pub(super) fn common_components(
     ExecutionCondition::Constructed(std::sync::Arc::new(identity), fields)
 }
 
-/// Keep initialized components under the joined conditional payload identity.
-/// The inactive predecessor owns no payload.
+/// Reanchor initialized owned components under their destination owner.
 pub(super) fn owned_snapshot(
     source: &ExecutionCondition,
     identity: ExecutionCondition,
@@ -342,18 +341,21 @@ pub(super) fn owned_snapshot(
     }
 
     match source {
-        ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
-            std::sync::Arc::new(owned_snapshot(base, identity.clone(), budget)),
-            fields
+        ExecutionCondition::Constructed(base, fields) => {
+            let base = owned_snapshot(base, identity, budget);
+
+            let fields = fields
                 .iter()
                 .map(|(field, value)| {
                     (
                         *field,
-                        owned_snapshot(value, identity.clone().project(*field), budget),
+                        owned_snapshot(value, base.owner_identity().clone().project(*field), budget),
                     )
                 })
-                .collect(),
-        ),
+                .collect();
+
+            ExecutionCondition::Constructed(std::sync::Arc::new(base), fields)
+        }
         ExecutionCondition::Tagged(variant, _) => {
             ExecutionCondition::Tagged(*variant, std::sync::Arc::new(identity))
         }

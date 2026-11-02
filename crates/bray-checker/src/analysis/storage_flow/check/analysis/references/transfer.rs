@@ -346,7 +346,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    fn reference_wrapping(
+    pub(super) fn reference_wrapping(
         &self,
         expression: bray_bound_tree::BoundExpressionId,
         mut target: bray_symbols::TypeId,

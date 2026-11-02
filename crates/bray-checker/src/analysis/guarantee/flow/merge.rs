@@ -597,7 +597,7 @@ pub(super) fn result_replacements(
             for (field, component) in fields.iter() {
                 result_replacements(
                     component,
-                    &joined.owner_identity().clone().project(*field),
+                    &joined.clone().project(*field),
                     stable_values,
                     stable_identities,
                     values,
@@ -609,7 +609,6 @@ pub(super) fn result_replacements(
             result_replacements(
                 component,
                 &joined
-                    .owner_identity()
                     .clone()
                     .project(bray_bound_tree::StorageProjection::NullableValue),
                 stable_values,

@@ -256,6 +256,17 @@ const API: &str = r"
         return Marker {};
     }
 
+    union Envelope<T>
+    {
+        Stored(pos value: T);
+        Empty;
+    }
+
+    func staged<T>(pos value: T, ignored: bool = false) -> T
+    {
+        return value;
+    }
+
     struct Flag
     {
         value: bool;
@@ -271,6 +282,51 @@ const API: &str = r"
 ";
 
 const CASES: &[(&str, &str, bool)] = &[
+    (
+        "implicit_nullable_task_retains_frame",
+        r"let task = api.pass<api.Marker>(api.make()).start(); let holder = api.forward<(Task<api.Marker>?)>(task); match consume holder { case ?moved { let value = try await moved.join(); api.observe(&value); } case none {} }",
+        true,
+    ),
+    (
+        "staged_nullable_task_retains_adapted_frame",
+        r"let task = api.pass<api.Marker>(api.make()).start(); let holder = api.staged<(Task<api.Marker>?)>(task); match consume holder { case ?moved { let value = try await moved.cancel(); api.observe(&value); } case none {} }",
+        true,
+    ),
+    (
+        "union_future_retains_capture_identity",
+        r"let input: api.Envelope<Future<api.Marker>> = api.Envelope.Stored(api.pass<api.Marker>(api.make())); let holder = await api.pass<api.Envelope<Future<api.Marker>>>(input); match consume holder { case Stored(pending) { let value = await pending; api.observe(&value); } case Empty {} }",
+        true,
+    ),
+    (
+        "union_future_retains_live_reference",
+        r"let cell: api.Cell = { value = 1 }; let input: api.Envelope<Future<(&api.Cell)>> = api.Envelope.Stored(api.pass<(&api.Cell)>(&cell)); let holder = await api.pass<api.Envelope<Future<(&api.Cell)>>>(input); match consume holder { case Stored(pending) { let value = await pending; _ = value.value; } case Empty {} }",
+        true,
+    ),
+    (
+        "task_returns_nullable_future",
+        r"let formed = api.pass<api.Marker>(api.make()); let input: Future<api.Marker>? = formed; let holder = try await api.pass<(Future<api.Marker>?)>(input).start().join(); match consume holder { case ?pending { let value = await pending; api.observe(&value); } case none {} }",
+        true,
+    ),
+    (
+        "task_returns_union_future",
+        r"let formed = api.pass<api.Marker>(api.make()); let input: api.Envelope<Future<api.Marker>> = api.Envelope.Stored(formed); let holder = try await api.pass<api.Envelope<Future<api.Marker>>>(input).start().join(); match consume holder { case Stored(pending) { let value = await pending; api.observe(&value); } case Empty {} }",
+        true,
+    ),
+    (
+        "union_task_input_keeps_authority_private",
+        r"let permit = api.permission(); let id = permit.id; let pending = api.pass<api.Permit>(permit); let input: api.Envelope<Future<api.Permit>> = api.Envelope.Stored(pending); let task = api.discard<api.Envelope<Future<api.Permit>>>(input).start(); api.inspect_permission(id); _ = await task.join();",
+        false,
+    ),
+    (
+        "nullable_task_result_keeps_physical_address_bounds",
+        r"let value = { let payload: u32 = 4; let input: Future<api.Address>? = api.pass<api.Address>(api.address(&payload)); let holder = try await api.pass<(Future<api.Address>?)>(input).start().join(); yield match consume holder { case ?pending { yield await pending; } case none { loop {} } }; }; api.observe_address(&value);",
+        false,
+    ),
+    (
+        "nullable_task_result_keeps_independent_evidence",
+        r"let value = { let payload: u32 = 4; let input: Future<api.Address>? = api.pass<api.Address>(api.address(&payload)); let holder = try await api.pass<(Future<api.Address>?)>(input).start().join(); yield match consume holder { case ?pending { yield await pending; } case none { loop {} } }; }; api.observe_independent(&value);",
+        true,
+    ),
     (
         "task_normal_or_diverging_producer",
         r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.only<api.Marker>(api.make(), false); }; let task = pending.start(); let value = try await task.join(); api.observe(&value);",

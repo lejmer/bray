@@ -122,7 +122,7 @@ impl ExecutionCondition {
     /// Traverses containing value observations and captured frame identities.
     pub(crate) fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self.owner_identity()), |value| match value {
-            Self::Projection(_, parent) | Self::CapturedInput { owner: parent, .. } => {
+            Self::Projection(_, parent) | Self::Tagged(_, parent) | Self::CapturedInput { owner: parent, .. } => {
                 Some(parent.owner_identity())
             }
             _ => None,

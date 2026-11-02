@@ -1676,6 +1676,10 @@ where
                     if purpose == StorageAccessPurpose::Move {
                         // Ownership tracking retains the selected path independently of the memory transition.
                         state.record_move(place.clone(), plan.expression(), ty, true);
+
+                        if let Some(execution) = state.execution.as_mut() {
+                            self.execution.observe_move(execution, place);
+                        }
                     } else {
                         state.initialize_path(place);
                     }
