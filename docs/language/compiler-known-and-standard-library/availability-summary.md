@@ -1,5 +1,9 @@
 # Availability summary
 
+This table is an [informative summary](../conventions.md#requirements-and-explanations) of the
+[compiler-known declaration](compiler-known-declarations.md), [standard-library declaration](standard-library-declarations.md),
+and [recognition](standard-library-recognition.md) rules. It introduces no additional availability requirements.
+
 | Entity kind                                                                            | Compiler can reason about it   | Available without `using`                    | Uses ordinary dependency rules      |
 | -------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------- | ----------------------------------- |
 | Compiler-known scalar types                                                            | yes                            | yes, when target-available                   | no                                  |

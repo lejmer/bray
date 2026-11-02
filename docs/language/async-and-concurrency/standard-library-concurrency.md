@@ -8,6 +8,8 @@ Every public declaration written in this chapter is normative. Its module, name,
 modifiers, result, and contracts are exact. Representation details and lowering are not language-visible and cannot
 change the public contract.
 
+These are [required declarations](../conventions.md#required-declarations) under the specification conventions.
+
 General stream, path, filesystem, process-context, raw child-process, clock, and entropy semantics are defined by
 [I/O and platform services](../io-and-platform-services.md). This chapter defines the additional concurrency, typed
 child-process, and structured ownership contracts built over that surface.

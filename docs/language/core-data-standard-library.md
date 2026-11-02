@@ -101,11 +101,13 @@ Binary, octal, and hexadecimal radix select normalized binary-exponent notation 
 `p` exponent. A nonzero finite significand lies in `[1, 2)`. Omitted precision retains its exact fraction and removes
 trailing zeroes. Explicit precision counts fractional digits in the selected radix and rounds with ties to even.
 Hexadecimal uppercase uses `0X`, uppercase digits and `P`. Exponents omit a positive sign and leading zeroes. For
-example, hexadecimal `1.5` formats as `0x1.8p0`. Zero has significand and exponent zero.
+example, hexadecimal `1.5` formats as `0x1.8p0`.
 
-Preserve the sign of zero, including after rounding. Infinities format as `inf` and NaNs as `nan`, preserving their sign
-but omitting NaN payloads and the signaling distinction. Hexadecimal uppercase selects `INF` and `NAN`. Precision does
-not add fractional digits to these special values. The selected sign policy applies to every real value.
+Zero has significand and exponent zero. Preserve the sign of zero, including after rounding.
+
+Infinities format as `inf` and NaNs as `nan`, preserving their sign but omitting NaN payloads and the signaling
+distinction. Hexadecimal uppercase selects `INF` and `NAN`. Precision does not add fractional digits to these special
+values. The selected sign policy applies to every real value.
 
 Complex values format as `real+imaginaryi` or `real-imaginaryi`. Each component uses the same real formatting rules,
 radix and precision. The sign policy applies to the real component, and the imaginary component always has its own
