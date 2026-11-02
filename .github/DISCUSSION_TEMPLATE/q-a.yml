@@ -1,0 +1,34 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask about Bray, its compiler, or its tooling. Include enough detail for someone else to answer.
+        Reproducible bugs belong in [Issues](https://github.com/lejmer/bray/issues).
+  - type: textarea
+    id: question
+    attributes:
+      label: "Question"
+      description: "Explain what you want to understand or do."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "Bray version or commit"
+      description: "Include the version or commit if the question depends on compiler behavior."
+    validations:
+      required: false
+  - type: textarea
+    id: attempt
+    attributes:
+      label: "What you tried"
+      description: "Describe what you have tried and what happened."
+    validations:
+      required: false
+  - type: textarea
+    id: example
+    attributes:
+      label: "Code and output"
+      description: "Include a small code example and the relevant output, if available."
+    validations:
+      required: false

@@ -9,6 +9,7 @@ The [submission guide](submit-a-bep.md) explains how to submit a proposal with t
 Each BEP has one canonical discussion in the **BEPs** category of the
 [official Bray repository's GitHub Discussions](https://github.com/lejmer/bray/discussions).
 Pull requests submit and revise the Markdown documents.
+The [discussion board reference](../docs/contributing/discussions.md) describes the categories and forms.
 
 ## Index
 
