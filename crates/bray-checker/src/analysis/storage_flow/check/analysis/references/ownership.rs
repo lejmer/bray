@@ -3,6 +3,51 @@ use crate::CheckerRequestContext;
 use bray_symbols::TypeData;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn prepare_returned_frames(
+        &self,
+        state: &mut crate::analysis::storage_flow::model::StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        contracts: &bray_bound_tree::BoundCallDependencyContracts,
+        destination: &bray_bound_tree::StoragePath,
+    ) {
+        use crate::analysis::storage_flow::memory::Target;
+
+        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. })
+            || contracts.owned_result().is_empty()
+        {
+            return;
+        }
+
+        // Opaque frames carry producer state without ordinary reference fields.
+        // Follow the same checked owning-return paths as the execution domain.
+        let selection = self.execution.semantics.selections()
+            .expression(occurrence.expression().expect("owned return has its invocation"))
+            .expect("owned return retains its selected invocation");
+
+        let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
+            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                self.request.semantic_values(), transfer.input(), contracts.input_count(),
+            ).expect("checked ownership source decodes in the same store") else {
+                unreachable!("checked ownership source contains only input projections");
+            };
+
+            let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = input.root else {
+                unreachable!("checked ownership source names a receiver-first input");
+            };
+
+            let root = selection.invocation_input_root(occurrence, ordinal)
+                .expect("owned return retains its actual input");
+
+            let source = self.invocation_place(occurrence, root)?;
+            let input = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+            let output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            Some((Target::storage(source).project(&input), Target::storage(destination.clone()).project(&output)))
+        });
+
+        state.memory.stage_deferred_values(occurrence, transfers);
+    }
+
     pub(super) fn owned_result(
         &mut self,
         candidates: bray_symbols::DependencyOwnedResult<

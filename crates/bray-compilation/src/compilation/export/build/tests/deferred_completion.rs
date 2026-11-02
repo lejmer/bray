@@ -43,6 +43,14 @@ const API: &str = r"
         return value;
     }
 
+    extern func mutate_state(pos value: &mut State);
+
+    async func opaque_change_state(pos mut value: State) -> State
+    {
+        mutate_state(&mut value);
+        return value;
+    }
+
     struct Permit
     {
         id: u32;
@@ -263,6 +271,51 @@ const API: &str = r"
 ";
 
 const CASES: &[(&str, &str, bool)] = &[
+    (
+        "task_normal_or_diverging_producer",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.only<api.Marker>(api.make(), false); }; let task = pending.start(); let value = try await task.join(); api.observe(&value);",
+        true,
+    ),
+    (
+        "task_opaque_body_mutation_retires_input_evidence",
+        r"let task = api.opaque_change_state(api.marked_state()).start(); let value = try await task.join(); api.observe_state(&value);",
+        false,
+    ),
+    (
+        "returned_task_in_array_retains_frame",
+        r"let task = api.pass<api.Marker>(api.make()).start(); let holder = await api.pass<[Task<api.Marker>; 1]>([task]); let [forwarded] = holder; let value = try await forwarded.join(); api.observe(&value);",
+        true,
+    ),
+    (
+        "forwarded_task_retains_frame",
+        r"let task = api.pass<api.Marker>(api.make()).start(); let forwarded = api.forward<Task<api.Marker>>(task); let value = try await forwarded.join(); api.observe(&value);",
+        true,
+    ),
+    (
+        "returned_task_in_product_retains_frame",
+        r"let task = api.pass<api.Marker>(api.make()).start(); let holder = await api.pass<api.Box<Task<api.Marker>>>(api.boxed<Task<api.Marker>>(task)); let value = try await holder.value.cancel(); api.observe(&value);",
+        true,
+    ),
+    (
+        "task_returns_inactive_future",
+        r"let task = api.pass<Future<api.Marker>>(api.pass<api.Marker>(api.make())).start(); let pending = try await task.join(); let value = await pending; api.observe(&value);",
+        true,
+    ),
+    (
+        "task_returns_observation_future",
+        r"let inner = api.pass<api.Marker>(api.make()).start(); let outer = inner.join().start(); let outcome = try await outer.cancel(); let value = try outcome; api.observe(&value);",
+        true,
+    ),
+    (
+        "forwarded_task_cannot_create_witness",
+        r"let task = api.pass<api.Marker>(api.Marker {}).start(); let forwarded = api.forward<Task<api.Marker>>(task); let value = try await forwarded.join(); api.observe(&value);",
+        false,
+    ),
+    (
+        "nested_task_cannot_create_witness",
+        r"let task = api.pass<Future<api.Marker>>(api.pass<api.Marker>(api.Marker {})).start(); let pending = try await task.cancel(); let value = await pending; api.observe(&value);",
+        false,
+    ),
     (
         "normal_reference_releases_frame_borrow",
         r"let cell: api.Cell = { value = 1 }; let result = { let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<(&api.Cell)>(&cell, &mut state); } else { yield api.pass<(&api.Cell)>(&cell); }; yield await pending; }; _ = result.value;",

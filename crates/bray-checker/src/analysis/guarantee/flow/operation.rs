@@ -120,10 +120,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 }
                 AnalysisCallPhase::Attempt => {
-                    let source = invocation
-                        .expression()
-                        .and_then(|expression| self.started_future(state, expression));
-
                     let observed = match invocation {
                         Site::Node(AnyBoundNodeId::Expression(expression)) => {
                             self.observed_call_result(state, expression)
@@ -148,19 +144,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         self.expression(state, expression, invalidation, assignment_place);
 
                         if let Some(value) = state.expressions.remove(&expression) {
-                            if let Some(source) = source
-                                && value != ExecutionCondition::Unknown
-                            {
-                                state.join_values(
-                                    &Default::default(),
-                                    &[(
-                                        source.owner_identity().clone(),
-                                        value.owner_identity().clone(),
-                                    )]
-                                    .into(),
-                                );
-                            }
-
                             state.pending_results.insert(expression, value);
                         }
 
@@ -237,24 +220,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.pending_results.insert(expression, observed);
                     }
 
-                    let source = self.started_future(state, expression);
-
                     self.expression(state, expression, invalidation, assignment_place);
-
-                    if let Some(source) = source {
-                        let value = self.value(state, expression);
-
-                        if value != ExecutionCondition::Unknown {
-                            state.join_values(
-                                &Default::default(),
-                                &[(
-                                    source.owner_identity().clone(),
-                                    value.owner_identity().clone(),
-                                )]
-                                .into(),
-                            );
-                        }
-                    }
                 }
 
                 if self
@@ -285,6 +251,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.set_awaited_execution(state, expression, true);
         }
     }
+
     pub(super) fn retain_successor_values(
         &self,
         state: &mut ExecutionState,
@@ -544,7 +511,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
             .unwrap_or_else(|| self.value(state, expression));
 
+        let transfer = self.started_future(state, expression)
+            .filter(|_| value != ExecutionCondition::Unknown)
+            .map(|source| (source.owner_identity().clone(), value.owner_identity().clone()));
+
         state.expressions.insert(expression, value);
+
+        if let Some(transfer) = transfer {
+            // Starting moves the frame before effects run. Its private captures
+            // belong to the Task during invalidation, not to the consumed Future.
+            let identities = [transfer].into();
+
+            state.join_values(&Default::default(), &identities);
+
+            if let Some(entry) = state.entries.get_mut(&expression.into())
+                && let Some(renamed) = entry.joined_values(&Default::default(), &identities)
+            {
+                *entry = renamed;
+            }
+        }
+
         self.invalidate(state, expression.into(), invalidation);
 
         match self.request.view().expression(expression) {

@@ -719,6 +719,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .memory
                     .stage_returned_references(occurrence, references, inputs);
             }
+
+            self.prepare_returned_frames(state, occurrence, contracts, &destination);
         }
     }
 

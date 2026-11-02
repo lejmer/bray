@@ -283,6 +283,8 @@ impl State {
             .range(target.clone()..)
             .next()
             .is_some_and(|(candidate, _)| target.contains(candidate))
+            || self.deferred.range(target.clone()..).next()
+                .is_some_and(|(candidate, _)| target.contains(candidate))
             || self
                 .contents
                 .range(target.clone()..)

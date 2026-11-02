@@ -115,9 +115,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
                             .or_else(|| {
                                 super::effects::task_effects(
-                                    &memory,
-                                    task_source.as_ref(),
-                                    task_sources.as_ref()?,
+                                    memory.deferred_effects(task_source.as_ref()?, task_sources.as_ref()?),
                                     domain.task_cleanup_types(task_sources.as_ref()?, true)?,
                                 )
                             })

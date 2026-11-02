@@ -50,8 +50,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
         transfers: impl IntoIterator<Item = &'a bray_symbols::DependencyOwnedTransfer>,
     ) -> Vec<(Vec<StorageProjection>, ExecutionCondition)> {
-        use bray_symbols::ConstantProjectionKind;
-
         let mut fields = Vec::new();
 
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
@@ -80,29 +78,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let path = transfer
-                .output()
-                .iter()
-                .map(|projection| match projection {
-                    ConstantProjectionKind::ProductField(field) => {
-                        StorageProjection::ProductField(*field)
-                    }
-                    ConstantProjectionKind::UnionPayloadField(field) => {
-                        StorageProjection::ActiveUnionPayloadField {
-                            field: *field,
-                            variant: self.dependencies.projection_variant(*field),
-                        }
-                    }
-                    ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
-                    ConstantProjectionKind::TupleElement(ordinal) => {
-                        StorageProjection::TupleElement(*ordinal)
-                    }
-                    ConstantProjectionKind::ArrayElementOrdinal(ordinal) => {
-                        StorageProjection::ElementFromStart(*ordinal)
-                    }
-                    _ => unreachable!("checked transfer contains only owning projections"),
-                })
-                .collect();
+            let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             fields.push((path, value));
         }
@@ -328,6 +304,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.complete_owned_result(invocation, state, result, arguments, layout, outside)
             }
             DependencyOwnedResult::Transfer(transfer) => {
+
                 let dependencies = &self.dependencies.calls()[&invocation];
 
                 for term in dependencies.returned_value_conditions(transfer) {

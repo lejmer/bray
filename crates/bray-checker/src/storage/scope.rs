@@ -19,34 +19,6 @@ where
         }),
     )
 }
-pub(crate) fn local_initialization_bindings<C>(
-    request: CheckerUnitView<'_, C>,
-    storage: &StoragePlan,
-) -> BTreeMap<BoundExpressionId, Vec<StorageBinding>>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut result = BTreeMap::new();
-
-    for (_, block) in request.unit().tree().blocks() {
-        for item in block.items() {
-            let BoundBlockItem::LocalBinding(binding) = item else {
-                continue;
-            };
-
-            let mut bindings = Vec::new();
-
-            extend_pattern_bindings(request.view(), storage, binding.pattern(), &mut bindings);
-
-            if !bindings.is_empty() {
-                result.insert(binding.initializer(), bindings);
-            }
-        }
-    }
-
-    result
-}
-
 pub(crate) fn value_transfer_bindings<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
@@ -116,13 +88,36 @@ pub(crate) fn local_initialization_destinations<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    local_initialization_bindings(request, storage)
-        .into_iter()
-        .filter_map(|(initializer, bindings)| match bindings.as_slice() {
-            [StorageBinding::Identity(destination)] => Some((initializer, *destination)),
-            [StorageBinding::Access(_)] | [] | [_, _, ..] => None,
-        })
-        .collect()
+    let mut result = BTreeMap::new();
+
+    for (_, block) in request.unit().tree().blocks() {
+        for item in block.items() {
+            let BoundBlockItem::LocalBinding(binding) = item else { continue; };
+
+            let mut pattern = request.view().pattern(binding.pattern()).expect("local binding retains its pattern");
+
+            while pattern.kind() == bray_bound_tree::BoundPatternKind::Grouped {
+                let [child] = pattern.children() else { break; };
+
+                pattern = request.view().pattern(*child).expect("grouped pattern retains its child");
+            }
+
+            if !matches!(pattern.kind(), bray_bound_tree::BoundPatternKind::Binding | bray_bound_tree::BoundPatternKind::Discard) {
+                // A single destructured binding still receives a projection, not the whole initializer.
+                continue;
+            }
+
+            let mut bindings = Vec::new();
+
+            extend_pattern_bindings(request.view(), storage, binding.pattern(), &mut bindings);
+
+            if let [StorageBinding::Identity(destination)] = bindings.as_slice() {
+                result.insert(binding.initializer(), *destination);
+            }
+        }
+    }
+
+    result
 }
 
 pub(crate) fn pattern_binding_sources<'a>(

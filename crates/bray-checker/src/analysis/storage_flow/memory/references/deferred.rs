@@ -18,15 +18,26 @@ pub(in crate::analysis::storage_flow::memory) fn merge_deferred(
     for (owner, entries) in incoming {
         let retained = target.entry(owner.clone()).or_default();
 
-        for (source, entry) in entries {
-            if let Some(previous) = retained.get_mut(source) {
-                if previous != entry {
-                    changed |= Arc::make_mut(previous).merge(entry);
-                }
-            } else {
-                retained.insert(*source, Arc::clone(entry));
-                changed = true;
+        changed |= merge_producers(retained, entries);
+    }
+
+    changed
+}
+
+fn merge_producers(
+    target: &mut BTreeMap<BoundExecutionSite, Arc<Transfer>>,
+    incoming: &BTreeMap<BoundExecutionSite, Arc<Transfer>>,
+) -> bool {
+    let mut changed = false;
+
+    for (source, entry) in incoming {
+        if let Some(previous) = target.get_mut(source) {
+            if previous != entry {
+                changed |= Arc::make_mut(previous).merge(entry);
             }
+        } else {
+            target.insert(*source, Arc::clone(entry));
+            changed = true;
         }
     }
 
@@ -73,16 +84,33 @@ impl State {
             .collect()
     }
 
-    pub(in crate::analysis::storage_flow) fn stage_deferred_inputs(
+    pub(in crate::analysis::storage_flow) fn stage_deferred_values(
         &mut self,
         invocation: BoundExecutionSite,
-        source: &Source,
-        destination: StoragePath,
+        values: impl IntoIterator<Item = (Target, Target)>,
     ) {
-        if let Source::Value(source) = source {
-            let captured = self.capture_deferred_value(source, &Target::storage(destination));
+        if self.deferred.is_empty() {
+            return;
+        }
 
-            merge_deferred(&mut self.pending.entry(invocation).or_default().deferred, &captured);
+        for (source, destination) in values {
+            let pending = self.pending.entry(invocation).or_default();
+
+            for (slot, entries) in self.deferred.range(source.clone()..)
+                .take_while(|(slot, _)| source.contains(slot))
+            {
+                let target = destination.project(&slot.projections()[source.projections().len()..]);
+
+                // A deferred frame's reference entry describes its captures. It is
+                // immutable with that frame, independently of mutable sibling fields.
+                if let Some(captures) = self.values.get(slot) {
+                    pending.values.entry(target.clone()).or_default().merge(captures);
+                }
+
+                let retained = pending.deferred.entry(target).or_default();
+
+                merge_producers(retained, entries);
+            }
         }
     }
 

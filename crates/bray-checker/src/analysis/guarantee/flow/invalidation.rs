@@ -244,12 +244,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(expression) = occurrence.expression() {
-            if let Some(sources) = self.awaited_task_invocations(state, expression)
-                && self.task_cleanup_types(&sources, false).is_some_and(|types| types.is_empty())
+            if self.awaited_invocations(state, expression).any(|(source, _)| self.is_task_observation(source))
+                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression)
             {
-                return sources.iter().all(|source| {
-                    self.dependencies.calls()[source].deferred_preserves_storage_on_normal_return()
-                });
+                return self.deferred_preserves_storage(state, self.value(state, awaited.operand()));
             }
 
             if self.awaited_unknown(state, expression) {

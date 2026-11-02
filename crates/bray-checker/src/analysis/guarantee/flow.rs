@@ -1,3 +1,4 @@
+mod completion;
 mod deferred;
 mod inputs;
 mod invalidation;
