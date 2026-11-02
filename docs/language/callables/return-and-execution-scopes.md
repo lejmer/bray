@@ -46,7 +46,8 @@ whose declared result is `never`.
 
 ## Callable result exits
 
-[Callable body completion](callable-results-and-bodies.md#function-bodies) requires explicit result exits.
+[Callable body completion](callable-results-and-bodies.md#function-bodies) distinguishes explicit returns from normal
+`unit` completion.
 The following example contrasts [yield targets](../expressions/yield-expressions.md) with return targets.
 
 ```bray
