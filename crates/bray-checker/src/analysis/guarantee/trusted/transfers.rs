@@ -4,6 +4,83 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
 use std::collections::BTreeSet;
 
+/// Diagnose a callee's partial ownership extraction before consuming its complete input.
+pub(super) fn check_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    state: &ExecutionState,
+    operation: crate::analysis::model::AnalysisOperationKind,
+    transfers: &mut BTreeSet<BoundExpressionId>,
+) {
+    use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
+
+    if !matches!(
+        operation,
+        AnalysisOperationKind::Call {
+            phase: AnalysisCallPhase::Completion,
+            ..
+        } | AnalysisOperationKind::Bound(_)
+    ) {
+        return;
+    }
+
+    let occurrence = operation.occurrence();
+
+    let Some(expression) = occurrence.expression() else {
+        return;
+    };
+
+    let invocation = domain
+        .awaited_invocation(state, expression)
+        .unwrap_or(occurrence);
+
+    let Some(contract) = domain.dependencies.calls().get(&invocation) else {
+        return;
+    };
+
+    // Creating an inactive frame owns its inputs. Driving it performs the extraction.
+    if invocation == occurrence && contract.deferred_effects().is_some() {
+        return;
+    }
+
+    let Some(entry) = state.entries.get(&invocation) else {
+        return;
+    };
+
+    for transfer in contract.owned_transfers() {
+        let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+            domain.request.semantic_values(),
+            transfer.input(),
+            contract.input_count(),
+        )
+        .expect("checked owned input decodes in the same semantic store") else {
+            unreachable!("checked ownership source contains only input projections");
+        };
+
+        let root = crate::ExecutionPlace {
+            root: input.root.clone(),
+            projections: std::sync::Arc::new([]),
+        };
+
+        let mut value = root
+            .value_in(&entry.arguments)
+            .unwrap_or(crate::ExecutionCondition::Unknown);
+
+        for (index, projection) in input.projections.iter().enumerate() {
+            if state.directly_carries_witness(&value)
+                && input.projections[index..].iter().any(|projection| {
+                    *projection != bray_symbols::ConstantProjectionKind::NullableValue
+                })
+            {
+                transfers.insert(expression);
+
+                break;
+            }
+
+            value = value.component(*projection);
+        }
+    }
+}
+
 pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,

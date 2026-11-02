@@ -25,6 +25,7 @@ const API: &str = r"
 
     func extract<T>(pos value: Box<T>) -> (u32, T) { return (0, value.value); }
     func pair<T>(pos left: T, pos right: T) -> (T, T) { return (left, right); }
+    async func deferred_extract<T>(pos value: Box<T>) -> T { return value.value; }
     async func deferred_tuple<T>(pos value: T) -> (u32, T) { return (0, value); }
     func tuple<T>(pos value: T) -> (u32, T) { return (0, value); }
     func product<T>(pos value: T) -> Box<T> { return { value = value }; }
@@ -65,6 +66,7 @@ const API: &str = r"
     }
     trusted func absent() -> Receipt? ensures(trusted held(owner = &result)) { return none; }
     trusted func make_marker() -> Marker ensures(trusted marked(owner = &result)) { return Marker {}; }
+    trusted func marker_box() -> Box<Marker> ensures(trusted marked(owner = &result.value)) { return { value = Marker {} }; }
     func inspect_marker(pos value: &Marker) requires(trusted marked(owner = value)) {}
     func factory() -> [Receipt?; 2] { return [make(), make()]; }
     func marker_factory() -> [Marker; 2] { return [make_marker(), make_marker()]; }
@@ -279,6 +281,11 @@ fn check_owned_transfers(imported: bool) {
         ("conditional_future_active", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
         ("conditional_future_inactive", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
         ("conditional_future_dropped", "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); yield id; }; api.inspect_permission(id);", false),
+        ("extract_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = api.extract<api.Marker>(wrapped); api.inspect_marker(&result.1);", true),
+        ("extract_partial_input", "let result = api.extract<api.Marker>(api.marker_box()); api.inspect_marker(&result.1);", false),
+        ("deferred_partial_input_inactive", "let pending = api.deferred_extract<api.Marker>(api.marker_box());", true),
+        ("deferred_partial_input_awaited", "let result = await api.deferred_extract<api.Marker>(api.marker_box()); api.inspect_marker(&result);", false),
+        ("deferred_complete_child", "let wrapped: api.Box<api.Marker> = { value = api.make_marker() }; let result = await api.deferred_extract<api.Marker>(wrapped); api.inspect_marker(&result);", true),
         ("consuming_constructor", "let permit = api.permission(); let id = permit.id; let sink = api.Sink(permit); api.inspect_permission(id);", false),
         ("suspending_live_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
         ("suspending_aliased_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),

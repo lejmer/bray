@@ -78,6 +78,8 @@ impl TrustedChecks {
             operation.occurrence(),
             &mut self.transfers,
         );
+
+        super::transfers::check_returned_witness_transfers(domain, state, operation, &mut self.transfers);
     }
 
     pub(in crate::analysis) fn cleanup(
