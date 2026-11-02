@@ -15,6 +15,10 @@ pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeSet<BoundExpressionId>,
     failed_execution: BTreeSet<BoundExpressionId>,
     transfers: BTreeSet<BoundExpressionId>,
+    pending_transfers: Vec<(
+        bray_bound_tree::BoundExecutionSite,
+        Option<ExecutionCondition>,
+    )>,
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
@@ -79,7 +83,14 @@ impl TrustedChecks {
             &mut self.transfers,
         );
 
-        super::transfers::check_returned_witness_transfers(domain, state, operation, &mut self.transfers);
+        self.pending_transfers.clear();
+
+        super::transfers::collect_returned_witness_transfers(
+            domain,
+            state,
+            operation,
+            &mut self.pending_transfers,
+        );
     }
 
     pub(in crate::analysis) fn cleanup(
@@ -100,6 +111,28 @@ impl TrustedChecks {
         operation: crate::analysis::model::AnalysisOperationKind,
         evidence: Option<bool>,
     ) {
+        // Completion facts can prove that a potential extraction never occurred.
+        for (invocation, condition) in self.pending_transfers.drain(..) {
+            let active = condition.is_none_or(|condition| {
+                condition
+                    .substitute(
+                        &|place| ExecutionCondition::Input(place.clone()),
+                        &domain.invocation_value(state, invocation),
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    )
+                    .prove_trusted(&BTreeSet::new(), &state.assumptions)
+                    != Some(false)
+            });
+
+            if active {
+                self.transfers.insert(
+                    invocation
+                        .expression()
+                        .expect("pending ownership transfer has its source expression"),
+                );
+            }
+        }
+
         let Some(expression) = operation.occurrence().expression() else {
             return;
         };

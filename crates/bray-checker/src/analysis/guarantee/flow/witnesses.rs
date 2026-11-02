@@ -204,7 +204,7 @@ fn collect_observations(
         return;
     }
 
-    // A snapshot supplies predecessor contents; paths identify the joined owner.
+    // A snapshot supplies predecessor contents. Paths identify the joined owner.
     let joined = joined.owner_identity();
     let owner = joined.clone();
 

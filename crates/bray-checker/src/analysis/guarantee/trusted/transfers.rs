@@ -4,12 +4,15 @@ use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::{BoundExpressionId, StoragePlan};
 use std::collections::BTreeSet;
 
-/// Diagnose a callee's partial ownership extraction before consuming its complete input.
-pub(super) fn check_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
+/// Capture potential partial extractions before consumption retires their carrier evidence.
+pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     state: &ExecutionState,
     operation: crate::analysis::model::AnalysisOperationKind,
-    transfers: &mut BTreeSet<BoundExpressionId>,
+    transfers: &mut Vec<(
+        bray_bound_tree::BoundExecutionSite,
+        Option<crate::ExecutionCondition>,
+    )>,
 ) {
     use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 
@@ -71,7 +74,25 @@ pub(super) fn check_returned_witness_transfers<C: CheckerRequestContext + ?Sized
                     *projection != bray_symbols::ConstantProjectionKind::NullableValue
                 })
             {
-                transfers.insert(expression);
+                let condition = transfer.condition().map(|condition| {
+                    crate::execution_condition_from_type_term(
+                        domain.request.semantic_values(),
+                        condition,
+                        contract.input_count(),
+                    )
+                    .expect("checked ownership condition decodes in the same semantic store")
+                    .substitute(
+                        &|place| {
+                            place
+                                .value_in(&entry.arguments)
+                                .unwrap_or(crate::ExecutionCondition::Unknown)
+                        },
+                        &crate::ExecutionCondition::Result,
+                        &mut { crate::ExecutionCondition::WORK_LIMIT },
+                    )
+                });
+
+                transfers.push((occurrence, condition));
 
                 break;
             }

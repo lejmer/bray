@@ -381,7 +381,12 @@ fn api_source() -> String {
                 let ty = ty.replace("api.", "");
 
                 source.push_str(&format!(
-                    "func choose_nested_{kind}_{index}_{valid}(pos existing: bool, pos repeat: bool) -> {ty} {{ return {selection}; }}\n"
+                    r"
+                    func choose_nested_{kind}_{index}_{valid}(pos existing: bool, pos repeat: bool) -> {ty}
+                    {{
+                        return {selection};
+                    }}
+                    "
                 ));
             }
         }
@@ -1506,7 +1511,14 @@ fn witness_ownership_survives_source_control_flow() {
         let body = body.replace("api.", "");
 
         let source = compilation(&format!(
-            "{api}\nfunc caller(pos existing: bool, pos repeat: bool) {{ {body} }}"
+            r"
+            {api}
+
+            func caller(pos existing: bool, pos repeat: bool)
+            {{
+                {body}
+            }}
+            "
         ));
 
         assert_witness_result(&name, &source, valid);
@@ -1529,7 +1541,17 @@ fn witness_ownership_survives_imported_control_flow() {
         let consumer = execution_consumer(
             &provider,
             &format!(
-                "trusted module app; using core.memory; using example.package.api; func caller(pos existing: bool, pos repeat: bool) {{ {body} }}"
+                r"
+                trusted module app;
+
+                using core.memory;
+                using example.package.api;
+
+                func caller(pos existing: bool, pos repeat: bool)
+                {{
+                    {body}
+                }}
+                "
             ),
         );
 
