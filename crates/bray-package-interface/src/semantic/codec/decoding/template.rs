@@ -367,6 +367,9 @@ fn decode_operation(
         7 => Ok(InterfaceCheckedTemplateOperation::array(read_node_ids(
             reader, limits, context,
         )?)),
+        32 => Ok(InterfaceCheckedTemplateOperation::RepeatedArray {
+            value: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
         8 => Ok(InterfaceCheckedTemplateOperation::Project {
             subject: CheckedTemplateNodeId::new(read_u32(reader)?),
             member: decode_template_reference(reader, context)?,
@@ -2088,6 +2091,11 @@ mod tests {
                 element,
                 value,
             },
+            InterfaceTypeId::new(2),
+        ));
+
+        nodes.push(InterfaceCheckedTemplateNode::new(
+            InterfaceCheckedTemplateOperation::RepeatedArray { value: CheckedTemplateNodeId::new(0) },
             InterfaceTypeId::new(2),
         ));
 

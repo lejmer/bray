@@ -469,9 +469,16 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
             r#"
             module application;
 
+            const COUNT: usize = 4096;
+
+            const func count() -> usize
+            {{
+                return COUNT;
+            }}
+
             public func repeated(pos value: {element}) -> [{element}; 4096]
             {{
-                return [value; 4096];
+                return [value; count()];
             }}
             "#
         );

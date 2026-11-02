@@ -707,7 +707,8 @@ fn constant_term_exposes_internal(
         ConstantTermData::Unary { operand, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*operand));
         }
-        ConstantTermData::Binary { left, right, .. } => {
+        ConstantTermData::RepeatedArray { value: left, count: right }
+            | ConstantTermData::Binary { left, right, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*left));
             pending.push(SemanticValueDependency::ConstantTerm(*right));
         }

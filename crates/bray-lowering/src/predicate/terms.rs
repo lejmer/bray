@@ -182,23 +182,9 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
 
                 self.call(block, call)
             }
-            ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => {
-                let (block, values) = self.term_arguments(block, elements, ty)?;
-
-                let kind = if matches!(data.as_ref(), ConstantTermData::Tuple(_)) {
-                    MirAggregateKind::Tuple
-                } else {
-                    MirAggregateKind::Array
-                };
-
-                let value = self.value(
-                    block,
-                    MirOperationKind::Aggregate(MirAggregate::new(kind, values)),
-                    ty,
-                )?;
-
-                Ok((block, value))
-            }
+            ConstantTermData::RepeatedArray { .. }
+            | ConstantTermData::Tuple(_)
+            | ConstantTermData::Array(_) => self.aggregate_term(block, data.as_ref(), ty),
             ConstantTermData::NullablePresent(term) => {
                 let (block, value) = self.term(block, *term, ty)?;
 
@@ -320,4 +306,39 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             }
         }
     }
+    fn aggregate_term(
+        &mut self,
+        block: MirBlockId,
+        data: &ConstantTermData,
+        ty: TypeId,
+    ) -> Result<(MirBlockId, MirOperand), C::Error> {
+        let (block, kind, values) = match data {
+            ConstantTermData::RepeatedArray { value, .. } => {
+                let data = self.context.semantic_values().type_data(ty);
+
+                let TypeData::Array { element, .. } = data.as_ref() else {
+                    panic!("checked repeated-array term retains its array type");
+                };
+
+                let (block, value) = self.term(block, *value, *element)?;
+
+                (block, MirAggregateKind::RepeatedArray, vec![value])
+            }
+            ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => {
+                let (block, values) = self.term_arguments(block, elements, ty)?;
+
+                let kind = if matches!(data, ConstantTermData::Tuple(_)) {
+                    MirAggregateKind::Tuple
+                } else { MirAggregateKind::Array };
+
+                (block, kind, values)
+            }
+            _ => unreachable!("aggregate term lowering receives an aggregate"),
+        };
+
+        let value = self.value(block, MirOperationKind::Aggregate(MirAggregate::new(kind, values)), ty)?;
+
+        Ok((block, value))
+    }
+
 }

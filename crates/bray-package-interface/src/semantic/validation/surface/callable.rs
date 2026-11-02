@@ -401,7 +401,8 @@ impl InterfaceSemantics {
                 Term::Typed { term, .. } => child(*term),
                 Term::Unary { operand, .. } | Term::Conversion { operand, .. } => child(*operand),
                 Term::NullablePresent(value) => child(*value),
-                Term::Binary { left, right, .. } => {
+                Term::RepeatedArray { value: left, count: right }
+                | Term::Binary { left, right, .. } => {
                     child(*left);
                     child(*right);
                 }

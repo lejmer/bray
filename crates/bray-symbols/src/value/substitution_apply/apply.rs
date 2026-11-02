@@ -355,6 +355,10 @@ impl SemanticValueStore {
                     .map(|value| self.substitute_constant_term_data(*value, substitution))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
+            ConstantTermData::RepeatedArray { value, count } => ConstantTermData::RepeatedArray {
+                value: self.substitute_constant_term_data(*value, substitution)?,
+                count: self.substitute_constant_term_data(*count, substitution)?,
+            },
             ConstantTermData::Array(values) => ConstantTermData::array(
                 values
                     .iter()

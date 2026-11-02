@@ -294,6 +294,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.tag(8);
                 self.constant_terms(values)?;
             }
+            ConstantTermData::RepeatedArray { value, count } => {
+                self.tag(20);
+                self.constant_term(*value)?;
+                self.constant_term(*count)?;
+            }
             ConstantTermData::Array(values) => {
                 self.tag(9);
                 self.constant_terms(values)?;

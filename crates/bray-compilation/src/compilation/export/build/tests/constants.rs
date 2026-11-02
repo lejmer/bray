@@ -401,3 +401,61 @@ fn construction_inputs_preserve_nullable_constant_values_across_imports() {
         consumer.check_diagnostics()
     );
 }
+
+#[test]
+fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
+    let provider = compilation(r#"
+        module api;
+
+        const COUNT: usize = 3;
+
+        const VALUES: [i32; COUNT] = [7; COUNT];
+
+        const func fill<const N: usize>() -> [i32; N]
+        {
+            return [9; N];
+        }
+
+        struct Buffer
+        {
+            values: [i32; 3] = [5; COUNT];
+        }
+
+        struct Repeated<const N: usize>
+        {
+            const VALUES: [i32; N] = [7; N];
+        }
+    "#);
+
+    assert!(provider.check_diagnostics().is_empty(), "{:#?}", provider.check_diagnostics());
+
+    let dependency = super::fixtures::implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(r#"
+        module app;
+
+        using example.package.api;
+
+        const VALUES: [i32; 3] = example.package.api.VALUES;
+
+        const GENERATED: [i32; 3] = example.package.api.fill<3>();
+
+        const FIRST: i32 = GENERATED[0];
+
+        func main()
+        {
+            let buffer: example.package.api.Buffer =
+            {
+            };
+
+            assert(buffer.values[2] == 5);
+        }
+    "#, [dependency]);
+
+    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+
+    let first = super::fixtures::source_constant_value(&consumer, "FIRST");
+
+    assert!(matches!(first.kind(), bray_symbols::ConstantValueKind::Integer(value)
+        if value == &bray_symbols::IntegerConstant::from_u64(9)));
+}

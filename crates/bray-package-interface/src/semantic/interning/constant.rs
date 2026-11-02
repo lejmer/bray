@@ -218,6 +218,12 @@ impl InternState {
             InterfaceConstantTerm::Tuple(values) => {
                 collect_ids(values, |id| self.constant_term_id(*id)).map(ConstantTermData::tuple)
             }
+            InterfaceConstantTerm::RepeatedArray { value, count } => {
+                match (self.constant_term_id(*value), self.constant_term_id(*count)) {
+                    (Some(value), Some(count)) => Some(ConstantTermData::RepeatedArray { value, count }),
+                    _ => None,
+                }
+            }
             InterfaceConstantTerm::Array(values) => {
                 collect_ids(values, |id| self.constant_term_id(*id)).map(ConstantTermData::array)
             }

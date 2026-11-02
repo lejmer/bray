@@ -67,7 +67,8 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                         pending.push(ConcreteWork::Type(*target));
                         pending.push(ConcreteWork::Term(*operand));
                     }
-                    ConstantTermData::Binary { left, right, .. } => {
+                    ConstantTermData::RepeatedArray { value: left, count: right }
+                    | ConstantTermData::Binary { left, right, .. } => {
                         pending.push(ConcreteWork::Term(*left));
                         pending.push(ConcreteWork::Term(*right));
                     }

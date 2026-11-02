@@ -807,22 +807,20 @@ where
 
         let value = self.evaluate(*value)?;
         let count = self.evaluate(*count)?;
-        let count = self.closed_value(count, expression)?;
-        let count = self.array_count(expression, count)?;
+
+        let (Some(closed_value), Some(closed_count)) = (self.term_value(value), self.term_value(count)) else {
+            return self.intern_typed_term(ty, ConstantTermData::RepeatedArray { value, count });
+        };
+
+        let count = self.array_count(expression, closed_count)?;
 
         self.budget.charge_elements(expression, count)?;
         self.budget.charge_expansion(expression, count)?;
 
-        match self.term_value(value) {
-            Some(value) => Ok(self.intern_value_term(
-                ty,
-                ConstantValueKind::array(std::iter::repeat_n(value, count)),
-            )),
-            None => self.intern_typed_term(
-                ty,
-                ConstantTermData::array(std::iter::repeat_n(value, count)),
-            ),
-        }
+        Ok(self.intern_value_term(
+            ty,
+            ConstantValueKind::array(std::iter::repeat_n(closed_value, count)),
+        ))
     }
 
     pub(super) fn array_count(

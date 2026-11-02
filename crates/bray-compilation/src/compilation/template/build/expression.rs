@@ -363,6 +363,13 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                 BoundStructuredExpressionKind::Array => Ok(CheckedTemplateOperation::array(
                     self.expressions(expression.operands())?,
                 )),
+                BoundStructuredExpressionKind::RepeatedArray => {
+                    let [value, _] = expression.operands() else {
+                        panic!("checked repetition retains its element and count");
+                    };
+
+                    Ok(CheckedTemplateOperation::RepeatedArray { value: self.expression(*value)? })
+                }
                 BoundStructuredExpressionKind::Borrow => {
                     let [operand] = expression.operands() else {
                         return Err(incomplete("invalid_borrow_operand_count"));

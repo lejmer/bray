@@ -182,3 +182,179 @@ fn repeated_arrays_reject_noncopyable_constant_elements_before_evaluation() {
         DiagnosticKind::CheckingRepeatedArrayElementNotCopyable,
     );
 }
+
+#[test]
+fn repeated_arrays_check_and_infer_constant_counts_in_their_lexical_context() {
+    let compilation = compilation(r#"
+        module app;
+
+        const COUNT: usize = 3;
+
+        const func count() -> usize
+        {
+            return COUNT;
+        }
+
+        func generic<const N: usize>(pos value: i32) -> [i32; N]
+        {
+            return [value; N];
+        }
+
+        func arithmetic<const N: usize>() -> [i32; N + 1]
+        {
+            const LOCAL: usize = N + 1;
+
+            return [7; LOCAL];
+        }
+
+        func main()
+        {
+            const LOCAL: usize = COUNT;
+            const NEXT: usize = LOCAL + 1;
+            let literal = [7; 3];
+            let nested: [[i32; 3]; 2] = [[7; COUNT]; 2];
+            let arithmetic_values: [i32; 4] = arithmetic<3>();
+            let named = [7; COUNT];
+            let called: [i32; 3] = [7; count()];
+            let local: [i32; 4] = [7; NEXT];
+            let inferred_local = [7; NEXT];
+            let generic_values: [i32; 3] = generic<3>(7);
+
+            {
+                const INNER_COUNT: usize = 1;
+                let nested_local: [i32; 1] = [7; INNER_COUNT];
+            }
+
+            let outer: [i32; 3] = [7; LOCAL];
+        }
+    "#);
+
+    assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+
+    let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+        .expect("valid repeated arrays lower");
+
+    assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+}
+
+#[test]
+fn repeated_arrays_reject_counts_that_disagree_with_the_destination() {
+    for count in ["3", "COUNT", "count()"] {
+        let source = format!(r#"
+            module app;
+
+            const COUNT: usize = 3;
+
+            const func count() -> usize
+            {{
+                return COUNT;
+            }}
+
+            func main()
+            {{
+                let values: [i32; 2] = [7; {count}];
+            }}
+        "#);
+
+        let compilation = compilation(&source);
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(), DiagnosticKind::CheckingIncompatibleExpressionType,
+        );
+    }
+}
+
+#[test]
+fn repeated_arrays_reject_runtime_counts_despite_a_fixed_destination() {
+    for source in [
+        r#"
+        module app;
+
+        func repeat(pos count: usize)
+        {
+            let values: [i32; 3] = [7; count];
+        }
+        "#,
+        r#"
+        module app;
+
+        func main()
+        {
+            let count: usize = 3;
+            let values: [i32; 3] = [7; count];
+        }
+        "#,
+    ] {
+        let compilation = compilation(source);
+
+        assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), DiagnosticKind::CheckingInvalidConstantExpression);
+    }
+}
+
+#[test]
+fn repeated_arrays_initialize_checked_constant_templates() {
+    let compilation = compilation(r#"
+        module app;
+
+        const COUNT: usize = 3;
+
+        struct Buffer<const N: usize>
+        {
+            const VALUES: [i32; N] = [7; N];
+        }
+
+        const func fill<const N: usize>() -> [i32; N]
+        {
+            return [7; N];
+        }
+
+        const EMPTY: [i32; 0] = [7; 0];
+
+        const ONE: [i32; 1] = [7; 1];
+
+        const MANY: [i32; COUNT] = [7; COUNT];
+
+        const GENERIC: [i32; COUNT] = fill<COUNT>();
+
+        const FIRST: i32 = GENERIC[0];
+
+        func main()
+        {
+            assert(FIRST == 7);
+        }
+    "#);
+
+    assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+}
+
+#[test]
+fn repeated_arrays_reject_invalid_count_types_and_representations() {
+    for count in ["true", "-1", "18446744073709551616"] {
+        let compilation = compilation(&format!(r#"
+            module app;
+
+            func main()
+            {{
+                let values: [i32; 3] = [7; {count}];
+            }}
+        "#));
+
+        assert!(compilation.check_diagnostics().has_errors(), "invalid count {count} must be rejected");
+    }
+}
+
+#[test]
+fn repeated_arrays_preserve_recovery_for_incomplete_counts() {
+    for expression in ["[7;]", "[; 3]", "[7; unknown]"] {
+        let compilation = compilation(&format!(r#"
+            module app;
+
+            func main()
+            {{
+                let values: [i32; 3] = {expression};
+            }}
+        "#));
+
+        assert!(compilation.check_diagnostics().has_errors(), "{expression} must retain its source error");
+    }
+}

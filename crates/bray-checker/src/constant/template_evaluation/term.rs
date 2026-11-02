@@ -341,6 +341,27 @@ where
 
             Ok(evaluator.intern_value(ty, ConstantValueKind::Tuple(values.into())))
         }
+        ConstantTermData::RepeatedArray { value, count } => {
+            let data = evaluator.context.semantic_values().type_data(ty);
+
+            let bray_symbols::TypeData::Array { element, .. } = data.as_ref() else {
+                panic!("checked repeated-array term retains its array type");
+            };
+
+            let value = evaluator.evaluate_term(*value, *element)?;
+
+            let usize_type = crate::representation::representation_type_for_context(
+                evaluator.context, bray_compiler_known::RepresentationRole::ScalarUsize,
+            );
+
+            let count = evaluator.evaluate_term(*count, usize_type)?;
+            let count = evaluator.context.semantic_values().constant_value_data(count);
+
+            let count = super::support::integer_index(count.kind())
+                .expect("checked repeated-array count retains its usize value");
+
+            evaluator.repeat_array_value(value, count, ty)
+        }
         ConstantTermData::Array(values) => {
             let values = values
                 .iter()

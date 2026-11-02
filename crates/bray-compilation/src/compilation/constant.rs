@@ -2,6 +2,7 @@ mod call;
 mod contract;
 mod definition;
 mod embedded;
+mod repetition;
 #[cfg(test)]
 mod layout_tests;
 

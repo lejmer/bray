@@ -311,6 +311,11 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encoder.write_u32(12);
             write_ids(encoder, values, |id| id.raw());
         }
+        InterfaceConstantTerm::RepeatedArray { value, count } => {
+            encoder.write_u32(20);
+            encoder.write_u32(value.raw());
+            encoder.write_u32(count.raw());
+        }
         InterfaceConstantTerm::Array(values) => {
             encoder.write_u32(13);
             write_ids(encoder, values, |id| id.raw());

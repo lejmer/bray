@@ -9,6 +9,8 @@ pub(super) struct ExpressionTypeDependencies {
         std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) box_storage_policies:
         std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
+    pub(super) repeated_array_lengths:
+        std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, bray_symbols::ConstantTermId>,
     pub(super) error: TypeId,
     pub(super) unit: TypeId,
     pub(super) never: TypeId,
@@ -52,6 +54,7 @@ impl ExpressionTypeDependencies {
                 })
                 .collect(),
             box_storage_policies: std::collections::BTreeMap::new(),
+            repeated_array_lengths: std::collections::BTreeMap::new(),
             error,
             unit,
             never,

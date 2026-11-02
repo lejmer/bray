@@ -136,6 +136,7 @@ let zeros: [i32; 4] = [0; 4];
 
 The count is a compile-time constant expression of type `usize` and determines the fixed array length. A generic const
 parameter can supply the count. The count must agree with an expected array extent when one is present.
+The compiler evaluates the count at compile time. The count has no runtime evaluation.
 
 A local `let` annotated with bare `bytes` infers its extent from a repeated array when the count is an integer
 literal. A count computed from another expression requires an explicit `bytes<N>` extent.

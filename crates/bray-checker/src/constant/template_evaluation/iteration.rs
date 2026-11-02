@@ -6,6 +6,46 @@ use super::support::{TemplateEvaluationFailure, template_index};
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
+    pub(super) fn evaluate_repeated_array(
+        &mut self,
+        value: CheckedTemplateNodeId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let value = self.evaluate_node(value)?;
+        let values = self.context.semantic_values();
+        let data = values.type_data(ty);
+
+        let bray_symbols::TypeData::Array { length, .. } = data.as_ref() else {
+            panic!("checked repetition has an array result type");
+        };
+
+        let length = values.constant_term_data(*length);
+
+        let bray_symbols::ConstantTermData::IntegerLiteral { value: count, .. } = length.as_ref() else {
+            panic!("instantiated array extent has a normalized integer term");
+        };
+
+        let count = crate::constant::integer_to_usize(count)
+            .expect("checked array extent fits the host");
+
+        self.repeat_array_value(value, count, ty)
+    }
+
+    pub(super) fn repeat_array_value(
+        &mut self,
+        value: ConstantValueId,
+        count: usize,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        self.budget.try_charge_elements(count)
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+        self.budget.try_charge_expansion(count)
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+        Ok(self.intern_value(ty, ConstantValueKind::array(std::iter::repeat_n(value, count))))
+    }
+
     pub(super) fn evaluate_loop(
         &mut self,
         owner: CheckedTemplateNodeId,

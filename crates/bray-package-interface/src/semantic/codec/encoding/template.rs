@@ -315,6 +315,10 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(6);
             write_node_ids(encoder, elements);
         }
+        InterfaceCheckedTemplateOperation::RepeatedArray { value } => {
+            encoder.write_u32(32);
+            encoder.write_u32(value.raw());
+        }
         InterfaceCheckedTemplateOperation::Array(elements) => {
             encoder.write_u32(7);
             write_node_ids(encoder, elements);

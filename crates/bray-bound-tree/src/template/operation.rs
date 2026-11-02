@@ -221,6 +221,11 @@ pub enum CheckedTemplateOperation<
     Tuple(Arc<[CheckedTemplateNodeId]>),
     /// Constructs an array from values in element order.
     Array(Arc<[CheckedTemplateNodeId]>),
+    /// Copies one evaluated element across the checked result array extent.
+    RepeatedArray {
+        /// The element evaluated once, including for an empty array.
+        value: CheckedTemplateNodeId,
+    },
     /// The element snapshot bound only while an array transform evaluates its body.
     ArrayElement {
         /// The array supplying successive element values.
@@ -611,6 +616,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             },
             Self::Tuple(elements) => CheckedTemplateOperation::Tuple(Arc::clone(elements)),
             Self::Array(elements) => CheckedTemplateOperation::Array(Arc::clone(elements)),
+            Self::RepeatedArray { value } => CheckedTemplateOperation::RepeatedArray { value: *value },
             Self::Construct { variant, fields } => CheckedTemplateOperation::construct(
                 variant.as_ref().map(&mut declaration).transpose()?,
                 fields
@@ -753,6 +759,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 *body = body.map(&mut map);
                 *completed = map(*completed);
             }
+            Self::RepeatedArray { value } => *value = map(*value),
             Self::ArrayElement { subject } => *subject = map(*subject),
             Self::Sequence { before, value } => {
                 *before = map(*before);
@@ -871,6 +878,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
 
                 visit(*completed)?;
             }
+            Self::RepeatedArray { value } => visit(*value)?,
             Self::ArrayElement { subject } => visit(*subject)?,
             Self::Sequence { before, value } => {
                 visit(*before)?;

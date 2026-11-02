@@ -186,6 +186,8 @@ where
             );
         }
 
+        self.types.repeated_array_lengths.extend(input.repeated_array_lengths().iter().copied());
+
         let mut applied_replacements = BTreeSet::new();
 
         for evidence in input.evidence() {

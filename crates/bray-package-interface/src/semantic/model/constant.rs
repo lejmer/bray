@@ -132,6 +132,13 @@ pub enum InterfaceConstantTerm {
     Tuple(Arc<[InterfaceConstantTermId]>),
     /// An ordered array whose elements may remain open.
     Array(Arc<[InterfaceConstantTermId]>),
+    /// Copies one element across a checked constant extent.
+    RepeatedArray {
+        /// Element evaluated once.
+        value: InterfaceConstantTermId,
+        /// Checked compile-time extent.
+        count: InterfaceConstantTermId,
+    },
     /// Ordered product fields whose values may remain open.
     Product(Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantTermId>]>),
     /// An active union variant whose payload values may remain open.
