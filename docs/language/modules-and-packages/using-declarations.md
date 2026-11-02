@@ -1,5 +1,7 @@
 # Using declarations
 
+Syntax follows the [using and export declarations grammar](../syntax-grammar.md#using-and-export-declarations).
+
 A `using` declaration records that a module, package path, or declaration path is intentionally used by the current
 module.
 

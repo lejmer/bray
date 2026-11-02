@@ -1,5 +1,7 @@
 # While expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A while expression is a pre-test loop expression.
 
 The while expression forms are:

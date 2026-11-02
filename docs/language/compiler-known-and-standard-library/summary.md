@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [compiler-known declarations](compiler-known-declarations.md).
+- [standard-library recognition](standard-library-recognition.md).
+- [conformance catalog](conformance-catalog.md).
+
 Compiler-known declarations have language-defined identity and contracts.
 
 Compiler-provided declarations are compiler-known declarations whose implementation is supplied by the compiler while

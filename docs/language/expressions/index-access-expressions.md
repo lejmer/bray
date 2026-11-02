@@ -1,5 +1,7 @@
 # Index access expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 An **index access expression** reaches an indexed element, component, or contiguous sub-storage through an indexing
 contract.
 

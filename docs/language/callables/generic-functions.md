@@ -1,5 +1,7 @@
 # Generic functions
 
+Syntax follows the [generic parameters grammar](../syntax-grammar.md#generic-parameters).
+
 Generic functions are parameterized by type parameters, const parameters, or both.
 
 The generic parameter list is written after the function name and before the function parameter list.

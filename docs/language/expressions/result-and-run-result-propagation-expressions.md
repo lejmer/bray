@@ -1,5 +1,7 @@
 # Result and run result propagation expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 The result propagation expression is:
 
 ```bray

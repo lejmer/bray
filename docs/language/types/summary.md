@@ -1,5 +1,12 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [type identity](type-identity.md).
+- [type forms](type-forms.md).
+- [traits](traits.md).
+- [implementations](implementations.md).
+
 Types are semantic contracts.
 
 Every value has a type.

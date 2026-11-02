@@ -261,6 +261,8 @@ declarations, not lexical keywords.
 
 ## Numeric literals
 
+[Literal expressions](expressions/literal-expressions.md#literal-typing-by-context) defines typing and value semantics.
+
 Numeric literal spelling is lexical.
 
 Numeric literal typing and adaptation belong to the scalar and literal rules.
@@ -322,6 +324,8 @@ Numeric literal suffixes are not part of Bray syntax, except for the `i` suffix 
 
 ## Character literals
 
+[Literal expressions](expressions/literal-expressions.md#character-literals) defines typing and value semantics.
+
 ```ebnf
 character-literal =
     "'" character-literal-body "'" ;
@@ -341,6 +345,8 @@ After escape processing, a character literal must contain exactly one Unicode sc
 ---
 
 ## String literals
+
+[Literal expressions](expressions/literal-expressions.md#string-literals) defines typing and value semantics.
 
 ```ebnf
 string-literal =

@@ -1,5 +1,8 @@
 # Callable types and values
 
+Callable type syntax follows the [type expressions grammar](../syntax-grammar.md#type-expressions). Named callable
+contracts follow the [callable contract declarations grammar](../syntax-grammar.md#callable-contract-declarations).
+
 ## Function types
 
 Callable types use `func(...) -> ...`.

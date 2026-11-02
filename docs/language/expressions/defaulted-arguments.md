@@ -1,5 +1,7 @@
 # Defaulted arguments
 
+Syntax follows the [callable parameters grammar](../syntax-grammar.md#callable-parameters).
+
 A **defaulted argument** is an omitted parameter value supplied by the parameter’s declared default expression.
 
 A callable parameter can declare a default value.
@@ -63,11 +65,8 @@ Default arguments are applied to direct calls after the callable has been select
 
 Default arguments do not participate in overload selection.
 
-Explicit argument expressions are evaluated before omitted parameter defaults.
-
-Explicit argument expressions are evaluated in source order.
-
-Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
+[Call argument evaluation order](expression-evaluation-order.md#call-arguments-and-defaults) defines the ordering of
+explicit arguments and omitted defaults.
 
 A default may borrow an earlier by-value argument for use during the call. The callable cannot return a value that
 retains that borrow. A borrow supplied by the caller keeps its original lifetime.

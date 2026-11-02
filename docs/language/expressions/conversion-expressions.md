@@ -1,5 +1,7 @@
 # Conversion expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **conversion expression** explicitly converts a source expression to a target type.
 
 Plain conversion uses `as`.

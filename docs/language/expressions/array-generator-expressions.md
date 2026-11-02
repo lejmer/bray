@@ -1,5 +1,7 @@
 # Array generator expressions
 
+Syntax follows the [generator expressions grammar](../syntax-grammar.md#generator-expressions).
+
 An **array generator expression** constructs a fixed-size array by iterating over a source and yielding array elements.
 
 ```bray

@@ -1,5 +1,7 @@
 # Range expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **range expression** produces a finite ascending half-open integer sequence.
 
 ```bray

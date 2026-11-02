@@ -1,5 +1,7 @@
 # Break expressions
 
+Syntax follows the [completion expressions grammar](../syntax-grammar.md#completion-expressions).
+
 A **break expression** exits the nearest loop or iteration region that accepts `break`.
 
 The break expression forms are:

@@ -37,7 +37,8 @@ It does not restrict initialization of represented parts during construction.
 
 Constructors can be trusted when they use trusted implementation capabilities or expose trusted caller obligations.
 
-Trusted constructor behavior follows [Contracts and trust](../contracts-and-trust.md).
+Trusted constructor behavior follows [trusted implementation capabilities](../contracts-and-trust/trusted-implementation-capabilities.md)
+and [trusted caller obligations](../contracts-and-trust/trusted-caller-obligations.md).
 
 ## Navigation
 

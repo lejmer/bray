@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [callable results and bodies](callable-results-and-bodies.md).
+- [return and execution scopes](return-and-execution-scopes.md).
+- [parameters](parameters.md).
+
 Functions use `func`.
 
 Callable result types use `->`.

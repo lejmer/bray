@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [contract clauses](contract-clauses.md).
+- [contract reasoning](contract-reasoning.md).
+- [trusted caller obligations](trusted-caller-obligations.md).
+
 Contracts describe caller obligations, static constraints, and normal-completion guarantees.
 
 Predicate expressions are restricted contract-level expressions.

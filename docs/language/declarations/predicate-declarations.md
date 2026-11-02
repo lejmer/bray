@@ -1,5 +1,7 @@
 # Predicate declarations
 
+Syntax follows the [predicate declarations grammar](../syntax-grammar.md#predicate-declarations).
+
 A predicate declaration introduces a named contract-level relation.
 
 ```bray

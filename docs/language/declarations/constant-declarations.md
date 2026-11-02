@@ -1,5 +1,7 @@
 # Constant declarations
 
+Syntax follows the [constant declarations grammar](../syntax-grammar.md#constant-declarations).
+
 A constant declaration introduces a named compile-time value.
 
 ```bray

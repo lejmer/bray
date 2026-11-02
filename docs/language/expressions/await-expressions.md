@@ -1,23 +1,16 @@
 # Await expressions
 
-The await expression is:
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
+An await expression consumes an async computation into the current task.
 
 ```bray
 await expression
 ```
 
-The operand is evaluated exactly once.
-
-The operand must have type `Future<T>` for some `T`.
-
-`await` consumes the async computation and composes it into the current task.
-
-If the async computation completes normally with a value of type `T`, the await expression has type `T`.
-
-Awaiting an async computation directly is not task observation and does not produce `RunResult<T>`.
-
-Await expression ownership, borrowing, cancellation, panic, capability, and effect rules are defined in
-[Await expressions](../async-and-concurrency/await-expressions.md).
+[Await semantics](../async-and-concurrency/await-expressions.md) defines operand typing, evaluation, completion,
+cancellation, panic, execution requirements, and postconditions. Direct await differs from
+[observing an independently started task](../async-and-concurrency/task-handles-and-obligations.md).
 
 ## Navigation
 

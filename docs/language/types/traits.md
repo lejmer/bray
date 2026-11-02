@@ -1,5 +1,7 @@
 # Traits
 
+Syntax follows the [trait declarations grammar](../syntax-grammar.md#trait-declarations).
+
 A **trait** is a named behavioral contract.
 
 A trait defines behavior that a type can satisfy through an explicit implementation.
@@ -625,6 +627,9 @@ implementation has been selected by ordinary implementation selection rules.
 
 For a given exact implementing subject, exact trait application, lifecycle kind, and lifecycle path, at most one
 participating implementation lifecycle declaration can be visible in a coherence domain.
+
+Trait implementation lifecycle declarations can fulfill only an `enter` or `exit` requirement of the implemented
+trait. A trait implementation cannot add lifecycle declarations that fulfill no such requirement.
 
 Lifecycle requirements participate in ownership checking, borrowing checking, finalization tracking, with-expression
 checking, generic satisfaction, documentation, and public API compatibility.

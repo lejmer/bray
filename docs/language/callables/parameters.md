@@ -1,5 +1,7 @@
 # Parameters
 
+Syntax follows the [callable parameters grammar](../syntax-grammar.md#callable-parameters).
+
 A parameter is a binding declared by a function signature.
 
 ```bray

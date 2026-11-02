@@ -1,5 +1,7 @@
 # Tuple expressions
 
+Syntax follows the [tuple expressions grammar](../syntax-grammar.md#tuple-expressions).
+
 A **tuple expression** constructs a tuple value from a fixed sequence of element expressions.
 
 ```bray

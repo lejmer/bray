@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [expression results](expression-results.md).
+- [expression evaluation order](expression-evaluation-order.md).
+- [callable-body block expressions](callable-body-block-expressions.md).
+
 Expressions are typed.
 
 Expressions can produce values, access paths, control-flow outcomes, or compile-time entities.

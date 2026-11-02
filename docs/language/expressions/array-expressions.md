@@ -1,5 +1,7 @@
 # Array expressions
 
+Syntax follows the [array expressions grammar](../syntax-grammar.md#array-expressions).
+
 An **array expression** constructs a fixed-size array value.
 
 An array expression with individually supplied elements uses comma-separated element expressions inside square brackets.

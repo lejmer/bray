@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [async functions and computations](async-functions-and-computations.md).
+- [structured task scope exit](structured-task-scope-exit.md).
+- [cross-run memory model](cross-run-memory-model.md).
+
 Calling an async callable produces an owned inactive `Future<T>` and does not execute its body.
 
 `await` consumes and directly composes that computation into the current task. `Future<T>.start()` consumes it into

@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [package products and source graphs](package-products-and-source-graphs.md).
+- [module declarations](module-declarations.md).
+- [using declarations](using-declarations.md).
+
 Module identity is explicit in source.
 
 Package identity belongs to the package and build layer.

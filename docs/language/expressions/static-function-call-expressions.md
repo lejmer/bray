@@ -1,5 +1,8 @@
 # Static function call expressions
 
+Call syntax follows the [expression roots](../syntax-grammar.md#expression-roots-and-precedence-structure)
+and [argument lists](../syntax-grammar.md#argument-lists) grammar.
+
 A **static function call expression** calls a type-level function associated with a type, trait application,
 implementation, module, package, or other path-capable entity.
 

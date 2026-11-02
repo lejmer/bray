@@ -1,5 +1,7 @@
 # Contract clauses
 
+Syntax follows the [callable contract clauses grammar](../syntax-grammar.md#callable-contract-clauses).
+
 Contract lists use parentheses and commas.
 
 ```bray

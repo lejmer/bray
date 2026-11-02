@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [pattern contexts](pattern-contexts.md).
+- [pattern operation modes](pattern-operation-modes.md).
+- [pattern evaluation](pattern-evaluation.md).
+
 Patterns are structural matching forms.
 
 Patterns have a dedicated grammar category.

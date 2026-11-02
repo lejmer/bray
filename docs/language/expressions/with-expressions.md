@@ -1,5 +1,7 @@
 # With expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **with expression** enters scoped lifecycle behavior for a resource and evaluates a body while the scoped capability
 is active.
 
@@ -39,11 +41,8 @@ with (file, metadata) = open_with_metadata(path)
 }
 ```
 
-The initializer expression is evaluated once.
-
-The with body is a block expression.
-
-In value-producing context, the with body is a single-yield region and supplies the with expression result.
+[With lifecycle rules](../lifecycle/with-expressions.md) define initializer evaluation, the scoped capability,
+body results, and exit behavior. For example, a value-producing body supplies its result with `yield`.
 
 ```bray
 let count: usize = with file = File.open(path)

@@ -6,8 +6,9 @@ or subject element.
 The pattern-bearing expression forms are match expressions, `matches` tests, conditional `let`, for expressions,
 array generator expressions, general generator iteration expressions, and local destructuring constructs.
 
-Pattern syntax, resolution, refutability, operation modes, bindings, partial moves, condition refinement, and structural
-matching rules are defined in [Patterns](../patterns.md).
+[Pattern contexts](../patterns/pattern-contexts.md) defines refutability requirements.
+[Pattern operation modes](../patterns/pattern-operation-modes.md) defines observation, borrowing, and consumption.
+[Pattern refinement](../patterns/pattern-refinement.md) defines guarantees established by a successful match.
 
 A pattern-bearing expression supplies a subject type to the pattern.
 
@@ -15,18 +16,8 @@ A pattern-bearing expression supplies a pattern operation mode.
 
 A pattern-bearing expression defines whether the pattern must be irrefutable or can be refutable.
 
-Local destructuring requires an irrefutable pattern.
-
-Iteration binding requires an irrefutable pattern for the iteration element type.
-
-For iteration binding, the pattern operation mode is determined by the selected element type, element ownership
-behavior, and element borrowing behavior.
-
-Match expressions accept refutable patterns and perform coverage checking according to the subject type and arm set.
-
-A context that requires irrefutable patterns rejects refutable patterns during checking.
-
-A context that accepts refutable patterns defines what happens when the pattern does not match.
+[Pattern contexts](../patterns/pattern-contexts.md) defines which constructs require irrefutable patterns and which
+accept refutable patterns. Each expression's rules define its subject, operation mode, coverage checks, and failure path.
 
 Pattern-introduced bindings are scoped to the region defined by the pattern-bearing expression.
 

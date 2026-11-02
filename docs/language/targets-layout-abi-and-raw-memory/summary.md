@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [target profiles and properties](target-profiles-and-properties.md).
+- [layout contracts](layout-contracts.md).
+- [callable abi](callable-abi.md).
+
 Target profiles define the selected compilation target through compiler-known target properties.
 
 `@target(...)` gates module contributions using target-selection expressions.

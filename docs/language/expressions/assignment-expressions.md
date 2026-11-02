@@ -1,5 +1,7 @@
 # Assignment expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 An **assignment expression** writes a new value into an assignable access path.
 
 ```bray

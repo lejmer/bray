@@ -18,6 +18,9 @@ callable's receiver and parameter modes. Invocation checks generic constraints a
 
 If the selected async callable declares result type `T`, its invocation expression has type `Future<T>`.
 
+[Async callable contracts](../callables/async-functions-and-computations.md) defines the invocation and execution
+phases, including when their requirements and postconditions apply.
+
 Calling an async callable:
 
 - does not execute its body,

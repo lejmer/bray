@@ -1,5 +1,7 @@
 # Path expressions
 
+Syntax follows the [paths grammar](../syntax-grammar.md#paths).
+
 A **path expression** is an expression formed by connecting path components with `.`.
 
 ```bray

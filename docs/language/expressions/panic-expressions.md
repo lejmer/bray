@@ -1,5 +1,7 @@
 # Panic expressions
 
+Syntax follows the [completion expressions grammar](../syntax-grammar.md#completion-expressions).
+
 A **panic expression** raises an exceptional failure outside the ordinary callable result contract.
 
 ```bray

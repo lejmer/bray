@@ -1,5 +1,7 @@
 # Product Types
 
+Syntax follows the [struct bodies grammar](../syntax-grammar.md#struct-bodies).
+
 ## Product type
 
 A **product type** is a named type whose value is composed from named fields.
@@ -605,9 +607,8 @@ and field destruction rules before the new product value becomes initialized at 
 
 ## Product layout
 
-The default physical layout of a product type is compiler-defined.
-
-Product layout is declared with `@layout(...)` immediately before the `struct` declaration.
+[Product layout](../targets-layout-abi-and-raw-memory/product-layout.md) defines default representation and explicit
+layout contracts. For example, `@layout(...)` precedes a struct declaration.
 
 ```bray
 @layout(stable)

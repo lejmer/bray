@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [declaration contexts](declaration-contexts.md).
+- [declaration names, lookup, and identity](declaration-names-and-identity.md).
+- [declaration order and checking](declaration-order-and-checking.md).
+
 Declarations introduce program entities, members, module contributions, compile-time relations, and semantic
 relationships.
 

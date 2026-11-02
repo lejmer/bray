@@ -1,5 +1,7 @@
 # Sequenced expressions
 
+Syntax follows the [block expressions grammar](../syntax-grammar.md#block-expressions).
+
 A **sequenced expression** is an expression evaluated as part of an ordered sequence inside a block expression.
 
 Sequenced expressions are terminated with semicolons.
@@ -10,8 +12,6 @@ Sequenced expressions are terminated with semicolons.
     log("world");
 }
 ```
-
-Semicolons are mandatory for sequenced expressions.
 
 Self-delimiting block-shaped expressions can instead appear directly as block items without becoming sequenced
 expressions. These are block, conditional, match, while, for, loop, and with expressions. A trailing semicolon remains

@@ -1,5 +1,8 @@
 # Function call expressions
 
+Call syntax follows the [expression roots](../syntax-grammar.md#expression-roots-and-precedence-structure)
+and [argument lists](../syntax-grammar.md#argument-lists) grammar.
+
 A **function call expression** calls a callable declaration or callable value.
 
 ```bray

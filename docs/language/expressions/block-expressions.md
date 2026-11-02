@@ -1,5 +1,7 @@
 # Block expressions
 
+Syntax follows the [block expressions grammar](../syntax-grammar.md#block-expressions).
+
 A **block expression** is a braced expression region.
 
 ```bray
@@ -43,9 +45,7 @@ A block expression in `unit` context can complete normally.
 }
 ```
 
-A block expression used directly as a block item is self-delimiting and does not require a trailing semicolon. The same
-rule applies to conditional, match, while, for, loop, and with expressions. Other expression block items are terminated
-with semicolons.
+[Sequenced expressions](sequenced-expressions.md) defines semicolon requirements and self-delimiting block items.
 
 A block expression whose control flow has no normal continuation has type `never`.
 

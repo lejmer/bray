@@ -1,5 +1,7 @@
 # Arguments
 
+Syntax follows the [argument lists grammar](../syntax-grammar.md#argument-lists).
+
 An **argument** is an expression supplied to a callable parameter, constructor parameter, method parameter, static
 function parameter, named constructor parameter, or another callable-like parameter.
 

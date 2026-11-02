@@ -1,5 +1,7 @@
 # Unary and binary expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **unary expression** applies a prefix unary token to one operand.
 
 A **binary expression** applies an infix binary token between two operands.

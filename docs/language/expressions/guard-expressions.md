@@ -1,5 +1,7 @@
 # Guard expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A **guard expression** is an additional boolean check attached to a pattern arm by the expression form that defines the
 guard.
 

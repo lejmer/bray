@@ -2,15 +2,14 @@
 
 Expressions interact with ownership.
 
-General ownership and borrowing rules are defined in [Ownership and borrowing](../ownership-and-borrowing.md).
+[Moves, copies, and consumption](../ownership-and-borrowing/moves-copies-and-consumption.md) defines ownership
+operations. [Scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md)
+defines state agreement and dependency preservation at exits.
 
 The expression chapter defines which expression forms create values, move values, copy values, borrow values, consume
 values, initialize storage, reinitialize storage, or destroy initialized storage.
 
 Each expression form applies the ownership operation selected by that expression form.
-
-Reachable expression exits must agree on ownership, borrowing, initialization, destruction, finalization, capabilities,
-effects, and which contract guarantees remain available.
 
 ## Navigation
 

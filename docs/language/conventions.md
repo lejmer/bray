@@ -120,6 +120,13 @@ requirements. If behavior is unimplemented or code paths conflict without a dete
 requires a tracked design decision. A difference from one interpretation of ambiguous prose does not establish an
 implementation defect.
 
+## Rule references
+
+A cross-reference to a definition or rule identifies the section that specifies that behavior. Short descriptions and
+examples beside a reference explain the linked rule without creating a separate requirement. A construct-specific
+restriction remains in the section for that construct. The implementation-authority policy applies when the referenced
+text is ambiguous.
+
 ## Navigation
 
 - [Language index](index.md)

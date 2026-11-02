@@ -1,5 +1,7 @@
 # Box construction expressions
 
+Syntax follows the [type form construction expressions grammar](../syntax-grammar.md#type-form-construction-expressions).
+
 A **box construction expression** creates an owned indirection value.
 
 A default-storage box construction expression uses `box(...)`.

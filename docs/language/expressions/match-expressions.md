@@ -1,5 +1,7 @@
 # Match expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A **match expression** evaluates a subject expression, compares it against a sequence of pattern arms, and produces the
 result of the selected arm.
 

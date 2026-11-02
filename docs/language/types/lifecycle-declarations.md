@@ -10,8 +10,9 @@ The lifecycle declaration kinds are:
 - `enter`,
 - `exit`.
 
-Lifecycle declaration syntax, selection, ordering, construction, finalization, destruction, scoped use, trait
-requirements, and API compatibility are defined in [Lifecycle](../lifecycle.md).
+[Lifecycle declarations](../lifecycle/lifecycle-declarations.md) defines signatures and receivers.
+[Lifecycle selection](../lifecycle/lifecycle-selection.md) defines declaration selection, and
+[lifecycle ordering](../lifecycle/lifecycle-ordering.md) defines execution order.
 
 Product lifecycle declarations are whole-product lifecycle declarations.
 

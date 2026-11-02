@@ -1,5 +1,7 @@
 # Union Types
 
+Syntax follows the [union bodies grammar](../syntax-grammar.md#union-bodies).
+
 ## Union type
 
 A **union type** is a named closed tagged sum type.
@@ -541,8 +543,8 @@ union Message
 }
 ```
 
-Union layout modes, represented and unrepresented discriminants, physical tags, `@tag(...)`, default tag representation,
-and union-specific layout rules are defined in [Union layout](../targets-layout-abi-and-raw-memory/union-layout.md).
+[Union layout](../targets-layout-abi-and-raw-memory/union-layout.md) defines physical tags, unrepresented discriminants,
+explicit tag values, and default representation. [Active variant](#active-variant) defines the semantic state.
 
 ## Union patterns
 

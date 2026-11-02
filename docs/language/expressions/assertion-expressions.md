@@ -1,5 +1,7 @@
 # Assertion expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 An **assertion expression** checks an ordinary boolean condition at runtime.
 
 The syntax is:
