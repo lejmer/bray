@@ -636,6 +636,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let witness_inputs = owned_inputs
             .iter()
+            .filter(|_| !state.witnesses.is_empty())
             .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(&arguments))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .map(|value| value.owner_identity().clone())
