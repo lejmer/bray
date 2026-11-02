@@ -12,6 +12,8 @@ It is not implemented by standard-library source.
 
 Bodyless declarations shown under `core.memory` describe compiler-provided declaration surfaces and contracts.
 
+They are [required declaration surfaces](../conventions.md#required-declaration-surfaces), rather than usage examples.
+
 They are not a source-level declaration form that user packages or standard-library packages can write.
 
 Unless a declaration explicitly states target-conditional availability, it is required on every target that a conforming

@@ -5,6 +5,9 @@ Bray programs are defined by their lexical grammar, syntax grammar, and semantic
 This reference describes the source language accepted by a conforming Bray compiler and the observable meaning of valid
 Bray programs.
 
+The [specification conventions](conventions.md) apply throughout this reference. They distinguish requirements from
+explanations and examples, and explain how the current implementation resolves ambiguous specification wording.
+
 ---
 
 ## Contents

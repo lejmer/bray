@@ -15,11 +15,15 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 
 1. Identify the relevant domains and read only their routed references.
 2. Follow specification links when a summary or example is insufficient.
-3. If syntax or behavior remains uncertain, check compiler tests and representative Bray source.
-4. Surface and resolve source conflicts or gaps before establishing a convention. Never fill them by analogy.
+3. If the specification is ambiguous, incomplete, or internally conflicting, inspect the actual implementing compiler,
+   runtime, and standard-library code. That code is authoritative under the
+   [specification conventions](https://github.com/lejmer/bray/blob/develop/docs/language/conventions.md#implementation-authority).
+   Tests and representative Bray source can corroborate the implementation.
+4. Surface any remaining conflict or unimplemented behavior before establishing a convention. Never fill a gap by analogy.
 
 Choose storage and APIs from Bray's ownership, dependency, lifecycle and capability contracts. Existing runtime code is
-an inventory of consumers and behavior. Check it against the specification before using it as implementation guidance.
+an inventory of consumers and behavior. Use the specification for explicit contracts and the implementing code to resolve
+ambiguous documentation before using an existing consumer as implementation guidance.
 
 ## Load the relevant specification chapters
 
