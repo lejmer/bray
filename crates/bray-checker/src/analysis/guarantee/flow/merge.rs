@@ -37,13 +37,13 @@ pub(in crate::analysis) fn merge(
 
     changed |= dependencies != target.completion_dependencies.len();
 
-    let before = target.deferred_invocations.len();
-
-    target
-        .deferred_invocations
-        .retain(|value, source| incoming.deferred_invocations.get(value) == Some(source));
-
-    changed |= before != target.deferred_invocations.len();
+    for (owner, entries) in &incoming.deferred_invocations {
+        changed |= target
+            .deferred_invocations
+            .entry(owner.clone())
+            .or_default()
+            .merge(entries);
+    }
 
     for (expression, evidence) in &incoming.entries {
         match target.entries.entry(*expression) {
@@ -75,11 +75,15 @@ pub(in crate::analysis) fn merge(
 
     // Proven truth is intersected below; retain every possible carrier obligation.
     for (carrier, witness) in &incoming.witnesses {
-        changed |= target
-            .witnesses
-            .entry(carrier.clone())
-            .or_default()
-            .merge(witness);
+        if let Some(previous) = target.witnesses.get_mut(carrier) {
+            changed |= previous.merge(witness);
+        } else {
+            target
+                .witnesses
+                .insert(carrier.clone(), std::sync::Arc::clone(witness));
+
+            changed = true;
+        }
     }
 
     let before = target.trusted_assumptions.len();

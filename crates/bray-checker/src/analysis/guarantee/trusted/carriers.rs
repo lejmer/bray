@@ -31,7 +31,11 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 
                     (
                         capture(&condition),
-                        result_projection(self.request.semantic_values(), self.dependencies, carrier.path()),
+                        result_projection(
+                            self.request.semantic_values(),
+                            self.dependencies,
+                            carrier.path(),
+                        ),
                     )
                 })
             })
@@ -145,7 +149,12 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 ) {
     let identities = owners
         .iter()
-        .map(|(owner, path)| (owner.clone(), result_projection(request.semantic_values(), dependencies, path)))
+        .map(|(owner, path)| {
+            (
+                owner.clone(),
+                result_projection(request.semantic_values(), dependencies, path),
+            )
+        })
         .collect::<BTreeMap<_, _>>();
 
     let mut result = BTreeSet::new();
@@ -327,12 +336,29 @@ fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
                         bray_bound_tree::StorageProjection::ElementFromStart(index) => {
                             let values = request.semantic_values();
 
-                            let value = values.intern_constant_value(bray_symbols::ConstantValueData::new(
-                                crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
-                                bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
-                            )).expect("checked array index belongs to the same semantic store");
+                            let value = values
+                                .intern_constant_value(bray_symbols::ConstantValueData::new(
+                                    crate::representation::representation_type(
+                                        request,
+                                        bray_compiler_known::RepresentationRole::ScalarUsize,
+                                    ),
+                                    bray_symbols::ConstantValueKind::Integer(
+                                        bray_symbols::IntegerConstant::from_u64(u64::from(
+                                            index.raw(),
+                                        )),
+                                    ),
+                                ))
+                                .expect("checked array index belongs to the same semantic store");
 
-                            DependencyProjection::Element(values.intern_constant_term(bray_symbols::ConstantTermData::Value(value)).expect("checked array selector belongs to the same semantic store"))
+                            DependencyProjection::Element(
+                                values
+                                    .intern_constant_term(bray_symbols::ConstantTermData::Value(
+                                        value,
+                                    ))
+                                    .expect(
+                                        "checked array selector belongs to the same semantic store",
+                                    ),
+                            )
                         }
                         _ => continue,
                     };
@@ -364,81 +390,137 @@ fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
 impl ExecutionState {
     /// Discharges ordinary guards while each original carrier still supplies its own evidence.
     pub(in crate::analysis::guarantee) fn refine_witnesses(&mut self) {
-        for witness in self.witnesses.values_mut() {
-            if !witness.conditions.keys().any(|condition| {
-                matches!(
-                    condition,
-                    ExecutionCondition::Operation(bray_bound_tree::BoundOperator::LogicalOr, _)
-                )
-            }) {
+        for witness in self
+            .witnesses
+            .values_mut()
+            .filter(|witness| witness.available)
+        {
+            witness.refine(&mut self.trusted_assumptions, &mut self.assumptions);
+        }
+
+        self.refine_deferred_witnesses();
+    }
+
+    pub(in crate::analysis::guarantee) fn refine_deferred_witnesses(&mut self) {
+        let candidates = self
+            .deferred_invocations
+            .iter()
+            .flat_map(|(owner, entries)| {
+                entries
+                    .producers
+                    .keys()
+                    .map(move |source| (owner.clone(), *source))
+            })
+            .collect::<Vec<_>>();
+
+        for (owner, source) in candidates {
+            let candidate = &self.deferred_invocations[&owner].producers[&source];
+            let entry = &candidate.entry;
+
+            if !entry.pending_execution
+                || !super::super::deferred::possible(&candidate.selection, &self.assumptions)
+            {
                 continue;
             }
 
-            let mut evidence = BTreeSet::new();
+            let owners = entry
+                .owned_arguments()
+                .flat_map(|value| self.owned_values(&value).collect::<Vec<_>>())
+                .map(|value| value.owner_identity().clone())
+                .filter(|owner| {
+                    self.witnesses
+                        .get(owner)
+                        .is_some_and(|witness| witness.has_guards())
+                })
+                .collect::<BTreeSet<_>>();
 
-            for condition in witness.conditions.keys().filter(|condition| {
-                condition.prove_mixed(&self.trusted_assumptions, &self.assumptions, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                }) == Some(true)
-            }) {
-                condition.clone().assume(true, &mut evidence);
+            if owners.is_empty() && entry.copy_sources.is_empty() {
+                continue;
             }
 
-            let known =
-                crate::execution_guarantees::trusted_condition_closure(evidence, &self.assumptions);
+            let mut assumptions = entry.assumptions.clone();
 
-            let mut derived = BTreeMap::<
-                ExecutionCondition,
-                crate::execution_guarantees::ExecutionGuarantee,
-            >::new();
+            assumptions.extend(self.assumptions.iter().cloned());
+            assumptions.extend(candidate.selection.iter().cloned());
 
-            for (condition, guarantee) in &witness.conditions {
-                for observation in condition
-                    .observations()
-                    .filter(|condition| {
-                        !condition.contains_trusted()
-                            || matches!(condition, ExecutionCondition::Trusted(_))
-                    })
-                    .filter(|condition| known.contains(&((*condition).clone(), true)))
-                {
-                    let retained = derived.entry(observation.clone()).or_default();
+            let captured = entry.captured_facts(&assumptions);
 
-                    retained.witness |= guarantee.witness;
+            assumptions.extend(captured.iter().cloned());
 
-                    for (address, owners) in guarantee
-                        .addresses
-                        .iter()
-                        .filter(|(address, _)| observation.observes(address))
-                    {
-                        retained
-                            .addresses
-                            .entry(address.clone())
-                            .or_default()
-                            .extend(owners.iter().cloned());
+            // Canonical constant contents let literal and abstract visits to the
+            // same captured frame meet without losing an argument observation.
+            let mut equalities = None;
+
+            let constants = entry
+                .copy_sources
+                .keys()
+                .filter_map(|place| place.value_in(&entry.arguments))
+                .filter_map(|value| {
+                    let normalized = match value.prove_trusted(&BTreeSet::new(), &assumptions) {
+                        Some(holds) => ExecutionCondition::Boolean(holds),
+                        None => value.with_equalities(equalities.get_or_insert_with(|| {
+                            ExecutionCondition::equalities(&assumptions, None)
+                        })),
+                    };
+
+                    if !matches!(
+                        normalized,
+                        ExecutionCondition::Boolean(_)
+                            | ExecutionCondition::Literal(_)
+                            | ExecutionCondition::Variant(_)
+                    ) {
+                        return None;
                     }
+
+                    (normalized != value).then_some((value, normalized))
+                })
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            let changed = !captured.is_subset(&entry.assumptions) || !constants.is_empty();
+
+            let trusted = if owners.is_empty() {
+                None
+            } else {
+                let mut trusted = entry.trusted_assumptions.clone();
+
+                for owner in owners {
+                    if let Some(witness) = self.witnesses.get_mut(&owner) {
+                        witness.refine(&mut trusted, &mut assumptions);
+                    }
+                }
+
+                (trusted != entry.trusted_assumptions).then_some(trusted)
+            };
+
+            // Captured contents are ordinary immutable values, available to every
+            // analysis consumer independently of the child run's trusted authority.
+            self.assumptions.extend(captured.iter().cloned());
+
+            let candidate = self
+                .deferred_invocations
+                .get_mut(&owner)
+                .expect("captured owner is retained during refinement")
+                .producers
+                .get_mut(&source)
+                .expect("captured producer is retained during refinement");
+
+            if !changed && trusted.is_none() {
+                continue;
+            }
+
+            // Only changed captured values or proof facts require a new entry snapshot.
+            let entry = std::sync::Arc::make_mut(&mut candidate.entry);
+
+            entry.assumptions.extend(captured);
+
+            if !constants.is_empty() {
+                for value in entry.arguments.values_mut() {
+                    *value = value.with_snapshots(&constants);
                 }
             }
 
-            for (condition, guarantee) in derived {
-                if matches!(condition, ExecutionCondition::Trusted(_)) {
-                    condition
-                        .clone()
-                        .assume(true, &mut self.trusted_assumptions);
-
-                    let retained = witness.conditions.entry(condition).or_default();
-
-                    retained.witness |= guarantee.witness;
-
-                    for (address, owners) in guarantee.addresses {
-                        retained
-                            .addresses
-                            .entry(address)
-                            .or_default()
-                            .extend(owners);
-                    }
-                } else {
-                    condition.assume(true, &mut self.assumptions);
-                }
+            if let Some(trusted) = trusted {
+                entry.trusted_assumptions = trusted;
             }
         }
     }

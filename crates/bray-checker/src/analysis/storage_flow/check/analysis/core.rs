@@ -1285,30 +1285,7 @@ where
         };
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
-            if let Some(expression) = awaited {
-                if let Some(source) = state
-                    .execution
-                    .as_ref()
-                    .and_then(|execution| self.execution.awaited_invocation(execution, expression))
-                {
-                    if let Some(frame) = source
-                        .expression()
-                        .and_then(|id| self.expression_result_storage(id))
-                    {
-                        state.memory.clear(&frame);
-                    }
-
-                    state.memory.complete_transition(source);
-
-                    if let Some(source) = source
-                        .expression()
-                        .and_then(|id| self.expression_result_storage(id))
-                        && let Some(result) = self.expression_result_storage(expression)
-                    {
-                        state.memory.transfer(&source, result);
-                    }
-                }
-            } else if !deferred {
+            if !deferred {
                 state
                     .memory
                     .complete_transition(operation.kind().occurrence());

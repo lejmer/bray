@@ -71,12 +71,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     _ => None,
                 };
 
-                let task_source = match &mutation {
-                    CleanupMutation::Opaque { ty, .. } => {
-                        task_path.and_then(|path| domain.task_cleanup_source(execution, *ty, path))
-                    }
+                let task_sources = match &mutation {
+                    CleanupMutation::Opaque { ty, .. } => task_path
+                        .and_then(|path| domain.task_cleanup_invocations(execution, *ty, path)),
                     _ => None,
                 };
+
+                let task_source = task_sources
+                    .as_ref()
+                    .and(receiver.clone())
+                    .map(crate::analysis::storage_flow::memory::Source::Value);
 
                 let inactive_captures = match &mutation {
                     CleanupMutation::Opaque { ty, .. } => task_path
@@ -93,6 +97,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .is_some()
                     });
 
+                let broadcast_frames = if matches!(identity, StorageMutation::Cancellation { .. }) {
+                    task_path
+                        .into_iter()
+                        .flat_map(|path| memory.deferred_paths(path))
+                        .filter(|frame| {
+                            memory
+                                .unexposed_storage(std::slice::from_ref(frame), [])
+                                .next()
+                                .is_some()
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+
                 let mut effects = match mutation {
                     CleanupMutation::Unchanged => Some(Vec::new()),
                     CleanupMutation::Recovery => None,
@@ -100,7 +119,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         task_path
                             .and_then(|path| domain.inactive_future_captures(execution, ty, path))
                             .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
-                            .or_else(|| super::effects::task_effects(&memory, task_source))
+                            .or_else(|| {
+                                super::effects::task_effects(
+                                    &memory,
+                                    task_source.as_ref(),
+                                    task_sources.as_ref()?,
+                                )
+                            })
                             .or_else(|| {
                                 self.buffer_cleanup_effects(&memory, receiver.as_ref()?, ty)
                             })
@@ -117,7 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if let Some(report) = self.inactive_cleanup_report(
                     operation,
                     &mutation,
-                    inactive_captures,
+                    inactive_captures.as_deref(),
                     inherited_tail,
                 ) {
                     report_outputs.push(report);
@@ -176,6 +201,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         inactive_broadcast,
                         &mut invalidation,
                     );
+                }
+
+                // Broadcast exposes captures, not the previously unexposed run handles.
+                for frame in &broadcast_frames {
+                    preserve_run_descriptor(&memory, frame, &[], true, &mut invalidation);
                 }
 
                 self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
@@ -401,7 +431,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .copied()
                     .chain(
                         crate::storage::storage_projections(
-                            self.request.semantic_values(), self.dependencies,
+                            self.request.semantic_values(),
+                            self.dependencies,
                             relation.exit().projections(),
                         )
                         .expect("prepared lifecycle reference retains its projections"),
@@ -585,7 +616,8 @@ fn preserve_run_descriptor(
     invalidation: &mut StorageInvalidation,
 ) {
     let StorageInvalidation::All {
-        stable_descriptors, ..
+        stable_descriptors,
+        stable_values,
     } = invalidation
     else {
         return;
@@ -595,6 +627,7 @@ fn preserve_run_descriptor(
         // The owner token was unexposed before capture effects were applied.
         // Broadcasting passes only captures to user code, never this token.
         stable_descriptors.insert(path.clone());
+        stable_values.insert(path.clone());
         return;
     }
 
@@ -619,5 +652,6 @@ fn preserve_run_descriptor(
         // Cancellation changes the task's frame, not its unexposed handle.
         // The lifecycle phase must retain the same computation identity.
         stable_descriptors.insert(path.clone());
+        stable_values.insert(path.clone());
     }
 }

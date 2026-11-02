@@ -77,7 +77,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if captures_inputs && let Some(result) = self.expression_result_storage(expression) {
             let captures = self.invocation_roots(state, expression.into());
 
-            state.memory.capture_inputs(result, captures);
+            if matches!(self.execution.semantics.selections().expression(expression),
+                Some(bray_bound_tree::SemanticSelection::Call(call))
+                    if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
+                && let Some(source) = self.invocation_reference(
+                    state,
+                    expression.into(),
+                    DependencySubjectRoot::Receiver,
+                )
+            {
+                state.memory.transfer_deferred(&source, result.clone());
+            }
+
+            state.memory.capture_inputs(result.clone(), captures);
+
+            if self
+                .dependencies
+                .calls()
+                .get(&expression.into())
+                .is_some_and(|call| call.deferred_effects().is_some())
+            {
+                state
+                    .memory
+                    .capture_deferred_transition(expression.into(), result);
+            }
         }
 
         if let Some(fields) = self.input.reference_constructions.get(&expression) {
@@ -586,7 +609,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .map(Target::storage)
                     .and_then(|target| {
                         Some(target.project(&storage_projections(
-                            self.request.semantic_values(), self.dependencies,
+                            self.request.semantic_values(),
+                            self.dependencies,
                             relation.exit().projections(),
                         )?))
                     })
@@ -616,8 +640,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .iter()
                     .copied()
                     .chain(
-                        storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
-                            .expect("prepared reference output retains its projections"),
+                        storage_projections(
+                            self.request.semantic_values(),
+                            self.dependencies,
+                            relation.exit().projections(),
+                        )
+                        .expect("prepared reference output retains its projections"),
                     )
                     .collect();
 
@@ -763,9 +791,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return;
             };
 
-            let Some(projections) =
-                storage_projections(self.request.semantic_values(), self.dependencies, relation.target_projections())
-            else {
+            let Some(projections) = storage_projections(
+                self.request.semantic_values(),
+                self.dependencies,
+                relation.target_projections(),
+            ) else {
                 memory.stage_unknown(occurrence, destination);
                 return;
             };

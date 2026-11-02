@@ -301,22 +301,19 @@ pub struct ExecutionDomain {
     pub postconditions: Vec<bray_declarations::SyntaxAnchor>,
 }
 
-/// Authority carried by an unchanged owned input across a checked forwarding call.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
-pub(crate) struct ExecutionValueEvidence {
-    pub(crate) witnesses:
-        std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionWitness>,
-    pub(crate) allocations:
-        std::collections::BTreeMap<super::ExecutionCondition, super::ExecutionCondition>,
-}
-
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
+    /// Caller-owned carriers admitted at invocation. Valid clauses remain in the
+    /// live state; these identities prevent another carrier from lending provenance.
+    pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
+    /// Copy origins while their observations remain unchanged. These are value
+    /// correlations, never language equality predicates or ownership authority.
+    pub(crate) copy_sources:
+        std::collections::BTreeMap<super::ExecutionPlace, super::ExecutionCondition>,
     /// Noncopying owned inputs, in receiver-first checked signature order.
     pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
-    pub(crate) returned: ExecutionValueEvidence,
     /// Access dependencies captured before consuming inputs, without owning authority.
     pub(crate) addresses:
         std::collections::BTreeMap<super::ExecutionPlace, super::AddressDependencies>,
@@ -330,6 +327,61 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    /// Actual values moved into the receiver-first noncopying input slots.
+    pub(crate) fn owned_arguments(&self) -> impl Iterator<Item = super::ExecutionCondition> + '_ {
+        self.owned_inputs.iter().filter_map(|ordinal| {
+            super::ExecutionPlace::argument(*ordinal).value_in(&self.arguments)
+        })
+    }
+
+    /// Project current ordinary knowledge into immutable copied input identities.
+    pub(crate) fn captured_facts(
+        &self,
+        ordinary: &std::collections::BTreeSet<(super::ExecutionCondition, bool)>,
+    ) -> std::collections::BTreeSet<(super::ExecutionCondition, bool)> {
+        use super::ExecutionCondition as Condition;
+
+        let mut bindings = std::collections::BTreeMap::new();
+        let mut facts = std::collections::BTreeSet::new();
+
+        for (place, source) in &self.copy_sources {
+            let Some(captured) = place.value_in(&self.arguments) else {
+                continue;
+            };
+
+            bindings.insert(source.clone(), captured.clone());
+
+            bindings.insert(
+                source.owner_identity().clone(),
+                captured.owner_identity().clone(),
+            );
+        }
+
+        if bindings.is_empty() {
+            return facts;
+        }
+
+        for (condition, holds) in ordinary {
+            if condition.contains_trusted() || condition.observes_borrowed(None) {
+                continue;
+            }
+
+            let captured = condition.with_snapshots(&bindings);
+
+            if captured != *condition {
+                captured.assume(*holds, &mut facts);
+            }
+        }
+
+        for (source, captured) in bindings {
+            if let Some(holds) = source.prove(ordinary, &mut { Condition::WORK_LIMIT }) {
+                captured.assume(holds, &mut facts);
+            }
+        }
+
+        facts
+    }
+
     /// Captures only constant argument values, with no trusted authority or runtime execution lane.
     pub fn from_constants(
         values: &bray_symbols::SemanticValueStore,
@@ -414,7 +466,10 @@ impl ExecutionCallEvidence {
             self.implementation_witnesses, other.implementation_witnesses,
             "a selected invocation retains its implementation choices across control flow"
         );
-        assert_eq!(self.owned_inputs, other.owned_inputs, "one checked invocation retains its input ownership modes");
+        assert_eq!(
+            self.owned_inputs, other.owned_inputs,
+            "one checked invocation retains its input ownership modes"
+        );
 
         let before = (
             self.anonymous_target.is_some(),
@@ -423,6 +478,8 @@ impl ExecutionCallEvidence {
             self.assumptions.len(),
             self.trusted_assumptions.len(),
             self.arguments.len(),
+            self.copy_sources.len(),
+            self.witness_inputs.len(),
         );
 
         let mut addresses_changed = false;
@@ -441,13 +498,6 @@ impl ExecutionCallEvidence {
             }
         }
 
-        let returned_changed =
-            self.returned != other.returned && self.returned != ExecutionValueEvidence::default();
-
-        if returned_changed {
-            self.returned = ExecutionValueEvidence::default();
-        }
-
         if self.anonymous_target != other.anonymous_target {
             self.anonymous_target = None;
         }
@@ -464,8 +514,13 @@ impl ExecutionCallEvidence {
         self.arguments
             .retain(|place, value| other.arguments.get(place) == Some(value));
 
+        self.copy_sources
+            .retain(|place, value| other.copy_sources.get(place) == Some(value));
+
+        self.witness_inputs
+            .retain(|owner| other.witness_inputs.contains(owner));
+
         addresses_changed
-            || returned_changed
             || before
                 != (
                     self.anonymous_target.is_some(),
@@ -474,6 +529,8 @@ impl ExecutionCallEvidence {
                     self.assumptions.len(),
                     self.trusted_assumptions.len(),
                     self.arguments.len(),
+                    self.copy_sources.len(),
+                    self.witness_inputs.len(),
                 )
     }
 

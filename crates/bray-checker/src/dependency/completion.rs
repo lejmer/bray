@@ -13,33 +13,25 @@ impl ValueInputs {
         unit: &BoundUnit,
         selections: &CheckedSemanticSelections,
     ) {
-        let mutable = unit
-            .tree()
-            .patterns()
-            .filter(|(_, pattern)| pattern.is_mutable())
-            .flat_map(|(_, pattern)| pattern.bindings().iter().copied())
-            .collect::<BTreeSet<_>>();
-
         for (expression, node) in unit.tree().expressions() {
             let BoundExpression::Await(awaited) = node else {
                 continue;
             };
 
-            if let Some(source) = self.lazy_source(awaited.operand(), unit, selections, &mutable) {
-                self.deferred_sources.insert(expression, source);
+            if let Some(sources) = self.lazy_sources(awaited.operand(), unit, selections) {
+                self.deferred_sources.insert(expression, sources);
                 self.expressions.insert(expression, Vec::new());
             }
         }
     }
 
-    /// Unknown or reassigned future values retain their complete captured contract.
-    fn lazy_source(
+    /// Unknown producers retain their complete captured contract.
+    fn lazy_sources(
         &self,
         value: BoundExpressionId,
         unit: &BoundUnit,
         selections: &CheckedSemanticSelections,
-        mutable: &BTreeSet<bray_symbols::LocalBindingSymbolId>,
-    ) -> Option<BoundExpressionId> {
+    ) -> Option<BTreeSet<BoundExpressionId>> {
         let mut pending = vec![value];
         let mut visited = BTreeSet::new();
         let mut sources = BTreeSet::new();
@@ -49,14 +41,19 @@ impl ValueInputs {
                 continue;
             }
 
-            if self.writes.values(value).next().is_some() {
-                return None;
-            }
+            let assigned = self
+                .writes
+                .values(value)
+                .map(|assigned| assigned.value)
+                .collect::<Vec<_>>();
 
-            if super::assignment::value_places(unit, selections, self, value).iter().any(|(root, _)| {
-                matches!(root, bray_bound_tree::BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) if mutable.contains(binding))
-            }) {
-                return None;
+            let has_assignment = !assigned.is_empty();
+
+            pending.extend(assigned);
+
+            if matches!(unit.view().expression(value), Some(BoundExpression::Structured(value)) if value.kind() == bray_bound_tree::BoundStructuredExpressionKind::Absence)
+            {
+                continue;
             }
 
             if let Some(SemanticSelection::Call(call)) = selections.expression(value) {
@@ -78,18 +75,13 @@ impl ValueInputs {
 
                 pending.extend(self.operands(value));
 
-                if pending.len() == previous {
+                if pending.len() == previous && !has_assignment {
                     return None;
                 }
             }
         }
 
-        (sources.len() == 1).then(|| {
-            sources
-                .into_iter()
-                .next()
-                .expect("one lazy producer was established")
-        })
+        (!sources.is_empty()).then_some(sources)
     }
 
     pub(crate) fn deferred_sources(
@@ -97,13 +89,13 @@ impl ValueInputs {
     ) -> impl Iterator<Item = (BoundExpressionId, BoundExpressionId)> {
         self.deferred_sources
             .iter()
-            .map(|(expression, source)| (*expression, *source))
+            .flat_map(|(expression, sources)| sources.iter().map(|source| (*expression, *source)))
     }
 
-    pub(super) fn completion_source(
+    pub(super) fn completion_sources(
         &self,
         expression: BoundExpressionId,
-    ) -> Option<BoundExpressionId> {
-        self.deferred_sources.get(&expression).copied()
+    ) -> Option<&BTreeSet<BoundExpressionId>> {
+        self.deferred_sources.get(&expression)
     }
 }

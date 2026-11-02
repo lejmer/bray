@@ -1,3 +1,4 @@
+mod deferred;
 mod inputs;
 mod invalidation;
 mod joins;

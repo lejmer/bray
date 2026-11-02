@@ -161,7 +161,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
         >,
-    ) {
+    ) -> ExecutionCondition {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
         let ordinary = crate::TrustedCallContract {
@@ -176,7 +176,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .unwrap_or(&ordinary);
 
         let Some(entry) = self.completed_entry(state, invocation, &result, contract) else {
-            return;
+            return result;
         };
 
         let capture = |condition: &ExecutionCondition| {
@@ -220,9 +220,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("completed invocation retains its captured entry");
 
         completed.assumptions = entry.assumptions;
-        completed.returned = Default::default();
-
-        self.begin_returned_ownership(state, invocation, &entry.arguments, &result, entry.returned);
+        state.resume_owned_witnesses(invocation);
+        self.guard_returned_inputs(state, invocation, &entry.arguments, &result);
+        self.retire_consumed_inputs(state, invocation, &entry.arguments, &result);
 
         let mut arguments = entry.arguments;
 
@@ -249,11 +249,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         } else {
             Default::default()
-        };
-
-        let result_expression = match result {
-            ExecutionCondition::Expression(expression) => Some(expression),
-            _ => None,
         };
 
         let result = self.complete_returned_values(invocation, state, result, &arguments);
@@ -386,20 +381,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             condition.assume(true, &mut state.assumptions);
         }
 
-        if matches!(
-            invocation,
-            bray_bound_tree::BoundExecutionSite::CallInput { .. }
-                | bray_bound_tree::BoundExecutionSite::Iterate(_)
-                | bray_bound_tree::BoundExecutionSite::Next(_)
-        ) {
-            let place = self
-                .input_place(invocation)
-                .expect("completed input has its place");
-
-            state.assign(place, result);
-        } else if let Some(expression) = result_expression {
-            state.expressions.insert(expression, result);
-        }
+        result
     }
     fn carry_result_guarantee(
         &self,
@@ -420,7 +402,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .entry(carrier.owner_identity().clone())
             .or_default();
 
-        witness.dependencies.extend(dependencies);
+        if !dependencies.is_subset(&witness.dependencies) {
+            std::sync::Arc::make_mut(witness)
+                .dependencies
+                .extend(dependencies);
+        }
 
         witness.carry(guarantee, owning, &addresses);
 

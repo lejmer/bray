@@ -226,12 +226,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return false;
         }
 
-        if let Some(source) = occurrence
-            .expression()
-            .and_then(|expression| self.awaited_invocation(state, expression))
-        {
-            return self.dependencies.calls().get(&source)
-                .is_some_and(bray_bound_tree::BoundCallDependencyContracts::deferred_preserves_storage_on_normal_return);
+        if let Some(expression) = occurrence.expression() {
+            if self.awaited_unknown(state, expression) {
+                return false;
+            }
+
+            let mut deferred = self.awaited_invocations(state, expression).peekable();
+
+            if deferred.peek().is_some() {
+                return deferred.all(|(source, _)| {
+                    self.dependencies.calls()[&source].deferred_preserves_storage_on_normal_return()
+                });
+            }
         }
 
         self.dependencies.calls().get(&occurrence).is_some_and(
@@ -348,17 +354,36 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owners: BTreeSet<_> = stable_values
             .iter()
             .flat_map(|path| {
-                self.storage_places(state, bray_bound_tree::StoragePath::root(path.root))
-            })
-            .filter_map(|place| place.value_in(&state.current))
-            .flat_map(|value| {
-                state.owned_values(&value)
+                let value =
+                    self.storage_path_value(state, &bray_bound_tree::StoragePath::root(path.root));
+
+                state
+                    .owned_values(&value)
                     .map(|value| value.owner_identity().clone())
                     .collect::<Vec<_>>()
             })
+            .filter(|value| *value != ExecutionCondition::Unknown)
             .collect();
 
-        state.invalidate_cleanup(&retained.values().cloned().collect(), &owners);
+        // Preserved storage includes expression temporaries and invocation inputs.
+        // Their observations need not have a local-variable entry.
+        let snapshots = stable_values
+            .iter()
+            .flat_map(|path| {
+                let value = self.storage_path_value(state, path);
+
+                state.owned_values(&value).collect::<Vec<_>>()
+            })
+            .filter(|value| {
+                !matches!(
+                    value,
+                    ExecutionCondition::Unknown | ExecutionCondition::Borrowed(_)
+                )
+            })
+            .flat_map(|value| [value.owner_identity().clone(), value])
+            .collect();
+
+        state.invalidate_cleanup(&snapshots, &owners);
 
         // A local observation starts at its checked binding, not at a preceding
         // opaque call. Keep existing local roots and all potentially external roots.

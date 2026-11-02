@@ -379,6 +379,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 guards,
             } = step
             else {
+                let Step::Opaque { ty, path } = step else {
+                    unreachable!("non-lifecycle step is opaque cleanup");
+                };
+
+                let disposed = (!matches!(
+                    self.request.semantic_values().type_data(*ty).as_ref(),
+                    bray_symbols::TypeData::Borrow { .. }
+                ))
+                .then(|| {
+                    path.as_ref()
+                        .map(|path| self.storage_path_value(state, path))
+                })
+                .flatten();
+
                 let mutation = StorageMutation::Cleanup {
                     occurrence,
                     access,
@@ -408,6 +422,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     mutate(state, mutation, effect);
                 } else {
                     self.apply_published_cleanup(state, mutation);
+                }
+
+                if let Some(disposed) = disposed {
+                    // Destruction ends captured ownership even when cleanup has no user storage effects.
+                    if let Some(place) = path
+                        .as_ref()
+                        .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
+                    {
+                        state.assign(place, crate::ExecutionCondition::Unknown);
+                    }
+
+                    let retained = std::iter::once(&state.result)
+                        .chain(state.current.values())
+                        .chain(state.pending_results.values())
+                        .flat_map(|value| state.owned_values(value))
+                        .collect();
+
+                    state.retire_trusted_values([disposed], &retained);
                 }
 
                 continue;
@@ -545,8 +577,9 @@ impl Lifecycle {
         // Entry assumptions must survive the mutations made by this lifecycle invocation.
         ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
             owned_inputs: Default::default(),
-            returned: Default::default(),
             addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),

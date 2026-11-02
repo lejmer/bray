@@ -10,7 +10,8 @@ use bray_bound_tree::{
 /// The operands whose values contribute to an expression's result, excluding evaluation inputs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ValueInputs {
-    pub(super) deferred_sources: BTreeMap<BoundExpressionId, BoundExpressionId>,
+    pub(super) deferred_sources:
+        BTreeMap<BoundExpressionId, std::collections::BTreeSet<BoundExpressionId>>,
     independent: std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) pattern_subjects:

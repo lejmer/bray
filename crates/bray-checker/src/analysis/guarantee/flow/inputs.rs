@@ -328,8 +328,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
                 _ => Default::default(),
             },
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
             owned_inputs: Default::default(),
-            returned: Default::default(),
             addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),

@@ -5,6 +5,32 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 #[test]
+fn nullable_extraction_keeps_the_payload_owner_across_snapshots() {
+    let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+
+    let payload = identity
+        .clone()
+        .component(ConstantProjectionKind::NullableValue);
+
+    let snapshot = ExecutionCondition::Constructed(
+        Arc::new(identity.clone()),
+        [(
+            bray_bound_tree::StorageProjection::NullableValue,
+            payload.clone(),
+        )]
+        .into(),
+    );
+
+    let extraction = ExecutionCondition::Projection(
+        ConstantProjectionKind::NullableValue,
+        Arc::new(snapshot.clone()),
+    );
+
+    assert_eq!(snapshot.owner_identity(), &identity);
+    assert_eq!(extraction.owner_identity(), payload.owner_identity());
+}
+
+#[test]
 fn changed_contents_do_not_reuse_unlisted_components_from_carrier_identity() {
     let identity = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
     let contents = ExecutionCondition::Result;

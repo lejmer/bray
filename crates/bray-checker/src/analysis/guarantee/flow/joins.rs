@@ -49,6 +49,24 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     let mut right = BTreeMap::new();
     let mut left_ids = BTreeMap::new();
     let mut right_ids = BTreeMap::new();
+    let mut stable_values = BTreeSet::new();
+    let mut stable_identities = BTreeSet::new();
+
+    for (place, value) in &target.current {
+        let Some(other) = place.value_in(&incoming.current) else {
+            continue;
+        };
+
+        if value.owner_identity() == other.owner_identity() {
+            stable_identities.insert(value.owner_identity().clone());
+        }
+
+        if value == &other {
+            stable_values.insert(value.clone());
+            stable_values.insert(value.clone().borrowed());
+            stable_identities.insert(value.clone());
+        }
+    }
 
     for (source, replacements, identities) in [
         (left_value, &mut left, &mut left_ids),
@@ -57,11 +75,22 @@ pub(in crate::analysis::guarantee) fn merge_returned(
         result_replacements(
             source,
             &joined,
-            &Default::default(),
-            &Default::default(),
+            &stable_values,
+            &stable_identities,
             replacements,
             identities,
         );
+    }
+
+    // Pin independently retained observations before renaming their containing owner.
+    for value in stable_values {
+        left.insert(value.clone(), value.clone());
+        right.insert(value.clone(), value);
+    }
+
+    for value in stable_identities {
+        left_ids.insert(value.clone(), value.clone());
+        right_ids.insert(value.clone(), value);
     }
 
     target
@@ -98,7 +127,7 @@ pub(in crate::analysis::guarantee) fn merge_returned(
 
     super::merge::merge(&mut completed, &Some(incoming), None);
     *target = completed.expect("reachable normal return retains a state");
-    target.pending_results.insert(expression, joined.clone());
+    target.pending_results.remove(&expression);
 
     if ownership.is_empty() {
         target.owned_results.remove(&joined);
@@ -282,6 +311,7 @@ pub(super) fn common_components(
 
             let result = result
                 .as_ref()
+                .or_else(|| (identity != ExecutionCondition::Unknown).then_some(&identity))
                 .map(|result| result.clone().project(projection));
 
             (
@@ -296,7 +326,7 @@ pub(super) fn common_components(
 
 /// Keep initialized components under the joined conditional payload identity.
 /// The inactive predecessor owns no payload.
-fn owned_snapshot(
+pub(super) fn owned_snapshot(
     source: &ExecutionCondition,
     identity: ExecutionCondition,
     budget: &mut usize,

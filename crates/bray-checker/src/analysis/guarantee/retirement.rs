@@ -50,22 +50,41 @@ impl ExecutionState {
             return;
         }
 
+        self.refine_deferred_witnesses();
+
         let mut dependents = BTreeMap::<ExecutionCondition, BTreeSet<ExecutionCondition>>::new();
 
         let mut input_dependents =
             BTreeMap::<crate::ExecutionPlace, BTreeSet<ExecutionCondition>>::new();
 
         // Index current dependencies once, then visit only carriers reached by the worklist.
-        for (carrier, witness) in self
-            .witnesses
-            .iter()
-            .chain(
-                self.entries
-                    .values()
-                    .flat_map(|entry| entry.returned.witnesses.iter()),
-            )
-            .filter(|_| !kind.is_write())
-        {
+        for (carrier, witness) in &self.witnesses {
+            // Captured inputs belong to a frame. Ordinary projection identities can
+            // survive extraction, so their former containing slot is not a lifetime owner.
+            for owner in carrier
+                .ownership_ancestors()
+                .filter_map(|value| match value {
+                    ExecutionCondition::CapturedInput { owner, .. } => Some(owner.owner_identity()),
+                    _ => None,
+                })
+            {
+                if let ExecutionCondition::Input(place) = owner {
+                    input_dependents
+                        .entry(place.clone())
+                        .or_default()
+                        .insert(carrier.clone());
+                } else {
+                    dependents
+                        .entry(owner.clone())
+                        .or_default()
+                        .insert(carrier.clone());
+                }
+            }
+
+            if kind.is_write() {
+                continue;
+            }
+
             for dependency in witness
                 .dependencies
                 .iter()
@@ -124,10 +143,6 @@ impl ExecutionState {
                 continue;
             }
 
-            if let Some((_, entry)) = self.deferred_owner(&value) {
-                pending.extend(entry.owned_inputs.iter().filter_map(|ordinal| crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)));
-            }
-
             pending.extend(value.owned_components().cloned());
 
             if value.owner_identity() != &value {
@@ -176,88 +191,113 @@ impl ExecutionState {
             matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
         };
 
+        // A surviving carrier keeps facts about immutable captured contents after
+        // their former container ends. Borrowed observations and physical bounds
+        // still expire; writes also invalidate affected by-value observations.
         let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
+
+        let revokes_guarantee = |condition: &ExecutionCondition| {
+            revokes(condition) && (kind.is_write() || condition.observes_borrowed_where(observes))
+        };
 
         self.assumptions
             .retain(|(condition, _)| !condition.observes_borrowed_where(observes));
 
         let mut retired_conditions = BTreeSet::new();
 
-        for witnesses in std::iter::once(&mut self.witnesses).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.witnesses),
-        ) {
-            witnesses.retain(|carrier, witness| {
-                let retired = invalidated_observations.contains(carrier)
-                    && !retained_observations.contains(carrier);
+        self.witnesses.retain(|carrier, witness| {
+            let retired = invalidated_observations.contains(carrier)
+                && !retained_observations.contains(carrier);
 
-                witness.conditions.retain(|condition, guarantee| {
-                    let address_expired = !kind.is_write()
-                        && guarantee.addresses.values().flatten().any(|owner| {
-                            owner.value_in(&self.current).is_some_and(|value| {
-                                value.observations().any(|observed| {
-                                    !matches!(
-                                        observed,
-                                        ExecutionCondition::Literal(_)
-                                            | ExecutionCondition::Boolean(_)
-                                            | ExecutionCondition::Variant(_)
-                                    ) && invalidated_observations.overlaps(observed)
-                                })
+            witness.retain_conditions(|condition, guarantee| {
+                let address_expired = !kind.is_write()
+                    && guarantee.addresses.values().flatten().any(|owner| {
+                        owner.value_in(&self.current).is_some_and(|value| {
+                            value.observations().any(|observed| {
+                                !matches!(
+                                    observed,
+                                    ExecutionCondition::Literal(_)
+                                        | ExecutionCondition::Boolean(_)
+                                        | ExecutionCondition::Variant(_)
+                                ) && invalidated_observations.overlaps(observed)
                             })
-                        });
+                        })
+                    });
 
-                    if (retired && (directly_changed.contains(carrier) || !stable(condition)))
-                        || revokes(condition)
-                        || address_expired
-                    {
-                        condition.clone().assume(true, &mut retired_conditions);
-
-                        false
-                    } else {
-                        true
-                    }
-                });
-
-                if !kind.is_write()
-                    && retired
-                    && witness.conditions.is_empty()
-                    && (stable_predicates.is_empty() || directly_changed.contains(carrier))
+                if (retired && (directly_changed.contains(carrier) || !stable(condition)))
+                    || revokes_guarantee(condition)
+                    || address_expired
                 {
-                    witness.dependencies.clear();
-                }
+                    condition.clone().assume(true, &mut retired_conditions);
 
-                !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+                    false
+                } else {
+                    true
+                }
             });
-        }
+
+            if !kind.is_write()
+                && retired
+                && witness.conditions.is_empty()
+                && (stable_predicates.is_empty() || directly_changed.contains(carrier))
+            {
+                if !witness.dependencies.is_empty() {
+                    std::sync::Arc::make_mut(witness).dependencies.clear();
+                }
+            }
+
+            !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+        });
 
         // Another live carrier may independently establish the same condition.
         self.exclude_live_witnesses(&mut retired_conditions);
 
         self.trusted_assumptions
-            .retain(|fact| !revokes(&fact.0) && !retired_conditions.contains(fact));
+            .retain(|fact| !revokes_guarantee(&fact.0) && !retired_conditions.contains(fact));
 
-        for allocations in std::iter::once(&mut self.allocation_owners).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.allocations),
-        ) {
-            allocations
-                .retain(|condition, owner| !observes(condition) && !invalidated.contains(owner));
+        self.allocation_owners.retain(|condition, owner| {
+            !revokes_guarantee(condition) && !invalidated.contains(owner)
+        });
+
+        self.retire_pending_conditions(&revokes, &retired_conditions);
+
+        for entries in self.deferred_invocations.values_mut() {
+            entries.retire_selection(observes);
         }
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
+        // A destroyed frame cannot participate in a later incarnation's ownership join.
+        // An active await retains its entry until its completion transition consumes it.
+        self.deferred_invocations.retain(|owner, value| {
+            !invalidated.contains(owner)
+                || value
+                    .producers
+                    .values()
+                    .any(|candidate| !candidate.entry.pending_execution)
+        });
+    }
+
+    fn retire_pending_conditions(
+        &mut self,
+        revokes: &impl Fn(&ExecutionCondition) -> bool,
+        retired: &BTreeSet<(ExecutionCondition, bool)>,
+    ) {
+        for entry in self.pending_entries_mut(&|entry| {
             entry
                 .assumptions
-                .retain(|fact| !revokes(&fact.0) && !retired_conditions.contains(fact));
+                .iter()
+                .chain(&entry.trusted_assumptions)
+                .any(|fact| revokes(&fact.0) || retired.contains(fact))
+                || entry.copy_sources.values().any(revokes)
+        }) {
+            entry.copy_sources.retain(|_, value| !revokes(value));
+
+            entry
+                .assumptions
+                .retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
 
             entry
                 .trusted_assumptions
-                .retain(|fact| !revokes(&fact.0) && !retired_conditions.contains(fact));
+                .retain(|fact| !revokes(&fact.0) && !retired.contains(fact));
         }
     }
 
@@ -297,33 +337,25 @@ impl ExecutionState {
         self.trusted_assumptions
             .retain(|(condition, _)| !revokes(condition));
 
-        for witnesses in std::iter::once(&mut self.witnesses).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.witnesses),
-        ) {
-            witnesses.retain(|_, witness| {
-                witness
-                    .conditions
-                    .retain(|condition, _| !revokes(condition));
+        self.witnesses.retain(|_, witness| {
+            witness.retain_conditions(|condition, _| !revokes(condition));
 
-                !witness.conditions.is_empty() || !witness.dependencies.is_empty()
-            });
-        }
+            !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+        });
 
-        for allocations in std::iter::once(&mut self.allocation_owners).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.allocations),
-        ) {
-            allocations.retain(|condition, _| !revokes(condition));
-        }
+        self.allocation_owners
+            .retain(|condition, _| !revokes(condition));
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
+        for entry in self.pending_entries_mut(&|entry| {
+            entry
+                .assumptions
+                .iter()
+                .any(|(condition, _)| revokes_observation(condition))
+                || entry
+                    .trusted_assumptions
+                    .iter()
+                    .any(|(condition, _)| revokes(condition))
+        }) {
             entry
                 .assumptions
                 .retain(|(condition, _)| !revokes_observation(condition));
@@ -359,8 +391,11 @@ impl ExecutionState {
         );
     }
 
-    pub(super) fn exclude_live_witnesses(&self, retired: &mut BTreeSet<(ExecutionCondition, bool)>) {
-        for witness in self.witnesses.values() {
+    pub(super) fn exclude_live_witnesses(
+        &self,
+        retired: &mut BTreeSet<(ExecutionCondition, bool)>,
+    ) {
+        for witness in self.witnesses.values().filter(|witness| witness.available) {
             for condition in witness.conditions.keys() {
                 condition
                     .clone()
@@ -377,49 +412,40 @@ impl ExecutionState {
     ) {
         let mut retired = BTreeSet::new();
 
-        for witnesses in std::iter::once(&mut self.witnesses).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.witnesses),
-        ) {
-            witnesses.retain(|_, witness| {
-                witness.conditions.retain(|condition, guarantee| {
-                    if guarantee
-                        .addresses
-                        .values()
-                        .flatten()
-                        .any(|owner| roots.contains(&owner.root))
-                    {
-                        condition.clone().assume(true, &mut retired);
+        self.witnesses.retain(|_, witness| {
+            witness.retain_conditions(|condition, guarantee| {
+                if guarantee
+                    .addresses
+                    .values()
+                    .flatten()
+                    .any(|owner| roots.contains(&owner.root))
+                {
+                    condition.clone().assume(true, &mut retired);
 
-                        false
-                    } else {
-                        true
-                    }
-                });
-
-                !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+                    false
+                } else {
+                    true
+                }
             });
-        }
+
+            !witness.conditions.is_empty() || !witness.dependencies.is_empty()
+        });
 
         self.exclude_live_witnesses(&mut retired);
 
         self.trusted_assumptions
             .retain(|fact| !retired.contains(fact));
 
-        for allocations in std::iter::once(&mut self.allocation_owners).chain(
-            self.entries
-                .values_mut()
-                .map(|entry| &mut entry.returned.allocations),
-        ) {
-            allocations.retain(|condition, _| !retired.contains(&(condition.clone(), true)));
-        }
+        self.allocation_owners
+            .retain(|condition, _| !retired.contains(&(condition.clone(), true)));
 
-        for entry in self
-            .entries
-            .values_mut()
-            .filter(|entry| entry.pending_execution)
-        {
+        for entry in self.pending_entries_mut(&|entry| {
+            entry
+                .assumptions
+                .iter()
+                .chain(&entry.trusted_assumptions)
+                .any(|fact| retired.contains(fact))
+        }) {
             entry.assumptions.retain(|fact| !retired.contains(fact));
 
             entry
@@ -441,11 +467,6 @@ impl ExecutionState {
         let dependent = self
             .witnesses
             .iter()
-            .chain(
-                self.entries
-                    .values()
-                    .flat_map(|entry| entry.returned.witnesses.iter()),
-            )
             .filter(|(_, witness)| {
                 witness
                     .dependencies

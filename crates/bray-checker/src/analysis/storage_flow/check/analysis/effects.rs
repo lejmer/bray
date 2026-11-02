@@ -39,8 +39,44 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(bray_bound_tree::BoundExpression::Await(_))
             )
         {
-            let source = self.execution.awaited_invocation(execution, expression);
-            let effects = source.and_then(|source| state.memory.deferred_effects(source));
+            let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+                self.request.view().expression(expression)
+            else {
+                unreachable!("await attempt retains its checked operand");
+            };
+
+            let source = self.expression_reference(state, awaited.operand())?;
+
+            let producers = self
+                .execution
+                .awaited_invocations(execution, expression)
+                .map(|(source, _)| source)
+                .collect::<std::collections::BTreeSet<_>>();
+
+            if self.execution.awaited_unknown(execution, expression) {
+                state.memory.begin_transition(invocation);
+
+                return None;
+            }
+
+            let effects = state.memory.deferred_effects(&source, &producers);
+
+            let result = self
+                .expression_result_storage(expression)
+                .expect("await retains its checked result storage");
+
+            state.memory.prepare_deferred_completion(
+                invocation,
+                &source,
+                result,
+                producers.iter().map(|producer| {
+                    (
+                        *producer,
+                        self.invocation_result(*producer)
+                            .expect("formed producer retains its result storage"),
+                    )
+                }),
+            );
 
             return effects;
         }
@@ -67,12 +103,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .extend(contracts.synchronous_cleanup().iter().cloned());
         }
 
-        let mut task_effects = task_effects(
-            &state.memory,
-            invocation
-                .expression()
-                .and_then(|expression| self.execution.task_effect_source(execution, expression)),
-        );
+        let task_sources = invocation
+            .expression()
+            .and_then(|expression| self.execution.task_invocations(execution, expression));
+
+        let mut task_effects = task_sources.as_ref().and_then(|sources| {
+            task_effects(
+                &state.memory,
+                self.invocation_reference(state, invocation, DependencySubjectRoot::Receiver)
+                    .as_ref(),
+                sources,
+            )
+        });
 
         if let Some(effects) = contracts.deferred_effects() {
             let effects = task_effects
@@ -442,7 +484,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } => (reference, true, projections.as_ref(), *kind),
             };
 
-            let Some(suffix) = storage_projections(self.request.semantic_values(), self.dependencies, projections) else {
+            let Some(suffix) = storage_projections(
+                self.request.semantic_values(),
+                self.dependencies,
+                projections,
+            ) else {
                 resolved.push(if kind == DependencyMutationKind::Escape {
                     Effect::Escape
                 } else {
@@ -643,8 +689,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         });
 
-        if matches!(identity, StorageIdentity::Parameter(_) | StorageIdentity::Receiver(_) | StorageIdentity::AnonymousParameter(_) | StorageIdentity::ContractParameter(_))
-            && identity.is_invocation_owned(self.storage.kind())
+        if matches!(
+            identity,
+            StorageIdentity::Parameter(_)
+                | StorageIdentity::Receiver(_)
+                | StorageIdentity::AnonymousParameter(_)
+                | StorageIdentity::ContractParameter(_)
+        ) && identity.is_invocation_owned(self.storage.kind())
             && !borrowed
             && (kind != DependencyMutationKind::Escape
                 || self.input.has_complete_references(self.storage, path))
@@ -700,9 +751,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
 pub(super) fn task_effects(
     memory: &crate::analysis::storage_flow::memory::State,
-    source: Option<bray_bound_tree::BoundExecutionSite>,
+    source: Option<&crate::analysis::storage_flow::memory::Source>,
+    sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
 ) -> Option<Vec<Effect>> {
-    let mut effects = memory.deferred_effects(source?)?;
+    let mut effects = memory.deferred_effects(source?, sources)?;
 
     // Scheduling and resolution can affect external runtime state even when
     // the captured computation has no user storage mutations.

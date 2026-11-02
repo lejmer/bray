@@ -336,15 +336,12 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn owned_normal_completion(
         &self,
-        state: &ExecutionState,
+        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
         invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
     ) -> bool {
         let Some(contract) = self.dependencies.calls().get(&invocation) else {
-            return true;
-        };
-
-        let Some(entry) = state.entries.get(&invocation) else {
             return true;
         };
 
@@ -366,7 +363,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        feasible_layout(contract.owned_result(), &state.assumptions, &instantiate)
+        feasible_layout(contract.owned_result(), assumptions, &instantiate)
     }
 }
 

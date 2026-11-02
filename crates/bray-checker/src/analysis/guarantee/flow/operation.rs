@@ -122,7 +122,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 AnalysisCallPhase::Attempt => {
                     let source = invocation
                         .expression()
-                        .and_then(|expression| self.task_effect_source(state, expression));
+                        .and_then(|expression| self.started_future(state, expression));
 
                     let observed = match invocation {
                         Site::Node(AnyBoundNodeId::Expression(expression)) => {
@@ -151,9 +151,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             if let Some(source) = source
                                 && value != ExecutionCondition::Unknown
                             {
-                                // Both completion publication and latent effects retain
-                                // this immutable condition and its shared substructure.
-                                state.deferred_invocations.insert(value.clone(), source);
+                                state.join_values(
+                                    &Default::default(),
+                                    &[(
+                                        source.owner_identity().clone(),
+                                        value.owner_identity().clone(),
+                                    )]
+                                    .into(),
+                                );
                             }
 
                             state.pending_results.insert(expression, value);
@@ -193,23 +198,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let awaited = operation
-            .occurrence()
-            .expression()
-            .filter(|_| {
-                matches!(
-                    operation,
-                    crate::analysis::model::AnalysisOperationKind::Suspension {
-                        kind: crate::analysis::model::AnalysisSuspensionKind::Await,
-                        ..
-                    }
-                )
-            })
-            .and_then(|expression| self.awaited_invocation(state, expression));
+        let awaited = operation.occurrence().expression().filter(|_| {
+            matches!(
+                operation,
+                crate::analysis::model::AnalysisOperationKind::Suspension {
+                    kind: crate::analysis::model::AnalysisSuspensionKind::Await,
+                    ..
+                }
+            )
+        });
 
-        if let Some(entry) = awaited.and_then(|source| state.entries.get_mut(&source)) {
-            // Execution owns this entry evidence now. Its own effects must not erase it.
-            entry.pending_execution = false;
+        if let Some(expression) = awaited {
+            self.set_awaited_execution(state, expression, false);
         }
 
         match operation.node() {
@@ -237,7 +237,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         state.pending_results.insert(expression, observed);
                     }
 
-                    let source = self.task_effect_source(state, expression);
+                    let source = self.started_future(state, expression);
 
                     self.expression(state, expression, invalidation, assignment_place);
 
@@ -245,7 +245,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         let value = self.value(state, expression);
 
                         if value != ExecutionCondition::Unknown {
-                            state.deferred_invocations.insert(value, source);
+                            state.join_values(
+                                &Default::default(),
+                                &[(
+                                    source.owner_identity().clone(),
+                                    value.owner_identity().clone(),
+                                )]
+                                .into(),
+                            );
                         }
                     }
                 }
@@ -274,9 +281,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             _ => {}
         }
 
-        if let Some(entry) = awaited.and_then(|source| state.entries.get_mut(&source)) {
-            // Keep the captured invocation until its normal or abnormal continuation.
-            entry.pending_execution = true;
+        if let Some(expression) = awaited {
+            self.set_awaited_execution(state, expression, true);
         }
     }
     pub(super) fn retain_successor_values(
@@ -325,11 +331,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let Some(crate::analysis::model::AnalysisRefinement::InvocationFailure(invocation)) =
             edge.refinement()
         {
-            if let Some(source) = invocation
-                .expression()
-                .and_then(|expression| self.awaited_invocation(state, expression))
+            if let Some(expression) = invocation.expression()
+                && let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+                    self.request.view().expression(expression)
             {
-                state.entries.remove(&source);
+                let value = self.value(state, awaited.operand());
+
+                state.deferred_invocations.remove(value.owner_identity());
             }
 
             state.entries.remove(&invocation);
@@ -418,7 +426,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let invocation = operation.occurrence();
             let result = self.invocation_value(state, invocation);
 
-            self.complete_trusted_call(state, invocation, result, observations.borrow_origins());
+            let result = self.complete_trusted_call(
+                state,
+                invocation,
+                result,
+                observations.borrow_origins(),
+            );
+
+            state.assign(
+                self.input_place(invocation)
+                    .expect("completed input retains its place"),
+                result,
+            );
+
             return;
         }
 
@@ -456,7 +476,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.assign(place, result.clone());
             }
 
-            self.complete_trusted_call(state, invocation, result, observations.borrow_origins());
+            let result = self.complete_trusted_call(
+                state,
+                invocation,
+                result,
+                observations.borrow_origins(),
+            );
+
+            if matches!(
+                invocation,
+                bray_bound_tree::BoundExecutionSite::Iterate(_)
+                    | bray_bound_tree::BoundExecutionSite::Next(_)
+            ) {
+                state.assign(
+                    self.input_place(invocation)
+                        .expect("completed protocol invocation retains its result slot"),
+                    result,
+                );
+            }
 
             if let bray_bound_tree::BoundExecutionSite::ScopedExit(expression) = invocation {
                 state.invalidate_trusted(&ExecutionCondition::ScopedCapability(expression));
@@ -465,21 +502,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if let Some(source) = self.awaited_invocation(state, expression) {
-            if let Some(entry) = state.entries.get_mut(&source) {
-                entry.pending_execution = false;
-            }
-
-            self.complete_trusted_call(
-                state,
-                source,
-                ExecutionCondition::Expression(expression),
-                observations.borrow_origins(),
-            );
-        } else {
+        if !self.complete_deferred(state, expression, observations.borrow_origins()) {
             self.complete_call(state, expression, observations.borrow_origins());
+            self.capture_deferred(state, expression.into(), &self.value(state, expression));
         }
 
+        self.remember_deferred_value(state, expression);
+        self.activate_task(state, expression);
         self.complete_memory_write(state, expression);
         self.preserve_integer_value(state, expression);
     }

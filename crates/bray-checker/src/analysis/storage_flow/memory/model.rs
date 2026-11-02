@@ -243,6 +243,9 @@ pub(super) struct Transfer {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) payloads: BTreeMap<Target, Contents>,
     pub(super) failure_effects: Option<std::sync::Arc<CapturedEffects>>,
+    pub(super) deferred_effects: Option<BTreeSet<Effect>>,
+    pub(super) deferred: super::references::DeferredTransitions,
+    pub(super) returned_inputs: BTreeMap<Place, References>,
 }
 
 impl Transfer {
@@ -250,6 +253,28 @@ impl Transfer {
         let changed = merge_references(&mut self.values, &incoming.values, |_| false, |_| false);
 
         let mut changed = merge_contents(&mut self.payloads, &incoming.payloads) || changed;
+
+        changed |= super::references::merge_deferred(&mut self.deferred, &incoming.deferred);
+
+        for (reference, bounds) in &incoming.returned_inputs {
+            changed |= self
+                .returned_inputs
+                .entry(reference.clone())
+                .or_default()
+                .merge(bounds);
+        }
+
+        if let Some(effects) = &mut self.deferred_effects {
+            if let Some(incoming) = &incoming.deferred_effects {
+                let before = effects.len();
+
+                effects.extend(incoming.iter().cloned());
+                changed |= before != effects.len();
+            } else {
+                self.deferred_effects = None;
+                changed = true;
+            }
+        }
 
         if let Some(incoming) = &incoming.failure_effects {
             if let Some(current) = &mut self.failure_effects {
@@ -282,7 +307,7 @@ pub(in crate::analysis::storage_flow) struct State {
     pub(super) values: BTreeMap<Target, References>,
     pub(super) borrows: BTreeMap<BorrowCapabilityId, References>,
     pub(super) pending: BTreeMap<BoundExecutionSite, Transfer>,
-    pub(super) deferred_effects: BTreeMap<BoundExecutionSite, Option<BTreeSet<Effect>>>,
+    pub(super) deferred: super::references::DeferredTransitions,
     pub(super) contents: BTreeMap<Target, Contents>,
     // Consumed inline values remain available to the current operation's value transfers.
     // Proof queries read physical contents only. This snapshot never crosses an operation edge.
@@ -342,31 +367,7 @@ impl State {
             }
         }
 
-        for (call, effects) in &mut self.deferred_effects {
-            match (
-                effects.as_mut(),
-                incoming.deferred_effects.get(call).and_then(Option::as_ref),
-            ) {
-                (Some(effects), Some(incoming)) => {
-                    let before = effects.len();
-
-                    effects.extend(incoming.iter().cloned());
-                    changed |= effects.len() != before;
-                }
-                (Some(_), None) => {
-                    *effects = None;
-                    changed = true;
-                }
-                _ => {}
-            }
-        }
-
-        for call in incoming.deferred_effects.keys() {
-            if !self.deferred_effects.contains_key(call) {
-                self.deferred_effects.insert(*call, None);
-                changed = true;
-            }
-        }
+        changed |= super::references::merge_deferred(&mut self.deferred, &incoming.deferred);
 
         changed |= merge_contents(&mut self.contents, &incoming.contents);
 

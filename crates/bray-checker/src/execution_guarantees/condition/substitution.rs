@@ -39,10 +39,11 @@ impl ExecutionCondition {
                     prefix.projections = place.projections[..length].into();
 
                     if let Some(value) = snapshots.get(&Self::Input(prefix)) {
-                        return Some(place.projections[length..].iter().fold(
-                            value.clone(),
-                            |value, field| value.component(*field),
-                        ));
+                        return Some(
+                            place.projections[length..]
+                                .iter()
+                                .fold(value.clone(), |value, field| value.component(*field)),
+                        );
                     }
                 }
 
@@ -106,6 +107,15 @@ impl ExecutionCondition {
             Self::Projection(field, value) => {
                 value.substitute_values(replace, budget).component(*field)
             }
+            Self::CapturedInput {
+                owner,
+                invocation,
+                ordinal,
+            } => Self::CapturedInput {
+                owner: Arc::new(owner.substitute_values(replace, budget)),
+                invocation: *invocation,
+                ordinal: *ordinal,
+            },
             Self::Constructed(base, fields) => Self::Constructed(
                 Arc::new(base.substitute_values(replace, budget)),
                 fields
@@ -246,6 +256,10 @@ fn resolve_equality(
     let mut value = value.clone();
 
     while let Some(replacement) = replacements.get(&value) {
+        if replacement == &value {
+            break;
+        }
+
         let Some(next) = budget.checked_sub(1) else {
             return ExecutionCondition::Unknown;
         };
@@ -263,6 +277,11 @@ fn rewrite_equalities(
     identities: Option<&BTreeMap<ExecutionCondition, ExecutionCondition>>,
     budget: &mut usize,
 ) -> ExecutionCondition {
+    // An unchanged complete observation shields its components from ancestor renaming.
+    if replacements.get(value) == Some(value) {
+        return value.clone();
+    }
+
     let Some(next) = budget.checked_sub(1) else {
         return ExecutionCondition::Unknown;
     };
@@ -355,6 +374,20 @@ fn rewrite_equalities(
         ExecutionCondition::Projection(field, base) => {
             rewrite_equalities(&base, replacements, identities, budget).component(field)
         }
+        ExecutionCondition::CapturedInput {
+            owner,
+            invocation,
+            ordinal,
+        } if let Some(identities) = identities => ExecutionCondition::CapturedInput {
+            owner: Arc::new(rewrite_equalities(
+                &owner,
+                identities,
+                Some(identities),
+                budget,
+            )),
+            invocation,
+            ordinal,
+        },
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
             Arc::new(rewrite_equalities(&base, replacements, identities, budget)),
             fields

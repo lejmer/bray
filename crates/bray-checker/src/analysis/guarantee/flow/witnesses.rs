@@ -53,22 +53,52 @@ pub(super) fn conditional_guarantees(
         }
     }
 
+    let ordinary = [left, right].map(|(state, values, identities)| {
+        state
+            .assumptions
+            .iter()
+            .filter(|(condition, _)| {
+                !condition.contains_trusted() && !condition.observes_borrowed(None)
+            })
+            .map(|(condition, holds)| (condition.with_joined_values(values, identities), *holds))
+            .collect::<BTreeSet<_>>()
+    });
+
+    // Immutable branch selectors can qualify a moved carrier even when the selector
+    // is stored outside it. Each proposed clause still needs both predecessor proofs.
+    let path_guards = ordinary[0]
+        .iter()
+        .filter(|(condition, holds)| ordinary[1].contains(&(condition.clone(), !holds)))
+        .flat_map(|(condition, _)| {
+            [
+                condition.clone(),
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![condition.clone()]),
+            ]
+        })
+        .collect::<BTreeSet<_>>();
+
     let candidates = [left, right]
         .into_iter()
         .flat_map(|(state, values, identities)| {
-            state.witnesses.iter().flat_map(move |(owner, witness)| {
-                witness.conditions.keys().filter_map(move |condition| {
-                    (condition.prove_mixed(&state.trusted_assumptions, &state.assumptions, &mut {
-                        ExecutionCondition::WORK_LIMIT
-                    }) == Some(true))
-                    .then(|| {
-                        (
-                            owner.with_joined_values(identities, identities),
-                            condition.with_joined_values(values, identities),
-                        )
+            state
+                .witnesses
+                .iter()
+                .filter(|(_, witness)| witness.available)
+                .flat_map(move |(owner, witness)| {
+                    witness.conditions.keys().filter_map(move |condition| {
+                        (condition.prove_mixed(
+                            &state.trusted_assumptions,
+                            &state.assumptions,
+                            &mut { ExecutionCondition::WORK_LIMIT },
+                        ) == Some(true))
+                        .then(|| {
+                            (
+                                owner.with_joined_values(identities, identities),
+                                condition.with_joined_values(values, identities),
+                            )
+                        })
                     })
                 })
-            })
         })
         .collect::<BTreeSet<_>>();
 
@@ -114,11 +144,14 @@ pub(super) fn conditional_guarantees(
             continue;
         }
 
-        for (parent, guard) in &guards {
-            if !owner.is_owned_projection_of(parent) && !parent.is_owned_projection_of(&owner) {
-                continue;
-            }
-
+        for guard in guards
+            .iter()
+            .filter(|(parent, _)| {
+                owner.is_owned_projection_of(parent) || parent.is_owned_projection_of(&owner)
+            })
+            .map(|(_, guard)| guard)
+            .chain(&path_guards)
+        {
             let clause = ExecutionCondition::operation(
                 BoundOperator::LogicalOr,
                 vec![
@@ -178,7 +211,12 @@ pub(super) fn retain_conditional_guarantees(
         for state in [&mut *left, &mut *right] {
             let witness = state.witnesses.entry(owner.clone()).or_default();
 
-            witness.dependencies.extend(dependencies.iter().cloned());
+            if !dependencies.is_subset(&witness.dependencies) {
+                std::sync::Arc::make_mut(witness)
+                    .dependencies
+                    .extend(dependencies.iter().cloned());
+            }
+
             witness.carry(condition, guarantee.witness, &guarantee.addresses);
 
             condition
@@ -194,15 +232,16 @@ fn owned_witnesses<'a>(
 ) -> impl Iterator<
     Item = (
         &'a ExecutionCondition,
-        &'a crate::execution_guarantees::ExecutionWitness,
+        &'a std::sync::Arc<crate::execution_guarantees::ExecutionWitness>,
     ),
 > {
     let owned = state.owned_values(source).collect::<Vec<_>>();
 
-    state.witnesses.iter().filter(move |(carrier, _)| {
-        owned
-            .iter()
-            .any(|value| carrier.is_owned_projection_of(value))
+    state.witnesses.iter().filter(move |(carrier, witness)| {
+        witness.available
+            && owned
+                .iter()
+                .any(|value| carrier.is_owned_projection_of(value))
     })
 }
 

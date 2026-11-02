@@ -369,32 +369,37 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
 
         let reports = self
             .execution
-            .awaited_invocation(execution, expression)
-            .and_then(|source| self.dependencies.calls().get(&source))
-            .map(|call| {
-                call.deferred_reports()
+            .awaited_invocations(execution, expression)
+            .map(|(source, _)| {
+                self.dependencies.calls()[&source]
+                    .deferred_reports()
                     .expect("lazy call has its checked deferred outputs")
-            });
+            })
+            .collect::<Vec<_>>();
 
-        for (output, known) in [
-            (
-                CallReportOutput::Completed,
-                reports.map(|reports| reports.completed()),
-            ),
-            (
-                CallReportOutput::Abnormal,
-                reports.map(|reports| reports.abnormal()),
-            ),
-        ] {
-            if known == Some(None) {
+        let unknown = self.execution.awaited_unknown(execution, expression);
+
+        for output in [CallReportOutput::Completed, CallReportOutput::Abnormal] {
+            let known = reports
+                .iter()
+                .map(|reports| match output {
+                    CallReportOutput::Completed => reports.completed(),
+                    CallReportOutput::Abnormal => reports.abnormal(),
+                    _ => unreachable!("await publishes only completion and abnormal reports"),
+                })
+                .collect::<Vec<_>>();
+
+            if !unknown && !known.is_empty() && known.iter().all(Option::is_none) {
                 continue;
             }
 
             // Frame identity and entry snapshots travel with the consumed value. Several
             // frames may originate at one factory site, so that site cannot own this snapshot.
-            let requirements = if known.is_some_and(|contract| {
-                contract.is_some_and(|contract| contract.requirements().is_empty())
-            }) {
+            let requirements = if !unknown
+                && !known.is_empty()
+                && known.iter().all(|contract| {
+                    contract.is_some_and(|contract| contract.requirements().is_empty())
+                }) {
                 BTreeSet::new()
             } else {
                 state
