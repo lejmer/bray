@@ -321,8 +321,7 @@ fn collect_observations(
     }
 
     // A snapshot supplies predecessor contents. Paths identify the joined owner.
-    let joined = joined.owner_identity();
-    let owner = joined.clone();
+    let owner = joined.owner_identity().clone();
 
     if source.owner_identity() != &owner
         && !matches!(
