@@ -2,7 +2,7 @@ Bray is what happens when a stubborn donkey becomes a programming language: when
 
 ---
 
-This repository contains its compiler, standard library, and language specification.
+This repository contains the Bray compiler, standard library, and language specification.
 
 ## Documentation
 
