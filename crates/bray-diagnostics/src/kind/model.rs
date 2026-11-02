@@ -429,6 +429,8 @@ define_diagnostic_kinds! {
     CheckingInvalidLayoutDirective,
     /// A declared implicit-copy contract is not satisfied by the represented type.
     CheckingInvalidCopyContract,
+    /// A repeated-array element has no implicit-copy contract.
+    CheckingRepeatedArrayElementNotCopyable,
     /// A union tag contract is incomplete, duplicated, or otherwise invalid.
     CheckingInvalidUnionTag,
     /// Flow-sensitive semantic analysis exceeded its deterministic capacity.
@@ -902,6 +904,7 @@ impl DiagnosticKind {
             Self::CheckingCleanupRecursionLimitExceeded => 7132,
             Self::CheckingInvalidLayoutDirective => 7030,
             Self::CheckingInvalidCopyContract => 7031,
+            Self::CheckingRepeatedArrayElementNotCopyable => 7134,
             Self::CheckingInvalidUnionTag => 7032,
             Self::CheckingRefinementCapacityExceeded => 7033,
             Self::CheckingUseOfMovedStorage => 7035,
@@ -1335,6 +1338,7 @@ impl DiagnosticKind {
             }
             Self::CheckingInvalidLayoutDirective => "checking_invalid_layout_directive",
             Self::CheckingInvalidCopyContract => "checking_invalid_copy_contract",
+            Self::CheckingRepeatedArrayElementNotCopyable => "checking_repeated_array_element_not_copyable",
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
             Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",

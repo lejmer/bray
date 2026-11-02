@@ -126,6 +126,7 @@ impl MutationConversion = MutationSource(ConvertTo<MutationTarget>)
     }
 }
 
+@copy
 struct Doomed
 {
 }

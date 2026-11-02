@@ -695,3 +695,41 @@ fn nullable_payload<'mir>(
         _ => panic!("slice bound must be a present or absent nullable: {operand:#?}"),
     }
 }
+
+#[test]
+fn repeated_arrays_evaluate_the_element_once_even_when_empty() {
+    for count in [0, 1, 3] {
+        let source = format!(
+            r#"
+            module app;
+            struct Counter {{ mut count: i32; }}
+            func seed(pos counter: &mut Counter) -> i32 {{
+                counter.count += 1;
+                return counter.count;
+            }}
+            func main() -> i32 {{
+                let mut counter: Counter = Counter {{ count = 0 }};
+                let items: [i32; {count}] = [seed(&mut counter); {count}];
+                return counter.count;
+            }}
+            "#
+        );
+
+        let compilation = compilation(&source);
+
+        let result = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .expect("copy-based repetition must lower");
+
+        let mir = lowered_mir(&result);
+
+        assert_eq!(mir.operations().iter().filter(|operation| matches!(
+            operation.kind(), MirOperationKind::Call(_)
+        )).count(), 1, "the effectful element is evaluated once for extent {count}");
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(), MirOperationKind::Aggregate(aggregate)
+                if aggregate.kind() == MirAggregateKind::RepeatedArray
+        )));
+    }
+}

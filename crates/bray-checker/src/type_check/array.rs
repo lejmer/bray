@@ -5,7 +5,7 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticType, SeverityKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticType, SeverityKind,
 };
 use bray_symbols::{
     ConstantTermData, ConstantTermId, IntegerConstant, TargetSizedIntegerType, TypeData, TypeId,
@@ -14,9 +14,62 @@ use bray_symbols::{
 use crate::constant::{integer_to_usize, normalize_integer_literal};
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::{representation_type, type_representation};
-use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::diagnostic_type;
+
+pub(super) fn check_repeated_array_copyability<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+    ty: TypeId,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let data = request.semantic_values().type_data(ty);
+
+    let TypeData::Array { element, .. } = data.as_ref() else {
+        // A non-returning operand leaves no array value to initialize.
+        return Ok(());
+    };
+
+    let result = match crate::storage::type_is_copyable(request, *element) {
+        CheckerOutcome::Complete(result) => result,
+        CheckerOutcome::Cancelled => return Err(CheckerQueryError::Cancelled),
+        CheckerOutcome::UpstreamFailure(error) => return Err(CheckerQueryError::Upstream(error)),
+    };
+
+    let (copyable, owned) = result.into_parts();
+
+    diagnostics.extend(owned);
+
+    if copyable {
+        return Ok(());
+    }
+
+    let span = expression_span(request, expression);
+    let actual = diagnostic_type(request, *element)?;
+
+    diagnostics.push(
+        Diagnostic::new(
+            diagnostic_id(diagnostics.len()),
+            DiagnosticKind::CheckingRepeatedArrayElementNotCopyable,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::RepeatedArrayElement,
+            span,
+        ))
+        .with_arg(DiagnosticArg::actual_type(actual))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ConstructArrayElementsIndividually,
+        )),
+    );
+
+    Ok(())
+}
 
 pub(super) fn array_length<C>(request: CheckerUnitView<'_, C>, length: usize) -> ConstantTermId
 where

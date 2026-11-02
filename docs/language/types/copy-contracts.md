@@ -28,6 +28,10 @@ Copyability participates in static constraints through the compiler-known contra
 
 Source code does not manually implement `Copyable`.
 
+[Repeated-element array expressions](../expressions/array-expressions.md#repeated-element-array-expressions) require an
+element type with a copy contract for every extent, including zero and one. Repetition does not define a separate
+user-defined duplication contract.
+
 A user-declared product or union type opts into compiler-derived copy behavior with the `@copy` directive:
 
 ```bray
