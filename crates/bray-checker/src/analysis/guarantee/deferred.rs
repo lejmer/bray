@@ -22,7 +22,7 @@ pub(super) fn selection(facts: &Selection) -> Selection {
     facts
         .iter()
         .filter(|(condition, _)| {
-            !condition.contains_trusted() && !condition.observes_borrowed(None)
+            !condition.contains_trusted() && !condition.observes_live(None)
         })
         .cloned()
         .collect()

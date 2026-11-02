@@ -197,11 +197,11 @@ impl ExecutionState {
         let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
 
         let revokes_guarantee = |condition: &ExecutionCondition| {
-            revokes(condition) && (kind.is_write() || condition.observes_borrowed_where(observes))
+            revokes(condition) && (kind.is_write() || condition.observes_live_where(observes))
         };
 
         self.assumptions
-            .retain(|(condition, _)| !condition.observes_borrowed_where(observes));
+            .retain(|(condition, _)| !condition.observes_live_where(observes));
 
         let mut retired_conditions = BTreeSet::new();
 
@@ -373,7 +373,7 @@ impl ExecutionState {
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     ) {
         self.assumptions.retain(|(condition, _)| {
-            !condition.observes_borrowed_where(|value| {
+            !condition.observes_live_where(|value| {
                 value.observations().any(|observed| {
                     matches!(observed,
                 ExecutionCondition::Input(place) if place.overlaps_any(places))
@@ -458,7 +458,7 @@ impl ExecutionState {
         &mut self,
         roots: &BTreeSet<crate::execution_guarantees::ExecutionInput>,
     ) {
-        self.assumptions.retain(|(condition, _)| !condition.observes_borrowed_where(|value| {
+        self.assumptions.retain(|(condition, _)| !condition.observes_live_where(|value| {
             value.observations().any(|observed| matches!(observed, ExecutionCondition::Input(place) if roots.contains(&place.root)))
         }));
 

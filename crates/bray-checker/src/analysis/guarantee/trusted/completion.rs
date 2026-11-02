@@ -466,7 +466,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // capability or a claim about mutable borrowed storage after the call.
             if domain == bray_symbols::PredicateDomain::Value
                 && condition != ExecutionCondition::Unknown
-                && !condition.observes_borrowed(None)
+                && !condition.observes_live(None)
             {
                 condition.assume(true, &mut state.assumptions);
             }

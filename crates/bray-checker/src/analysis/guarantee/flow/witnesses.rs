@@ -58,7 +58,7 @@ pub(super) fn conditional_guarantees(
             .assumptions
             .iter()
             .filter(|(condition, _)| {
-                !condition.contains_trusted() && !condition.observes_borrowed(None)
+                !condition.contains_trusted() && !condition.observes_live(None)
             })
             .map(|(condition, holds)| (condition.with_joined_values(values, identities), *holds))
             .collect::<BTreeSet<_>>()

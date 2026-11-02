@@ -345,30 +345,43 @@ impl ExecutionCondition {
         })
     }
 
-    pub(crate) fn observes_borrowed(&self, changed: Option<&Self>) -> bool {
-        self.observes_borrowed_where(|value| changed.is_none_or(|changed| value.observes(changed)))
+    pub(crate) fn observes_live(&self, changed: Option<&Self>) -> bool {
+        self.observes_live_where(|value| changed.is_none_or(|changed| value.observes(changed)))
     }
 
-    pub(crate) fn observes_borrowed_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
-        let mut pending = vec![self];
+    /// Inspect live borrowed observations and entry guards that are not captured yet.
+    pub(crate) fn observes_live_where(&self, observes: impl Fn(&Self) -> bool) -> bool {
+        let mut pending = vec![(self, false)];
 
-        while let Some(condition) = pending.pop() {
-            match condition {
-                Self::Borrowed(value) if observes(value) => {
+        while let Some((condition, live)) = pending.pop() {
+            if live && condition.observation_path().is_some() {
+                if observes(condition) {
                     return true;
                 }
+
+                continue;
+            }
+
+            match condition {
+                Self::Borrowed(value) => pending.push((value, true)),
+                Self::Entry {
+                    condition,
+                    captured: false,
+                } => pending.push((condition, true)),
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
-                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
+                | Self::Call(_, _, _, operands) => {
+                    pending.extend(operands.iter().map(|value| (value, live)))
+                }
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Trusted(value)
                 | Self::Projection(_, value)
-                | Self::Present(value) => pending.push(value),
-                Self::Entry {
-                    condition,
-                    captured: false,
-                } => pending.push(condition),
+                | Self::Present(value) => pending.push((value, live)),
+                Self::Constructed(base, fields) => {
+                    pending.push((base, live));
+                    pending.extend(fields.iter().map(|(_, value)| (value, live)));
+                }
                 _ => {}
             }
         }

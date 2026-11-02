@@ -188,6 +188,11 @@ impl State {
         ty: TypeId,
         bounds: References,
     ) {
+        self.returned_inputs
+            .entry(reference.clone())
+            .or_default()
+            .merge(&bounds);
+
         self.pending
             .entry(call)
             .or_default()

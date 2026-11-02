@@ -390,9 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.value(state, call.receiver()?.expression())
         };
 
-        state
-            .deferred_entries(&value)?
-            .known_sources(&state.assumptions)
+        self.task_sources(state, &value)
     }
 
     pub(super) fn started_future(
@@ -465,8 +463,31 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        state
-            .deferred_entries(&self.storage_path_value(state, path))?
-            .known_sources(&state.assumptions)
+        self.task_sources(state, &self.storage_path_value(state, path))
+    }
+
+    fn task_sources(
+        &self,
+        state: &ExecutionState,
+        value: &ExecutionCondition,
+    ) -> Option<std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>> {
+        let sources = state
+            .deferred_entries(value)?
+            .known_sources(&state.assumptions)?;
+
+        // Resolution can destroy unpolled captures or a completed body result.
+        // A body-only effect summary is complete only when neither needs cleanup.
+        sources
+            .iter()
+            .all(|source| {
+                source
+                    .expression()
+                    .and_then(|expression| self.disposal.plan.future_cleanup.get(&expression))
+                    .is_some_and(|(captures, result)| {
+                        captures.is_empty()
+                            && *result == bray_bound_tree::AsyncStorageCleanupRequirement::None
+                    })
+            })
+            .then_some(sources)
     }
 }

@@ -415,7 +415,15 @@ impl State {
         self.values.extend(transfer.values);
         self.contents.extend(transfer.payloads);
         self.deferred.extend(transfer.deferred);
-        self.returned_inputs.extend(transfer.returned_inputs);
+
+        // One abstract origin can describe surviving references from several
+        // evaluations. New completion bounds must not discard those earlier regions.
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry(reference)
+                .or_default()
+                .merge(&bounds);
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn clear(&mut self, place: &Place) {

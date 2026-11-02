@@ -209,6 +209,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }))
     }
 
+    fn storage_path_values<'state>(
+        &'state self,
+        state: &'state ExecutionState,
+        path: bray_bound_tree::StoragePath,
+    ) -> impl Iterator<Item = ExecutionCondition> + 'state {
+        let mut places = self.storage_places(state, path.clone()).peekable();
+
+        let temporary = places
+            .peek()
+            .is_none()
+            .then(|| self.storage_path_value(state, &path));
+
+        places
+            .filter_map(|place| place.value_in(&state.current))
+            .chain(temporary)
+    }
+
     pub(in crate::analysis) fn call_preserves_normal_storage(
         &self,
         state: &ExecutionState,
@@ -351,29 +368,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let owners: BTreeSet<_> = stable_values
+        let stable_roots = stable_values
             .iter()
-            .flat_map(|path| {
-                let value =
-                    self.storage_path_value(state, &bray_bound_tree::StoragePath::root(path.root));
+            .map(|path| path.root)
+            .collect::<BTreeSet<_>>();
 
-                state
-                    .owned_values(&value)
-                    .map(|value| value.owner_identity().clone())
-                    .collect::<Vec<_>>()
+        let owners = stable_roots
+            .into_iter()
+            .flat_map(|root| {
+                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root))
             })
+            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
+            .map(|value| value.owner_identity().clone())
             .collect();
 
-        // Preserved storage includes expression temporaries and invocation inputs.
-        // Their observations need not have a local-variable entry.
+        // Preserved storage includes selected static instances, expression
+        // temporaries and invocation inputs without local-variable entries.
         let snapshots = stable_values
             .iter()
-            .flat_map(|path| {
-                let value = self.storage_path_value(state, path);
-
-                state.owned_values(&value).collect::<Vec<_>>()
-            })
+            .flat_map(|path| self.storage_path_values(state, path.clone()))
+            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| {
                 !matches!(
                     value,

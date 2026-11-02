@@ -157,7 +157,7 @@ impl ExecutionCondition {
 
                 let condition = match condition.prove_trusted(trusted, ordinary) {
                     Some(value) => Self::Boolean(value),
-                    None if condition.observes_borrowed(None) => Self::Unknown,
+                    None if condition.observes_live(None) => Self::Unknown,
                     None => condition,
                 };
 

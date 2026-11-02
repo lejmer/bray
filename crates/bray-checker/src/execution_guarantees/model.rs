@@ -362,7 +362,7 @@ impl ExecutionCallEvidence {
         }
 
         for (condition, holds) in ordinary {
-            if condition.contains_trusted() || condition.observes_borrowed(None) {
+            if condition.contains_trusted() || condition.observes_live(None) {
                 continue;
             }
 

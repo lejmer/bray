@@ -124,7 +124,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             if !place.projections.is_empty()
                 || entry.owned_inputs.contains(&ordinal)
-                || value.observes_borrowed(None)
+                || value.observes_live(None)
                 || matches!(
                     value,
                     ExecutionCondition::Boolean(_)

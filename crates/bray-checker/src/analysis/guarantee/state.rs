@@ -389,7 +389,7 @@ impl ExecutionState {
         self.refine_witnesses();
 
         self.assumptions.retain(|(condition, _)| {
-            !condition.observes_borrowed(None) || condition.observes_only(stable_values)
+            !condition.observes_live(None) || condition.observes_only(stable_values)
         });
 
         let mut retained = BTreeSet::new();
