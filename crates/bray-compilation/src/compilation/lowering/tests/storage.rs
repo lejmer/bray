@@ -702,14 +702,27 @@ fn repeated_arrays_evaluate_the_element_once_even_when_empty() {
         let source = format!(
             r#"
             module app;
-            struct Counter {{ mut count: i32; }}
-            func seed(pos counter: &mut Counter) -> i32 {{
+
+            struct Counter
+            {{
+                mut count: i32;
+            }}
+
+            func seed(pos counter: &mut Counter) -> i32
+            {{
                 counter.count += 1;
                 return counter.count;
             }}
-            func main() -> i32 {{
-                let mut counter: Counter = Counter {{ count = 0 }};
+
+            func main() -> i32
+            {{
+                let mut counter: Counter = Counter
+                {{
+                    count = 0,
+                }};
+
                 let items: [i32; {count}] = [seed(&mut counter); {count}];
+
                 return counter.count;
             }}
             "#
