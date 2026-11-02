@@ -780,7 +780,7 @@ mod tests {
         };
 
         let attributes = (2 << REFERENCE_KIND_SHIFT) | REFERENCE_INPUT_ABSENT;
-        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 0, 0, 0, 0];
+        let mut words = vec![0, 1, 0, 0, 0, 0, 1, attributes, 3, 0, 1, 0, 0, 0, 0];
         let limits = InterfaceValidationLimits::default();
         let contract = decode_words(&words, limits).expect("fixture encoded words must decode");
 

@@ -236,10 +236,18 @@ fn join_observations<'a>(
                 .value_in(&incoming.current)
                 .unwrap_or(ExecutionCondition::Unknown);
 
-            owned_results.insert(
-                joined.clone(),
-                super::witnesses::owned_alternatives((target, &left), (incoming, &right), joined),
-            );
+            if left != right
+                || target.owned_results.get(&left) != incoming.owned_results.get(&right)
+            {
+                owned_results.insert(
+                    joined.clone(),
+                    super::witnesses::owned_alternatives(
+                        (target, &left),
+                        (incoming, &right),
+                        joined,
+                    ),
+                );
+            }
         }
     }
 
@@ -303,10 +311,12 @@ fn join_observations<'a>(
             &mut right_identities,
         );
 
-        owned_results.insert(
-            joined.clone(),
-            super::witnesses::owned_alternatives((target, value), (incoming, other), &joined),
-        );
+        if value != other || target.owned_results.get(value) != incoming.owned_results.get(other) {
+            owned_results.insert(
+                joined.clone(),
+                super::witnesses::owned_alternatives((target, value), (incoming, other), &joined),
+            );
+        }
 
         results.push((expression, joined));
     }
@@ -349,20 +359,41 @@ fn join_observations<'a>(
         }
     }
 
+    changed |= publish_owned_results(target, &mut incoming_joined, owned_results);
+
+    (incoming_joined, changed)
+}
+
+fn publish_owned_results(
+    target: &mut ExecutionState,
+    incoming: &mut std::borrow::Cow<'_, ExecutionState>,
+    owned_results: BTreeMap<
+        ExecutionCondition,
+        bray_symbols::DependencyOwnedResult<
+            bray_symbols::ConstantProjectionKind,
+            ExecutionCondition,
+        >,
+    >,
+) -> bool {
+    let mut changed = false;
+
     for (value, ownership) in owned_results {
+        if ownership.is_empty() {
+            changed |= target.owned_results.remove(&value).is_some();
+            incoming.to_mut().owned_results.remove(&value);
+            continue;
+        }
+
         changed |= target.owned_results.get(&value) != Some(&ownership);
 
         target
             .owned_results
             .insert(value.clone(), ownership.clone());
 
-        incoming_joined
-            .to_mut()
-            .owned_results
-            .insert(value, ownership);
+        incoming.to_mut().owned_results.insert(value, ownership);
     }
 
-    (incoming_joined, changed)
+    changed
 }
 
 fn current_replacements(

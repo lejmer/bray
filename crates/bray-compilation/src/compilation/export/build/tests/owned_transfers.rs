@@ -732,6 +732,57 @@ const API: &str = r"
         };
     }
 
+    func stop() -> never
+    {
+        loop
+        {
+        }
+    }
+
+    func only_return<T>(pos value: T, pos selected: bool) -> T
+    {
+        if selected
+        {
+            return value;
+        }
+
+        stop();
+    }
+
+    async func only_deferred<T>(pos value: T, pos selected: bool) -> T
+    {
+        await pause();
+
+        if selected
+        {
+            return value;
+        }
+
+        stop();
+    }
+
+    func choose_or_stop<T>(
+        pos left: T,
+        pos right: T,
+        pos first: bool,
+        pos run: bool,
+    ) -> T
+    {
+        if !run
+        {
+            stop();
+        }
+
+        return if first
+        {
+            yield left;
+        }
+        else
+        {
+            yield right;
+        };
+    }
+
 ";
 
 fn check_owned_transfers(imported: bool) {
@@ -1809,6 +1860,61 @@ fn check_owned_transfers(imported: bool) {
             "mixed_join_known_False_False",
             "let result = api.mixed_join<api.Marker>(api.marker_box(), api.Marker {}, false); api.inspect_marker(&result.value);",
             false,
+        ),
+        (
+            "only_return_True",
+            "let value = api.only_return<api.Marker>(api.make_marker(), true); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "only_return_False",
+            "let value = api.only_return<api.Marker>(api.make_marker(), false); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "only_deferred_True",
+            "let value = await api.only_deferred<api.Marker>(api.make_marker(), true); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "only_deferred_False",
+            "let value = await api.only_deferred<api.Marker>(api.make_marker(), false); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "impossible_choice",
+            "let value = api.choose_or_stop<api.Marker>(api.Marker {}, api.Marker {}, choice, false); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "possible_choice",
+            "let value = api.choose_or_stop<api.Marker>(api.make_marker(), api.make_marker(), choice, true); api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "possible_choice_fabricated",
+            "let value = api.choose_or_stop<api.Marker>(api.make_marker(), api.Marker {}, choice, true); api.inspect_marker(&value);",
+            false,
+        ),
+        (
+            "inactive_never_returning_future",
+            "let pending: Future<api.Marker> = api.only_deferred<api.Marker>(api.make_marker(), false);",
+            true,
+        ),
+        (
+            "scalar_impossible_completion",
+            "let value = api.only_return<bool>(true, false); if value {}",
+            true,
+        ),
+        (
+            "captured_true_selector",
+            "let mut selected = true; let pending = api.only_deferred<api.Marker>(api.make_marker(), selected); selected = false; let value = await pending; api.inspect_marker(&value);",
+            true,
+        ),
+        (
+            "captured_false_selector",
+            "let mut selected = false; let pending = api.only_deferred<api.Marker>(api.make_marker(), selected); selected = true; let value = await pending; api.inspect_marker(&value);",
+            true,
         ),
     ] {
         if let Some(failure) = check(&provider, imported, name, body, valid) {

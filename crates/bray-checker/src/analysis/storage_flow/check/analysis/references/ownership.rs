@@ -26,7 +26,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut copyable = std::collections::BTreeMap::new();
 
-        candidates.try_map(
+        let result = candidates.try_map(
             &mut |candidate| {
                 let (input, shape) = candidate.input();
 
@@ -153,7 +153,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Ok(bray_symbols::DependencyOwnedResult::default())
             },
             &mut |(condition, _)| Ok(Some(*condition)),
-        )
+        )?;
+
+        Ok(if result.is_empty() {
+            bray_symbols::DependencyOwnedResult::default()
+        } else {
+            result
+        })
     }
 
     fn owned_projection_type(

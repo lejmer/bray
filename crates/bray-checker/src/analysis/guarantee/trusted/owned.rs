@@ -332,3 +332,69 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
         }
     }
 }
+
+impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis::guarantee) fn owned_normal_completion(
+        &self,
+        state: &ExecutionState,
+        invocation: bray_bound_tree::BoundExecutionSite,
+        result: &ExecutionCondition,
+    ) -> bool {
+        let Some(contract) = self.dependencies.calls().get(&invocation) else {
+            return true;
+        };
+
+        let Some(entry) = state.entries.get(&invocation) else {
+            return true;
+        };
+
+        let instantiate = |term| {
+            crate::execution_condition_from_type_term(
+                self.request.semantic_values(),
+                term,
+                contract.input_count(),
+            )
+            .expect("checked ownership condition decodes in the same semantic store")
+            .substitute(
+                &|place| {
+                    place
+                        .value_in(&entry.arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
+                result,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            )
+        };
+
+        feasible_layout(contract.owned_result(), &state.assumptions, &instantiate)
+    }
+}
+
+fn feasible_layout(
+    result: &DependencyOwnedResult,
+    assumptions: &BTreeSet<(ExecutionCondition, bool)>,
+    instantiate: &impl Fn(bray_symbols::ConstantTermId) -> ExecutionCondition,
+) -> bool {
+    match result {
+        DependencyOwnedResult::Transfer(_) => true,
+        DependencyOwnedResult::All(values) => values
+            .iter()
+            .all(|value| feasible_layout(value, assumptions, instantiate)),
+        DependencyOwnedResult::Choice(values) => values
+            .iter()
+            .any(|value| feasible_layout(value, assumptions, instantiate)),
+        DependencyOwnedResult::Case { condition, result } => {
+            let condition = instantiate(*condition);
+
+            if condition.prove_trusted(&BTreeSet::new(), assumptions) == Some(false) {
+                return false;
+            }
+
+            let mut assumptions = assumptions.clone();
+
+            condition.assume(true, &mut assumptions);
+
+            feasible_layout(result, &assumptions, instantiate)
+        }
+    }
+}

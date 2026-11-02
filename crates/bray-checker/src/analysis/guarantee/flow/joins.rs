@@ -99,7 +99,12 @@ pub(in crate::analysis::guarantee) fn merge_returned(
     super::merge::merge(&mut completed, &Some(incoming), None);
     *target = completed.expect("reachable normal return retains a state");
     target.pending_results.insert(expression, joined.clone());
-    target.owned_results.insert(joined.clone(), ownership);
+
+    if ownership.is_empty() {
+        target.owned_results.remove(&joined);
+    } else {
+        target.owned_results.insert(joined.clone(), ownership);
+    }
 
     joined
 }
@@ -443,5 +448,109 @@ mod tests {
         assert_eq!(merged.current[&original], value);
         assert_eq!(merged.current[&alias], ExecutionCondition::Unknown);
         assert!(merged.assumptions.contains(&(value, true)));
+    }
+    #[test]
+    fn stable_owned_values_converge_across_guarded_back_edges() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
+                .into(),
+        ));
+
+        let value = ExecutionCondition::Input(place.clone());
+
+        let guard = ExecutionCondition::Input(
+            bray_bound_tree::BoundReferenceTarget::Surface(
+                bray_symbols::CallableParameterSymbolId::from_symbol_id(
+                    bray_symbols::SymbolId::new(1),
+                )
+                .into(),
+            )
+            .into(),
+        );
+
+        let mut state = ExecutionState::default();
+
+        state.current.insert(place, value.clone());
+
+        let mut target = Some(state);
+
+        for _ in 0..16 {
+            let mut incoming = target.clone().expect("reachable loop header");
+
+            incoming.assumptions.insert((guard.clone(), true));
+
+            assert!(!super::super::merge::merge(
+                &mut target,
+                &Some(incoming),
+                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+            ));
+        }
+
+        let state = target.expect("reachable loop header");
+
+        assert!(state.owned_results.is_empty());
+
+        assert_eq!(
+            state.owned_result(&value),
+            bray_symbols::DependencyOwnedResult::Transfer(
+                bray_symbols::DependencyOwnedTransfer::new(value, [])
+            )
+        );
+    }
+
+    #[test]
+    fn empty_layouts_do_not_accumulate_in_loop_observations() {
+        use crate::analysis::guarantee::state::ExecutionState;
+        use crate::analysis::id::AnalysisBlockId;
+
+        let place = ExecutionPlace::from(bray_bound_tree::BoundReferenceTarget::Surface(
+            bray_symbols::CallableParameterSymbolId::from_symbol_id(bray_symbols::SymbolId::new(0))
+                .into(),
+        ));
+
+        let guard = ExecutionCondition::Input(
+            bray_bound_tree::BoundReferenceTarget::Surface(
+                bray_symbols::CallableParameterSymbolId::from_symbol_id(
+                    bray_symbols::SymbolId::new(1),
+                )
+                .into(),
+            )
+            .into(),
+        );
+
+        let mut state = ExecutionState::default();
+
+        state
+            .current
+            .insert(place.clone(), ExecutionCondition::Boolean(false));
+
+        let mut target = Some(state);
+
+        for _ in 0..16 {
+            let mut incoming = target.clone().expect("reachable loop header");
+
+            incoming
+                .current
+                .insert(place.clone(), ExecutionCondition::Boolean(true));
+
+            incoming.assumptions.insert((guard.clone(), true));
+
+            super::super::merge::merge(
+                &mut target,
+                &Some(incoming),
+                Some(AnalysisBlockId::from_slot(BoundUnitId::new(0), 0)),
+            );
+
+            assert!(
+                target
+                    .as_ref()
+                    .expect("reachable loop header")
+                    .owned_results
+                    .is_empty()
+            );
+        }
     }
 }
