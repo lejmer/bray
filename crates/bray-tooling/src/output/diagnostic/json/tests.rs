@@ -1904,3 +1904,47 @@ fn test_catalog_version_failure_preserves_both_versions_in_json() {
     assert_eq!(failure["actual"], 2);
     assert_eq!(failure["supported"], 1);
 }
+
+#[test]
+fn repeated_array_copy_failure_preserves_json_type_and_guidance() {
+    let span = SourceSpan::new(
+        bray_source::SourceId::new(0),
+        TextRange::new(TextSize::new(0), TextSize::new(12)),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingRepeatedArrayElementNotCopyable,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_arg(DiagnosticArg::actual_type(DiagnosticType::Named(
+        DiagnosticNamedType::new([String::from("Owner")], []),
+    )))
+    .with_label(bray_diagnostics::DiagnosticLabel::primary(
+        bray_diagnostics::DiagnosticLabelKind::RepeatedArrayElement,
+        span,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ConstructArrayElementsIndividually,
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .expect("repeated-array diagnostic JSON");
+
+    let report: serde_json::Value = serde_json::from_slice(&output).expect("diagnostic JSON");
+    let diagnostic = &report["diagnostics"][0];
+
+    assert_eq!(diagnostic["code"], 7134);
+    assert_eq!(diagnostic["kind"], "checking_repeated_array_element_not_copyable");
+
+    assert_eq!(diagnostic["args"], serde_json::json!([{
+        "name": "actual_type",
+        "value": {"kind": "type", "value": {"kind": "named", "path": ["Owner"], "arguments": []}}
+    }]));
+
+    assert_eq!(diagnostic["labels"][0]["kind"], "repeated_array_element");
+    assert_eq!(diagnostic["notes"][0]["kind"], "construct_array_elements_individually");
+}

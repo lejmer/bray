@@ -35,3 +35,19 @@ fn project_load_errors_preserve_their_diagnostic_categories() {
 fn diagnostic_bag(error: ProjectLoadError) -> DiagnosticBag {
     DiagnosticBag::single(error.into_diagnostic(DiagnosticId::new(0)))
 }
+
+#[test]
+fn generator_load_failures_preserve_their_execution_cause() {
+    let diagnostics = diagnostic_bag(ProjectLoadError::Generator {
+        path: PathBuf::from("bray-package.json"),
+        generator: String::from("sample/bindings"),
+        failure: bray_diagnostics::DiagnosticProjectGeneratorFailure::ExecutionFailed {
+            code: Some(7),
+        },
+    });
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::ProjectGeneratorFailed,
+    );
+}
