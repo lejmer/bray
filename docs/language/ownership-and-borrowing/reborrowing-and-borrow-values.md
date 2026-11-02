@@ -19,7 +19,8 @@ A reborrow can be created from an existing borrow.
 
 A reborrow has authority no greater than the borrow it comes from.
 
-A reborrow suspends incompatible use of the original borrow for the reached storage while the reborrow is active.
+A reborrow suspends use of the original borrow that would conflict under [borrow rules](borrow-rules.md) for the reached
+storage while the reborrow is active.
 
 Nested borrow types are allowed.
 

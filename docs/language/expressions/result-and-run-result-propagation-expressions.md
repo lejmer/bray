@@ -24,13 +24,15 @@ For an operand of type `Result<T, E>`, the normal continuation has type `T`.
 
 If the operand is the `Result.Ok` variant, `try` evaluates to its `value` payload.
 
-If the operand is the `Result.Error` variant, `try` propagates its `error` payload to the nearest compatible result
-propagation boundary as a `Result.Error` value.
+If the operand is the `Result.Error` variant, `try` propagates its `error` payload to the nearest result
+propagation boundary that admits its error type as a `Result.Error` value.
 
 A result propagation boundary for a `Result.Error` outcome is:
 
-- a callable execution scope whose result type is `Result<R, F>` where `E` is compatible with `F`,
-- a single-yield region whose result type is `Result<R, F>` where `E` is compatible with `F`.
+- a callable execution scope whose result type is `Result<R, F>`,
+- a single-yield region whose result type is `Result<R, F>`.
+
+In either case, `E` must meet [error propagation conversion](#error-propagation-conversion) for `F`.
 
 For an operand of type `RunResult<T>`, the normal continuation has type `T`.
 
@@ -62,8 +64,20 @@ a different child run.
 `try` on `RunResult<T>` has the panic and cancellation effects of those forwarding paths. It is rejected in a context
 that cannot participate in run execution, including constant and predicate evaluation.
 
-Error payload types must be compatible through ordinary type compatibility. If the source error type does not fit the
-boundary error type, the program must map the error explicitly before propagation.
+## Error propagation conversion
+
+A `Result.Error` payload can propagate to a boundary when the checker can construct a built-in conversion from the
+source error type to the boundary's error type. This includes identity, lossless scalar conversion, callable contract
+conversion, and recursive built-in tuple, array, nullable, and tuple-to-complex conversion under
+[conversion expressions](conversion-expressions.md#built-in-conversion).
+The search proceeds through enclosing result boundaries from nearest to farthest and selects the first that meets
+this rule. It does not select a `ConvertTo` implementation. If no boundary meets the rule, the program must map the error
+explicitly before propagation.
+
+This relation applies only to error propagation. It does not widen ordinary assignment, argument, or branch result
+acceptance.
+
+## Propagation paths
 
 On the propagation path, the current control-flow path has no normal continuation and has type `never`.
 

@@ -1,6 +1,9 @@
 # Expression initialization behavior
 
-Expressions that create values must establish valid initialization state.
+Expressions that create a complete value must initialize every required part under
+[ownership states](../ownership-and-borrowing/ownership-states.md). Operations on partial values follow
+[partial moves](../ownership-and-borrowing/partial-moves.md) and
+[partial values and replacement](../lifecycle/partial-values-and-replacement.md).
 
 Struct construction initializes required fields and omitted defaulted fields.
 

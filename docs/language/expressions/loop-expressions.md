@@ -28,10 +28,12 @@ unless a nested yield-capable region captures it.
 
 `continue` skips the rest of the current loop body and starts the next iteration.
 
-Loop paths that keep iterating do not supply a loop result.
+Loop paths that keep iterating do not supply a loop result. Reachable break exits follow
+[result type merging](expression-results.md#result-type-merge) and
+[flow-state merging](expression-results.md#flow-state-merge).
 
-If a loop has reachable `break` expressions that target the loop, every such break value must be compatible with the
-loop's result type.
+If a loop has reachable `break` expressions that target the loop, every such break value must satisfy
+[value type acceptance](expression-context.md#value-type-acceptance) for the loop's result type.
 
 `return`, `yield`, panic, nullable propagation, result propagation, run-result propagation, and other exits that target
 an outer boundary leave the loop without supplying the loop result.

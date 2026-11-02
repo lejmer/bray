@@ -22,7 +22,7 @@ inside that body inherit the same async execution context. No async block form e
 Before the child first executes, the checker verifies that the current execution context satisfies the child
 computation's deferred body effects, capabilities, lifecycle contract, execution requirements, and thread-affinity
 constraints. Awaiting a computation requiring `blocking_execution()`, `compute_execution()`, or
-`main_thread_execution()` from an incompatible lane is rejected.
+`main_thread_execution()` from an [incompatible lane](execution-requirements.md#lane-compatibility) is rejected.
 
 Normal completion establishes the postcondition template carried by the consumed computation and applies its `result`
 conditions to the produced `T`. Panic and cancellation establish none of those conditions. If control flow merged

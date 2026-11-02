@@ -71,6 +71,36 @@ movement transports its evidence and dependency relationships while revoking the
 pointers into physically relocated storage. A merge retains a guarantee only where every relevant incoming alternative
 supplies a valid complete carrier and matching dependencies. An absent nullable alternative supplies no carrier.
 
+## Guarantees at a merge
+
+A [flow-state merge](../expressions/expression-results.md#flow-state-merge) retains a condition only when the checker can
+establish it for every reaching alternative. A fact established on only one branch is unavailable after the merge.
+A common consequence can survive even when the incoming facts have different expressions, if the supported reasoning
+establishes that consequence on each alternative.
+
+Retained witness carriers and dependency sets describe possible incoming values. Their presence alone does not prove a
+condition. A witness-backed guarantee requires a complete valid carrier and matching dependencies on every relevant
+alternative. Deferred computations retain only the completion guarantees common to every possible producer, while
+preserving all possible dependencies and obligations.
+
+## Required evidence and proof limits
+
+A matching available condition with valid dependencies satisfies its contract requirement. Otherwise, a requirement
+that needs implication is satisfied only when the checker's supported reasoning proves that implication.
+A false result and an inability to prove a result both fail to discharge the requirement. Failure to prove a condition
+does not establish its negation.
+
+Implication reasoning is bounded. It uses known conditions, supported boolean and comparison reasoning, and the
+summaries of selected predicates and callables. Unknown terms or exhaustion of the reasoning budget can leave a
+condition unproved. The language does not require an arbitrary mathematical theorem prover. Execution-property
+certification follows the further limits in [execution guarantees](execution-guarantees.md#checking-and-interfaces).
+
+A path is not unreachable merely because its condition is unproved. A required static proof is not replaced by an
+implicit runtime check. Ordinary runtime assertions can establish conditions after successful execution, while
+[trusted caller obligations](trusted-caller-obligations.md) follow their separate evidence and acknowledgement rules.
+[Borrow rules](../ownership-and-borrowing/borrow-rules.md) separately require proof of non-overlap and treat unproved
+overlap as a conflict.
+
 ## Navigation
 
 - [Language index](../index.md)

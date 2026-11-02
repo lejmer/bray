@@ -28,7 +28,7 @@ requires the selected subject to satisfy `Iterable`:
 The source form marked with `mut` selects mutable iteration.
 
 Mutable iteration evaluates the source expression once, creates a mutable borrow for the duration of the iteration, and
-requires mutation authority and compatible exclusivity for the source access path:
+requires mutation authority and [borrow compatibility](../ownership-and-borrowing/borrow-rules.md) for the source access path:
 
 ```bray
 &mut SourceType: Iterable

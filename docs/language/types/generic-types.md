@@ -59,7 +59,8 @@ Generic arguments are supplied explicitly and in parameter order.
 
 A type parameter argument must be a type expression.
 
-A const parameter argument must be a compile-time constant expression compatible with the const parameter's declared
+A const parameter argument must be a compile-time constant expression that satisfies
+[value type acceptance](../expressions/expression-context.md#value-type-acceptance) for the const parameter's declared
 type.
 
 Generic arguments are not inferred from expected type, field initializers, result type, constraints, or surrounding

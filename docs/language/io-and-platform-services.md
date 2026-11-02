@@ -387,7 +387,7 @@ Clock resolution is explicit target information. Arithmetic detects overflow and
 clock is an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.
 
 Blocking waits require `blocking_execution()`. An async wait can defer that requirement into its future so that
-`start()` selects a compatible blocking lane. Directly awaiting such a future requires the current lane to permit
+`start()` selects a blocking lane that meets [lane compatibility](async-and-concurrency/execution-requirements.md#lane-compatibility). Directly awaiting such a future requires the current lane to permit
 blocking. An async wait implemented through runtime timer integration can instead suspend its current task without
 requiring a blocking lane.
 
@@ -412,7 +412,7 @@ Files, terminals, processes, clocks, environment state, and entropy are external
 rules. Effect-free contexts cannot access them.
 
 An operation that can block its operating-system thread requires `blocking_execution()`. An async wrapper must suspend
-or arrange work on a compatible blocking lane. Declaring a function `async` does not make a blocking platform operation
+or arrange work on a blocking lane that meets [lane compatibility](async-and-concurrency/execution-requirements.md#lane-compatibility). Declaring a function `async` does not make a blocking platform operation
 nonblocking.
 
 I/O owners and values carry ordinary ownership, borrowing, dependency, affinity, capability, lifecycle, and finalization

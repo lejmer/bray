@@ -40,6 +40,22 @@ Destruction of partially initialized storage destroys only initialized subparts.
 Whole-value lifecycle declarations require the whole value to be fully initialized at the point where that lifecycle
 declaration can run.
 
+## Ownership state merging
+
+At a [flow-state merge](../expressions/expression-results.md#flow-state-merge), an access path is definitely initialized
+only when it is initialized on every reaching path. A move on any reaching path prevents a later use that requires the
+moved value, unless the program reinitializes that storage before the use. Partial moves retain the state of the
+individual parts under [partial moves](partial-moves.md).
+
+Storage that can still be live on any path remains relevant to ownership and cleanup. A value is definitely absent only
+when every reaching alternative establishes absence. Conditional initialization or movement does not authorize
+whole-value observation, movement, or a whole-value lifecycle call without the state required by that operation.
+Cleanup resolves the initialized parts on each path under [destruction](../lifecycle/destruction.md).
+
+A possibly active borrow remains a restriction. An operation that needs a definitely active borrow or capability must
+establish that authority on every reaching path. Finalization and task obligations cannot be discharged by a path that
+does not own the obligation. Each path must complete or transfer its own obligations before ownership ends.
+
 ## Navigation
 
 - [Language index](../index.md)

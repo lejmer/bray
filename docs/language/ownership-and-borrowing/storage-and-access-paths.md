@@ -35,10 +35,12 @@ Every access path has:
 An access path can be observed only when observation capability is available.
 
 An access path can be mutated only when mutation authority is available, the reached declaration permits mutation, and
-no incompatible active borrow or ownership state blocks mutation.
+[borrow compatibility](borrow-rules.md) permits mutation and the
+[ownership state](ownership-states.md) permits the selected operation.
 
 An access path can be moved from only when ownership of the reached value is available, the reached value is
-initialized, and no incompatible active borrow or lifecycle obligation blocks the move.
+initialized, [borrow compatibility](borrow-rules.md) permits the move, and its
+[lifecycle obligations](../lifecycle/finalization.md) can transfer with the value.
 
 Access paths compose component by component.
 

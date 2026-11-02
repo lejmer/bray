@@ -28,7 +28,8 @@ while allocation failure follows the language's allocation panic contract.
 `reserve_exact` requests only the required capacity. `resize` preserves the existing prefix, truncates when shrinking,
 and appends the supplied fill byte when growing. Truncating to a length no smaller than the current length changes
 nothing. `pop` returns `none` for an empty buffer. Mutation and reallocation require the ordinary exclusive access, so
-an incompatible live view cannot be used as an append source into the same buffer.
+a live view that overlaps the buffer storage cannot be used as its append source under
+[borrow rules](ownership-and-borrowing/borrow-rules.md).
 
 `std.collection.List<T>` preserves sequence order. Insertion accepts positions through the current length and returns
 `false` without mutation for larger indexes. Removal and pop return `none` when no element exists. Truncation destroys
@@ -52,12 +53,13 @@ finiteness. The basic iterator contract alone does not promise random access, re
 
 ## Maps and sets
 
-Hash collections require compatible hashing and equality and provide expected constant-time lookup under healthy load.
+Hash collections require equal keys to produce the same hash under the selected hashing policy. Hash collisions do not
+establish equality. These collections provide expected constant-time lookup under healthy load.
 Borrowed lookup does not allocate or copy the queried value. Stored keys cannot be mutated through collection access.
 Mutable map iteration permits value mutation while keeping keys shared. Hash iteration order is unspecified.
 
-Ordered collections require coherent total key ordering and iterate in ascending order unless reverse traversal is
-explicit. Range bounds distinguish inclusion and exclusion. Lookup, insertion, and removal are logarithmic, including
+Ordered collections require a consistent, transitive total key ordering. They iterate in ascending order unless reverse
+traversal is explicit. Range bounds distinguish inclusion and exclusion. Lookup, insertion, and removal are logarithmic, including
 for already sorted input. Removal transfers owned values where the operation's result provides them.
 
 ## Hashing and ordering
@@ -71,8 +73,9 @@ without intermediate machine overflow. Compound values contribute semantic compo
 contributions produce equal hashes across processes and targets. Changing this algorithm requires a separately named
 API.
 
-Stable and unstable sorting are distinct policies. Comparisons must define coherent ordering, and algorithms do not
-repair inconsistent callbacks. Formatting or tests cannot assume stable order for an unordered container.
+Stable and unstable sorting are distinct policies. Comparisons must use one consistent ordering with transitive results.
+Reversing a comparison must reverse `Less` and `Greater` and preserve `Equal`. Algorithms do not repair inconsistent
+callbacks. Formatting or tests cannot assume stable order for an unordered container.
 
 ## Formatting and numeric policy
 

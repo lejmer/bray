@@ -31,7 +31,10 @@ product statics before releasing the loaded code and data, under the ordinary
 ## Product formation and provider compatibility
 
 Before a product exposes entries or initializes state that can invoke another Bray provider, formation must establish
-compatible execution and ownership services for every required provider. Separately compiled providers must carry enough
+execution and ownership services that meet every required provider contract. This includes retained dependency roots,
+execution requirements, and cleanup guarantees under
+[scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md) and
+[execution roots and product shutdown](../async-and-concurrency/execution-roots-and-product-shutdown.md). Separately compiled providers must carry enough
 dependency and compatibility information to validate that requirement. Successful symbol resolution alone is
 insufficient. Code contributed by a static library follows the consuming product's contract without creating another
 product instance. Foreign hosts must establish the same conditions before calling exported Bray entries.

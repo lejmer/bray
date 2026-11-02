@@ -16,7 +16,7 @@ owned inactive computation, creates an independently running task, and returns i
 
 `start()` is synchronous because it performs only the transition into independently schedulable work. It does not wait
 for the task to begin or complete. After the method returns, the task is eligible to run and can already be running on
-another compatible worker.
+another [compatible worker](execution-requirements.md#lane-compatibility).
 
 `start()` is valid only while executing an async callable, an async-capable lifecycle body, an async entrypoint, or
 another context that the product runtime contract defines as an active async execution context. Constructing or moving

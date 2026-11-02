@@ -25,7 +25,8 @@ The type annotation is required.
 
 The initializer is checked in constant-initializer context.
 
-The initializer must be a compile-time constant expression compatible with the declared type.
+The initializer must be a compile-time constant expression that satisfies
+[value type acceptance](../expressions/expression-context.md#value-type-acceptance) for the declared type.
 
 Literal adaptation uses the declared constant type as its expected type.
 

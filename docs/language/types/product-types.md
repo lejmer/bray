@@ -262,7 +262,8 @@ struct Point
 }
 ```
 
-A field declared with `mut` permits post-initialization mutation through a compatible mutable access path.
+A field declared with `mut` permits post-initialization mutation through a mutable access path permitted by
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 ```bray
 struct Counter
@@ -407,7 +408,8 @@ Copying a field requires the field type to satisfy the copy contract.
 Two field access paths into the same product value are disjoint when the compiler can prove they reach distinct fields
 and no type-form or representation rule makes them overlap.
 
-Disjoint field access can permit simultaneous compatible operations on distinct fields.
+Disjoint field access can permit simultaneous operations on distinct fields under
+[borrow compatibility](../ownership-and-borrowing/borrow-rules.md).
 
 For example, the compiler can reason separately about:
 

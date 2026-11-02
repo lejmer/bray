@@ -47,6 +47,9 @@ A child process does not directly participate in the parent process's ordinary s
 encoded protocol. Shared memory or inherited process resources reintroduce cross-process access only through an explicit
 type contract that defines lifetime, synchronization, ownership, and cleanup on both sides.
 
+Access conflicts follow the reached-storage and disjointness rules in
+[borrow rules](../ownership-and-borrowing/borrow-rules.md).
+
 ## Navigation
 
 - [Language index](../index.md)

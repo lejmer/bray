@@ -29,7 +29,8 @@ every alternative failed. A compound pattern's failure grants only facts indepen
 
 Facts retain their exact projected subject. A nullable test on a tuple element or product field does not refine the
 enclosing tuple or product, a sibling field, or a nested value at a different depth. Facts about equivalent accesses
-can survive branch merges when every reachable normal exit establishes them.
+can survive branch merges when every reachable normal exit establishes them under
+[guarantees at a merge](../contracts-and-trust/contract-reasoning.md#guarantees-at-a-merge).
 
 Negation reverses a boolean test's outcomes. The right side of `&&` receives the left side's true facts, and the right
 side of `||` receives its false facts. A true conjunction and false disjunction retain both operands' guarantees.

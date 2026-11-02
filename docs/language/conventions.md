@@ -127,6 +127,34 @@ examples beside a reference explain the linked rule without creating a separate 
 restriction remains in the section for that construct. The implementation-authority policy applies when the referenced
 text is ambiguous.
 
+## Semantic relations and availability
+
+Bray has separate relations for different checking contexts. A reference to compatibility names the relation of that
+context and does not authorize conversion, overload ranking, or proof in another context.
+
+| Context | Governing relation |
+| --- | --- |
+| Initializer, assignment, return, `yield`, or `break` value | [Value type acceptance](expressions/expression-context.md#value-type-acceptance). |
+| Explicit call argument | [Argument type matching](expressions/arguments.md#argument-type-matching). |
+| Method receiver | [Receiver matching](expressions/method-call-expressions.md#receiver-matching). |
+| `as` and built-in conversion | [Conversion expressions](expressions/conversion-expressions.md#built-in-conversion). |
+| Error propagation | [Error propagation conversion](expressions/result-and-run-result-propagation-expressions.md#error-propagation-conversion). |
+| Callable contract conversion | [Callable contract conversion](callables/callable-types-and-values.md#callable-contract-conversion). |
+| Branch and region results | [Result type merge](expressions/expression-results.md#result-type-merge). |
+| State at a shared continuation | [Flow-state merge](expressions/expression-results.md#flow-state-merge). |
+| Simultaneous access to reached storage | [Borrow compatibility](ownership-and-borrowing/borrow-rules.md). |
+| Required condition or guarantee | [Required evidence and proof limits](contracts-and-trust/contract-reasoning.md#required-evidence-and-proof-limits). |
+| Participating trait implementations | [Trait coherence](types/implementations.md#trait-coherence). |
+| Lifecycle requirement fulfillment | [Lifecycle requirements in traits](types/traits.md#lifecycle-requirements-in-traits). |
+| Runtime lane selection | [Lane compatibility](async-and-concurrency/execution-requirements.md#lane-compatibility). |
+
+Availability also depends on context. A declaration is available through lookup, visibility, implementation
+participation, and [target gates](targets-layout-abi-and-raw-memory/target-constraints-and-gates.md). An access path is
+usable only with the state and authority required by [storage and access paths](ownership-and-borrowing/storage-and-access-paths.md).
+A condition is available under [contract reasoning](contracts-and-trust/contract-reasoning.md), including dependency
+invalidation and merge rules. An execution lane supplies only the predicates and affinity guarantees in its runtime
+contract. Availability in one sense does not establish another.
+
 ## Navigation
 
 - [Language index](index.md)

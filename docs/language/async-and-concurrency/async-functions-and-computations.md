@@ -51,7 +51,8 @@ An `Future<T>` value can be:
 Resolving an inactive `Future<T>` does not begin its body. It resolves the receiver, arguments, defaults, and other
 initialized frame state according to ordinary lifecycle ordering. If that state has asynchronous finalization
 obligations, the `Future<T>` carries those obligations and can end only in an async cleanup context. A synchronous owner
-must move such a computation to a compatible owner or is rejected when its scope exits. A standalone `Future<T>` cannot
+must move such a computation to an owner that preserves its dependencies and lifecycle obligations under
+[task transfers and escapes](task-transfers-and-escapes.md) or is rejected when its scope exits. A standalone `Future<T>` cannot
 be partially driven: `await` consumes it into the current task and `start()` consumes it into a new task.
 
 An async lambda follows the same rules. Lambdas do not capture enclosing state. All async lambda state is supplied

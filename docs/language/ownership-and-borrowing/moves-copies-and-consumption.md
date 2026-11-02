@@ -12,7 +12,7 @@ Moving a value transfers:
 
 After a move, the old access path is moved from until it is reinitialized.
 
-Moving from an access path requires ownership of the reached value and no incompatible active borrow.
+Moving from an access path requires ownership of the reached value and no active borrow that forbids the move under [borrow rules](borrow-rules.md).
 
 Moving a complete product, union, tuple, array, nullable-present value, box, async computation, task handle, or other
 owned aggregate moves the ownership obligations described by that type's rules.

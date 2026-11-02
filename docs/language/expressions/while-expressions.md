@@ -82,8 +82,9 @@ An else body that completes naturally contributes `unit`.
 
 If a while expression has result type `unit`, a false-condition exit without an else body is valid.
 
-If a while expression has a result type other than `unit`, every reachable normal while exit path must supply a
-compatible value with `break` or end in a `never` expression.
+If a while expression has a result type other than `unit`, each reachable normal exit must use `break` to supply a value
+that satisfies [value type acceptance](expression-context.md#value-type-acceptance) for that result type. A path that ends
+in a `never` expression supplies no value.
 
 An else body is required when the while expression result type is not `unit` and the false-condition path is reachable.
 
@@ -95,11 +96,11 @@ The else body is checked with the loop condition known to be false.
 
 No condition is assumed to survive from one iteration to the next merely because it was true in a previous iteration.
 
-The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available
-contract state after a while expression is the merge of all reachable normal while exits.
+Reachable normal while exits follow [result type merging](expression-results.md#result-type-merge) and
+[flow-state merging](expression-results.md#flow-state-merge).
 
-The state at the start of a repeated condition evaluation must be coherent with the state before the first condition
-evaluation.
+The state before each condition evaluation is the flow-state merge of the initial entry and reachable backedges,
+including `continue` paths. Every repeated operation must be valid in that merged state.
 
 ```bray
 while index < items.count()

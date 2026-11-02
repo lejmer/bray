@@ -68,7 +68,8 @@ union NativeValue
 ```
 
 Each variant has exactly one payload field with no default. The payload has a target-supported plain C data
-representation such as a scalar, raw pointer, C-layout aggregate, or compatible transparent wrapper. Empty variants,
+representation such as a scalar, raw pointer, C-layout aggregate, or transparent wrapper whose represented field has an
+accepted plain C data representation. Empty variants,
 multiple-field payloads, `@tag(...)`, ownership-bearing payloads, borrows, callables, destructors, finalizers, and
 scoped lifecycle behavior are invalid.
 

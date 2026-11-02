@@ -45,7 +45,8 @@ The callable's parameters and result type must be valid predicate-expression val
 
 The call arguments must be predicate-valid expressions.
 
-The callable's `requires(...)` obligations must follow from the conditions available at the call.
+The callable's `requires(...)` obligations must be established from the conditions available at the call under
+[required evidence and proof limits](contract-reasoning.md#required-evidence-and-proof-limits).
 
 The callable's `ensures(...)` guarantees are available after the call inside the predicate-expression check.
 

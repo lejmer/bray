@@ -82,15 +82,16 @@ An else body that completes naturally contributes `unit`.
 
 If a for expression has result type `unit`, natural exhaustion without an else body is valid.
 
-If a for expression has a result type other than `unit`, every reachable normal for exit path must supply a compatible
-value with `break` or end in a `never` expression.
+If a for expression has a result type other than `unit`, each reachable normal exit must use `break` to supply a value
+that satisfies [value type acceptance](expression-context.md#value-type-acceptance) for that result type. A path that ends
+in a `never` expression supplies no value.
 
 An else body is required when the for expression result type is not `unit` and natural exhaustion is reachable.
 
 If the compiler proves natural exhaustion unreachable, a missing else body does not contribute a normal path.
 
-The type, ownership, initialization, destruction, finalization, capability, effect, task-obligation, and available
-contract state after a for expression is the merge of all reachable normal for exits.
+Reachable normal for exits follow [result type merging](expression-results.md#result-type-merge) and
+[flow-state merging](expression-results.md#flow-state-merge).
 
 Conditions tied to an iteration binding expire at the end of that iteration unless they are transferred into another
 surviving storage location.

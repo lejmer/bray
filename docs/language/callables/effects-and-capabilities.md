@@ -208,7 +208,7 @@ obligations.
 A callable can match a callable type or context when its body effect summary is valid for every effect requirement of
 that type or context.
 
-After overload resolution selects exactly one overload arm by explicit argument mapping and type compatibility, receiver
+After overload resolution selects exactly one overload arm by explicit argument mapping and [argument type matching](../expressions/arguments.md#argument-type-matching), receiver
 rules, explicit generic substitution and static constraints, and target availability, contract checking verifies that
 the caller's context satisfies the selected arm's caller-visible obligations.
 

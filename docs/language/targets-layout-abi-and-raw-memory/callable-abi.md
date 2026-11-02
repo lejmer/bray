@@ -83,7 +83,7 @@ Accepted foreign ABI representation categories are:
 - ABI-qualified callable values with the same ABI,
 - products and unions whose explicit layout contract is accepted by the selected ABI.
 
-For `c`, accepted aggregate layout contracts are `@layout(c)` and compatible `@layout(transparent)`.
+For `c`, accepted aggregate layout contracts are `@layout(c)` and `@layout(transparent)` whose represented field is accepted by the selected C ABI.
 
 Borrow types, slices, default-layout products, default-layout unions, trait-view types, owned-indirection types, async
 computations, task handles, and callable values without the selected foreign ABI contract need an explicit ABI wrapper

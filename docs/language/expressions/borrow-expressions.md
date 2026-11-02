@@ -29,7 +29,8 @@ A mutable borrow expression produces a value whose type uses the mutable-borrow 
 ```
 
 A borrow expression can borrow a local binding, field access path, indexed access path, active union payload access
-path, dereferenced type-form projection, or another expression that produces a compatible access path.
+path, dereferenced type-form projection, or another expression that produces an access path with the authority
+required by [borrow rules](../ownership-and-borrowing/borrow-rules.md).
 
 [Borrow rules](../ownership-and-borrowing/borrow-rules.md) define borrow compatibility, storage requirements, and
 exclusivity.
