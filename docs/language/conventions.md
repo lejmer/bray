@@ -15,6 +15,13 @@ introduced as `Example`, `Examples`, or `For example` are informative. Passages 
 informative. A section titled `Summary` or `Availability summary` is informative and restates the detailed rules it
 summarizes. Navigation and references help locate material and do not independently specify behavior.
 
+An inline `for example` marks the illustration it introduces: the rest of that sentence when it begins a sentence, or
+the example clause when it appears within a sentence. It does not change the status of preceding clauses or subsequent
+sentences. A `Note:` or `Rationale:` label at the start of a paragraph applies to that paragraph. A label on its own line
+applies to the following block, such as a paragraph, list, or code block. Delimit longer informative passages with a
+blockquote or a dedicated subsection, ending at the end of the blockquote or the next heading of the same or higher
+level. Rules outside those boundaries retain their normative role.
+
 An explanation, example, note, rationale, or summary cannot introduce an additional obligation, weaken a requirement,
 or grant an implementation choice. If such material appears to disagree with a rule, resolve the discrepancy under
 [implementation authority](#implementation-authority).
