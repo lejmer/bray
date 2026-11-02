@@ -223,6 +223,11 @@ where
     };
 
     let evaluated = match evaluated {
+        Ok((EvaluationFlow::Return(_) | EvaluationFlow::Propagate(_), Some(expression)))
+            if matches!(root, ConstantEvaluationRoot::Expression(_)) =>
+        {
+            Err(EvaluationFailure::invalid_expression(expression))
+        }
         Ok((EvaluationFlow::Yield { .. }, Some(expression))) => {
             Err(EvaluationFailure::invalid_expression(expression))
         }

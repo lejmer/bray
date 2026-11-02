@@ -109,7 +109,7 @@ where
                 Some(None)
             }
             _ => {
-                let mut current = self.build_operands(expression.operands(), current)?;
+                let mut current = self.build_operands(expression.runtime_operands(), current)?;
 
                 current = self.push_source_operation(id, current);
 

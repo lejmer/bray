@@ -108,18 +108,7 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let inputs = if kind == MirAggregateKind::RepeatedArray {
-            let [value, _] = expression.operands() else {
-                panic!("checked repetition retains its element and count");
-            };
-
-            // The count establishes the checked type and has no runtime evaluation.
-            std::slice::from_ref(value)
-        } else {
-            expression.operands()
-        };
-
-        let (block, operands) = match self.lower_operands(inputs, current)? {
+        let (block, operands) = match self.lower_operands(expression.runtime_operands(), current)? {
             LoweredOperands::Continuing { block, operands } => (block, operands),
             LoweredOperands::Terminated(completion) => return Ok(completion),
         };

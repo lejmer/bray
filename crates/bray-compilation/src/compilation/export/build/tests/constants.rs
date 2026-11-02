@@ -446,7 +446,7 @@ fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
 
         func main()
         {
-            let buffer: example.package.api.Buffer =
+            let buffer = example.package.api.Buffer
             {
             };
 

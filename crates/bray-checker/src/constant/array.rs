@@ -1,5 +1,30 @@
 use bray_symbols::IntegerConstant;
 
+pub(crate) fn known_array_length(
+    values: &bray_symbols::SemanticValueStore,
+    ty: bray_symbols::TypeId,
+) -> Option<usize> {
+    let data = values.type_data(ty);
+
+    let bray_symbols::TypeData::Array { length, .. } = data.as_ref() else {
+        return None;
+    };
+
+    match values.constant_term_data(*length).as_ref() {
+        bray_symbols::ConstantTermData::IntegerLiteral { value, .. } => super::integer_to_usize(value),
+        bray_symbols::ConstantTermData::Value(value) => {
+            let value = values.constant_value_data(*value);
+
+            let bray_symbols::ConstantValueKind::Integer(value) = value.kind() else {
+                return None;
+            };
+
+            super::integer_to_usize(value)
+        }
+        _ => None,
+    }
+}
+
 /// A semantic failure in a fixed-array length value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArrayLengthError {

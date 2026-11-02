@@ -364,8 +364,8 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                     self.expressions(expression.operands())?,
                 )),
                 BoundStructuredExpressionKind::RepeatedArray => {
-                    let [value, _] = expression.operands() else {
-                        panic!("checked repetition retains its element and count");
+                    let [value] = expression.runtime_operands() else {
+                        panic!("checked repetition retains its element");
                     };
 
                     Ok(CheckedTemplateOperation::RepeatedArray { value: self.expression(*value)? })

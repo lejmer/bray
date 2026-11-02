@@ -12,21 +12,9 @@ impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let value = self.evaluate_node(value)?;
-        let values = self.context.semantic_values();
-        let data = values.type_data(ty);
 
-        let bray_symbols::TypeData::Array { length, .. } = data.as_ref() else {
-            panic!("checked repetition has an array result type");
-        };
-
-        let length = values.constant_term_data(*length);
-
-        let bray_symbols::ConstantTermData::IntegerLiteral { value: count, .. } = length.as_ref() else {
-            panic!("instantiated array extent has a normalized integer term");
-        };
-
-        let count = crate::constant::integer_to_usize(count)
-            .expect("checked array extent fits the host");
+        let count = crate::constant::known_array_length(self.context.semantic_values(), ty)
+            .expect("instantiated repeated array has a closed extent");
 
         self.repeat_array_value(value, count, ty)
     }

@@ -358,3 +358,57 @@ fn repeated_arrays_preserve_recovery_for_incomplete_counts() {
         assert!(compilation.check_diagnostics().has_errors(), "{expression} must retain its source error");
     }
 }
+
+#[test]
+fn repeated_arrays_do_not_execute_count_calls_in_the_runtime_contract() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const func count() -> usize
+        {
+            let mut value: usize = 0;
+
+            while value < 3
+            {
+                value += 1;
+            }
+
+            return value;
+        }
+
+        func repeat() -> [i32; 3]
+            executes(pure, total)
+        {
+            return [7; count()];
+        }
+        "#,
+    );
+
+    assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+}
+
+#[test]
+fn repeated_arrays_reject_counts_that_return_from_the_enclosing_function() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        func main() -> usize
+        {
+            let values: [i32; 3] = [
+                7;
+                {
+                    return 3;
+                }
+            ];
+
+            return 0;
+        }
+        "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(), DiagnosticKind::CheckingInvalidConstantExpression,
+    );
+}

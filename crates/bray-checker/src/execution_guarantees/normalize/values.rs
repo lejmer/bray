@@ -145,20 +145,11 @@ pub(super) fn constructed_condition(
             if operation.kind()
                 == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray =>
         {
-            let [operand, count] = operation.operands() else {
-                return None;
-            };
+            let [operand] = operation.runtime_operands() else { return None; };
 
-            let ExecutionCondition::Literal(count) = value(*count) else {
-                return None;
-            };
+            let ty = semantics.types().expression(expression)?.ty();
 
-            let ConstantValueKind::Integer(count) = count.kind() else {
-                return None;
-            };
-
-            let count = usize::try_from(count.to_u64()?)
-                .ok()?
+            let count = crate::constant::known_array_length(values, ty)?
                 .min(ExecutionCondition::WORK_LIMIT);
 
             let value = value(*operand);
