@@ -306,7 +306,7 @@ pub struct ExecutionDomain {
 pub struct ExecutionCallEvidence {
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
     /// Caller-owned carriers admitted at invocation. Valid clauses remain in the
-    /// live state; these identities prevent another carrier from lending provenance.
+    /// live state. These identities prevent another carrier from lending provenance.
     pub(crate) witness_inputs: std::collections::BTreeSet<super::ExecutionCondition>,
     /// Copy origins while their observations remain unchanged. These are value
     /// correlations, never language equality predicates or ownership authority.
@@ -370,7 +370,7 @@ impl ExecutionCallEvidence {
     }
 
     /// Read historical proof through still-valid copy origins. This projection
-    /// supplies call-entry proof only; it never publishes copied live authority.
+    /// supplies call-entry proof only. It never publishes copied live authority.
     pub(crate) fn proof_facts<'a>(
         &self,
         facts: &'a std::collections::BTreeSet<(super::ExecutionCondition, bool)>,

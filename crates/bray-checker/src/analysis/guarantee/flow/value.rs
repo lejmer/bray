@@ -467,7 +467,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     /// Complete known task effects with the cleanup phases that can execute.
-    /// Observations transfer the body result; disposal also destroys that result.
+    /// Observations transfer the body result. Disposal also destroys that result.
     pub(in crate::analysis) fn task_cleanup_types(
         &self,
         sources: &std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,

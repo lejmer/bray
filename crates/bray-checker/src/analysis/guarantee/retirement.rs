@@ -195,7 +195,7 @@ impl ExecutionState {
 
         // A surviving carrier keeps facts about immutable captured contents after
         // their former container ends. Borrowed observations and physical bounds
-        // still expire; writes also invalidate affected by-value observations.
+        // still expire. Writes also invalidate affected by-value observations.
         let revokes = |condition: &ExecutionCondition| observes(condition) && !stable(condition);
 
         let revokes_guarantee = |condition: &ExecutionCondition| {

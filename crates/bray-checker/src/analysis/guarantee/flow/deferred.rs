@@ -284,8 +284,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.join_values(&values, &identities);
 
         // Copyable contents get private observations without renaming their caller
-        // or transferring its authority. Track origins only while unchanged;
-        // projected capture facts survive later source mutation.
+        // or transferring its authority. Track origins only while unchanged.
+        // Projected capture facts survive later source mutation.
         for (place, value) in entry.arguments.clone() {
             let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = place.root else {
                 continue;
