@@ -1,5 +1,7 @@
 # Static storage declarations
 
+Syntax follows the [static declarations grammar](../syntax-grammar.md#static-declarations).
+
 A static declaration introduces address-bearing storage owned by a Bray product or by one attached native thread within
 a product.
 

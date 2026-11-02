@@ -1,5 +1,7 @@
 # Continue expressions
 
+Syntax follows the [completion expressions grammar](../syntax-grammar.md#completion-expressions).
+
 A **continue expression** starts the next iteration of the nearest loop or iteration region that accepts `continue`.
 
 ```bray

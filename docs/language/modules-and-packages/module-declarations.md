@@ -1,5 +1,7 @@
 # Module declarations
 
+Syntax follows the [module declarations grammar](../syntax-grammar.md#module-declarations).
+
 Every source unit must declare at least one module contribution.
 
 There are two source-unit shapes:

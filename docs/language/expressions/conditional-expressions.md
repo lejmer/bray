@@ -1,5 +1,7 @@
 # Conditional expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A conditional expression selects one branch according to a boolean condition.
 
 The conditional expression forms are:

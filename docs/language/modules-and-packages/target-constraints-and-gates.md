@@ -2,14 +2,13 @@
 
 ## Target constraints
 
-Target constraints are product constraints supplied by the package and build layer.
-
-Target profiles, target properties, target constraints, target-conditional declarations, and `@target(...)` gates are
-defined in [Target constraints and gates](../targets-layout-abi-and-raw-memory/target-constraints-and-gates.md).
+[Product constraints](../targets-layout-abi-and-raw-memory/target-constraints-and-gates.md#product-constraints) defines
+the conditions a target must satisfy before module bodies are checked.
 
 ## Target-gated module contributions
 
-A module contribution can be gated by the selected target profile with `@target(...)`.
+[Module contribution gates](../targets-layout-abi-and-raw-memory/target-constraints-and-gates.md#module-contribution-gates)
+defines `@target(...)` selection. For example:
 
 ```bray
 @target(target.atomic.U64)

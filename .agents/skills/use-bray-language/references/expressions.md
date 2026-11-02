@@ -1,5 +1,11 @@
 # Expressions
 
+The detailed rules are defined in the following sections:
+
+- [Expression evaluation order](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/expression-evaluation-order.md).
+- [Return evaluation and ownership](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/return-expressions.md#evaluation-and-ownership).
+- [Callable body exits](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/callable-body-block-expressions.md).
+
 **Specification:** [Expressions](https://github.com/lejmer/bray/blob/develop/docs/language/expressions.md)
 
 ## Contents

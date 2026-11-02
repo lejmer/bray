@@ -2,6 +2,11 @@
 
 Consult the syntax grammar for parsing, formatting, syntax recovery, and proposed source forms.
 
+The detailed rules are defined in the following sections:
+
+- [Grammar sections and semantic rules](https://github.com/lejmer/bray/blob/develop/docs/language/syntax-grammar.md).
+- [Completion expressions](https://github.com/lejmer/bray/blob/develop/docs/language/syntax-grammar.md#completion-expressions).
+
 **Authorities:** [Syntax grammar](https://github.com/lejmer/bray/blob/develop/docs/language/syntax-grammar.md) and [plain syntax EBNF](https://github.com/lejmer/bray/blob/develop/docs/language/syntax-grammar.ebnf)
 
 ## Decisive rules

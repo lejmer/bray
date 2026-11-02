@@ -2,30 +2,16 @@
 
 ## Return
 
-`return` exits the current callable execution scope.
-
-```bray
-func add(left: i32, right: i32) -> i32
-{
-    return left + right;
-}
-```
-
-The returned expression must be compatible with the callable's declared result type.
-
-The `return` expression itself has type `never` because control exits the callable execution scope.
-
-`return` always targets the nearest enclosing callable execution scope.
+[Return expressions](../expressions/return-expressions.md) define return targets, operand checking, result transfer,
+and expression typing. [Callable results and bodies](callable-results-and-bodies.md#function-bodies) define which
+callable bodies can complete normally.
 
 ## Callable execution scopes
 
-A callable execution scope is created by the block expression body of a callable program element.
+A **callable execution scope** is created by the block expression body of a callable program element. Functions,
+lambdas, and async functions create callable execution scopes.
 
-Functions create callable execution scopes.
-
-Lambdas and async functions also create callable execution scopes.
-
-`return` exits the nearest callable execution scope.
+The following example illustrates the [return target rule](../expressions/return-expressions.md).
 
 ```bray
 func outer() -> i32
@@ -41,77 +27,27 @@ func outer() -> i32
 }
 ```
 
-The first `return` exits `inner`.
-
-The second `return` exits `outer`.
+The first `return` exits `inner`. The second exits `outer`.
 
 ## Return and `unit`
 
-A function returning `unit` can complete normally.
-
-```bray
-func log(pos message: string)
-{
-    print(message);
-}
-```
-
-A function returning `unit` can also return explicitly with `return unit;`.
-
-```bray
-func log(pos message: string)
-{
-    print(message);
-    return unit;
-}
-```
-
-`return;` is shorthand for `return unit;`.
+[Omitted result types](callable-results-and-bodies.md#omitted-result-type) default to `unit`.
+[Return expressions](../expressions/return-expressions.md) define explicit unit returns and omitted return operands.
 
 ## Return and `never`
 
-A `never` expression satisfies any required result type at a control-flow merge because it has no normal continuation.
+[Unit and never in expression context](../expressions/literal-expressions.md#unit-and-never-in-expression-context)
+defines how `never` participates in control-flow merges.
+[Callable body completion](callable-results-and-bodies.md#function-bodies) defines the requirement for a callable
+whose declared result is `never`.
 
-At a control-flow merge, `never` contributes no value and does not determine the merged result type.
-
-```bray
-func fail(pos message: string) -> never
-{
-    panic(message);
-}
-```
-
-A function declared to return `never` has no normal completion path.
-
-Panic is outside the ordinary callable result contract.
-
-If a callable panics, the panic propagates to the nearest panic-catching boundary instead of producing the callable's
-declared result.
-
-A `catch` expression creates an expression-level panic-catching boundary.
-
-The never-producing expression forms are defined by the Expressions chapter.
+[Panic expressions](../expressions/panic-expressions.md) define failure outside the ordinary callable result contract.
+[Catch expressions](../expressions/catch-expressions.md) define expression-level panic-catching boundaries.
 
 ## Callable result exits
 
-Callable result values are supplied explicitly through `return`.
-
-```bray
-func add(left: i32, right: i32) -> i32
-{
-    return left + right;
-}
-```
-
-This keeps callable exits visible in the source.
-
-## Yield and return
-
-`yield` supplies a value to the nearest enclosing yield-capable region.
-
-`yield;` is shorthand for `yield unit;`.
-
-`return` exits the nearest callable execution scope.
+[Callable body completion](callable-results-and-bodies.md#function-bodies) requires explicit result exits.
+The following example contrasts [yield targets](../expressions/yield-expressions.md) with return targets.
 
 ```bray
 func f() -> i32
@@ -125,37 +61,18 @@ func f() -> i32
 }
 ```
 
-The `yield` supplies the value of the value-producing block expression.
+The `yield` supplies the nested block's value. The `return` supplies the function result.
 
-The `return` exits the function.
+## Yield and return
+
+[Yield expressions](../expressions/yield-expressions.md) define single-yield and multi-yield regions, nested targets,
+and omitted operands. [Return expressions](../expressions/return-expressions.md) define callable exits.
 
 ## Block expression results and callable results
 
-Block expression results and callable results are related but distinct semantic layers.
-
-A value-producing block expression receives its value through `yield`.
-
-```bray
-let x: i32 =
-{
-    yield 1;
-};
-```
-
-A callable receives its result through `return`.
-
-```bray
-func f() -> i32
-{
-    return 1;
-}
-```
-
-`yield` targets the nearest yield-capable region.
-
-`return` targets the nearest callable execution scope.
-
-A function body is a block expression, and its callable result is governed by callable-body rules.
+[Block expressions](../expressions/block-expressions.md) define value-producing blocks.
+[Callable-body block expressions](../expressions/callable-body-block-expressions.md) define callable exits and local
+ownership resolution. A function body uses those callable-body rules even though its syntax is a block expression.
 
 ## Navigation
 

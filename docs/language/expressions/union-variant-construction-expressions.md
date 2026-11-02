@@ -1,5 +1,7 @@
 # Union variant construction expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **union variant construction expression** creates a fully initialized value of a union type with one active variant.
 
 A full payload variant construction expression names the union type and variant.
@@ -176,21 +178,20 @@ A union variant construction expression can establish conditions at that program
 Conditions can include the union type, selected active variant, initialized active payload, initialized payload fields,
 and conditions established by payload initializer expressions, defaults, or variant contracts.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
-conditions about the constructed union value or active payload.
+[Contract and borrow validity](../ownership-and-borrowing/contract-and-borrow-validity.md) defines when changes to the
+constructed value or its parts invalidate those conditions.
 
 A union variant construction expression creates a new value. Initialization performed by the construction expression is
 initialization, not ordinary mutation.
 
-A value being constructed has no stable observable identity until construction is complete.
+[Construction](../lifecycle/construction.md) defines when the new value acquires observable identity and how
+initialization differs from later mutation.
 
 Payload field mutability controls post-initialization mutation of payload fields. It does not restrict initialization of
 payload fields during construction.
 
-Supplied payload field initializer expressions are evaluated in source order.
-
-Omitted payload field defaults are evaluated after supplied payload field initializers, in payload field declaration
-order.
+[Construction evaluation order](expression-evaluation-order.md#construction-and-scoped-use) defines the ordering of
+supplied payload fields and omitted defaults.
 
 ## Navigation
 

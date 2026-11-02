@@ -1,5 +1,7 @@
 # Type-form construction expressions
 
+Syntax follows the [type form construction expressions grammar](../syntax-grammar.md#type-form-construction-expressions).
+
 A **type-form construction expression** is a construction expression associated with a type form.
 
 A type form is a compiler-recognized type-level construct.
@@ -75,8 +77,8 @@ lifetimes, capabilities, and versions they depend on remain valid.
 
 Runtime construction arguments are evaluated in source order.
 
-Omitted runtime construction defaults are evaluated after explicit runtime construction arguments, in construction
-parameter declaration order.
+[Construction evaluation order](expression-evaluation-order.md#construction-and-scoped-use) defines the ordering of
+explicit runtime arguments and omitted construction defaults.
 
 ## Navigation
 

@@ -1,5 +1,7 @@
 # General generator expressions
 
+Syntax follows the [generator expressions grammar](../syntax-grammar.md#generator-expressions).
+
 A **general generator expression** constructs a generator value from zero or more yielded elements.
 
 ```bray

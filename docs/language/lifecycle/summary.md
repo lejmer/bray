@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [lifecycle selection](lifecycle-selection.md).
+- [lifecycle ordering](lifecycle-ordering.md).
+- [lifecycle requirements in traits](lifecycle-requirements-in-traits.md).
+
 Constructors create fully initialized values.
 
 Finalizers complete fallible or asynchronous lifecycle obligations before ownership ends.

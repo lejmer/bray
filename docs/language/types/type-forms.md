@@ -1,5 +1,7 @@
 # Type Forms
 
+Syntax follows the [type expressions grammar](../syntax-grammar.md#type-expressions).
+
 A **type form** is a syntactic and semantic form that produces a type.
 
 Type forms are compiler-recognized type-level constructs.
@@ -986,15 +988,8 @@ callable OrderedPredicate<T>
     func(pos left: &T, pos right: &T) -> bool;
 ```
 
-A named callable contract is not a general type alias.
-
-It can name only callable type forms.
-
-It does not rename arbitrary type expressions, functions, methods, lambdas, implementations, modules, or packages.
-
-A callable value satisfies a named callable contract when its visible callable contract satisfies the named contract.
-
-Named callable contracts cannot be overloaded.
+[Named callable contracts](../callables/callable-types-and-values.md#named-callable-contracts) defines naming,
+satisfaction, and overloading restrictions for this type form.
 
 Lambda expressions produce anonymous callable values. Lambda callable rules are defined in
 [Lambda expressions and anonymous callables](../callables/lambda-expressions-and-anonymous-callables.md).

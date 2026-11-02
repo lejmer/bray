@@ -71,7 +71,10 @@ A **copy** duplicates a value according to the value's copy contract without tra
 A **partial move** moves a subpart of a value while leaving the remaining parts subject to Bray's partial-move rules.
 
 Ownership, borrowing, access-path, movement, and dependency-contract rules are defined in
-[Ownership and borrowing](ownership-and-borrowing.md).
+[storage and access paths](ownership-and-borrowing/storage-and-access-paths.md),
+[moves and copies](ownership-and-borrowing/moves-copies-and-consumption.md),
+[borrow rules](ownership-and-borrowing/borrow-rules.md), and
+[dependency contracts](ownership-and-borrowing/dependency-contracts.md).
 
 An **initialized** storage location contains a valid value of its type.
 
@@ -151,7 +154,9 @@ A **capability** is named authority to perform an operation that ordinary safe B
 authority.
 
 Contract, predicate, flow-sensitive contract reasoning, trusted-capability, trusted-obligation, witness-value, and
-trust-boundary rules are defined in [Contracts and trust](contracts-and-trust.md).
+trust-boundary rules are defined in [contract clauses](contracts-and-trust/contract-clauses.md), [contract reasoning](contracts-and-trust/contract-reasoning.md),
+[trusted caller obligations](contracts-and-trust/trusted-caller-obligations.md), and
+[trust boundaries](contracts-and-trust/trust-boundaries.md).
 
 ---
 
@@ -172,7 +177,8 @@ A **lifecycle obligation** is an obligation to finalize, exit, destroy, cancel, 
 value's required lifecycle before the owning scope ends.
 
 Construction, finalization, destruction, scoped-use, and lifecycle-obligation rules are defined in
-[Lifecycle](lifecycle.md).
+[construction](lifecycle/construction.md), [finalization](lifecycle/finalization.md),
+[destruction](lifecycle/destruction.md), and [scoped use](lifecycle/scoped-use.md).
 
 ---
 

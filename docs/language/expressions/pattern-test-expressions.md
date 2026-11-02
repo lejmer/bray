@@ -1,5 +1,7 @@
 # Pattern-test expressions
 
+Syntax follows the [pattern roots grammar](../syntax-grammar.md#pattern-roots).
+
 `subject matches pattern` evaluates the subject exactly once, observes it, and returns `bool` according to the existing
 structural pattern rules. The subject remains available under its existing ownership and capability state.
 

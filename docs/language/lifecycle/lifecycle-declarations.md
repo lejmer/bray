@@ -1,5 +1,7 @@
 # Lifecycle declarations
 
+Syntax follows the [lifecycle members grammar](../syntax-grammar.md#lifecycle-members).
+
 Lifecycle declarations attach construction, finalization, destruction, or scoped-use behavior to a type or
 implementation subject.
 

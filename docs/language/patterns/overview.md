@@ -1,5 +1,7 @@
 # Overview
 
+Syntax follows the [pattern roots grammar](../syntax-grammar.md#pattern-roots).
+
 A **pattern** is a structural matching form that can refine a value, bind parts of it, and determine how ownership or
 access paths flow into the matched region.
 

@@ -1,10 +1,14 @@
 # Target constraints and gates
 
+## Product constraints
+
 Target constraints are product constraints supplied by the package and build layer.
 
 The compiler checks a product only when the selected target profile satisfies that product's target constraints.
 
 When a product's target constraints are not satisfied, the product is rejected before module bodies are checked.
+
+## Module contribution gates
 
 A module contribution can be gated by the selected target profile with `@target(...)`.
 

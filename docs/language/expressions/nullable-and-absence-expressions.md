@@ -1,5 +1,7 @@
 # Nullable and absence expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 The nullable type form is `T?`.
 
 The absence expression is `none`.

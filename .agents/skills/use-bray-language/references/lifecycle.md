@@ -1,5 +1,11 @@
 # Lifecycle
 
+The detailed rules are defined in the following sections:
+
+- [Lifecycle requirement fulfillment](https://github.com/lejmer/bray/blob/develop/docs/language/types/traits.md#lifecycle-requirements-in-traits).
+- [Lifecycle selection](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/lifecycle-selection.md).
+- [With lifecycle behavior](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/with-expressions.md).
+
 **Specification:** [Lifecycle](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle.md)
 
 ## Contents

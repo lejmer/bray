@@ -1,5 +1,7 @@
 # Trust boundary expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **trust boundary expression** marks a local trust boundary for one operand expression.
 
 The syntax is:

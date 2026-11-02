@@ -1,5 +1,7 @@
 # Type declarations
 
+Syntax follows the [type declarations grammar](../syntax-grammar.md#type-declarations).
+
 A **type declaration** introduces a named type.
 
 Product types are declared with `struct`.

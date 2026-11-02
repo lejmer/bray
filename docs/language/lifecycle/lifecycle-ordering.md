@@ -16,7 +16,8 @@ Not every value passes through every lifecycle step.
 
 Represented-part destruction is field destruction for product types and active-payload destruction for union types.
 
-Default represented-part destruction order is defined by the represented type's rules.
+[Destruction](destruction.md) defines the default order for represented parts. Type-specific rules define any
+additional constraints.
 
 Lifecycle ordering is preserved on ordinary scope exit, early control-flow exit, panic propagation, cancellation, and
 failed partial construction.

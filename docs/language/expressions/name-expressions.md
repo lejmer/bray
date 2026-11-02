@@ -1,5 +1,7 @@
 # Name expressions
 
+Syntax follows the [paths grammar](../syntax-grammar.md#paths).
+
 A **name expression** is an expression consisting of a single identifier.
 
 ```bray

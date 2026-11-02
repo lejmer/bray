@@ -1,5 +1,7 @@
 # Overload declarations
 
+Syntax follows the [overload declarations grammar](../syntax-grammar.md#overload-declarations).
+
 An overload declaration introduces an explicit overload family.
 
 Same-name declarations do not automatically form overload sets.

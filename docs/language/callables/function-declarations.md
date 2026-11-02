@@ -1,5 +1,7 @@
 # Function declarations
 
+Syntax follows the [function declarations grammar](../syntax-grammar.md#function-declarations).
+
 A function is declared with `func`.
 
 ```bray

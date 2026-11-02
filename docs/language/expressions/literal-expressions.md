@@ -1,5 +1,11 @@
 # Literal expressions
 
+[Lexical grammar](../lexical-grammar.md#numeric-literals) defines numeric token spelling.
+[Character](../lexical-grammar.md#character-literals) and [string](../lexical-grammar.md#string-literals) sections define
+their token spelling and escapes.
+
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **literal expression** directly denotes a literal value written in source text.
 
 Literal expressions are expression grammar forms. They are checked in expression context and receive a type during
@@ -312,7 +318,8 @@ A unit value expression has type `unit`.
 let done: unit = unit;
 ```
 
-A callable returning `unit` can complete normally or return `unit` explicitly.
+[Callable body completion](../callables/callable-results-and-bodies.md#function-bodies) and
+[unit returns](return-expressions.md) define natural and explicit completion. For example:
 
 ```bray
 func log(pos message: string)
@@ -342,9 +349,7 @@ The never-producing expression forms are:
 return value;
 ```
 
-The operand of `return value` is checked against the nearest callable execution scope's declared result type.
-
-The `return value` expression itself has type `never`.
+[Return expressions](return-expressions.md) defines operand checking and the type of the complete return expression.
 
 A `never` expression can satisfy any expected type at a control-flow merge because it has no normal continuation.
 

@@ -1,5 +1,7 @@
 # Implementations
 
+Syntax follows the [implementation declarations grammar](../syntax-grammar.md#implementation-declarations).
+
 An **implementation** declares behavior for a type.
 
 Implementations are declared with `impl`.

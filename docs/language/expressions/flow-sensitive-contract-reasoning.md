@@ -1,5 +1,8 @@
 # Flow-sensitive contract reasoning
 
+[Contract reasoning](../contracts-and-trust/contract-reasoning.md) defines available conditions.
+[Contract and borrow validity](../ownership-and-borrowing/contract-and-borrow-validity.md) defines their invalidation.
+
 The language rules determine which conditions are available before and after each expression.
 
 Examples:

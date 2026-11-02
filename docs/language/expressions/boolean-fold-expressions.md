@@ -1,5 +1,7 @@
 # Boolean fold expressions
 
+Syntax follows the [boolean fold expressions grammar](../syntax-grammar.md#boolean-fold-expressions).
+
 A **boolean fold expression** reduces a finite iterable expression with boolean elements to a single `bool`.
 
 Boolean fold expressions use `all(...)` and `any(...)`.

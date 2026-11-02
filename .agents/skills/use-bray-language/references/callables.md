@@ -1,5 +1,11 @@
 # Callables
 
+The detailed rules are defined in the following sections:
+
+- [Callable results and bodies](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-results-and-bodies.md).
+- [Callable execution scopes](https://github.com/lejmer/bray/blob/develop/docs/language/callables/return-and-execution-scopes.md#callable-execution-scopes).
+- [Return evaluation and ownership](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/return-expressions.md#evaluation-and-ownership).
+
 **Specification:** [Callables](https://github.com/lejmer/bray/blob/develop/docs/language/callables.md)
 
 ## Contents

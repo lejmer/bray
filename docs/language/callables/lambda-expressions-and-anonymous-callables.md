@@ -1,5 +1,7 @@
 # Lambda expressions and anonymous callables
 
+Syntax follows the [lambda expressions grammar](../syntax-grammar.md#lambda-expressions).
+
 An anonymous callable expression uses `lambda`.
 
 ```bray

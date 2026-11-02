@@ -1,5 +1,7 @@
 # General generator iteration expressions
 
+Syntax follows the [generator expressions grammar](../syntax-grammar.md#generator-expressions).
+
 A **general generator iteration expression** iterates over a source inside a multi-yield generator region.
 
 The iteration form is:

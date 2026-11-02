@@ -31,8 +31,9 @@ are available only in a control-flow arm refined to `RunResult.Completed(value)`
 The async body is checked in an active async execution context. It can use `await`, `Future<T>.start()`, asynchronous
 lifecycle resolution, and ordinary lexical structured task scopes.
 
-The complete computation, frame, dependency, execution-requirement, cancellation, task, and runtime rules are defined in
-[Async and concurrency](../async-and-concurrency.md).
+[Async computations](../async-and-concurrency/async-functions-and-computations.md) defines inactive frame ownership.
+[Await semantics](../async-and-concurrency/await-expressions.md) defines direct execution, and
+[Starting tasks](../async-and-concurrency/starting-tasks.md) defines the independent task boundary.
 
 ## Navigation
 

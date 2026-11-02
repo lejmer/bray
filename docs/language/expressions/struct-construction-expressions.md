@@ -1,5 +1,7 @@
 # Struct construction expressions
 
+Syntax follows the [struct construction bodies grammar](../syntax-grammar.md#struct-construction-bodies).
+
 A **struct construction expression** creates a fully initialized value of a struct type.
 
 A full struct construction expression names the struct type before the construction body.
@@ -121,13 +123,14 @@ conditions established by field initializer expressions.
 Conditions about omitted defaulted fields can be established when the default expression establishes those conditions
 and the conditions remain valid after construction.
 
-Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
-conditions about the constructed value or its fields.
+[Contract and borrow validity](../ownership-and-borrowing/contract-and-borrow-validity.md) defines when changes to the
+constructed value or its parts invalidate those conditions.
 
 A struct construction expression creates a new value. Initialization performed by the construction expression is
 initialization, not ordinary mutation.
 
-A value being constructed has no stable observable identity until construction is complete.
+[Construction](../lifecycle/construction.md) defines when the new value acquires observable identity and how
+initialization differs from later mutation.
 
 Field mutability controls post-initialization mutation of fields. It does not restrict initialization of fields during
 construction.
@@ -147,9 +150,8 @@ let c: Counter =
 The field `value` is initialized during construction. Its `mut` field declaration controls later mutation through
 compatible mutable access paths.
 
-Supplied field initializer expressions are evaluated in source order.
-
-Omitted field defaults are evaluated after supplied field initializers, in field declaration order.
+[Construction evaluation order](expression-evaluation-order.md#construction-and-scoped-use) defines the ordering of
+supplied fields and omitted defaults.
 
 ## Navigation
 

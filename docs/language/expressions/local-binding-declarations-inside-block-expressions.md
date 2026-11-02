@@ -1,5 +1,7 @@
 # Local binding declarations inside block expressions
 
+Syntax follows the [block expressions grammar](../syntax-grammar.md#block-expressions).
+
 A **local binding declaration** introduces one or more local bindings inside a block expression.
 
 A local binding declaration uses `let`.
@@ -229,9 +231,7 @@ Tuple patterns in local binding declarations match tuple elements by position.
 let (left, right): (i32, i32) = pair;
 ```
 
-Tuple arity must match the subject tuple type.
-
-Each element pattern is checked against the corresponding tuple element type.
+[Tuple patterns](../patterns/tuple-and-array-patterns.md) defines arity and element-type checking.
 
 A one-element tuple pattern uses a trailing comma.
 
@@ -245,7 +245,7 @@ Fixed-size array patterns in local binding declarations match array elements by 
 let [first, second, third]: [i32; 3] = values;
 ```
 
-The number of listed element patterns must match the array length unless `..` is present.
+[Array patterns](../patterns/tuple-and-array-patterns.md) defines fixed length, omitted elements, and element typing.
 
 ```bray
 let [first, .., last]: [i32; 4] = values;
@@ -266,11 +266,7 @@ The inner pattern is checked against `T`.
 The local binding declaration’s operation mode determines whether the contained value is observed, borrowed, copied, or
 consumed.
 
-A consuming `box(inner)` pattern consumes the box and moves through the owned indirection according to `box` ownership
-rules.
-
-A borrowing `box(inner)` pattern projects a borrow of the contained value according to the box storage policy and the
-required storage behavior.
+[Box patterns](../patterns/box-patterns.md) defines consuming and borrowing projections through the storage policy.
 
 A local binding declaration can establish conditions at that program point.
 

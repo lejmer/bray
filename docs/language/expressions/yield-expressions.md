@@ -1,5 +1,7 @@
 # Yield expressions
 
+Syntax follows the [completion expressions grammar](../syntax-grammar.md#completion-expressions).
+
 A **yield expression** supplies a value to the nearest enclosing yield-capable region.
 
 ```bray

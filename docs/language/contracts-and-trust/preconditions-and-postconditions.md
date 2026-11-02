@@ -36,8 +36,9 @@ func clamp(pos value: i32, min: i32, max: i32) -> i32
 }
 ```
 
-Postconditions are available after successful normal completion while their referenced values, storage identities,
-lifetimes, capabilities, and versions remain valid.
+[Contract reasoning](contract-reasoning.md) defines condition availability after normal completion.
+[Contract and borrow validity](../ownership-and-borrowing/contract-and-borrow-validity.md) defines when those conditions
+remain usable.
 
 Postconditions are not available on panic, cancellation, propagation, or any path that does not complete normally
 through the declaration result described by the clause.

@@ -1,5 +1,7 @@
 # Catch expressions
 
+Syntax follows the [expression roots and precedence structure grammar](../syntax-grammar.md#expression-roots-and-precedence-structure).
+
 A **catch expression** creates a panic-catching boundary for its operand.
 
 It is an expression-level panic conversion, not the second half of a try-catch statement. Bray has no exception objects,

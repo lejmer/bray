@@ -1,5 +1,7 @@
 # Callable ABI
 
+ABI directive syntax follows the [callable directives grammar](../syntax-grammar.md#callable-and-function-directives).
+
 A callable ABI is the representation and call-entry contract used when a callable crosses an ABI boundary.
 
 Ordinary Bray calls use Bray's default callable ABI.

@@ -1,5 +1,7 @@
 # Loop expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A loop expression is a break-capable region.
 
 The loop expression form is:

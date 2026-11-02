@@ -1,5 +1,7 @@
 # Re-exports
 
+Syntax follows the [using and export declarations grammar](../syntax-grammar.md#using-and-export-declarations).
+
 An export declaration re-exports a visible declaration path from the current module.
 
 ```bray

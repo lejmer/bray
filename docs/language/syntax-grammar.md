@@ -33,6 +33,9 @@ directive can apply to a module declaration" are semantic checks.
 
 ## Compilation unit
 
+[Package products and source graphs](modules-and-packages/package-products-and-source-graphs.md) defines which source
+units participate in a compilation.
+
 A compilation unit is the selected Bray source units for one package product.
 
 ```ebnf
@@ -43,6 +46,9 @@ compilation-unit =
 ---
 
 ## Source Units
+
+[Module declarations](modules-and-packages/module-declarations.md) defines the semantic ownership of source-unit
+and block module contributions.
 
 Every source unit starts with explicit module syntax.
 
@@ -64,6 +70,8 @@ source-unit-module-declaration =
 ---
 
 ## Module declarations
+
+[Module bodies](modules-and-packages/module-bodies.md) defines the declarations accepted by a module contribution.
 
 ```ebnf
 block-module-declaration =
@@ -87,6 +95,9 @@ a source-unit module declaration.
 ---
 
 ## Declaration contexts
+
+[Declaration contexts](declarations/declaration-contexts.md) defines validity within module, type, trait, implementation,
+and block contexts.
 
 Declarations are grouped by the source context that accepts them.
 
@@ -142,6 +153,9 @@ members are checked.
 
 ## Module directives
 
+[Target gates](targets-layout-abi-and-raw-memory/target-constraints-and-gates.md) and
+[test products and entries](modules-and-packages/test-products-and-entries.md) define directive validity.
+
 ```ebnf
 module-directives =
     { module-directive } ;
@@ -172,6 +186,9 @@ Repeated or conflicting directives are rejected by semantic checks.
 
 ## Module modifiers
 
+[Module visibility](modules-and-packages/module-visibility.md) and
+[trusted modules](modules-and-packages/trusted-modules.md) define these modifiers.
+
 ```ebnf
 module-modifiers =
     [ trusted-modifier ] [ visibility-modifier ] ;
@@ -190,6 +207,9 @@ The required module modifier order is `trusted` before visibility.
 
 ## Using and export declarations
 
+[Using declarations](modules-and-packages/using-declarations.md) and
+[re-exports](modules-and-packages/re-exports.md) define dependencies and visibility.
+
 ```ebnf
 using-declaration =
     "using" [ "internal" ] path ";" ;
@@ -202,6 +222,8 @@ export-declaration =
 
 ## Paths
 
+[Path expressions](expressions/path-expressions.md) defines path resolution and access.
+
 ```ebnf
 path =
     identifier { "." identifier } ;
@@ -210,6 +232,9 @@ path =
 ---
 
 ## Expression roots and precedence structure
+
+[Expression context](expressions/expression-context.md) defines contextual checking.
+[Evaluation order](expressions/expression-evaluation-order.md) defines runtime order independently of grammar precedence.
 
 `expression` accepts every expression form.
 
@@ -438,7 +463,22 @@ with-expression =
     "with" irrefutable-pattern [ ":" type-expression ] "=" expression
     block-expression ;
 
+```
 
+The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer
+expression.
+
+A generic argument list in an access path applies the preceding generic declaration. This form selects closed generic
+types, callables, and static instances. A following argument list calls a selected callable. Applying generic arguments
+to a non-generic declaration is a semantic error.
+
+### Completion expressions
+
+[Yield](expressions/yield-expressions.md), [return](expressions/return-expressions.md),
+[panic](expressions/panic-expressions.md), [break](expressions/break-expressions.md), and
+[continue](expressions/continue-expressions.md) define targets, operand validity, and completion behavior.
+
+```ebnf
 yield-expression =
     "yield" [ expression ] ;
 
@@ -458,14 +498,10 @@ continue-expression =
 The parser accepts omitted operands for `yield`, `return`, and `break`. Semantic checking treats an omitted operand as
 `unit` in valid target contexts.
 
-The block after a `with` header belongs to the `with-expression`. It is not parsed as part of the initializer
-expression.
-
-A generic argument list in an access path applies the preceding generic declaration. This form selects closed generic
-types, callables, and static instances. A following argument list calls a selected callable. Applying generic arguments
-to a non-generic declaration is a semantic error.
-
 ### Argument lists
+
+[Arguments](expressions/arguments.md) defines parameter binding and validation.
+[Defaulted arguments](expressions/defaulted-arguments.md) defines omitted parameters.
 
 An `argument-list` is the parenthesized runtime argument list used by call expressions and callable-like construction
 forms.
@@ -503,6 +539,9 @@ expression with that token shape must be grouped.
 
 ### Struct construction bodies
 
+[Struct construction expressions](expressions/struct-construction-expressions.md) defines type inference, field
+validation, and initialization.
+
 A `struct-construction-body` is the braced field-initializer list used by full struct construction and expected-type
 struct construction.
 
@@ -534,6 +573,9 @@ supplies the constructed struct type. Otherwise it is an empty block expression.
 
 ### Type-form construction expressions
 
+[Type-form construction expressions](expressions/type-form-construction-expressions.md) defines construction checking.
+[Box construction](expressions/box-construction-expressions.md) defines storage and ownership.
+
 A `type-form-construction-expression` is a compiler-recognized construction expression associated with a type form.
 
 ```ebnf
@@ -554,6 +596,8 @@ initialization are semantic checks.
 
 ### Tuple expressions
 
+[Tuple expressions](expressions/tuple-expressions.md) defines element typing and ownership.
+
 A `tuple-expression` is a parenthesized expression list that contains a tuple comma.
 
 ```ebnf
@@ -573,6 +617,8 @@ Parentheses around a single expression without a comma are parsed as `grouped-ex
 The unit value is spelled `unit`. There is no empty tuple expression syntax.
 
 ### Array expressions
+
+[Array expressions](expressions/array-expressions.md) defines element typing, repetition, and initialization.
 
 An `array-expression` constructs a fixed-size array through supplied elements, repeated elements, or an array generator
 expression.
@@ -604,6 +650,10 @@ Array generator syntax is defined with generator expressions.
 
 ### Generator expressions
 
+[General generators](expressions/general-generator-expressions.md),
+[generator iteration](expressions/general-generator-iteration-expressions.md), and
+[array generators](expressions/array-generator-expressions.md) define element production and cardinality.
+
 A `general-generator-expression` is a braced generator region whose top-level child is one generator iteration
 expression.
 
@@ -627,6 +677,9 @@ The body is parsed as a block expression in generator-iteration context. Yield h
 finiteness, ownership, borrowing, effects, and context-specific validity are semantic checks.
 
 ### Boolean fold expressions
+
+[Boolean fold expressions](expressions/boolean-fold-expressions.md) defines operand requirements and short-circuit
+iteration.
 
 A `boolean-fold-expression` reduces one operand with `all(...)` or `any(...)`.
 
@@ -653,6 +706,11 @@ expression.
 Element type, finiteness, boundedness, iteration contracts, and context-specific validity are semantic checks.
 
 ### Block expressions
+
+[Block expressions](expressions/block-expressions.md) defines scope and results.
+[Sequenced expressions](expressions/sequenced-expressions.md) defines semicolon requirements.
+[Local binding declarations](expressions/local-binding-declarations-inside-block-expressions.md) defines local names
+and initialization.
 
 A `block-expression` is a braced sequence of block items.
 
@@ -705,6 +763,10 @@ A generator iteration block item is valid only in a generator-iteration context 
 `general-generator-expression`.
 
 ### Control-flow expressions
+
+[Conditional](expressions/conditional-expressions.md), [match](expressions/match-expressions.md),
+[while](expressions/while-expressions.md), [for](expressions/for-expressions.md), and
+[loop](expressions/loop-expressions.md) expressions define branch, pattern, and iteration behavior.
 
 Control-flow expressions use header syntax followed by block bodies.
 
@@ -769,6 +831,9 @@ source selects shared iteration mode.
 Only match arms have `when` guards.
 
 ### Pattern roots
+
+[Pattern contexts](patterns/pattern-contexts.md), [resolution](patterns/pattern-resolution.md), and
+[operation modes](patterns/pattern-operation-modes.md) define validity and matching.
 
 Pattern grammar is split by context.
 
@@ -1051,6 +1116,8 @@ unary-operator =
 
 ## Type expressions
 
+[Type expressions](types/type-forms.md#type-expressions) defines denoted types and type-form composition.
+
 Type expressions use a separate non-left-recursive grammar from runtime expressions.
 
 ```ebnf
@@ -1179,6 +1246,8 @@ Callable type forms use the shared callable roots without a name or body.
 
 ## Typed identifiers and type annotations
 
+[Expression context](expressions/expression-context.md) defines how an expected type constrains checking.
+
 Several declarations bind a required name to a required type expression.
 
 ```ebnf
@@ -1195,6 +1264,8 @@ same declaration item. Patterns that may include an optional type annotation kee
 ---
 
 ## Callable parameters
+
+[Parameters](callables/parameters.md) defines names, call positions, ownership, defaults, and variadic validity.
 
 Callable parameter lists are shared by callable declarations, callable type forms, named callable contracts, lifecycle
 declarations, and lambda expressions.
@@ -1240,6 +1311,9 @@ are checked by the call and declaration rules.
 ---
 
 ## Callable contract clauses
+
+[Contract clauses](contracts-and-trust/contract-clauses.md) defines clause meaning.
+[Conditional execution guarantees](contracts-and-trust/execution-guarantees.md) defines guarded guarantees.
 
 Callable contract clauses are shared by callable declarations, callable type forms, named callable contracts, lifecycle
 declarations, and lambda expressions.
@@ -1314,6 +1388,8 @@ contract rules.
 
 ## Constant declarations
 
+[Constant declarations](declarations/constant-declarations.md) defines constant checking and evaluation.
+
 An ordinary constant declaration introduces a named compile-time value.
 
 ```ebnf
@@ -1335,6 +1411,9 @@ Constant-valued trait members use the same declaration shape, with their own mem
 ---
 
 ## Static declarations
+
+[Static storage declarations](declarations/static-storage-declarations.md) defines instance identity, materialization,
+dependencies, and cleanup.
 
 Static declarations introduce address-bearing product or native-thread storage.
 
@@ -1388,6 +1467,8 @@ The complete storage, specialization, access, dependency, and cleanup rules are 
 
 ## Generic parameters
 
+[Generic declarations and constraints](declarations/generic-declarations-and-constraints.md) defines generic validity.
+
 Generic parameter lists are shared by declarations that can introduce type parameters, constant parameters, or both.
 
 ```ebnf
@@ -1417,6 +1498,9 @@ Const parameters use `const NAME: Type`.
 ---
 
 ## Predicate declarations
+
+[Predicate declarations](declarations/predicate-declarations.md) defines names and declaration contexts.
+[Predicate expressions](contracts-and-trust/predicates-and-predicate-expressions.md) defines predicate evaluation.
 
 Predicate declarations introduce contract-level relations.
 
@@ -1468,6 +1552,8 @@ semantic errors.
 
 ## Callable contract declarations
 
+[Callable types and values](callables/callable-types-and-values.md) defines named callable contracts and satisfaction.
+
 Named callable contract declarations introduce reusable names for callable type forms.
 
 ```ebnf
@@ -1497,6 +1583,8 @@ The declaration has no body and ends with `;`.
 ---
 
 ## Type declarations
+
+[Type declarations](types/type-declarations.md) defines type identity, visibility, and members.
 
 Type declarations introduce named product and union types.
 
@@ -1552,6 +1640,8 @@ incomplete or has explicit opaque size and alignment. Union declarations always 
 
 ### Struct bodies
 
+[Product types](types/product-types.md#field-declarations) defines field declaration validity.
+
 ```ebnf
 struct-body =
     "{" { struct-body-item } "}" ;
@@ -1580,6 +1670,8 @@ Type member declarations are parsed as type-body items and are defined by the gr
 declarations, and other type-owned declarations.
 
 ### Union bodies
+
+[Union types](types/union-types.md#variant-declarations) defines variant and payload validity.
 
 ```ebnf
 union-body =
@@ -1627,6 +1719,8 @@ Variant-level visibility modifiers are not part of union bodies. A variant has t
 ---
 
 ## Type member declarations
+
+[Member declarations](declarations/member-declarations.md) defines member contexts.
 
 Type member declarations are definitions written inside a `struct` or `union` body.
 
@@ -1681,6 +1775,8 @@ Type-associated predicates use ordinary predicate declaration syntax.
 
 ### Constructors
 
+[Construction](lifecycle/construction.md) defines constructor results and initialization.
+
 ```ebnf
 type-constructor-member-declaration =
     constructor-member-modifiers "construct" [ identifier ] parameter-list
@@ -1704,6 +1800,8 @@ Constructors are synchronous. Trusted constructors use the same `trusted` modifi
 other trusted declarations.
 
 ### Lifecycle Members
+
+[Lifecycle declarations](lifecycle/lifecycle-declarations.md) defines receivers, signatures, and declaration placement.
 
 ```ebnf
 type-lifecycle-member-declaration =
@@ -1783,6 +1881,8 @@ Each lifecycle member is a definition and has a callable body block.
 ---
 
 ## Trait declarations
+
+[Traits](types/traits.md#trait-member-declarations) defines trait requirements and defaults.
 
 Trait declarations introduce named behavioral contracts.
 
@@ -1894,6 +1994,8 @@ Trait predicate members use the shared `predicate-parameter-list` grammar.
 
 ### Trait Lifecycle Requirements
 
+[Lifecycle requirements in traits](types/traits.md#lifecycle-requirements-in-traits) defines signatures and fulfillment.
+
 ```ebnf
 trait-lifecycle-requirement-declaration =
       trait-finalizer-requirement-declaration
@@ -1927,6 +2029,8 @@ Constructor requirements are expressed as static callable members that return `S
 ---
 
 ## Implementation declarations
+
+[Implementations](types/implementations.md) defines subject selection, fulfillment, and coherence.
 
 Implementation declarations introduce inherent behavior or fulfill a trait application for an implementing subject.
 
@@ -2043,6 +2147,8 @@ fulfillment, and coherence are semantic checks.
 
 ## Overload declarations
 
+[Overload declarations](declarations/overload-declarations.md) defines callable and implementation overload families.
+
 Overload declarations introduce explicit overload families.
 
 ```ebnf
@@ -2132,6 +2238,9 @@ Duplicate arms, incompatible arms, visibility, coherence, overlap, and overload 
 
 ## Callable and function directives
 
+[Callable ABI](targets-layout-abi-and-raw-memory/callable-abi.md) and
+[extern declarations](targets-layout-abi-and-raw-memory/extern-declarations-and-ffi.md) define ABI, link, and symbol rules.
+
 Callable directives are part of the callable contract and can also appear on callable type forms and ABI-qualified
 lambdas.
 
@@ -2190,6 +2299,9 @@ contexts are semantic checks.
 
 ## Function declarations
 
+[Function declarations](callables/function-declarations.md) and
+[callable body completion](callables/callable-results-and-bodies.md#function-bodies) define function validity.
+
 This production defines module-level function declarations.
 
 ```ebnf
@@ -2230,6 +2342,9 @@ but define their own declaration productions.
 
 ## Lambda expressions
 
+[Lambda callable rules](callables/lambda-expressions-and-anonymous-callables.md) define parameters and scope.
+[Lambda evaluation](expressions/lambda-expressions-and-anonymous-callable-expressions.md) defines callable-value creation.
+
 Lambda expressions use the shared callable grammar roots for directives, parameters, result types, contract clauses, and
 callable body blocks.
 
@@ -2268,6 +2383,9 @@ When a callable modifier sequence is followed by `lambda`, the parser treats it 
 ---
 
 ## Lexical terminals
+
+[Lexical grammar](lexical-grammar.md) defines token spelling.
+[Literal expressions](expressions/literal-expressions.md#literal-typing-by-context) defines literal typing.
 
 These terminals are defined by the lexical grammar:
 

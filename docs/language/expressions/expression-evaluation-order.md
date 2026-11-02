@@ -55,6 +55,8 @@ contracts.
 
 `any(...)` stops iterating after the first `true` element.
 
+## Call arguments and defaults
+
 Explicit call arguments are evaluated in source order.
 
 Named argument binding is separate from argument evaluation order.
@@ -64,6 +66,8 @@ Named arguments bind by parameter name, but evaluate in the order written by the
 Positional arguments bind by position, and also evaluate in source order.
 
 Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
+
+## Construction and scoped use
 
 Supplied struct field initializer expressions are evaluated in source order.
 
@@ -85,21 +89,16 @@ outcome.
 Compile-time arguments, storage policy types, trait applications, overload declarations, type arguments, and path
 resolution have no runtime evaluation order.
 
+## Observable behavior
+
 The compiler may reorder implementation work only when the reordering preserves observable Bray semantics.
 
 Observable Bray semantics include effects, ownership, borrowing, mutation authority, destruction, finalization,
 capability checking, trusted obligations, contract-checking results, and control-flow outcomes.
 
-Specific expression forms also define these evaluation conditions:
-
-- a match expression evaluates its subject once,
-- a for source expression is evaluated once before iteration,
-- an `each` source expression is evaluated once before iteration,
-- a struct or variant field default is evaluated when that field is omitted,
-- a box construction expression evaluates the contained value before initializing indirect storage,
-- a with expression evaluates its initializer once and applies `exit` on every body exit,
-- a guard is evaluated after structural pattern matching and before selecting the arm body,
-- an assertion expression evaluates its condition first and evaluates its message only when the condition is false.
+[Match expressions](match-expressions.md), [iteration source resolution](iteration-source-resolution.md),
+[construction defaults](defaulted-arguments.md), [guards](guard-expressions.md), and
+[assertions](assertion-expressions.md) define their conditional evaluation rules.
 
 ## Navigation
 

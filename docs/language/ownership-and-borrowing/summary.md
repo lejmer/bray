@@ -1,5 +1,11 @@
 # Summary
 
+This summary is informative. The detailed rules include:
+
+- [borrow rules](borrow-rules.md).
+- [dependency contracts](dependency-contracts.md).
+- [scope exits and ownership boundaries](scope-exits-and-ownership-boundaries.md).
+
 Ownership tracks which owner is responsible for a value's obligations.
 
 Access paths describe storage and substorage that operations can observe, mutate, move, borrow, or destroy.

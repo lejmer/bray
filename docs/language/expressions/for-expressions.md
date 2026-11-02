@@ -1,5 +1,7 @@
 # For expressions
 
+Syntax follows the [control flow expressions grammar](../syntax-grammar.md#control-flow-expressions).
+
 A for expression iterates over a source through the compiler-known `Iterable` and `Iterator` traits.
 
 The for expression forms are:

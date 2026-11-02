@@ -20,8 +20,6 @@ func log(pos message: string) -> unit
 }
 ```
 
-An omitted result type means `unit`.
-
 ## Callable result syntax
 
 Callable result types use `->`.
@@ -53,9 +51,8 @@ func f() -> i32
 }
 ```
 
-Callable-body context gives the block expression a callable execution scope.
-
-The callable execution scope determines the target of `return`.
+Callable-body context creates a [callable execution scope](return-and-execution-scopes.md#callable-execution-scopes).
+[Return expressions](../expressions/return-expressions.md) define the target and transfer of a returned value.
 
 Callable result values are supplied through explicit callable exits.
 
@@ -78,26 +75,12 @@ func log(pos message: string)
 For a function with a declared result type other than `unit`, every reachable normal completion path supplies the
 callable result through `return` or ends in a `never` expression.
 
+A function declared to return `never` has no normal completion path.
+
 ## Semicolons
 
-Semicolons are mandatory for sequenced expressions.
-
-```bray
-func f()
-{
-    log("hello");
-    log("world");
-}
-```
-
-A `return` expression is a sequenced expression and is terminated with a semicolon.
-
-```bray
-func f() -> i32
-{
-    return 1;
-}
-```
+[Sequenced expressions](../expressions/sequenced-expressions.md) define required semicolons, including sequenced
+`return` expressions, and the exception for self-delimiting block items.
 
 ## Navigation
 
