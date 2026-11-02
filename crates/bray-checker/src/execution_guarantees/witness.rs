@@ -164,17 +164,16 @@ impl ExecutionWitness {
 
             let refined = condition.with_guard_facts(&ordinary);
 
-            if refined != *condition && refined.contains_trusted() {
-                derived.entry(refined).or_default().extend(guarantee);
-            }
+            let refined = (refined != *condition && refined.contains_trusted()).then_some(refined);
 
-            for observation in condition
+            for observation in refined.iter().chain(condition
                 .observations()
                 .filter(|condition| {
-                    !condition.contains_trusted()
-                        || matches!(condition, ExecutionCondition::Trusted(_))
+                    (!condition.contains_trusted()
+                        || matches!(condition, ExecutionCondition::Trusted(_)))
+                        && Some(*condition) != refined.as_ref()
                 })
-                .filter(|condition| known.contains(&((*condition).clone(), true)))
+                .filter(|condition| known.contains(&((*condition).clone(), true))))
             {
                 let retained = derived.entry(observation.clone()).or_default();
 

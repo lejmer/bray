@@ -359,8 +359,12 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             }) {
                 std::sync::Arc::new(crate::dependency::ReportDependencies::default())
             } else {
-                self.execution.awaited_report_dependencies(execution, expression)
-                    .expect("awaited value retains its actual frame's report dependencies")
+                let Some(dependencies) = self.execution.awaited_report_dependencies(execution, expression) else {
+                    // A consumed operand has no frame. Storage checking reports the invalid use.
+                    return;
+                };
+
+                dependencies
             };
 
             state.result_dependencies.prepare_reports(occurrence, output, dependencies);
