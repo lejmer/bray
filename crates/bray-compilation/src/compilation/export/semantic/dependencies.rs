@@ -125,7 +125,7 @@ impl<'a> SemanticExporter<'a> {
                         .copied()
                         .map(|kind| self.constant_projection_kind(kind))
                         .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
-                ))
+                ).with_condition(transfer.condition().map(|condition| self.constant_term_id(condition)).transpose()?))
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 

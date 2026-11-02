@@ -350,7 +350,7 @@ impl InterfaceDependencyContract {
         self
     }
 
-    /// Records exact input ownership preserved inside every normal result.
+    /// Records exact input ownership preserved under each normal result condition.
     pub fn with_owned_transfers(
         mut self,
         transfers: impl IntoIterator<

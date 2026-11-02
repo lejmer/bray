@@ -151,6 +151,7 @@ pub(super) fn decode_dependency_contract(
 
     for _ in 0..count {
         let input = InterfaceConstantTermId::new(read_u32(reader)?);
+        let condition = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);
         let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
         let mut output = context.allocate_items(reader, count)?;
 
@@ -158,7 +159,7 @@ pub(super) fn decode_dependency_contract(
             output.push(super::value::decode_constant_projection(reader, context)?);
         }
 
-        owned_transfers.push(bray_symbols::DependencyOwnedTransfer::new(input, output));
+        owned_transfers.push(bray_symbols::DependencyOwnedTransfer::new(input, output).with_condition(condition));
     }
 
     let observed_result = read_optional_u32(reader)?.map(InterfaceConstantTermId::new);

@@ -58,10 +58,75 @@ pub(super) fn update_parent_observations(
 }
 
 impl ExecutionState {
+    pub(super) fn deferred_owner(
+        &self,
+        value: &ExecutionCondition,
+    ) -> Option<(
+        bray_bound_tree::BoundExecutionSite,
+        &crate::ExecutionCallEvidence,
+    )> {
+        let owner = value.owner_identity();
+
+        let invocation = self.deferred_invocations.get(owner).copied().or_else(|| {
+            if let ExecutionCondition::Expression(expression) = owner {
+                Some((*expression).into())
+            } else {
+                None
+            }
+        })?;
+
+        let entry = self
+            .entries
+            .get(&invocation)
+            .filter(|entry| entry.pending_execution)?;
+
+        Some((invocation, entry))
+    }
+
+    /// Visits initialized owned components and the checked captures of pending futures.
+    pub(super) fn owned_values<'a>(
+        &'a self,
+        value: &ExecutionCondition,
+    ) -> impl Iterator<Item = ExecutionCondition> + 'a {
+        // Snapshots share immutable components. Only the traversal's small worklist is owned.
+        let mut pending = vec![value.clone()];
+        let mut deferred = BTreeSet::new();
+
+        std::iter::from_fn(move || {
+            let value = pending.pop()?;
+
+            pending.extend(value.owned_components().cloned());
+
+            if let Some((invocation, entry)) = self.deferred_owner(&value)
+                && deferred.insert(invocation)
+            {
+                pending.extend(entry.owned_inputs.iter().filter_map(|ordinal| {
+                    crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)
+                }));
+            }
+
+            Some(value)
+        })
+    }
+
     pub(super) fn restore_returned_evidence(
         &mut self,
         returned: crate::execution_guarantees::ExecutionValueEvidence,
     ) {
+        // Replace old ownership evidence without retiring the moved storage or its dependents.
+        let mut retired = BTreeSet::new();
+
+        for carrier in returned.witnesses.keys() {
+            if let Some(previous) = self.witnesses.remove(carrier) {
+                for condition in previous.conditions.keys() {
+                    condition.clone().assume(true, &mut retired);
+                }
+            }
+        }
+
+        self.exclude_live_witnesses(&mut retired);
+        self.trusted_assumptions.retain(|fact| !retired.contains(fact));
+
         // Call effects have already retired invalid captured evidence.
         // Only normal completion restores surviving ownership to the caller.
         for (carrier, witness) in returned.witnesses {
@@ -153,7 +218,7 @@ impl ExecutionState {
     ) -> crate::execution_guarantees::AddressDependencies {
         let mut addresses = crate::execution_guarantees::AddressDependencies::new();
 
-        for value in value.owned_values() {
+        for value in self.owned_values(value) {
             let mut carrier = value.owner_identity().clone();
 
             loop {
@@ -166,7 +231,7 @@ impl ExecutionState {
                         }
 
                         for (address, owners) in &guarantee.addresses {
-                            if address.is_owned_projection_of(value) {
+                            if address.is_owned_projection_of(&value) {
                                 addresses
                                     .entry(address.clone())
                                     .or_default()
@@ -212,9 +277,8 @@ impl ExecutionState {
 
     pub(super) fn is_witness(&self, value: &ExecutionCondition) -> bool {
         self.witnesses.keys().any(|carrier| {
-            value
-                .owned_values()
-                .any(|value| carrier.is_owned_projection_of(value))
+            self.owned_values(value)
+                .any(|value| carrier.is_owned_projection_of(&value))
                 && self.directly_carries_witness(carrier)
         })
     }
@@ -1012,6 +1076,7 @@ mod tests {
             occurrence,
             crate::ExecutionCallEvidence {
                 implementation_witnesses: Default::default(),
+                owned_inputs: Default::default(),
                 returned: Default::default(),
                 addresses: Default::default(),
                 anonymous_target: None,

@@ -61,7 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             })
                             .map(|reference| {
                                 super::carriers::result_projection(
-                                    self.dependencies,
+                                    self.request.semantic_values(), self.dependencies,
                                     reference.relation().exit().projections(),
                                 )
                             })
@@ -83,7 +83,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                                 == bray_symbols::DependencyReferenceKind::Address
                             && subject
                                 == super::carriers::result_projection(
-                                    self.dependencies,
+                                    self.request.semantic_values(), self.dependencies,
                                     reference.relation().exit().projections(),
                                 )
                     });
@@ -148,7 +148,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for reference in references {
                 let address = super::carriers::result_projection(
-                    self.dependencies,
+                    self.request.semantic_values(), self.dependencies,
                     reference.relation().exit().projections(),
                 );
 
@@ -160,7 +160,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let input = entry_subject(
                         arguments,
-                        &reference_subject(self.dependencies, call, entry),
+                        &reference_subject(self.request.semantic_values(), self.dependencies, call, entry),
                     );
 
                     let owners = source.addresses.get(&input).unwrap_or(owners);
@@ -196,7 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     == bray_symbols::DependencySubjectRoot::Result
                 && subject
                     == &super::carriers::result_projection(
-                        self.dependencies,
+                        self.request.semantic_values(), self.dependencies,
                         reference.relation().exit().projections(),
                     )
         }) {
@@ -210,7 +210,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let source = reference_subject(self.dependencies, call, entry);
+            let source = reference_subject(self.request.semantic_values(), self.dependencies, call, entry);
 
             let source = entry_subject(arguments, &source);
 
@@ -378,14 +378,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let relation = reference.relation();
 
             relation.kind() == bray_symbols::DependencyReferenceKind::Address
-                && reference_subject(self.dependencies, call, relation.exit()) == *subject
+                && reference_subject(self.request.semantic_values(), self.dependencies, call, relation.exit()) == *subject
         }) {
             let entry = reference.relation().entry()?;
 
             origins
                 .entry(call.input_site(expression, entry.subject_root())?)
                 .or_default()
-                .insert(reference_subject(self.dependencies, call, entry));
+                .insert(reference_subject(self.request.semantic_values(), self.dependencies, call, entry));
         }
 
         (!origins.is_empty()).then_some(origins)
@@ -394,6 +394,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
 /// Express a checked formal reference path in receiver-first argument order.
 fn reference_subject(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     call: &bray_bound_tree::SelectedCall,
     subject: &bray_symbols::DependencySubject,
@@ -407,7 +408,7 @@ fn reference_subject(
         ))
     };
 
-    super::carriers::result_projection(dependencies, subject.projections()).substitute(
+    super::carriers::result_projection(values, dependencies, subject.projections()).substitute(
         &|_| ExecutionCondition::Unknown,
         &root,
         &mut { ExecutionCondition::WORK_LIMIT },

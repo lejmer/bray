@@ -474,7 +474,7 @@ impl<Projection, Condition: Copy> DependencyWitnessCarrier<Projection, Condition
     }
 }
 
-/// One unchanged owned input embedded in the normal result on every completing path.
+/// One unchanged owned input embedded wherever its result condition holds.
 /// This records identity rather than equality, borrowing, or a new trusted guarantee.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DependencyOwnedTransfer<
@@ -483,6 +483,7 @@ pub struct DependencyOwnedTransfer<
 > {
     input: Input,
     output: Arc<[Projection]>,
+    condition: Option<Input>,
 }
 
 impl<Projection, Input: Copy> DependencyOwnedTransfer<Projection, Input> {
@@ -491,7 +492,20 @@ impl<Projection, Input: Copy> DependencyOwnedTransfer<Projection, Input> {
         Self {
             input,
             output: shared_slice(output),
+            condition: None,
         }
+    }
+
+    /// Limits the identity transfer to the ordinary active-result condition.
+    pub fn with_condition(mut self, condition: Option<Input>) -> Self {
+        self.condition = condition;
+
+        self
+    }
+
+    /// Returns the ordinary result condition, or None for unconditional ownership.
+    pub const fn condition(&self) -> Option<Input> {
+        self.condition
     }
 
     /// Returns the formal input or owned input projection.
@@ -535,7 +549,7 @@ impl DependencyContractTemplateData {
         self.observed_result
     }
 
-    /// Records exact owned inputs retained inside every normal result.
+    /// Records exact owned inputs retained under each normal result condition.
     pub fn with_owned_transfers(
         mut self,
         transfers: impl IntoIterator<Item = DependencyOwnedTransfer>,

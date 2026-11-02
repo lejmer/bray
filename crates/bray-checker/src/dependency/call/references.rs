@@ -320,12 +320,37 @@ fn returned_value_conditions<C: CheckerRequestContext + ?Sized>(
     let mut conditions = Vec::new();
 
     for transfer in transfers {
-        conditions.extend(returned_input_projection_conditions(
+        let transferred = returned_input_projection_conditions(
             request,
             transfer.input(),
             input_count,
             &mut input_type,
-        )?);
+        )?;
+
+        for condition in transferred {
+            let condition = if let Some(guard) = transfer.condition() {
+                let values = request.semantic_values();
+
+                let inactive = values
+                    .intern_constant_term(bray_symbols::ConstantTermData::Unary {
+                        operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+                        operand: guard,
+                    })
+                    .expect("checked result guard belongs to the same semantic store");
+
+                values
+                    .intern_constant_term(bray_symbols::ConstantTermData::Binary {
+                        operation: bray_symbols::ConstantBinaryOperation::LogicalOr,
+                        left: inactive,
+                        right: condition,
+                    })
+                    .expect("checked transport condition belongs to the same semantic store")
+            } else {
+                condition
+            };
+
+            conditions.push(condition);
+        }
     }
 
     conditions.sort_unstable();

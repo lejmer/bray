@@ -606,10 +606,10 @@ mod tests {
 
             let mut identities = Vec::new();
 
-            for swapped in [false, true] {
+            for (swapped, guard) in [(false, None), (true, None), (false, Some(0)), (false, Some(1))] {
                 let transfers = [0, 1].map(|ordinal| DependencyOwnedTransfer::new(
                     inputs[&ordinal], [ConstantProjectionKind::TupleElement(SymbolOrdinal::new(if swapped { 1 - ordinal } else { ordinal }))],
-                ));
+                ).with_condition(guard.map(|ordinal| inputs[&ordinal])));
 
                 let contract = values.intern_dependency_contract_template(DependencyContractTemplateData::new([]).with_effects([]).with_owned_transfers(transfers)).expect("fixture ownership contract");
 
@@ -622,7 +622,7 @@ mod tests {
                 identities.push(encoder.digest.finalize());
             }
 
-            assert_ne!(identities[0], identities[1]);
+            assert_eq!(identities.iter().collect::<std::collections::BTreeSet<_>>().len(), 4);
             by_order.push(identities);
         }
 

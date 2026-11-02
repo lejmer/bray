@@ -294,7 +294,7 @@ impl SemanticValueStore {
                             Ok(super::super::DependencyOwnedTransfer::new(
                                 self.substitute_constant_term_data(transfer.input(), substitution)?,
                                 transfer.output().iter().copied(),
-                            ))
+                            ).with_condition(transfer.condition().map(|condition| self.substitute_constant_term_data(condition, substitution)).transpose()?))
                         })
                         .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
                 )

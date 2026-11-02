@@ -204,7 +204,15 @@ impl ExecutionCondition {
     pub(crate) fn present(self) -> Self {
         match self {
             Self::Unknown => Self::Unknown,
-            Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, value) => {
+            payload @ Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _) => {
+                if let Some(snapshot) = payload.nullable_payload_snapshot()
+                    && (matches!(snapshot, Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _))
+                        || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue))) {
+                    return snapshot.clone().present();
+                }
+
+                let Self::Projection(_, value) = payload else { unreachable!() };
+
                 value.as_ref().clone()
             }
             Self::Input(mut place)
@@ -220,6 +228,10 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn borrowed(self) -> Self {
+        if let Some(payload) = self.nullable_payload_snapshot() {
+            return payload.clone().borrowed();
+        }
+
         if self == Self::Unknown {
             self
         } else {

@@ -82,6 +82,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
 
             for transfer in &*contract.owned_transfers {
                 encoder.write_u32(transfer.input().raw());
+                write_optional_u32(encoder, transfer.condition().map(|condition| condition.raw()));
                 write_count(encoder, transfer.output().len());
 
                 for projection in transfer.output() {

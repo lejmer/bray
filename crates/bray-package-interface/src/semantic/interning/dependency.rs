@@ -125,6 +125,15 @@ impl InternState {
                         return Ok(None);
                     };
 
+                    let condition = match transfer.condition() {
+                        Some(condition) => {
+                            let Some(condition) = self.constant_term_id(condition) else { return Ok(None); };
+
+                            Some(condition)
+                        }
+                        None => None,
+                    };
+
                     let output = transfer
                         .output()
                         .iter()
@@ -132,7 +141,7 @@ impl InternState {
                         .collect::<Result<Option<Vec<_>>, _>>()?;
 
                     Ok(output
-                        .map(|output| bray_symbols::DependencyOwnedTransfer::new(term, output)))
+                        .map(|output| bray_symbols::DependencyOwnedTransfer::new(term, output).with_condition(condition)))
                 })
                 .collect::<Result<Option<Vec<_>>, InterfaceSemanticInternError>>()?;
 

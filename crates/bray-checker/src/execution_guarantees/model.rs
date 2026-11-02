@@ -314,6 +314,8 @@ pub(crate) struct ExecutionValueEvidence {
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
     pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
+    /// Noncopying owned inputs, in receiver-first checked signature order.
+    pub(crate) owned_inputs: std::sync::Arc<[bray_symbols::SymbolOrdinal]>,
     pub(crate) returned: ExecutionValueEvidence,
     /// Access dependencies captured before consuming inputs, without owning authority.
     pub(crate) addresses:
@@ -412,6 +414,7 @@ impl ExecutionCallEvidence {
             self.implementation_witnesses, other.implementation_witnesses,
             "a selected invocation retains its implementation choices across control flow"
         );
+        assert_eq!(self.owned_inputs, other.owned_inputs, "one checked invocation retains its input ownership modes");
 
         let before = (
             self.anonymous_target.is_some(),

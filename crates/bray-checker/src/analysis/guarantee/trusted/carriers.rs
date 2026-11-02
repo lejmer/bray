@@ -31,7 +31,7 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
 
                     (
                         capture(&condition),
-                        result_projection(self.dependencies, carrier.path()),
+                        result_projection(self.request.semantic_values(), self.dependencies, carrier.path()),
                     )
                 })
             })
@@ -76,7 +76,7 @@ impl super::check::TrustedChecks {
         state: &ExecutionState,
         result: &ExecutionCondition,
     ) {
-        let owners = returned_owners(result);
+        let owners = returned_owners(request, result);
 
         collect(state, result, &owners, &self.guarantees, &mut self.carriers);
 
@@ -145,7 +145,7 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 ) {
     let identities = owners
         .iter()
-        .map(|(owner, path)| (owner.clone(), result_projection(dependencies, path)))
+        .map(|(owner, path)| (owner.clone(), result_projection(request.semantic_values(), dependencies, path)))
         .collect::<BTreeMap<_, _>>();
 
     let mut result = BTreeSet::new();
@@ -185,10 +185,11 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
 }
 
 pub(in crate::analysis::guarantee) fn result_projection(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     path: &[DependencyProjection],
 ) -> ExecutionCondition {
-    crate::storage::storage_projections(dependencies, path)
+    crate::storage::storage_projections(values, dependencies, path)
         .expect("checked result carrier retains its projection")
         .into_iter()
         .fold(ExecutionCondition::Result, |value, projection| {
@@ -272,19 +273,17 @@ fn collect(
     }
 }
 
-fn returned_owners(
+fn returned_owners<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
     result: &ExecutionCondition,
 ) -> BTreeMap<ExecutionCondition, Vec<DependencyProjection>> {
     let mut owners = BTreeMap::new();
     let mut pending = vec![(result, Vec::new())];
-    let mut budget = ExecutionCondition::WORK_LIMIT;
 
     while let Some((value, path)) = pending.pop() {
-        let Some(remaining) = budget.checked_sub(1) else {
-            return BTreeMap::new();
-        };
-
-        budget = remaining;
+        if path.len() >= ExecutionCondition::WORK_LIMIT {
+            continue;
+        }
 
         if *value == ExecutionCondition::Unknown {
             continue;
@@ -324,6 +323,16 @@ fn returned_owners(
                         } => DependencyProjection::UnionPayloadField(*field),
                         bray_bound_tree::StorageProjection::NullableValue => {
                             DependencyProjection::NullableValue
+                        }
+                        bray_bound_tree::StorageProjection::ElementFromStart(index) => {
+                            let values = request.semantic_values();
+
+                            let value = values.intern_constant_value(bray_symbols::ConstantValueData::new(
+                                crate::representation::representation_type(request, bray_compiler_known::RepresentationRole::ScalarUsize),
+                                bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(u64::from(index.raw()))),
+                            )).expect("checked array index belongs to the same semantic store");
+
+                            DependencyProjection::Element(values.intern_constant_term(bray_symbols::ConstantTermData::Value(value)).expect("checked array selector belongs to the same semantic store"))
                         }
                         _ => continue,
                     };
@@ -433,100 +442,4 @@ impl ExecutionState {
             }
         }
     }
-}
-
-/// Preserve exact owned inputs embedded in the checked normal result.
-pub(super) fn owned_transfers<C: crate::CheckerRequestContext + ?Sized>(
-    domain: &super::super::flow::ExecutionFlowDomain<'_, '_, C>,
-    result: &ExecutionCondition,
-) -> BTreeSet<bray_symbols::DependencyOwnedTransfer> {
-    use bray_bound_tree::StorageProjection;
-    use bray_symbols::{ConstantProjectionKind, DependencyOwnedTransfer};
-
-    let mut transfers = BTreeSet::new();
-
-    let Some(inputs) = domain.request.trusted_contracts() else {
-        return transfers;
-    };
-
-    if !inputs.infer_result_witnesses {
-        return transfers;
-    }
-
-    let mut pending = vec![(result, Vec::new())];
-
-    while let Some((source, path)) = pending.pop() {
-        if path.len() > ExecutionCondition::WORK_LIMIT {
-            continue;
-        }
-
-        let mut input = source;
-        let mut projections = Vec::new();
-
-        while let ExecutionCondition::Projection(field, parent) = input {
-            projections.push(*field);
-            input = parent;
-        }
-
-        if let ExecutionCondition::Input(place) = input {
-            let place = projections
-                .into_iter()
-                .rev()
-                .fold(place.clone(), |place, field| place.component(field));
-
-            if !place.is_callable_input()
-                || domain
-                    .borrowed_inputs
-                    .iter()
-                    .any(|borrow| borrow.contains(&place))
-            {
-                continue;
-            }
-
-            let input = ExecutionCondition::Input(place);
-
-            if let Some(term) = portable(domain.request, &input) {
-                transfers.insert(DependencyOwnedTransfer::new(term, path));
-            }
-
-            continue;
-        }
-
-        match source {
-            ExecutionCondition::Present(value) => {
-                let mut path = path;
-
-                path.push(ConstantProjectionKind::NullableValue);
-                pending.push((value, path));
-            }
-            ExecutionCondition::Constructed(_, fields) => {
-                for (field, value) in fields.iter() {
-                    let projection = match field {
-                        StorageProjection::ProductField(field) => {
-                            ConstantProjectionKind::ProductField(*field)
-                        }
-                        StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                            ConstantProjectionKind::UnionPayloadField(*field)
-                        }
-                        StorageProjection::TupleElement(ordinal) => {
-                            ConstantProjectionKind::TupleElement(*ordinal)
-                        }
-                        StorageProjection::ElementFromStart(ordinal) => {
-                            ConstantProjectionKind::ArrayElementOrdinal(*ordinal)
-                        }
-                        StorageProjection::NullableValue => ConstantProjectionKind::NullableValue,
-                        _ => continue,
-                    };
-
-                    let mut path = path.clone();
-
-                    path.push(projection);
-                    pending.push((value, path));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    transfers
 }

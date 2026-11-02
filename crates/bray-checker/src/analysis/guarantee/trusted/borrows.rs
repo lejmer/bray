@@ -48,6 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        conditional: Option<bool>,
     ) -> BTreeMap<Vec<StorageProjection>, ExecutionCondition> {
         use bray_symbols::ConstantProjectionKind;
 
@@ -57,7 +58,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return fields;
         };
 
-        for transfer in dependencies.owned_transfers() {
+        for transfer in dependencies.owned_transfers().iter().filter(|transfer| conditional.is_none_or(|conditional| conditional == transfer.condition().is_some())) {
             let input = crate::execution_condition_from_type_term(
                 self.request.semantic_values(),
                 transfer.input(),
@@ -115,7 +116,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     ) -> crate::execution_guarantees::ExecutionValueEvidence {
-        let values = self.returned_owned_values(invocation, arguments);
+        let values = self.returned_owned_values(invocation, arguments, None);
 
         if values.is_empty() {
             return Default::default();
@@ -125,10 +126,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .witnesses
             .iter()
             .filter(|(carrier, _)| {
-                values
-                    .values()
-                    .flat_map(ExecutionCondition::owned_values)
-                    .any(|owner| carrier.is_owned_projection_of(owner))
+                values.values().any(|value| returned_carrier(state, value, carrier))
             })
             .filter_map(|(carrier, witness)| {
                 let conditions = witness
@@ -164,6 +162,121 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             witnesses,
             allocations,
         }
+    }
+
+    pub(super) fn retire_consumed_inputs(
+        &self,
+        state: &mut super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) {
+        let entry = state
+            .entries
+            .get(&invocation)
+            .expect("completed invocation retains its captured ownership");
+
+        let consumed = entry
+            .owned_inputs
+            .iter()
+            .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(arguments))
+            .collect::<Vec<_>>();
+
+        let retained = self
+            .returned_owned_values(invocation, arguments, None)
+            .values()
+            .flat_map(|value| state.owned_values(value))
+            .collect();
+
+        state.retire_trusted_values(consumed, &retained);
+    }
+
+    pub(super) fn complete_returned_evidence(
+        &self,
+        state: &super::super::state::ExecutionState,
+        invocation: BoundExecutionSite,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+        result: &ExecutionCondition,
+        mut evidence: crate::execution_guarantees::ExecutionValueEvidence,
+    ) -> crate::execution_guarantees::ExecutionValueEvidence {
+        use bray_bound_tree::BoundOperator;
+
+        if evidence.witnesses.is_empty() {
+            return evidence;
+        }
+
+        let dependencies = self
+            .dependencies
+            .calls()
+            .get(&invocation)
+            .expect("returned witness evidence has checked ownership transfers");
+
+        let decode = |term| {
+            crate::execution_condition_from_type_term(
+                self.request.semantic_values(),
+                term,
+                dependencies.input_count(),
+            )
+            .expect("checked ownership term decodes in the same semantic store")
+            .substitute(
+                &|place| {
+                    place
+                        .value_in(arguments)
+                        .unwrap_or(ExecutionCondition::Unknown)
+                },
+                result,
+                &mut { ExecutionCondition::WORK_LIMIT },
+            )
+        };
+
+        let transfers = dependencies
+            .owned_transfers()
+            .iter()
+            .map(|transfer| {
+                (
+                    decode(transfer.input()),
+                    transfer
+                        .condition()
+                        .map(decode)
+                        .unwrap_or(ExecutionCondition::Boolean(true)),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        for (carrier, witness) in &mut evidence.witnesses {
+            let guard = transfers
+                .iter()
+                .filter(|(value, _)| returned_carrier(state, value, carrier))
+                .map(|(_, guard)| guard.clone())
+                .reduce(|left, right| {
+                    ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right])
+                })
+                .expect("captured returned witness retains an owning transfer");
+
+            if guard == ExecutionCondition::Boolean(true) {
+                continue;
+            }
+
+            witness.conditions = std::mem::take(&mut witness.conditions)
+                .into_iter()
+                .map(|(condition, guarantee)| {
+                    (
+                        ExecutionCondition::operation(
+                            BoundOperator::LogicalOr,
+                            vec![
+                                ExecutionCondition::operation(
+                                    BoundOperator::LogicalNot,
+                                    vec![guard.clone()],
+                                ),
+                                condition,
+                            ],
+                        ),
+                        guarantee,
+                    )
+                })
+                .collect();
+        }
+
+        evidence
     }
 
     pub(in crate::analysis::guarantee) fn complete_returned_values(
@@ -204,7 +317,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .value_in(arguments)
                         .unwrap_or(ExecutionCondition::Unknown)
                 },
-                &ExecutionCondition::Unknown,
+                &result,
                 &mut { ExecutionCondition::WORK_LIMIT },
             );
 
@@ -215,8 +328,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let result = construct(
             result,
-            self.returned_owned_values(invocation, arguments),
+            self.returned_owned_values(invocation, arguments, Some(false)),
             true,
+        );
+
+        let result = construct(
+            result,
+            self.returned_owned_values(invocation, arguments, Some(true)),
+            false,
         );
 
         let has_receiver = match self.semantics.selections().expression(source) {
@@ -290,6 +409,30 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         construct(result, fields, false)
     }
+}
+
+/// Compact input paths retain the same nullable owning qualifier as snapshot projections.
+fn returned_carrier(state: &super::super::state::ExecutionState, value: &ExecutionCondition, carrier: &ExecutionCondition) -> bool {
+    state.owned_values(value).any(|owner| {
+        if carrier.is_owned_projection_of(&owner) { return true; }
+
+        let ExecutionCondition::Input(place) = &owner else { return false; };
+
+        let mut length = place.projections.len();
+
+        while length > 0 && place.projections[length - 1] == bray_symbols::ConstantProjectionKind::NullableValue {
+            length -= 1;
+
+            // Input paths share immutable projections, only the nullable qualifier changes.
+            let mut qualifier = place.clone();
+
+            qualifier.projections = place.projections[..length].into();
+
+            if carrier.is_owned_projection_of(&ExecutionCondition::Input(qualifier)) { return true; }
+        }
+
+        false
+    })
 }
 
 pub(in crate::analysis::guarantee) fn project_place(

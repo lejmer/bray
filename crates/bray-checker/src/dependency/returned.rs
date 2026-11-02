@@ -152,16 +152,23 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.with_borrows([relation]);
     }
 
+    Ok(template)
+}
+
+/// Projects normal body dependencies onto the immediate value produced by invocation.
+/// An inactive future retains all inputs until execution or disposal, independently of its result.
+pub(crate) fn invocation_result_template(
+    call: &SelectedCall,
+    template: DependencyContractTemplateData,
+) -> DependencyContractTemplateData {
     if matches!(
         call.resolution().result(),
         bray_bound_tree::BoundCallResult::LazyFuture(_)
     ) {
-        // Construction returns an owned frame, not the body's eventual result. The
-        // frame retains every captured value until execution or disposal releases it.
-        template = template.with_requirements(input_requirements(call));
+        template.with_requirements(input_requirements(call))
+    } else {
+        template
     }
-
-    Ok(template)
 }
 
 /// Applies the selected implementation, generic substitution and parameter defaults once.
@@ -179,7 +186,8 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         panic!("call static expansion retains its selected callable");
     };
 
-    let template = callee_result_template(request, call, declaration)?;
+    let template =
+        invocation_result_template(call, callee_result_template(request, call, declaration)?);
 
     super::defaults::expand_result_defaults(request, selection, &template)
 }

@@ -124,6 +124,10 @@ impl ExecutionState {
                 continue;
             }
 
+            if let Some((_, entry)) = self.deferred_owner(&value) {
+                pending.extend(entry.owned_inputs.iter().filter_map(|ordinal| crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)));
+            }
+
             pending.extend(value.owned_components().cloned());
 
             if value.owner_identity() != &value {
@@ -355,7 +359,7 @@ impl ExecutionState {
         );
     }
 
-    fn exclude_live_witnesses(&self, retired: &mut BTreeSet<(ExecutionCondition, bool)>) {
+    pub(super) fn exclude_live_witnesses(&self, retired: &mut BTreeSet<(ExecutionCondition, bool)>) {
         for witness in self.witnesses.values() {
             for condition in witness.conditions.keys() {
                 condition

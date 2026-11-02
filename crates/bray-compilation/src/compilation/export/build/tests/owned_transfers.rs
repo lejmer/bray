@@ -36,6 +36,74 @@ const API: &str = r"
         let wrapped: (u32, T?) = (0, optional);
         return { value = wrapped };
     }
+    func select_variant<T>(pos value: T, pos take: bool) -> Choice<T> {
+        return if take { yield .Value(value); } else { yield .Empty; };
+    }
+    func select_nullable<T>(pos value: T, pos take: bool) -> T? {
+        return if take { yield value; } else { yield none; };
+    }
+    func select_exits<T>(pos value: T, pos take: bool) -> T? {
+        if take { return value; }
+        return none;
+    }
+    func select_reversed<T>(pos value: T, pos take: bool) -> T? {
+        if take { return none; }
+        return value;
+    }
+    func select_optional<T>(pos value: T?, pos take: bool) -> T? {
+        if take { return value; }
+        return none;
+    }
+    func select_optional_join<T>(pos value: T?, pos take: bool) -> T? {
+        return if take { yield value; } else { yield none; };
+    }
+    func select_nested<T>(pos value: T, pos take: bool) -> Box<Choice<T>> {
+        return { value = select_variant<T>(value, take) };
+    }
+    async func select_deferred<T>(pos value: T, pos take: bool) -> Choice<T> {
+        return if take { yield .Value(value); } else { yield .Empty; };
+    }
+    trusted func absent() -> Receipt? ensures(trusted held(owner = &result)) { return none; }
+    trusted func make_marker() -> Marker ensures(trusted marked(owner = &result)) { return Marker {}; }
+    func inspect_marker(pos value: &Marker) requires(trusted marked(owner = value)) {}
+    func factory() -> [Receipt?; 2] { return [make(), make()]; }
+    func marker_factory() -> [Marker; 2] { return [make_marker(), make_marker()]; }
+    func conditional_factory(pos take: bool) -> [Marker?; 2] {
+        let value: Marker? = if take { yield make_marker(); } else { yield none; };
+        let other: Marker? = make_marker();
+        return [value, other];
+    }
+    struct Resource {
+        mut marker: Marker;
+        destruct() { self.marker = Marker {}; }
+    }
+    trusted func resource() -> Resource ensures(trusted marked(owner = &result.marker)) { return { marker = Marker {} }; }
+    func inspect_resource(pos value: &Resource) requires(trusted marked(owner = &value.marker)) {}
+    struct ExternalResource {
+        state: &mut Dependency;
+        destruct() { self.state.marker = Marker {}; }
+    }
+    func cleanup_referent(pos state: &mut Dependency) { let owner: ExternalResource = { state = state }; }
+    func select_lambda<T>(pos value: T, pos take: bool) -> Choice<T> {
+        let choose = lambda(pos item: T, pos enabled: bool) -> Choice<T> {
+            return if enabled { yield .Value(item); } else { yield .Empty; };
+        };
+        return choose(value, take);
+    }
+    func discard<T>(pos value: T) {}
+    async func deferred_discard<T>(pos value: T) {}
+    func observe_borrow(pos value: &u32) {}
+    async func pause() {}
+    async func select_await<T>(pos value: T, pos take: bool, pos state: &mut State) -> Choice<T> {
+        await pause();
+        state.count += 1;
+        return if take { yield .Value(value); } else { yield .Empty; };
+    }
+    struct Permit { id: u32; }
+    struct Sink { construct(pos value: Permit) -> Self { return Sink {}; } }
+    trusted predicate permitted(id: u32);
+    trusted func permission() -> Permit ensures(trusted permitted(id = result.id)) { return { id = 1 }; }
+    func inspect_permission(pos id: u32) requires(trusted permitted(id = id)) {}
     func with_reference<T>(pos value: T, pos other: &u32) -> (T, &u32) {
         return (value, other);
     }
@@ -117,6 +185,38 @@ fn check_owned_transfers(imported: bool) {
             "let result = api.nested<(api.Receipt?)>(INPUT); match consume result.value.1 { case ?value { api.observe(&value); } case none {} }",
         ),
         (
+            "conditional_union",
+            "let result = api.select_variant<(api.Receipt?)>(INPUT, choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }",
+        ),
+        (
+            "conditional_nullable",
+            "let result = api.select_nullable<(api.Receipt?)>(INPUT, choice); match consume result { case ?value { api.observe(&value); } case none {} }",
+        ),
+        (
+            "conditional_exits",
+            "let result = api.select_exits<(api.Receipt?)>(INPUT, choice); match consume result { case ?value { api.observe(&value); } case none {} }",
+        ),
+        (
+            "conditional_reversed",
+            "let result = api.select_reversed<(api.Receipt?)>(INPUT, choice); match consume result { case ?value { api.observe(&value); } case none {} }",
+        ),
+        (
+            "conditional_nested",
+            "let result = api.select_nested<(api.Receipt?)>(INPUT, choice); match consume result.value { case .Value(value) { api.observe(&value); } case .Empty {} }",
+        ),
+        (
+            "conditional_deferred",
+            "let result = await api.select_deferred<(api.Receipt?)>(INPUT, choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }",
+        ),
+        (
+            "conditional_lambda",
+            "let result = api.select_lambda<(api.Receipt?)>(INPUT, choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }",
+        ),
+        (
+            "suspending_conditional",
+            "let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<(api.Receipt?)>(INPUT, choice, &mut state); }; match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }",
+        ),
+        (
             "reference",
             "let other: u32 = 3; let result = api.with_reference<(api.Receipt?)>(INPUT, &other); api.observe(&result.0); api.reference(result.1);",
         ),
@@ -147,6 +247,47 @@ fn check_owned_transfers(imported: bool) {
     }
 
     for (name, body, valid) in [
+        ("nullable_payload_join", "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield none; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }", true),
+        ("nullable_payload_fabricated", "let value: api.Marker? = if choice { yield api.make_marker(); } else { yield api.Marker {}; }; match consume value { case ?item { api.inspect_marker(&item); } case none {} }", false),
+        ("array_factory", "let [left, right] = api.factory(); api.observe(&left); api.observe(&right);", true),
+        ("array_payload_factory", "let [left, right] = api.marker_factory(); api.inspect_marker(&left); api.inspect_marker(&right);", true),
+        ("array_conditional_factory", "let [left, right] = api.conditional_factory(choice); match consume left { case ?item { api.inspect_marker(&item); } case none {} } match consume right { case ?item { api.inspect_marker(&item); } case none {} }", true),
+        ("conditional_absent_input", "let result = api.select_variant<(api.Receipt?)>(api.absent(), choice); match consume result { case .Value(value) { api.observe(&value); } case .Empty {} }", true),
+        ("conditional_optional_exits", "let result = api.select_optional<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
+        ("conditional_optional_join", "let result = api.select_optional_join<api.Receipt>(api.make(), choice); match consume result { case ?value { let wrapped: api.Receipt? = value; api.observe(&wrapped); } case none {} }", true),
+        ("conditional_copy", "let original = api.stamp(); let result = api.select_variant<api.Stamp>(original, choice); match consume result { case .Value(value) { api.observe_stamp(&value); } case .Empty {} }", false),
+        ("conditional_live_address", "let payload: u32 = 4; let result = api.select_variant<api.Address>(api.address(&payload), choice); match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
+        ("conditional_expired_address", "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", false),
+        ("conditional_independent_marker", "let result = { let payload: u32 = 4; yield api.select_variant<api.Address>(api.address(&payload), choice); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }", true),
+        ("conditional_authority_before", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);", false),
+        ("conditional_authority_active", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
+        ("conditional_authority_inactive", "let permit = api.permission(); let id = permit.id; let result = api.select_variant<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
+        ("independent_permission", "let permit = api.permission(); let other = api.permission(); let id = other.id; let result = api.select_variant<api.Permit>(permit, choice); api.inspect_permission(id);", true),
+        ("conditional_consuming_receiver", "let result = api.select_variant<api.Resource>(api.resource(), choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }", true),
+        ("conditional_consuming_receiver_forged", "let result = api.select_variant<api.Resource>(api.Resource { marker = api.Marker {} }, choice); match consume result { case .Value(value) { api.inspect_resource(&value); } case .Empty {} }", false),
+        ("consuming_receiver_external_mutation", "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_related(&owner, &state);", false),
+        ("consuming_receiver_independent_claim", "let mut state: api.Dependency = { marker = api.Marker {} }; let owner = api.make_related(&state); api.cleanup_referent(&mut state); api.observe_independent(&owner);", true),
+        ("consumed_permission", "let permit = api.permission(); let id = permit.id; api.discard<api.Permit>(permit); api.inspect_permission(id);", false),
+        ("deferred_consumed_permission", "let permit = api.permission(); let id = permit.id; await api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);", false),
+        ("copied_original_authority", "let original = api.stamp(); api.discard<api.Stamp>(original); api.observe_stamp(&original);", false),
+        ("consumed_independent_permission", "let permit = api.permission(); let other = api.permission(); let id = other.id; api.discard<api.Permit>(permit); api.inspect_permission(id);", true),
+        ("deferred_authority_active", "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
+        ("deferred_authority_inactive", "let permit = api.permission(); let id = permit.id; let result = await api.select_deferred<api.Permit>(permit, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
+        ("deferred_live_capture", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); api.inspect_permission(id);", true),
+        ("deferred_dropped_capture", "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); yield id; }; api.inspect_permission(id);", false),
+        ("deferred_dropped_nested_capture", "let id = { let permit = api.permission(); let id = permit.id; let pending = (0, api.deferred_discard<api.Permit>(permit)); yield id; }; api.inspect_permission(id);", false),
+        ("conditional_future_active", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) { api.inspect_permission(id); } case .Empty {} }", true),
+        ("conditional_future_inactive", "let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); match consume result { case .Value(value) {} case .Empty { api.inspect_permission(id); } }", false),
+        ("conditional_future_dropped", "let id = { let permit = api.permission(); let id = permit.id; let pending = api.deferred_discard<api.Permit>(permit); let result = await api.select_deferred<Future<unit>>(pending, choice); yield id; }; api.inspect_permission(id);", false),
+        ("consuming_constructor", "let permit = api.permission(); let id = permit.id; let sink = api.Sink(permit); api.inspect_permission(id);", false),
+        ("suspending_live_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
+        ("suspending_aliased_address", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
+        ("suspending_selected_owner", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; let pending = api.select_await<api.Address>(api.address(&payload), choice, &mut state); let selected = if choice { yield pending; } else { yield pending; }; yield await selected; }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", true),
+        ("suspending_replaced_borrow", "let outer: u32 = 4; let mut outer_state: api.State = { count = 0 }; let result = { let payload: u32 = 5; let mut state: api.State = { count = 0 }; let mut pending = api.select_await<(&u32)>(&outer, choice, &mut outer_state); pending = api.select_await<(&u32)>(&payload, choice, &mut state); yield await pending; }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", false),
+        ("suspending_borrow_active", "let payload: u32 = 4; let result = { let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", true),
+        ("suspending_borrow_expired", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<(&u32)>(&payload, choice, &mut state); }; match consume result { case .Value(value) { api.observe_borrow(value); } case .Empty {} }", false),
+        ("suspending_expired_address", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_address(&value); } case .Empty {} }", false),
+        ("suspending_independent_marker", "let result = { let payload: u32 = 4; let mut state: api.State = { count = 0 }; yield await api.select_await<api.Address>(api.address(&payload), choice, &mut state); }; match consume result { case .Value(value) { api.observe_marker(&value); } case .Empty {} }", true),
         ("unchanged_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.keep(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);", true),
         ("changed_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_related(&result.1, &state);", false),
         ("independent_dependency", "let mut state: api.Dependency = { marker = api.Marker {} }; let result = api.replace(api.make_related(&state), &mut state); api.observe_independent(&result.1);", true),
@@ -227,7 +368,7 @@ fn check(
     body: &str,
     valid: bool,
 ) -> Option<String> {
-    let effect = if body.contains("await ") {
+    let effect = if body.contains("await ") || body.contains("Future<") {
         "async "
     } else {
         ""

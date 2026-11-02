@@ -287,7 +287,7 @@ fn remap_dependency_contract(
             Ok(bray_symbols::DependencyOwnedTransfer::new(
                 maps.constant_term_id(transfer.input())?,
                 transfer.output().iter().cloned(),
-            ))
+            ).with_condition(transfer.condition().map(|condition| maps.constant_term_id(condition)).transpose()?))
         })
         .collect::<Result<Arc<[_]>, InterfaceValidationError>>()?;
 

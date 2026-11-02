@@ -646,6 +646,9 @@ fn common_components(
             ExecutionCondition::Present(_) => {
                 [bray_bound_tree::StorageProjection::NullableValue].into()
             }
+            ExecutionCondition::Literal(value) if matches!(value.kind(), ConstantValueKind::NullableAbsent) => {
+                [bray_bound_tree::StorageProjection::NullableValue].into()
+            }
             _ => Default::default(),
         }
     };
@@ -815,7 +818,8 @@ fn owned_snapshot(
                 budget,
             )))
         }
-        ExecutionCondition::Borrowed(_)
+        ExecutionCondition::Input(_)
+        | ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
         | ExecutionCondition::Literal(_)
         | ExecutionCondition::Unknown => source.clone(),

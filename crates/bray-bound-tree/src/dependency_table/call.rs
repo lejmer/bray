@@ -110,6 +110,7 @@ pub struct BoundCallDependencyContracts {
     carriers: Arc<[bray_symbols::DependencyWitnessCarrier]>,
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
+    deferred_result: Option<BoundDependencyContract>,
     deferred: Option<BoundDependencyContract>,
     reports: BoundCallReports,
     deferred_reports: Option<BoundCallReports>,
@@ -164,6 +165,7 @@ impl BoundCallDependencyContracts {
         Self {
             invocation,
             result,
+            deferred_result: None,
             owned_transfers: Arc::new([]),
             returned_value_conditions: Arc::new([]),
             carriers: Arc::new([]),
@@ -301,6 +303,18 @@ impl BoundCallDependencyContracts {
         self.result = result;
 
         self
+    }
+
+    /// Records dependencies of the value produced by normal completion of a lazy frame.
+    pub fn with_deferred_result(mut self, result: BoundDependencyContract) -> Self {
+        self.deferred_result = Some(result);
+
+        self
+    }
+
+    /// Returns the completed value's dependencies independently of the frame captures.
+    pub const fn deferred_result(&self) -> Option<&BoundDependencyContract> {
+        self.deferred_result.as_ref()
     }
 
     /// Attaches report ownership for argument evaluation and immediate execution.

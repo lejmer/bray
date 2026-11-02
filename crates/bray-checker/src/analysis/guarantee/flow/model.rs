@@ -383,7 +383,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                     );
 
                     let subject =
-                        super::super::trusted::static_carrier(self.dependencies, carrier.path())
+                        super::super::trusted::static_carrier(self.request.semantic_values(), self.dependencies, carrier.path())
                             .substitute(&|_| ExecutionCondition::Unknown, &value, &mut {
                                 ExecutionCondition::WORK_LIMIT
                             });

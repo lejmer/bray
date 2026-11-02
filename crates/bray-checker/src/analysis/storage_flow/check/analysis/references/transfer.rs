@@ -586,7 +586,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .map(Target::storage)
                     .and_then(|target| {
                         Some(target.project(&storage_projections(
-                            self.dependencies,
+                            self.request.semantic_values(), self.dependencies,
                             relation.exit().projections(),
                         )?))
                     })
@@ -616,7 +616,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .iter()
                     .copied()
                     .chain(
-                        storage_projections(self.dependencies, relation.exit().projections())
+                        storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
                             .expect("prepared reference output retains its projections"),
                     )
                     .collect();
@@ -764,7 +764,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let Some(projections) =
-                storage_projections(self.dependencies, relation.target_projections())
+                storage_projections(self.request.semantic_values(), self.dependencies, relation.target_projections())
             else {
                 memory.stage_unknown(occurrence, destination);
                 return;

@@ -200,6 +200,12 @@ impl StructuralValueEncoder<'_, '_> {
         transfer: &bray_symbols::DependencyOwnedTransfer,
     ) -> Result<(), FactQueryError> {
         self.constant_term(transfer.input())?;
+        self.boolean(transfer.condition().is_some());
+
+        if let Some(condition) = transfer.condition() {
+            self.constant_term(condition)?;
+        }
+
         self.length(transfer.output().len());
 
         for projection in transfer.output() {

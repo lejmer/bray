@@ -160,7 +160,7 @@ pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     projections: &[DependencyProjection],
 ) -> crate::CheckerQueryResult<Option<Vec<StorageProjection>>, C::UpstreamError> {
-    convert_projections(projections, |field| {
+    convert_projections(request.semantic_values(), projections, |field| {
         Ok(request
             .union_payload_field(field)?
             .expect("checked field projection retains its declaration")
@@ -169,16 +169,18 @@ pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
 }
 
 pub(crate) fn storage_projections(
+    values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     projections: &[DependencyProjection],
 ) -> Option<Vec<StorageProjection>> {
-    convert_projections(projections, |field| {
+    convert_projections(values, projections, |field| {
         Ok::<_, std::convert::Infallible>(dependencies.projection_variant(field))
     })
     .unwrap_or_else(|error| match error {})
 }
 
 fn convert_projections<E>(
+    values: &bray_symbols::SemanticValueStore,
     projections: &[DependencyProjection],
     mut variant: impl FnMut(
         bray_symbols::UnionPayloadFieldSymbolId,
@@ -199,7 +201,26 @@ fn convert_projections<E>(
                     field,
                 }
             }
-            DependencyProjection::Element(_) => return Ok(None),
+            DependencyProjection::Element(term) => {
+                let term = values.constant_term_data(term);
+
+                let bray_symbols::ConstantTermData::Value(value) = term.as_ref()
+                else {
+                    return Ok(None);
+                };
+
+                let value = values.constant_value_data(*value);
+
+                let bray_symbols::ConstantValueKind::Integer(index) = value.kind() else {
+                    return Ok(None);
+                };
+
+                let Some(index) = index.to_u64().and_then(|index| u32::try_from(index).ok()) else {
+                    return Ok(None);
+                };
+
+                StorageProjection::ElementFromStart(bray_symbols::SymbolOrdinal::new(index))
+            }
         });
     }
 

@@ -76,6 +76,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         scope: bray_bound_tree::StorageScope,
     ) {
+
         let Some(expired) = self.scope_places.get(&scope) else {
             return;
         };
@@ -137,8 +138,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let retained = std::iter::once(&state.result)
             .chain(state.current.values())
             .chain(state.pending_results.values())
-            .flat_map(ExecutionCondition::owned_values)
-            .cloned()
+            .flat_map(|value| state.owned_values(value))
             .collect::<BTreeSet<_>>();
 
         let retired = values
@@ -223,7 +223,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         completed.assumptions = entry.assumptions;
         completed.returned = Default::default();
 
-        state.restore_returned_evidence(entry.returned);
+        self.retire_consumed_inputs(state, invocation, &entry.arguments);
+
+        state.restore_returned_evidence(self.complete_returned_evidence(state, invocation, &entry.arguments, &result, entry.returned));
 
         let mut arguments = entry.arguments;
 
