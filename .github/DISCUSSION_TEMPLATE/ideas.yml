@@ -1,0 +1,27 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use Ideas for suggestions you want to explore before a formal proposal. For a BEP discussion, use the BEPs category.
+        Reproducible bugs belong in [Issues](https://github.com/lejmer/bray/issues).
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Problem"
+      description: "Describe the problem and who it affects."
+    validations:
+      required: true
+  - type: textarea
+    id: approach
+    attributes:
+      label: "Suggested approach"
+      description: "Describe a possible solution, if you have one."
+    validations:
+      required: false
+  - type: textarea
+    id: examples
+    attributes:
+      label: "Examples"
+      description: "Include examples or links that help explain the problem."
+    validations:
+      required: false

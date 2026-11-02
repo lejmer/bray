@@ -1,0 +1,27 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use one discussion for each BEP. Read [BEP 1](https://github.com/lejmer/bray/blob/develop/beps/bep-0001.md) and the [submission guide](https://github.com/lejmer/bray/blob/develop/beps/submit-a-bep.md) before submitting a proposal.
+        An early discussion may start before a document exists. The BDFL or an authorized delegate records the decision in this thread.
+  - type: input
+    id: bep-document
+    attributes:
+      label: "BEP document"
+      description: "Link to the draft or submitted BEP. Leave this blank if you have not written the document."
+    validations:
+      required: false
+  - type: textarea
+    id: summary
+    attributes:
+      label: "Summary"
+      description: "Describe the proposed change and the problem it solves."
+    validations:
+      required: true
+  - type: textarea
+    id: review-questions
+    attributes:
+      label: "Questions for review"
+      description: "State the questions you want reviewers to address. You may ask for review of the full proposal."
+    validations:
+      required: true
