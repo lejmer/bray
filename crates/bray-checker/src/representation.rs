@@ -356,3 +356,29 @@ pub(crate) fn intern_named_type(
             panic!("intern_named_type must satisfy its checked construction contract: {error:?}")
         })
 }
+
+pub(crate) fn union_payload<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    variant: &str,
+    field: &str,
+) -> (
+    bray_symbols::UnionVariantSymbolId,
+    bray_symbols::UnionPayloadFieldSymbolId,
+) {
+    let symbols = request.available_compiler_known_symbols();
+
+    let variant = bray_compiler_known::CompilerKnownDeclarationKey::try_new(variant)
+        .expect("union payload uses a compiler-known variant");
+
+    let field = bray_compiler_known::CompilerKnownDeclarationKey::try_new(field)
+        .expect("union payload uses a compiler-known payload");
+
+    (
+        symbols
+            .declaration_symbol(&variant)
+            .expect("recognized union retains its variant"),
+        symbols
+            .declaration_symbol(&field)
+            .expect("recognized union retains its payload"),
+    )
+}

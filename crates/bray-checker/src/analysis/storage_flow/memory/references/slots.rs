@@ -43,7 +43,8 @@ impl State {
     ) -> BTreeSet<StorageIdentityId> {
         self.contents
             .iter()
-            .filter(|(_, contents)| contents.exposed)
+            // A callee can publish an address without forming it in this caller.
+            .filter(|(_, contents)| contents.exposed || contents.escaped)
             .filter_map(|(target, _)| {
                 target
                     .storage_path()

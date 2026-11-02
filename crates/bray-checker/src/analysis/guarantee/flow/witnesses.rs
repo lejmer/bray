@@ -19,7 +19,7 @@ pub(super) fn conditional_guarantees(
     ),
     current: &BTreeMap<ExecutionPlace, ExecutionCondition>,
     results: &[(BoundExpressionId, ExecutionCondition)],
-) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition)> {
+) -> Vec<(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)> {
     if left.0.witnesses.is_empty() && right.0.witnesses.is_empty() {
         return Vec::new();
     }
@@ -83,10 +83,9 @@ pub(super) fn conditional_guarantees(
             state
                 .witnesses
                 .iter()
-                .filter(|(_, witness)| witness.available)
                 .flat_map(move |(owner, witness)| {
                     witness.conditions.keys().filter_map(move |condition| {
-                        (condition.prove_mixed(
+                        (!witness.available || condition.prove_mixed(
                             &state.trusted_assumptions,
                             &state.assumptions,
                             &mut { ExecutionCondition::WORK_LIMIT },
@@ -118,7 +117,7 @@ pub(super) fn conditional_guarantees(
 
                 for (_, witness) in owned_witnesses(state, &source) {
                     for condition in witness.conditions.keys().filter(|condition| {
-                        condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
+                        !witness.available || condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                             == Some(true)
                     }) {
                         condition.clone().assume(true, &mut evidence);
@@ -137,10 +136,17 @@ pub(super) fn conditional_guarantees(
             })
         };
 
+        // A join preserves validity while the child owns execution. It must not
+        // make any unavailable predecessor's authority usable in the caller.
+        let available = predecessors.iter().all(|(state, inputs, _)| {
+            owned_witnesses(state, &owner.with_snapshots(inputs))
+                .all(|(_, witness)| witness.available)
+        });
+
         // An existing guarded claim can already hold on both paths without
         // discovering a new discriminant or adding a redundant outer guard.
         if proved(&condition) {
-            retained.push((owner, condition.clone(), condition));
+            retained.push((owner, condition.clone(), condition, available));
             continue;
         }
 
@@ -163,7 +169,7 @@ pub(super) fn conditional_guarantees(
             // These are actual predecessor snapshots of moved owners, not ordinary
             // equal-content substitutions for borrowed observations.
             if proved(&clause) {
-                retained.push((owner.clone(), condition.clone(), clause));
+                retained.push((owner.clone(), condition.clone(), clause, available));
             }
         }
     }
@@ -175,9 +181,9 @@ pub(super) fn conditional_guarantees(
 pub(super) fn retain_conditional_guarantees(
     left: &mut ExecutionState,
     right: &mut ExecutionState,
-    conditions: &[(ExecutionCondition, ExecutionCondition, ExecutionCondition)],
+    conditions: &[(ExecutionCondition, ExecutionCondition, ExecutionCondition, bool)],
 ) {
-    for (owner, original, condition) in conditions {
+    for (owner, original, condition, available) in conditions {
         let mut guarantee = crate::execution_guarantees::ExecutionGuarantee::default();
         let mut dependencies = BTreeSet::new();
 
@@ -219,9 +225,13 @@ pub(super) fn retain_conditional_guarantees(
 
             witness.carry(condition, guarantee.witness, &guarantee.addresses);
 
-            condition
-                .clone()
-                .assume(true, &mut state.trusted_assumptions);
+            if !available {
+                std::sync::Arc::make_mut(witness).available = false;
+            } else {
+                condition
+                    .clone()
+                    .assume(true, &mut state.trusted_assumptions);
+            }
         }
     }
 }
@@ -237,9 +247,8 @@ fn owned_witnesses<'a>(
 > {
     let owned = state.owned_values(source).collect::<Vec<_>>();
 
-    state.witnesses.iter().filter(move |(carrier, witness)| {
-        witness.available
-            && owned
+    state.witnesses.iter().filter(move |(carrier, _)| {
+        owned
                 .iter()
                 .any(|value| carrier.is_owned_projection_of(value))
     })

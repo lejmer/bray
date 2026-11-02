@@ -79,14 +79,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             if matches!(self.execution.semantics.selections().expression(expression),
                 Some(bray_bound_tree::SemanticSelection::Call(call))
-                    if call.implementation_hook() == Some(bray_compiler_known::ImplementationHook::FutureStart))
-                && let Some(source) = self.invocation_reference(
-                    state,
-                    expression.into(),
-                    DependencySubjectRoot::Receiver,
-                )
+                    if matches!(call.implementation_hook(), Some(
+                        bray_compiler_known::ImplementationHook::TaskJoin
+                            | bray_compiler_known::ImplementationHook::TaskCancel
+                    )))
             {
-                state.memory.transfer_deferred(&source, result.clone());
+                state.memory.publish_deferred_inputs(expression.into(), result.clone());
             }
 
             state.memory.capture_inputs(result.clone(), captures);

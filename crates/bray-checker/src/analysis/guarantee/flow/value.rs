@@ -378,17 +378,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             call.implementation_hook()?,
         )?;
 
-        let value = if call.evaluates_defaults() {
-            self.invocation_value(
-                state,
-                bray_bound_tree::BoundExecutionSite::CallInput {
-                    expression,
-                    ordinal: bray_symbols::SymbolOrdinal::new(0),
-                },
-            )
-        } else {
-            self.value(state, call.receiver()?.expression())
-        };
+        let value = self.receiver_value(state, expression, call);
 
         state
             .deferred_entries(&value)?
@@ -411,17 +401,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return None;
         }
 
-        Some(if call.evaluates_defaults() {
-            self.invocation_value(
-                state,
-                bray_bound_tree::BoundExecutionSite::CallInput {
-                    expression,
-                    ordinal: bray_symbols::SymbolOrdinal::new(0),
-                },
-            )
+        Some(self.receiver_value(state, expression, call))
+    }
+
+    pub(super) fn receiver_value(
+        &self,
+        state: &ExecutionState,
+        expression: BoundExpressionId,
+        call: &bray_bound_tree::SelectedCall,
+    ) -> ExecutionCondition {
+        if call.evaluates_defaults() {
+            self.invocation_value(state, bray_bound_tree::BoundExecutionSite::CallInput {
+                expression,
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            })
         } else {
-            self.value(state, call.receiver()?.expression())
-        })
+            self.value(state, call.receiver().expect("selected receiver operation retains its receiver").expression())
+        }
     }
 
     pub(in crate::analysis) fn inactive_future_captures(

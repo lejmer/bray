@@ -53,6 +53,17 @@ impl ExecutionCondition {
         )
     }
 
+    /// Discharges ordinary guards without substituting inside trusted atoms.
+    pub(crate) fn with_guard_facts(&self, facts: &BTreeMap<Self, Self>) -> Self {
+        self.substitute_values(
+            &|condition| match condition {
+                Self::Trusted(_) => Some(condition.clone()),
+                _ => facts.get(condition).cloned(),
+            },
+            &mut { Self::WORK_LIMIT },
+        )
+    }
+
     fn substitute_values(
         &self,
         replace: &impl Fn(&Self) -> Option<Self>,

@@ -550,11 +550,6 @@ impl State {
             .values
             .values_mut()
             .chain(self.borrows.values_mut())
-            .chain(
-                self.pending
-                    .values_mut()
-                    .flat_map(|transfer| transfer.values.values_mut()),
-            )
         {
             references.retire(current);
         }

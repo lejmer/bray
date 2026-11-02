@@ -568,8 +568,49 @@ where
         }
     }
 
-    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
     pub(in crate::analysis::storage_flow) fn apply_operation(
+        &mut self,
+        state: &mut StorageFlowState,
+        operation: &AnalysisOperation,
+    ) {
+        let Some((owner, alternatives)) = state.execution.as_ref().and_then(|execution| {
+            self.execution.deferred_alternatives(execution, operation.kind())
+        }) else {
+            self.apply_operation_branch(state, operation);
+
+            return;
+        };
+
+        // A possible producer owns its effects and completion together. Merge only
+        // after applying the operation, before an opaque alternative can erase its siblings.
+        let mut original = std::mem::take(state);
+        let mut alternatives = alternatives.into_iter().peekable();
+
+        while let Some(alternative) = alternatives.next() {
+            let mut branch = if alternatives.peek().is_some() {
+                original.clone()
+            } else {
+                std::mem::take(&mut original)
+            };
+
+            self.execution.select_deferred(
+                branch.execution.as_mut().expect("reachable producer has execution facts"),
+                owner.clone(),
+                alternative,
+            );
+
+            self.apply_operation(&mut branch, operation);
+
+            if state.reachable {
+                state.merge(&branch, None);
+            } else {
+                *state = branch;
+            }
+        }
+    }
+
+    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
+    fn apply_operation_branch(
         &mut self,
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
@@ -629,7 +670,7 @@ where
             .expect("reachable storage state has execution facts");
 
         self.retain_operation_reports(state, *operation, &execution);
-        self.transfer_result_dependencies(state, kind);
+        self.transfer_result_dependencies(state, kind, &execution);
 
         if self.publish
             && !matches!(
@@ -992,6 +1033,19 @@ where
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
             self.execution
                 .complete_operation(execution, kind, Some(&observations));
+
+            if matches!(kind,
+                AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
+                    | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+                && let Some(expression) = kind.occurrence().expression()
+            {
+                self.execution.capture_deferred_reports(execution, expression, || {
+                    crate::dependency::ReportDependencies {
+                        subjects: self.liveness.retained_by(expression).collect(),
+                        requirements: state.result_dependencies.value_requirements(expression).cloned().collect(),
+                    }
+                });
+            }
         }
 
         if self.publish
@@ -1027,7 +1081,15 @@ where
         &mut self,
         state: &mut StorageFlowState,
         kind: AnalysisOperationKind,
+        execution: &crate::analysis::guarantee::ExecutionState,
     ) {
+        let completed = match kind {
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                self.execution.awaited_value_producers(execution, expression)
+            }
+            _ => None,
+        };
+
         let mut transfer = crate::dependency::ResultTransfer::new(
             self.request,
             self.execution.semantics.types(),
@@ -1042,6 +1104,7 @@ where
             kind.occurrence()
                 .expression()
                 .and_then(|id| self.execution.yield_targets.get(&id).copied()),
+            completed.as_ref(),
         ) {
             self.query_failure = Some(error);
         }

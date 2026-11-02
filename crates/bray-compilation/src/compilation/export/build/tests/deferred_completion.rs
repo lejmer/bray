@@ -7,6 +7,18 @@ const API: &str = r"
 
     struct Marker {}
 
+    extern func external();
+
+    struct Cell
+    {
+        mut value: u32;
+    }
+
+    func opaque_cell(pos value: &Cell) -> Future<(&Cell)>
+    {
+        return pass<(&Cell)>(value);
+    }
+
     struct State
     {
         mut count: u32;
@@ -251,6 +263,166 @@ const API: &str = r"
 ";
 
 const CASES: &[(&str, &str, bool)] = &[
+    (
+        "normal_reference_releases_frame_borrow",
+        r"let cell: api.Cell = { value = 1 }; let result = { let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<(&api.Cell)>(&cell, &mut state); } else { yield api.pass<(&api.Cell)>(&cell); }; yield await pending; }; _ = result.value;",
+        true,
+    ),
+    (
+        "task_reference_releases_frame_borrow",
+        r"let cell: api.Cell = { value = 1 }; let outcome = { let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<(&api.Cell)>(&cell, &mut state); } else { yield api.opaque_cell(&cell); }; let task = pending.start(); yield await task.join(); }; match consume outcome { case Completed(value) { _ = value.value; } case Panicked(report) {} case Cancelled {} }",
+        true,
+    ),
+    (
+        "opaque_await_preserves_report_borrow",
+        r"let cell: api.Cell = { value = 1 }; let result = { let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<(&api.Cell)>(&cell, &mut state); } else { yield api.opaque_cell(&cell); }; yield await pending; }; _ = result.value;",
+        false,
+    ),
+    (
+        "task_known_result_after_opaque",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.other<api.Marker>(api.Marker {}); }; let task = pending.start(); let value = try await task.join(); api.external(); if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "task_opaque_result_after_opaque",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); }; let task = pending.start(); let value = try await task.join(); api.external(); if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "opaque_frame_borrow_released",
+        r"let mut state: api.State = { count = 0 }; let pending = if choice { yield api.touch<api.Marker>(api.make(), &mut state); } else { yield api.opaque(api.Marker {}); }; let value = await pending; if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "task_pending_permission_unavailable",
+        r"let permit = api.permission(); let id = permit.id; let pending = if choice { yield api.pass<api.Permit>(permit); } else { yield api.other<api.Permit>(api.Permit { id = id }); }; let task = pending.start(); if choice { api.inspect_permission(id); }",
+        false,
+    ),
+    (
+        "task_unrelated_join_permission_unavailable",
+        r"let permit = api.permission(); let id = permit.id; let task = api.pass<api.Permit>(permit).start(); let value = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.other<api.Marker>(api.Marker {}); }; if choice { api.inspect_permission(id); }",
+        false,
+    ),
+    (
+        "task_join_opaque_reference_live",
+        r"let cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); let result = try await task.join(); _ = result.value;",
+        true,
+    ),
+    (
+        "task_join_opaque_reference_mutation",
+        r"let mut cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); let result = try await task.join(); cell.value = 2; _ = result.value;",
+        false,
+    ),
+    (
+        "task_cancel_opaque_reference_live",
+        r"let cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); let result = try await task.cancel(); _ = result.value;",
+        true,
+    ),
+    (
+        "task_cancel_opaque_reference_mutation",
+        r"let mut cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); let result = try await task.cancel(); cell.value = 2; _ = result.value;",
+        false,
+    ),
+    (
+        "task_join_reference_escape",
+        r"let result = { let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); yield try await task.join(); }; _ = result.value;",
+        false,
+    ),
+    (
+        "task_join_reference_mutation",
+        r"let mut cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); let result = try await task.join(); cell.value = 2; _ = result.value;",
+        false,
+    ),
+    (
+        "task_join_reference_live",
+        r"let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); let result = try await task.join(); _ = result.value;",
+        true,
+    ),
+    (
+        "task_join_reference_match_escape",
+        r"let outcome = { let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); yield await task.join(); }; match consume outcome { case Completed(result) { _ = result.value; } case Panicked(report) {} case Cancelled {} }",
+        false,
+    ),
+    (
+        "task_join_opaque_reference_escape",
+        r"let result = { let cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); yield try await task.join(); }; _ = result.value;",
+        false,
+    ),
+    (
+        "task_cancel_reference_escape",
+        r"let result = { let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); yield try await task.cancel(); }; _ = result.value;",
+        false,
+    ),
+    (
+        "task_cancel_reference_mutation",
+        r"let mut cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); let result = try await task.cancel(); cell.value = 2; _ = result.value;",
+        false,
+    ),
+    (
+        "task_cancel_reference_live",
+        r"let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); let result = try await task.cancel(); _ = result.value;",
+        true,
+    ),
+    (
+        "task_cancel_reference_match_escape",
+        r"let outcome = { let cell: api.Cell = { value = 1 }; let task = api.pass<(&api.Cell)>(&cell).start(); yield await task.cancel(); }; match consume outcome { case Completed(result) { _ = result.value; } case Panicked(report) {} case Cancelled {} }",
+        false,
+    ),
+    (
+        "task_cancel_opaque_reference_escape",
+        r"let result = { let cell: api.Cell = { value = 1 }; let task = api.opaque_cell(&cell).start(); yield try await task.cancel(); }; _ = result.value;",
+        false,
+    ),
+    (
+        "task_forwarded_reference_escape",
+        r"let outcome = { let cell: api.Cell = { value = 1 }; yield await api.task_result<(&api.Cell)>(&cell, choice); }; match consume outcome { case Completed(result) { _ = result.value; } case Panicked(report) {} case Cancelled {} }",
+        false,
+    ),
+    (
+        "task_forwarded_reference_live",
+        r"let cell: api.Cell = { value = 1 }; let outcome = await api.task_result<(&api.Cell)>(&cell, choice); match consume outcome { case Completed(result) { _ = result.value; } case Panicked(report) {} case Cancelled {} }",
+        true,
+    ),
+    (
+        "preformed_future_selected_after_completion",
+        r"let left = api.pass<api.Marker>(api.make()); let right = api.other<api.Marker>(api.Marker {}); let pending = if choice { yield left; } else { yield right; };let value = await pending;if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "preformed_future_fabricated_after_completion",
+        r"let left = api.pass<api.Marker>(api.make()); let right = api.other<api.Marker>(api.Marker {}); let pending = if choice { yield left; } else { yield right; };let value = await pending;if !choice { api.observe(&value); }",
+        false,
+    ),
+    (
+        "opaque_future_selected_after_completion",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); };let value = await pending;if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "opaque_future_fabricated_after_completion",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); };let value = await pending;if !choice { api.observe(&value); }",
+        false,
+    ),
+    (
+        "preformed_task_selected_after_completion",
+        r"let left = api.pass<api.Marker>(api.make()); let right = api.other<api.Marker>(api.Marker {}); let pending = if choice { yield left; } else { yield right; };let task = pending.start(); let value = try await task.join();if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "preformed_task_fabricated_after_completion",
+        r"let left = api.pass<api.Marker>(api.make()); let right = api.other<api.Marker>(api.Marker {}); let pending = if choice { yield left; } else { yield right; };let task = pending.start(); let value = try await task.join();if !choice { api.observe(&value); }",
+        false,
+    ),
+    (
+        "opaque_task_selected_after_completion",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); };let task = pending.start(); let value = try await task.join();if choice { api.observe(&value); }",
+        true,
+    ),
+    (
+        "opaque_task_fabricated_after_completion",
+        r"let pending = if choice { yield api.pass<api.Marker>(api.make()); } else { yield api.opaque(api.Marker {}); };let task = pending.start(); let value = try await task.join();if !choice { api.observe(&value); }",
+        false,
+    ),
     (
         "returned_task_outcome",
         r"let result = await api.task_result(api.make(), choice);
@@ -872,6 +1044,7 @@ fn check_deferred_completion(imported: bool) {
                     diagnostic.kind(),
                     bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
                         | bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency
+                        | bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow
                         | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
                 )
             })

@@ -181,7 +181,7 @@ impl ValueInputs {
         inputs.writes =
             super::assignment::AssignmentInputs::new(request.unit(), selections, &inputs);
 
-        inputs.collect_deferred_sources(request.unit(), selections);
+        inputs.collect_deferred_sources(request, types, selections);
         inputs.filter_independent(request, types, selections)?;
         inputs.collect_propagation(request, selections)?;
         inputs.collect_source_inputs(request.unit(), selections, patterns);

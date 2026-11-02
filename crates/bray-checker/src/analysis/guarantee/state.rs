@@ -537,23 +537,27 @@ impl ExecutionState {
 
         let mut computations = DeferredInvocations::new();
 
-        for (owner, entries) in &self.deferred_invocations {
-            let value = rename_identity(owner);
+        for (owner, mut entries) in std::mem::take(&mut self.deferred_invocations) {
+            let value = rename_identity(&owner);
 
             if value == ExecutionCondition::Unknown {
                 continue;
             }
 
-            // Flow branches share immutable entries until an owning move renames their captures.
-            let mut entries = entries.clone();
-
             entries.join_values(
                 replacements,
                 identities,
-                (value != *owner).then_some(&self.assumptions),
+                (value != owner).then_some(&self.assumptions),
             );
 
-            computations.entry(value).or_default().merge(&entries);
+            match computations.entry(value) {
+                std::collections::btree_map::Entry::Vacant(slot) => {
+                    slot.insert(entries);
+                }
+                std::collections::btree_map::Entry::Occupied(mut slot) => {
+                    slot.get_mut().merge(&entries);
+                }
+            }
         }
 
         self.deferred_invocations = computations;

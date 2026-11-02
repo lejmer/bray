@@ -244,6 +244,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(expression) = occurrence.expression() {
+            if let Some(sources) = self.awaited_task_invocations(state, expression)
+                && self.task_cleanup_types(&sources, false).is_some_and(|types| types.is_empty())
+            {
+                return sources.iter().all(|source| {
+                    self.dependencies.calls()[source].deferred_preserves_storage_on_normal_return()
+                });
+            }
+
             if self.awaited_unknown(state, expression) {
                 return false;
             }

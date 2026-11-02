@@ -3021,6 +3021,21 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
             return guard;
         }
 
+        async func pause() {}
+
+        async func retained_suspended_result(pos owner: &Owner) -> Guard
+        {
+            let guard = Guard { owner = owner };
+            await pause();
+            return guard;
+        }
+
+        func leaked(pos owner: &Owner) -> &Owner
+        {
+            publish(core.memory.address_of<Owner>(owner));
+            return owner;
+        }
+
         func inspect(pos owner: &Owner)
             requires(trusted live(&owner.marker))
             executes(pure, total)
@@ -3031,6 +3046,26 @@ fn owned_computations_retain_checked_effects_without_granting_authority() {
     let provider = compilation(source);
 
     for (body, valid) in [
+        (
+            "let held = api.leaked(&owner); api.opaque(); api.inspect(held);",
+            false,
+        ),
+        (
+            "let held = &owner; api.leaked(held); api.opaque(); api.inspect(held);",
+            false,
+        ),
+        (
+            "let guard = await api.retained_suspended_result(&owner);",
+            true,
+        ),
+        (
+            "let task = api.retained_suspended_result(&owner).start(); let outcome = await task.join();",
+            false,
+        ),
+        (
+            "let task = api.retained_suspended_result(&owner).start(); let outcome = await task.cancel();",
+            false,
+        ),
         (
             "let task = api.work(&owner).start(); try await task.join();",
             true,

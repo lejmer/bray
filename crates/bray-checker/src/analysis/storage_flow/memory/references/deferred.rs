@@ -73,15 +73,32 @@ impl State {
             .collect()
     }
 
-    pub(in crate::analysis::storage_flow) fn transfer_deferred(
+    pub(in crate::analysis::storage_flow) fn stage_deferred_inputs(
         &mut self,
+        invocation: BoundExecutionSite,
         source: &Source,
         destination: StoragePath,
     ) {
         if let Source::Value(source) = source {
             let captured = self.capture_deferred_value(source, &Target::storage(destination));
 
-            merge_deferred(&mut self.deferred, &captured);
+            merge_deferred(&mut self.pending.entry(invocation).or_default().deferred, &captured);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn publish_deferred_inputs(
+        &mut self,
+        invocation: BoundExecutionSite,
+        destination: StoragePath,
+    ) {
+        let target = Target::storage(destination);
+
+        // Task observation captures are live when its outer future is formed.
+        // Its own returned values remain staged until that future completes.
+        if let Some(captures) = self.pending.get_mut(&invocation)
+            .and_then(|transfer| transfer.deferred.remove(&target))
+        {
+            self.deferred.entry(target).or_default().extend(captures);
         }
     }
 
@@ -139,7 +156,10 @@ impl State {
         for (producer, output) in producers {
             let entry = entries
                 .get(&producer)
-                .expect("known future retains its pending producer");
+                .unwrap_or_else(|| panic!(
+                    "deferred completion {invocation:?} requires producer {producer:?} in {source:?}; retained producers: {:?}",
+                    entries.keys(),
+                ));
 
             // Alternative producers keep independent staged outputs until normal completion joins them.
             let mut transfer = entry.as_ref().clone();

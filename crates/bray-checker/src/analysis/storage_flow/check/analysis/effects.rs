@@ -47,11 +47,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let source = self.expression_reference(state, awaited.operand())?;
 
-            let producers = self
+            let task_producers = self.execution.awaited_task_invocations(execution, expression);
+            let task = task_producers.is_some();
+
+            let producers = task_producers.unwrap_or_else(|| self
                 .execution
                 .awaited_invocations(execution, expression)
                 .map(|(source, _)| source)
-                .collect::<std::collections::BTreeSet<_>>();
+                .collect::<std::collections::BTreeSet<_>>());
 
             if self.execution.awaited_unknown(execution, expression) {
                 state.memory.begin_transition(invocation);
@@ -59,11 +62,32 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return None;
             }
 
-            let effects = state.memory.deferred_effects(&source, &producers);
+            let effects = if task {
+                task_effects(
+                    &state.memory,
+                    Some(&source),
+                    &producers,
+                    self.execution.task_cleanup_types(&producers, false)?,
+                )
+            } else {
+                state.memory.deferred_effects(&source, &producers)
+            };
 
-            let result = self
+            let mut result = self
                 .expression_result_storage(expression)
                 .expect("await retains its checked result storage");
+
+            if task {
+                let (variant, field) = crate::representation::union_payload(
+                    self.request,
+                    "RunResultVariant0Completed",
+                    "RunResultVariant0CompletedValue",
+                );
+
+                result.projections = result.projections.iter().copied().chain([
+                    StorageProjection::ActiveUnionPayloadField { variant, field }
+                ]).collect();
+            }
 
             state.memory.prepare_deferred_completion(
                 invocation,
@@ -106,6 +130,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let task_sources = invocation
             .expression()
             .and_then(|expression| self.execution.task_invocations(execution, expression));
+
+        if invocation.expression().is_some_and(|expression| matches!(
+            self.execution.semantics.selections().expression(expression),
+            Some(bray_bound_tree::SemanticSelection::Call(call))
+                if call.implementation_hook().and_then(crate::analysis::AnalysisTaskOperationKind::from_implementation_hook).is_some()
+        ))
+            && let Some(source) = self.invocation_reference(state, invocation, DependencySubjectRoot::Receiver)
+            && let Some(result) = self.invocation_result(invocation)
+        {
+            state.memory.stage_deferred_inputs(invocation, &source, result);
+        }
 
         let mut task_effects = task_sources.as_ref().and_then(|sources| {
             task_effects(

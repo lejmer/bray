@@ -38,6 +38,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
         &mut self,
         operation: crate::analysis::AnalysisOperationKind,
         yielded: Option<BoundExpressionId>,
+        completed: Option<&BTreeSet<BoundExpressionId>>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         use crate::analysis::{AnalysisCallPhase, AnalysisOperationKind};
 
@@ -101,7 +102,7 @@ impl<'a, 'state, C: CheckerRequestContext + ?Sized> Transfer<'a, 'state, C> {
                     .expression(id)
                     .expect("flow expression is bound");
 
-                let values = self.expression_values(id, expression)?;
+                let values = self.expression_values(id, expression, completed)?;
 
                 super::state::assign(&mut self.state.values, id.into(), values);
 
@@ -195,6 +196,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         &mut self,
         id: BoundExpressionId,
         expression: &BoundExpression,
+        completed: Option<&BTreeSet<BoundExpressionId>>,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         if self.inputs.is_independent(id) {
             return Ok(BTreeSet::new());
@@ -248,15 +250,20 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 BoundExpression::TraitQualifiedMember(member) => {
                     self.member_values(id, expression, member.receiver())?
                 }
-                BoundExpression::Await(_) if self.inputs.completion_sources(id).is_some() => self
-                    .inputs
-                    .completion_sources(id)
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|source| self.state.completions.get(source))
-                    .flatten()
-                    .cloned()
-                    .collect(),
+                BoundExpression::Await(_) if completed.or_else(|| self.inputs.completion_sources(id)).is_some() => {
+                    let mut requirements = completed.or_else(|| self.inputs.completion_sources(id))
+                        .into_iter().flatten().filter_map(|source| self.state.completions.get(source))
+                        .flatten().cloned().collect::<BTreeSet<_>>();
+
+                    // Opaque values retain their own captures, rather than every
+                    // capture of the joined value's unrelated known producers.
+                    if completed.is_none_or(BTreeSet::is_empty) {
+                        requirements.extend(self.inputs.operands(id).flat_map(|source| self.state
+                            .value_requirements(source).cloned()));
+                    }
+
+                    requirements
+                },
                 BoundExpression::Call(_)
                     if matches!(
                         self.selections.expression(id),

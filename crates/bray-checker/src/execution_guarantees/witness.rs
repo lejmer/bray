@@ -147,10 +147,27 @@ impl ExecutionWitness {
 
         let known = crate::execution_guarantees::trusted_condition_closure(evidence, assumptions);
 
+        let ordinary = known
+            .iter()
+            .chain(assumptions.iter())
+            .filter(|(condition, _)| !condition.contains_trusted())
+            .map(|(condition, holds)| (condition.clone(), ExecutionCondition::Boolean(*holds)))
+            .collect();
+
         let mut derived =
             BTreeMap::<ExecutionCondition, crate::execution_guarantees::ExecutionGuarantee>::new();
 
         for (condition, guarantee) in &self.conditions {
+            if !known.contains(&(condition.clone(), true)) {
+                continue;
+            }
+
+            let refined = condition.with_guard_facts(&ordinary);
+
+            if refined != *condition && refined.contains_trusted() {
+                derived.entry(refined).or_default().extend(guarantee);
+            }
+
             for observation in condition
                 .observations()
                 .filter(|condition| {
@@ -178,7 +195,7 @@ impl ExecutionWitness {
         }
 
         for (condition, guarantee) in derived {
-            if matches!(condition, ExecutionCondition::Trusted(_)) {
+            if condition.contains_trusted() {
                 condition.clone().assume(true, trusted);
 
                 if !self
@@ -324,30 +341,32 @@ impl ExecutionWitness {
 }
 
 impl super::ExecutionCallEvidence {
-    pub(crate) fn join_values(
-        &mut self,
+    pub(crate) fn joined_values(
+        &self,
         replacements: &BTreeMap<ExecutionCondition, ExecutionCondition>,
         identities: &BTreeMap<ExecutionCondition, ExecutionCondition>,
-    ) {
+    ) -> Option<Self> {
         let rename =
             |value: &ExecutionCondition| value.with_joined_values(replacements, identities);
 
-        for value in self
-            .arguments
-            .values_mut()
-            .chain(self.copy_sources.values_mut())
-        {
-            *value = rename(value);
-        }
+        let rename_arguments = |arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>| {
+            arguments
+                .iter()
+                .map(|(place, value)| (place.clone(), rename(value)))
+                .collect::<BTreeMap<_, _>>()
+        };
 
-        self.witness_inputs = self
+        let arguments = rename_arguments(&self.arguments);
+        let copy_sources = rename_arguments(&self.copy_sources);
+
+        let witness_inputs = self
             .witness_inputs
             .iter()
             .map(|owner| owner.with_joined_values(identities, identities))
             .collect();
 
-        for facts in [&mut self.assumptions, &mut self.trusted_assumptions] {
-            *facts = facts
+        let rename_facts = |facts: &BTreeSet<(ExecutionCondition, bool)>| {
+            facts
                 .iter()
                 .flat_map(|(condition, holds)| {
                     let mut renamed = BTreeSet::new();
@@ -356,15 +375,49 @@ impl super::ExecutionCallEvidence {
 
                     renamed
                 })
-                .collect();
+                .collect::<BTreeSet<_>>()
+        };
+
+        let assumptions = rename_facts(&self.assumptions);
+        let trusted_assumptions = rename_facts(&self.trusted_assumptions);
+
+        let addresses = self
+            .addresses
+            .iter()
+            .map(|(place, addresses)| {
+                (
+                    place.clone(),
+                    addresses
+                        .iter()
+                        .map(|(address, owners)| (rename(address), owners.clone()))
+                        .collect(),
+                )
+            })
+            .collect();
+
+        if arguments == self.arguments
+            && copy_sources == self.copy_sources
+            && witness_inputs == self.witness_inputs
+            && assumptions == self.assumptions
+            && trusted_assumptions == self.trusted_assumptions
+            && addresses == self.addresses
+        {
+            return None;
         }
 
-        for addresses in self.addresses.values_mut() {
-            *addresses = addresses
-                .iter()
-                .map(|(address, owners)| (rename(address), owners.clone()))
-                .collect();
-        }
+        // Reuse each mapped field once, without copying the original historical context first.
+        Some(Self {
+            arguments,
+            copy_sources,
+            witness_inputs,
+            assumptions,
+            trusted_assumptions,
+            addresses,
+            owned_inputs: Arc::clone(&self.owned_inputs),
+            anonymous_target: self.anonymous_target.clone(),
+            trusted_boundary: self.trusted_boundary,
+            pending_execution: self.pending_execution,
+        })
     }
 }
 
@@ -374,6 +427,56 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
     use bray_symbols::SymbolOrdinal;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn refinement_discharges_a_known_outer_guard_without_assuming_the_remaining_guard() {
+        use bray_bound_tree::BoundOperator;
+
+        let outer = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let inner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+
+        let claim = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(2)),
+        )));
+
+        let guarded = |guard: ExecutionCondition, value: ExecutionCondition| {
+            ExecutionCondition::operation(BoundOperator::LogicalOr, vec![
+                ExecutionCondition::operation(BoundOperator::LogicalNot, vec![guard]), value,
+            ])
+        };
+
+        let residual = guarded(inner.clone(), claim.clone());
+        let original = guarded(outer.clone(), residual.clone());
+        let mut witness = std::sync::Arc::new(ExecutionWitness::default());
+
+        witness.carry(&original, true, &Default::default());
+
+        let unproved = ExecutionCondition::Trusted(std::sync::Arc::new(ExecutionCondition::Input(
+            ExecutionPlace::argument(SymbolOrdinal::new(3)),
+        )));
+
+        let unproved_residual = guarded(inner.clone(), unproved.clone());
+
+        witness.carry(&guarded(outer.clone(), unproved_residual.clone()), true, &Default::default());
+
+        let mut trusted = [(original, true)].into();
+        let mut ordinary = [(outer, true)].into();
+
+        witness.refine(&mut trusted, &mut ordinary);
+
+        assert!(witness.conditions.contains_key(&residual));
+        assert!(trusted.contains(&(residual.clone(), true)));
+        assert!(!witness.conditions.contains_key(&unproved_residual));
+        assert_ne!(unproved.prove_trusted(&trusted, &ordinary), Some(true));
+        assert_ne!(claim.prove_trusted(&trusted, &ordinary), Some(true));
+
+        ordinary.clear();
+        trusted.clear();
+        residual.assume(true, &mut trusted);
+        inner.assume(true, &mut ordinary);
+
+        assert_eq!(claim.prove_trusted(&trusted, &ordinary), Some(true));
+    }
 
     #[test]
     fn merging_witnesses_retains_all_possible_address_owners_and_reports_new_edges() {
