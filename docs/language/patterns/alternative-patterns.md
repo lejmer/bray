@@ -10,10 +10,11 @@ All alternatives are checked against the same subject type.
 
 All alternatives bind the same set of names.
 
-Each shared binding name has the same type and compatible ownership, borrowing, mutation, lifetime, and capability mode
-in every alternative.
-
-Alternative patterns produce one coherent binding environment for the matched region.
+Each shared name denotes one logical binding in the matched region and has the same type in every alternative.
+Each occurrence follows the selected [pattern operation mode](pattern-operation-modes.md), including its ownership,
+borrow, and mutation authority. The alternatives cannot grant a later use authority missing from a possible binding
+source. Dependencies and source projections follow
+[flow-state merging](../expressions/expression-results.md#flow-state-merge).
 
 ## Navigation
 

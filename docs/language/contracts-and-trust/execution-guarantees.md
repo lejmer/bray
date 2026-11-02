@@ -121,7 +121,7 @@ not turn an ordinary postcondition or an execution-property promise into an unch
 assert guarantees across the foreign boundary. Those assertions carry the declaration's trust obligations.
 
 Compiled interfaces retain entry guards, guarded postconditions, execution properties, proof provenance, and proof
-dependencies. Separately compiled providers supply validated compatible evidence. Foreign assertions remain
+dependencies. Separately compiled providers supply validated evidence that establishes the required guards, guarantees, and properties. Foreign assertions remain
 distinguished from checked Bray proofs and preserve `extern`, module trust, ABI, `foreign_call`, and caller-obligation
 contracts. Compiler-known declarations must also satisfy their closed role contracts.
 

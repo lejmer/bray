@@ -109,7 +109,8 @@ A `pos` payload field can be matched positionally or by name.
 
 Payload fields are immutable by default after initialization.
 
-A payload field declared with `mut` permits post-initialization mutation through a compatible mutable access path when
+A payload field declared with `mut` permits post-initialization mutation through a mutable access path permitted by
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md) when
 the active variant is known.
 
 ```bray
@@ -258,7 +259,8 @@ Payload field access requires:
 - an access path to the union value,
 - active-variant refinement for the selected variant,
 - a selected payload field on that variant,
-- compatible capability for the requested operation.
+- the authority required by the requested operation under
+  [storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 Observation of a payload field requires observe capability over the union access path and selected payload.
 

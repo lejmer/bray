@@ -56,8 +56,8 @@ carries body effects, capabilities, execution requirements, and lifecycle behavi
 
 A static function call participates in overload resolution when the path resolves to an overload declaration.
 
-A static function call first selects exactly one callable through path resolution, argument mapping and type
-compatibility, explicit generic substitution and static constraints, target availability, and overload resolution.
+A static function call first selects exactly one callable through path resolution, argument mapping and
+[argument type matching](arguments.md#argument-type-matching), explicit generic substitution and static constraints, target availability, and overload resolution.
 Ordinary call checking then validates ownership, borrowing, mutation authority, dependency contracts, capabilities,
 effects, trusted obligations, and contract guarantees for that selected callable.
 

@@ -75,8 +75,8 @@ If the match expression result type is `unit`, an arm body can complete normally
 If the match expression result type is a value type other than `unit`, every reachable normal completion path in every
 selected arm body supplies a value with `yield` or ends in a `never` expression.
 
-All match arms must merge to a coherent type, ownership state, initialization state, destruction state, finalization
-state, capability state, and set of available contract guarantees.
+Reachable normal arm exits follow [result type merging](expression-results.md#result-type-merge) and
+[flow-state merging](expression-results.md#flow-state-merge).
 
 A match expression can use refutable patterns.
 

@@ -49,8 +49,9 @@ A block expression in `unit` context can complete normally.
 
 A block expression whose control flow has no normal continuation has type `never`.
 
-A block expression's exits must agree on type, ownership, initialization, destruction, finalization, capabilities,
-effects, and which contract guarantees remain available.
+The block's value exits follow [result type merging](expression-results.md#result-type-merge). Paths reaching a shared
+continuation follow [flow-state merging](expression-results.md#flow-state-merge). Other exits resolve their obligations
+at their own target boundary.
 
 ## Navigation
 

@@ -8,7 +8,7 @@ A **continue expression** starts the next iteration of the nearest loop or itera
 continue;
 ```
 
-`continue` targets the nearest compatible loop or iteration region.
+`continue` targets the nearest enclosing region that permits `continue`.
 
 `continue` carries no value.
 

@@ -28,7 +28,8 @@ Bindings introduced by the pattern are available in the guard.
 
 Conditions established by successful structural pattern matching are available in the guard.
 
-Surrounding guarantees are available in the guard when they remain valid at the guard evaluation point.
+Surrounding guarantees are available in the guard only while their carriers and dependencies meet
+[contract reasoning](../contracts-and-trust/contract-reasoning.md) at the guard evaluation point.
 
 Pattern bindings are available in observe-only form in the guard.
 

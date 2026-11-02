@@ -29,7 +29,8 @@ Nested yield-capable regions capture their own yields.
 
 An inner `yield` supplies the inner region.
 
-The yielded value must be compatible with the target region’s expected result or element type.
+The yielded value must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the target region's expected
+result or element type.
 
 `yield;` is shorthand for `yield unit;`.
 

@@ -426,7 +426,9 @@ These infer `i32`, `r64`, and `c128` respectively when no other context applies.
 
 ## Literal adaptation
 
-Literal adaptation is the process that assigns a compatible type to an initially untyped literal expression.
+Literal adaptation assigns a type to an initially untyped literal expression according to its literal kind and expected
+type. An integer literal admits integer types, a real literal admits real types, and an imaginary literal admits complex
+types. The literal must meet that type's representation rules. Adaptation does not widen an already-typed value.
 
 Literal adaptation applies to literal expressions.
 

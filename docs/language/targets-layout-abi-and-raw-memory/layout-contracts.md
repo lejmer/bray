@@ -77,7 +77,7 @@ A packed field or payload component cannot be borrowed as `&T` or `&mut T` unles
 access is naturally aligned for `T`.
 
 `size = N` supplies the exact byte size of a bodyless opaque struct. It is valid only with `stable` or `c` layout on a
-bodyless struct and requires an explicit compatible `align = A`. The size must be representable by the selected target
+bodyless struct and requires an explicit `align = A` that satisfies the alignment rules above. The size must be representable by the selected target
 and must be a multiple of the effective alignment.
 
 `tag = IntegerType` sets the physical tag type of a union.

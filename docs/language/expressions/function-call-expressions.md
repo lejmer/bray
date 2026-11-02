@@ -63,7 +63,7 @@ evaluation, ownership transfer, and any frame storage operation required by the 
 
 A call expression participates in overload resolution when the callee resolves to an overload declaration.
 
-A call first selects exactly one callable through name resolution, argument mapping and type compatibility, explicit
+A call first selects exactly one callable through name resolution, argument mapping and [argument type matching](arguments.md#argument-type-matching), explicit
 generic substitution and static constraints, target availability, and overload resolution. Ordinary call checking then
 validates ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted obligations,
 and contract guarantees for that selected callable.

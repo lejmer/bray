@@ -14,11 +14,11 @@ break value;
 break;
 ```
 
-`break` targets the nearest compatible loop or iteration region.
+`break` targets the nearest enclosing region that permits `break`.
 
 The operand of `break value` is evaluated exactly once.
 
-The break value must be compatible with the target region's result type.
+The break value must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the target region's result type.
 
 `break;` is shorthand for `break unit;`.
 

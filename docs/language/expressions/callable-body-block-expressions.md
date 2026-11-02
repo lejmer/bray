@@ -37,8 +37,10 @@ contains them also leaves the callable body.
 Return operand evaluation and result transfer follow
 [Return expressions](return-expressions.md#evaluation-and-ownership).
 
-A callable-body block expression must leave every reachable exit with compatible type, ownership, initialization,
-destruction, finalization, capability, and effect states and compatible available contract guarantees.
+Every returned value meets [return type acceptance](return-expressions.md). Each reachable exit resolves the obligations
+for that exit under [scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md).
+Paths that reach a shared continuation follow [flow-state merging](expression-results.md#flow-state-merge).
+A callable must establish its declared completion guarantees on every exit to which those guarantees apply.
 
 For async callables, the callable-body block expression is checked in an active async execution context and is the root
 lexical task scope for that invocation. Every nested ordinary block is also a structured task ownership boundary.

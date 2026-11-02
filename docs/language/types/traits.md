@@ -233,7 +233,8 @@ The initializer, when present, is checked in constant-initializer context.
 The initializer is a declaration-owned constant definition template. Its selected concrete value is evaluated after the
 exact implementing subject, trait application, implementation, generic substitution, and target properties are known.
 
-The initializer must be compatible with the declared constant type.
+The initializer must satisfy [value type acceptance](../expressions/expression-context.md#value-type-acceptance) for the
+declared constant type.
 
 Inside the declaring trait, the constant-valued member name is available in member signatures, default bodies, and
 contract clauses.
@@ -501,8 +502,8 @@ rules.
 
 ## Lifecycle requirements in traits
 
-A lifecycle requirement is a trait member that requires compatible lifecycle behavior from the implementing subject or
-exact trait implementation.
+A lifecycle requirement is a trait member that requires lifecycle behavior from the implementing subject or exact trait
+implementation. The behavior must meet the signature and contract rules in this section.
 
 Lifecycle requirements are written with lifecycle declaration syntax and end with `;`.
 
@@ -532,7 +533,8 @@ trait Openable
 }
 ```
 
-A `finalize` requirement is satisfied by compatible finalization behavior on the implementing subject.
+A `finalize` requirement is satisfied by finalization behavior on the implementing subject that meets the lifecycle
+signature and contract rules below.
 
 ```bray
 trait Finalizable
@@ -555,7 +557,8 @@ impl File(Finalizable)
 }
 ```
 
-A `destruct` requirement is satisfied by compatible destruction behavior on the implementing subject.
+A `destruct` requirement is satisfied by destruction behavior on the implementing subject that meets the lifecycle
+signature and contract rules below.
 
 ```bray
 trait Destructible
@@ -591,7 +594,9 @@ A `finalize` requirement can return `unit` or `Result<unit, E>`.
 
 The implementing subject's finalization behavior must match the requirement's execution mode and result shape.
 
-For a `Result<unit, E>` requirement, the finalizer error type must be compatible with `E`.
+For a `Result<unit, E>` requirement, the finalizer error type must be the same type as `E` after substitution of the
+implementing subject, generic arguments, and type-valued member bindings. Value conversions do not fulfill a lifecycle
+result signature.
 
 The type-wide finalizer must satisfy the requirement's contract clauses.
 
@@ -602,10 +607,11 @@ An `exit` requirement is valid only when the same trait declares the matching `e
 The `exit` scoped-capability parameter type must match the successful scoped-capability type of the matching `enter`
 requirement after type-valued member bindings have been applied.
 
-An `enter` or `exit` requirement can be satisfied by compatible lifecycle behavior on the implementing subject.
+An `enter` or `exit` requirement can be satisfied by lifecycle behavior on the implementing subject that meets the
+requirement's lifecycle signature and contract clauses after substitution.
 
-An `enter` or `exit` requirement can also be satisfied by a compatible lifecycle declaration in the trait implementation
-body.
+An `enter` or `exit` requirement can also be satisfied by a lifecycle declaration in the trait implementation
+body that meets the same signature and contract rules.
 
 ```bray
 impl File(Scoped<FileLease>)
@@ -1120,7 +1126,7 @@ For binary `+`, the trait application includes the right operand type:
 If the relevant implementation belongs to an implementation overload family, overloadable token resolution uses the same
 implementation overload rules as method calls.
 
-Operand types, receiver compatibility, and the operator trait member name can select an implementation arm.
+Operand types, [receiver matching](../expressions/method-call-expressions.md#receiver-matching), and the operator trait member name can select an implementation arm.
 
 Result type, expected type, and type-valued member outputs do not select an operator implementation.
 

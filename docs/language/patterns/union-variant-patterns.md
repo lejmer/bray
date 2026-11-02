@@ -90,8 +90,8 @@ Exhaustive handling of a closed union accounts for every variant.
 
 Coverage checking for unions uses the union's closed variant set.
 
-Control-flow merges after union variant matching require coherent type, ownership, initialization, destruction,
-capability, and finalization state.
+Normal exits after union variant matching follow [result type merging](../expressions/expression-results.md#result-type-merge)
+and [flow-state merging](../expressions/expression-results.md#flow-state-merge).
 
 ## Navigation
 

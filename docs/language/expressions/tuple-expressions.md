@@ -74,7 +74,8 @@ Nested tuple expressions compose recursively.
 let nested: ((i32, i32), bool) = ((1, 2), true);
 ```
 
-A tuple element can itself be any expression that produces a value compatible with that element position.
+Each tuple element must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the type of that element
+position when an expected tuple type is present.
 
 A tuple expression is fully initialized when every element is fully initialized.
 

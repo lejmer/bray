@@ -74,7 +74,8 @@ irrefutable.
 
 The initializer expression is evaluated once.
 
-The initializer expression is checked against the annotated type when a type annotation is present.
+When a type annotation is present, the initializer must satisfy
+[value type acceptance](expression-context.md#value-type-acceptance) for the annotated type.
 
 The type annotation on a local binding declaration applies to the initializer subject matched by the pattern.
 
@@ -274,7 +275,8 @@ Conditions established by local binding patterns can include product field avail
 active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an
 irrefutable literal context exists, and initialized local bindings.
 
-Guarantees established by the initializer expression remain available after the declaration when they remain valid.
+Guarantees established by the initializer expression remain available after the declaration only while their carriers
+and dependencies meet [contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss can invalidate
 conditions established by a local binding declaration.

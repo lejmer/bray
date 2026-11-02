@@ -101,9 +101,8 @@ An else body is required when the conditional expression result type is not `uni
 
 If the compiler proves the false path unreachable, a missing else body does not contribute a normal path.
 
-All reachable normal branch exits must merge to a coherent type, ownership state, initialization state, destruction
-state, finalization state, capability state, effect state, task-obligation state, and set of available contract
-guarantees.
+Reachable normal branch exits follow [result type merging](expression-results.md#result-type-merge) and
+[flow-state merging](expression-results.md#flow-state-merge).
 
 A `never` branch does not contribute a value to the merged result type.
 

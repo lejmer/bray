@@ -90,7 +90,7 @@ dispatch, exports, and re-exports.
 A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source
 callable.
 
-Body trust and `uses(...)` describe how the implementation is checked. Callable compatibility compares caller
+Body trust and `uses(...)` describe how the implementation is checked. [Callable contract conversion](#callable-contract-conversion) compares caller
 requirements and execution guarantees independently of those implementation acknowledgments. Trusted predicate
 requirements and execution-lane requirements remain part of the caller contract.
 
@@ -206,6 +206,27 @@ callable value that satisfies it.
 Named callable contracts cannot be overloaded.
 
 There can be at most one visible callable contract declaration for a given name in a name/coherence domain.
+
+## Callable contract conversion
+
+A built-in callable conversion preserves parameter names, call-position permissions, parameter types, variadic status,
+result type, const eligibility, trust, ABI, and synchronous or asynchronous phase structure. It does not vary parameter
+or result types. Each corresponding invocation or deferred-execution phase must preserve dependency and other
+caller-visible behavior.
+
+Every source precondition must occur in the target requirements with the same condition and predicate domain. The
+source must establish every target postcondition, either as a matching guarantee in the same domain or through
+supported bounded implication from source completion guarantees in that domain. Completion facts do not prove an
+entry-state guard.
+
+The source must establish every target execution-property promise on the target's promised input domain. The source
+can have stronger guarantees and fewer preconditions. It cannot add a possible unwind when the target forbids unwind.
+Body implementation authority does not become a caller obligation through conversion.
+
+These are the [built-in conversion](../expressions/conversion-expressions.md#built-in-conversion) rules for two callable
+types. Contextual formation of a function value must also preserve its callable contract. Conversion does not certify
+an unchecked implementation body. [Execution guarantees](../contracts-and-trust/execution-guarantees.md#checking-and-interfaces)
+define certification and proof limits.
 
 ## Navigation
 

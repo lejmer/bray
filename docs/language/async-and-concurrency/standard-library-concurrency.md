@@ -726,7 +726,7 @@ applies the program's termination policy and reaps the child before returning th
 outer `Result` represents observer-side infrastructure failure. Their inner `RunResult<T>` represents the child run:
 
 - `Completed(value)` is a normally decoded child value,
-- `Panicked(report)` is a panic report received through a compatible Bray child protocol,
+- `Panicked(report)` is a panic report received through the selected Bray child protocol with matching protocol and panic-report contracts,
 - `Cancelled` is confirmed cooperative child cancellation.
 
 `Process.id()` returns the same observational process identity as the underlying child owner. The identity does not
@@ -759,7 +759,8 @@ let child_run = try await process.join();
 let value = try child_run;
 ```
 
-The first two `try` expressions propagate recoverable `ProcessError` values to compatible lexical `Result` boundaries.
+The first two `try` expressions propagate recoverable `ProcessError` values to lexical `Result` boundaries under
+[error propagation conversion](../expressions/result-and-run-result-propagation-expressions.md#error-propagation-conversion).
 The final `try` forwards child panic or cancellation to the current run. Source can instead match either layer to apply
 a different policy.
 

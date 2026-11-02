@@ -14,12 +14,12 @@ Borrowing an access path requires the reached storage to be initialized and reac
 
 A shared borrow requires an access path that can be observed.
 
-A mutable borrow requires mutation authority over the reached storage and compatible exclusivity for the duration of the
-borrow.
+A mutable borrow requires mutation authority over the reached storage and borrow compatibility for the duration of the
+borrow. The following rules define borrow compatibility.
 
 Borrow compatibility is based on reached storage, not only on the spelling of the access path.
 
-Multiple compatible shared borrows can exist at the same time.
+Multiple shared borrows of the same storage can coexist when each has valid observation authority and dependencies.
 
 A mutable borrow of reached storage is incompatible with any other active borrow or operation that observes, mutates,
 moves, destroys, finalizes, reinitializes, or changes that reached storage, except through a valid reborrow derived from
@@ -28,8 +28,10 @@ the mutable borrow.
 Borrowing suspends movement, destruction, mutation, variant replacement, reinitialization, finalization, or other
 incompatible operations on the reached storage for the duration of the borrow.
 
-Two borrow access paths are compatible when their required capabilities are compatible and the compiler proves that the
-reached storage is the same shared-readable storage or statically disjoint storage.
+Two borrows are compatible when both permit shared observation of their reached storage, or the compiler proves their
+reached storage disjoint. Each borrow must independently have the authority, initialized storage, and live dependencies
+required by its mode. A shared borrow does not grant mutation authority, and two mutable borrows cannot overlap except
+through the reborrow rules above.
 
 Disjoint field projections, tuple element projections, active payload projections, indexed element projections, and
 slice ranges can be borrowed independently when the compiler proves that the reached storage cannot overlap.

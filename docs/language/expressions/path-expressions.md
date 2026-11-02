@@ -238,8 +238,9 @@ point.x
 point.y
 ```
 
-A field path produces an access path to the selected field when the subject expression provides a compatible access
-path.
+A field path produces an access path to the selected field when the subject expression provides an access
+path with the authority required by the selected operation under
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 Field access observes, borrows, mutably borrows, moves, copies, consumes, or assigns through the selected field
 according to the operation context.
@@ -251,7 +252,8 @@ mutation.
 
 Fields are immutable by default.
 
-A field declared `mut` can be mutated through a compatible mutable access path.
+A field declared `mut` can be mutated through a mutable access path permitted by
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 A mutable binding grants mutation authority over the binding’s access path. Field mutability still controls mutation of
 the reached field.
@@ -287,8 +289,9 @@ The element position is checked statically.
 
 The selected position must be within the tuple arity.
 
-A tuple element path produces an access path to the selected element when the subject expression provides a compatible
-access path.
+A tuple element path produces an access path to the selected element when the subject expression provides an
+access path with the authority required by the selected operation under
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 Tuple element projection observes, borrows, mutably borrows, moves, copies, consumes, or assigns through the selected
 element according to the operation context.
@@ -461,7 +464,7 @@ Observing a path expression preserves ownership.
 
 Borrowing a path expression creates a borrow of the reached storage.
 
-Mutably borrowing a path expression requires mutation authority and compatible exclusivity.
+Mutably borrowing a path expression requires mutation authority and [borrow compatibility](../ownership-and-borrowing/borrow-rules.md).
 
 Moving from a path expression moves the reached value when the reached value is owned and the type is not copied
 instead.

@@ -44,6 +44,16 @@ A conversion expression cannot silently drop, complete, or erase a finalization 
 A conversion that changes finalization behavior must be an explicitly declared conversion operation with a contract
 defining that lifecycle behavior.
 
+## Built-in conversion
+
+Built-in conversion is distinct from [value type acceptance](expression-context.md#value-type-acceptance) and
+[argument type matching](arguments.md#argument-type-matching). It includes identity, the numeric and structural rules
+below, and [callable contract conversion](../callables/callable-types-and-values.md#callable-contract-conversion).
+Each child conversion in a built-in structural conversion must itself be built-in. User-defined `ConvertTo`
+implementations belong to explicit conversion selection and are not part of this built-in relation.
+
+## Explicit convertibility
+
 Plain `as` supports recursive explicit convertibility.
 
 A value of source type `S` can be converted to target type `T` with plain `as` when one of these rules applies:

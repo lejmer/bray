@@ -59,15 +59,28 @@ consume func into_bytes() -> Bytes;
 
 `consume mut func` declares a consuming receiver method whose method body has mutable local authority over `self`.
 
-A method call checks the receiver expression against the method’s receiver mode.
+## Receiver matching
 
-A shared receiver method requires a compatible observable receiver access path.
+Receiver matching checks receiver presence, type, and receiver mode during method selection. The receiver type must be
+the declared receiver type or a borrow whose target is that exact type. This check does not search for a conversion.
 
-A mutable receiver method requires mutation authority and compatible exclusivity for the receiver storage.
+The receiver mode requires the following authority:
 
-A consuming receiver method requires ownership of the receiver value.
+| Receiver mode | Required authority |
+| --- | --- |
+| Shared | Shared observation, mutable access, or ownership. |
+| Mutable | Mutable access or mutable ownership. |
+| Consuming | Ownership, with or without mutation authority. |
+| Consuming mutable | Mutable ownership. |
 
-A consuming receiver method makes the receiver’s old access path unavailable after the call unless reinitialized.
+These checks use the receiver's access capability. They do not prove that its storage is currently initialized, free of
+conflicting borrows, or otherwise usable. After selection, the call checks those requirements under
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md) and
+[borrow rules](../ownership-and-borrowing/borrow-rules.md).
+
+A consuming receiver method makes the receiver's old access path unavailable after the call unless reinitialized.
+
+## Method selection and call checking
 
 A method call resolves through the receiver type and mode, inherent implementations, participating trait
 implementations, visible declarations, static constraints, target availability, and overload rules.
@@ -81,17 +94,16 @@ values.iterate()        // checks implementations for Vec<T>
 (&mut values).iterate() // checks implementations for &mut Vec<T>
 ```
 
-A method call first selects exactly one method through receiver compatibility, argument mapping and type compatibility,
-explicit generic substitution and static constraints, target availability, and overload resolution. Ordinary call
-checking then validates ownership, borrowing, mutation authority, dependency contracts, capabilities, effects, trusted
-obligations, and contract guarantees for that selected method.
+A method call selects exactly one method through [receiver matching](#receiver-matching), argument mapping,
+[argument type matching](arguments.md#argument-type-matching), explicit generic substitution and static constraints,
+target availability, and overload resolution. Ordinary call checking then validates ownership, borrowing, mutation
+authority, dependency contracts, capabilities, effects, trusted obligations, and contract guarantees for that method.
 
-For overloaded methods, receiver mode and compatibility, explicitly supplied argument mapping and type compatibility,
-explicit generic substitution and static constraints, and target availability select the overload arm.
+For overloaded methods, receiver matching, explicit argument mapping and argument type matching, explicit generic
+substitution and static constraints, and target availability select the overload arm.
 
-For method calls through a trait implementation overload family, receiver mode and compatibility, member name,
-explicitly supplied argument mapping and type compatibility, explicit generic substitution and static constraints, and
-target availability select the implementation arm.
+For method calls through a trait implementation overload family, the same inputs and the member name select the
+implementation arm.
 
 Result type, expected type, and type-valued member outputs do not select an implementation arm.
 

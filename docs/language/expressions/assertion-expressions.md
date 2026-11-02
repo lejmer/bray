@@ -12,7 +12,7 @@ The syntax is:
 
 The condition is an expression that must produce `bool`.
 
-The message, when present, is an expression compatible with `string`.
+The message, when present, must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for `string`.
 
 Examples:
 
@@ -39,7 +39,8 @@ An assertion expression has type `unit` on its normal continuation.
 
 On the failing path, the assertion expression has no normal continuation.
 
-After a successful assertion, the asserted guarantees are available when they remain valid after the assertion
+After a successful assertion, the asserted guarantees are available under
+[contract reasoning](../contracts-and-trust/contract-reasoning.md) after the assertion
 expression.
 
 An assertion establishes ordinary guarantees, not trusted guarantees.

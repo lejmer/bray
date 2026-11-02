@@ -39,7 +39,8 @@ stricter cardinality rule.
 
 Each yielded value is supplied to the nearest enclosing generator region.
 
-A yielded value must be compatible with the enclosing generator’s expected element type when one is known.
+A yielded value must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the enclosing generator's
+expected element type when one is known.
 
 Expected generator element type can guide literal typing, variant shorthand, struct construction shorthand, box
 construction shorthand, conversion checking, and nested expression checking inside yielded expressions.

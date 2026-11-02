@@ -90,6 +90,27 @@ marked `pos`.
 Tuple expressions and array expressions remain positional structural expressions because their positions are the
 structure being constructed, not callable parameter binding.
 
+## Argument type matching
+
+After argument mapping, an explicitly supplied argument matches its parameter type when one of these rules applies:
+
+- The argument has the parameter's type.
+- The argument has type `T` and the parameter has type `T?`. The call constructs a present nullable value.
+- The argument is a numeric literal that admits the parameter's numeric type under
+  [literal adaptation](literal-expressions.md#literal-adaptation).
+
+A typed numeric variable does not match a different numeric type through widening. Argument matching does not apply
+user-defined conversions or recursive `as` conversions. An explicit conversion can supply a value of the parameter type.
+Foreign variadic arguments follow the separate [C variadic promotion rules](../targets-layout-abi-and-raw-memory/callable-abi.md).
+
+An expected parameter type can guide contextual construction when that parameter is known. For an overload family,
+[overload selection](../callables/function-overloading.md) uses the supplied expressions and each candidate's parameter
+types. The expected result type does not select a candidate.
+
+A type match establishes only the type part of call selection. The selected call must also satisfy ownership,
+borrow and reborrow rules, dependencies, lifecycle obligations, capabilities, effects, and preconditions. A failure in
+those checks rejects the selected call without selecting another overload.
+
 ## Navigation
 
 - [Language index](../index.md)

@@ -116,7 +116,8 @@ let first: &u8 = &owned[0];
 let part: &[u8] = &owned[1..4];
 ```
 
-Index access can produce an access path when the subject expression produces a compatible access path.
+Index access can produce an access path when the subject expression produces an access path with the authority
+required by the selected operation under [storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 An element access path can be observed, borrowed, mutably borrowed, moved from, copied from, consumed, assigned through,
 or destroyed according to the subject access path, element type, index contract, ownership state, initialization state,
@@ -152,11 +153,11 @@ Copying from an indexed element requires the element type to satisfy the copy co
 
 Borrowing an indexed element creates a borrow of the reached element.
 
-Mutable borrowing an indexed element requires compatible exclusivity for the reached element.
+Mutable borrowing an indexed element requires [borrow compatibility](../ownership-and-borrowing/borrow-rules.md) for the reached element.
 
 Borrowing a slice projection creates a borrow of the projected contiguous substorage.
 
-Mutable borrowing a slice projection requires compatible exclusivity for the whole projected range.
+Mutable borrowing a slice projection requires [borrow compatibility](../ownership-and-borrowing/borrow-rules.md) for the whole projected range.
 
 Index access can refine or use conditions at that program point.
 

@@ -54,11 +54,11 @@ A synchronous executable root additionally establishes `blocking_execution()` an
 An async executable root is driven on the runtime's distinguished main-thread lane. That lane establishes
 `main_thread_execution()` but does not establish `blocking_execution()` or `compute_execution()` merely because it uses
 an operating-system thread. Directly awaited computations therefore remain on the main-thread lane and must satisfy its
-progress contract. CPU-bound or blocking work is moved to a compatible runtime lane with `start()` or composed through
+progress contract. CPU-bound or blocking work is moved to a [compatible runtime lane](execution-requirements.md#lane-compatibility) with `start()` or composed through
 an ordinary standard-library thread, process, or parallel algorithm.
 
 The root task remains on the main-thread lane for its lifetime. Child tasks without a live exact-thread dependency can
-migrate among compatible runtime workers. A child retaining main-thread-affine state is pinned to the main-thread lane
+migrate among [compatible runtime workers](execution-requirements.md#lane-compatibility). A child retaining main-thread-affine state is pinned to the main-thread lane
 through the ordinary dependency and affinity rules.
 
 `main_thread_execution()` is an execution-context requirement, not ownership of a `MainThread` handle. Standard-library

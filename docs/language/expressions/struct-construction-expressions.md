@@ -148,7 +148,7 @@ let c: Counter =
 ```
 
 The field `value` is initialized during construction. Its `mut` field declaration controls later mutation through
-compatible mutable access paths.
+mutable access paths permitted by [storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
 
 [Construction evaluation order](expression-evaluation-order.md#construction-and-scoped-use) defines the ordering of
 supplied fields and omitted defaults.

@@ -34,7 +34,8 @@ Each element expression is checked against the expected array element type.
 Expected element type can guide literal typing, variant shorthand, struct construction shorthand, box construction
 shorthand, conversion checking, and nested expression checking.
 
-When no expected array type is available, the element expressions must determine a coherent array element type.
+When no expected array type is available, the element expressions must determine the same element type after literal
+adaptation. Array inference does not widen distinct typed element values or search for conversions.
 
 Unconstrained numeric literals use default literal types when no expected element type fixes them.
 
@@ -54,7 +55,7 @@ Each inner array expression is checked against `[i32; 2]`.
 
 Each inner array expression follows the same array-expression rules recursively.
 
-Every supplied element expression must produce a value compatible with the array element type.
+Every supplied element expression must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the array element type.
 
 An array expression is fully initialized when every element is fully initialized.
 
@@ -146,12 +147,12 @@ literal. A count computed from another expression requires an explicit `bytes<N>
 
 The element expression is checked against the expected array element type when one is available.
 
-The repeated element expression must be copyable or define a valid repeat contract.
+Copy-based repetition requires an element type with a [copy contract](../types/copy-contracts.md). The element expression
+is evaluated once, and its value is copied into each array element according to that contract.
 
-A repeated-element array expression evaluates the element expression according to the repeat contract and initializes
-each array element according to that contract.
-
-For copy-based repetition, the repeated value is copied into each element according to the element type’s copy contract.
+Note: User-defined repetition has no specified contract declaration or selection rule.
+[BRA-675](https://linear.app/bray-lang/issue/BRA-675/define-repeated-array-repetition-contracts) tracks that language decision.
+The copy-based rule does not define permission to duplicate a non-copyable owner.
 
 A repeated-element array expression is fully initialized when every array element has been initialized.
 

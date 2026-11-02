@@ -89,7 +89,8 @@ An overload arm matches a call only when:
 - every supplied positional argument corresponds to a `pos` parameter at the same position in the arm,
 - no parameter is supplied more than once,
 - every parameter of the arm is supplied explicitly by the call,
-- each supplied argument expression is compatible with the corresponding parameter type,
+- each supplied argument meets [argument type matching](../expressions/arguments.md#argument-type-matching) for the
+  corresponding parameter type,
 - every explicitly supplied generic argument forms a valid substitution,
 - the arm's static generic constraints are satisfied,
 - the arm is available for the selected target profile.
@@ -103,7 +104,8 @@ that call is invalid, the call is rejected. Resolution does not fall back to ano
 
 The receiver of a method is supplied by method-call syntax and is not a named argument.
 
-For method overloads, receiver mode and receiver compatibility participate in overload selection.
+For method overloads, [receiver matching](../expressions/method-call-expressions.md#receiver-matching) participates in
+overload selection.
 
 Declarations from other modules or packages participate in overload resolution only through visible overload
 declarations and deterministic lookup.

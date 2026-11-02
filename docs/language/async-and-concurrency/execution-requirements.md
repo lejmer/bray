@@ -42,8 +42,8 @@ language-defined execution root or a selected runtime lane:
   operating-system thread, but not `main_thread_execution()`.
 - an async runtime lane establishes exactly the predicates advertised for that lane.
 - a test root follows its synchronous or async product entry contract.
-- a foreign callback establishes none of the predicates unless its trusted ABI contract explicitly supplies a compatible
-  execution root.
+- a foreign callback establishes none of the predicates unless its trusted ABI contract explicitly supplies an execution
+  root that establishes the required predicates.
 
 Ordinary synchronous calls inherit the current context's conditions. Entering an ordinary synchronous function does not
 create them.
@@ -58,18 +58,28 @@ Direct await checks deferred execution requirements against the current lane bef
 a lane that satisfies them. The produced `Task<T>` preserves the requirements for product validation and runtime
 inspection.
 
-A computation can require any compatible combination of the predicates. A runtime can satisfy multiple requirements with
-one lane whose contract includes all required conditions. Target and product validation rejects a reachable started
+A computation can require a combination of the predicates when a selected lane can establish every predicate in that
+combination. A runtime can satisfy multiple requirements with one lane whose contract includes all required conditions.
+Target and product validation rejects a reachable started
 computation when no selected runtime lane can satisfy its requirements.
 
 The distinguished async main-thread lane is intentionally not assumed to permit blocking or sustained compute work.
 Being backed by an operating-system thread does not waive the runtime's progress contract. A direct await on that lane
 is rejected when its computation requires either unavailable condition. Starting the computation routes it to another
-compatible lane when one exists.
+[compatible lane](#lane-compatibility) when one exists.
 
 Absence of `compute_execution()` does not prove that a body is cheap. The compiler can diagnose evident unbounded or
 long-running paths, but arbitrary computational cost is not decidable. Incorrect trusted or foreign contracts can also
 violate these guarantees and are contract bugs at the trust boundary.
+
+## Lane compatibility
+
+A lane is compatible with a computation when its contract supplies every deferred execution requirement and permits
+every live affinity dependency of that computation. A worker that supplies `blocking_execution()` does not thereby
+supply `main_thread_execution()`. A lane class does not replace an exact-thread requirement.
+[Capability transfer across run boundaries](capability-transfer-across-run-boundaries.md) defines affinity and dependency
+preservation. Direct await must establish these requirements in the current lane. `start()` must select a lane that
+meets them, and product validation rejects a reachable start when none exists.
 
 ## Navigation
 

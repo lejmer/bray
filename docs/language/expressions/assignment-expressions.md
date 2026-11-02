@@ -12,8 +12,8 @@ items[index] = value;
 
 The left side of an assignment expression must produce an assignable access path.
 
-The right side of an assignment expression must produce a value compatible with the destination type on every normal
-completion path.
+On every normal completion path, the right side must satisfy [value type acceptance](expression-context.md#value-type-acceptance)
+for the destination type.
 
 A right side of type `never` satisfies the destination type because no value reaches the assignment write.
 
@@ -33,7 +33,7 @@ the operation result back to the destination. Bray provides `+=`, `-=`, `*=`, `/
 `>>=`, and `**=`.
 
 Each compound assignment uses the same built-in or trait-backed operation as its binary operator. The operation result
-must be compatible with the destination type.
+must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the destination type.
 
 The destination access path is evaluated exactly once. Compound assignment reads the established destination before
 evaluating the right side and writes the operation result after the right side completes normally.

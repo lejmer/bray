@@ -290,7 +290,8 @@ Composition order is determined by the type grammar and explicit grouping parent
 A composed type has one ownership, borrowing, initialization, destruction, finalization, capability, effect, and layout
 contract produced by the composition of its type forms and subject types.
 
-If two composed type forms impose incompatible requirements, the composed type is rejected.
+A composed type is rejected when it fails any requirement of its constituent type forms. Composition does not waive
+a form's subject, storage, ownership, lifecycle, or layout restrictions.
 
 ## Borrow type forms
 

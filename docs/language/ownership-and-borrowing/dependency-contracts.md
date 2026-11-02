@@ -76,7 +76,7 @@ of the implementation witness needed for the selected trait application.
 
 An `Future<T>` carries the dependency contract of its hidden frame state. A `Task<T>` preserves that contract across the
 independent run boundary and adds the task-resolution obligation represented by the handle. Their value contracts also
-preserve the deferred execution contract and guaranteed normal-completion postcondition template. Control-flow merge
+preserve the deferred execution contract and guaranteed normal-completion postcondition template. [Flow-state merging](../expressions/expression-results.md#flow-state-merge)
 retains only guarantees common to every reachable producer.
 
 An owned cleanup report carries the dependencies of its retained error values, including incidents left behind by a

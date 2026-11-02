@@ -154,6 +154,9 @@ target supports that representation. It preserves the callable's provider depend
 element offsets reject function pointers. Addressing a stored callable value with `address_of` instead produces a
 `DataPointer<F>` to that value's storage.
 
+Foreign storage representation follows the accepted scalar, pointer, callable, and aggregate categories in
+[callable ABI](callable-abi.md). An incomplete type can appear only behind the indirection permitted here.
+
 ## Navigation
 
 - [Language index](../index.md)

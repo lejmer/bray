@@ -36,7 +36,7 @@ generated root frame's checked lexical cleanup.
 
 The root task remains on the distinguished main-thread lane for its lifetime. That lane establishes
 `main_thread_execution()` and does not automatically establish `blocking_execution()` or `compute_execution()`. Explicit
-child tasks can execute on other compatible lanes, including in parallel.
+child tasks can execute on other [compatible lanes](execution-requirements.md#lane-compatibility), including in parallel.
 
 An executable product selects exactly one conforming async runtime implementation and runtime ABI version when it
 contains an async entrypoint, reachable task start, or reachable host-driven asynchronous cleanup. Libraries do not

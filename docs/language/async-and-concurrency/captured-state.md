@@ -20,8 +20,9 @@ into the new task, and `Task<T>` preserves the same dependency contract. Moving 
 duplicates, the dependency obligations.
 
 Captured-state analysis distinguishes lifetime from mobility. A task whose state is safe to migrate can execute on
-compatible runtime workers. A task containing thread-affine state remains pinned to a compatible execution lane. Thread
-affinity is an inferred dependency condition, not a separate public task type.
+[compatible runtime workers](execution-requirements.md#lane-compatibility). A task containing thread-affine state remains
+pinned to a lane that meets the same compatibility rule. Thread affinity is an inferred dependency condition, not a
+separate public task type.
 
 ## Navigation
 

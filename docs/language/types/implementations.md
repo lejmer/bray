@@ -616,7 +616,7 @@ An iterator cursor can mutate its own state while advancing.
 An iterator that yields borrowed elements must preserve Bray aliasing and borrowing rules for every live yielded
 element.
 
-If a yielded borrow is still live and the compiler cannot prove that advancing the cursor is compatible with that
+If a yielded borrow is still live and the compiler cannot prove that advancing the cursor satisfies [borrow rules](../ownership-and-borrowing/borrow-rules.md) for that
 borrow, the next advance is rejected.
 
 `Iterable` is the source contract:
@@ -904,7 +904,7 @@ The `with(...)` clause can constrain inferred implementation parameters, but it 
 
 Method resolution through an implementation overload family follows overload resolution principles.
 
-Receiver mode, receiver compatibility, member name, and explicitly supplied method arguments can select an overload arm.
+Receiver mode, [receiver matching](../expressions/method-call-expressions.md#receiver-matching), member name, and explicitly supplied method arguments can select an overload arm.
 
 The arm's static constraints and target availability also participate in applicability.
 
@@ -1072,7 +1072,7 @@ Ambiguous method calls are rejected.
 When method resolution sees an implementation overload family, resolution uses the same overload principles as callable
 overloads.
 
-The receiver mode, receiver compatibility, member name, and explicitly supplied method arguments may select one arm.
+The receiver mode, [receiver matching](../expressions/method-call-expressions.md#receiver-matching), member name, and explicitly supplied method arguments may select one arm.
 
 Result type, expected type, and type-valued member outputs do not select an arm.
 

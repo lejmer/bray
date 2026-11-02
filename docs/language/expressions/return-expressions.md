@@ -8,7 +8,7 @@ A **return expression** exits the nearest callable execution scope.
 return value;
 ```
 
-The returned value must be compatible with the callable's declared result type.
+The returned value must satisfy [value type acceptance](expression-context.md#value-type-acceptance) for the callable's declared result type.
 
 [Callable execution scopes](../callables/return-and-execution-scopes.md#callable-execution-scopes) define the scopes
 created by callable bodies. [Callable body completion](../callables/callable-results-and-bodies.md#function-bodies)
