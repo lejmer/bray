@@ -1,127 +1,124 @@
 # Specification conventions
 
-These conventions apply to every chapter and its child sections, including the grammar references, compiler-known
-declarations, and standard-library contracts described by this specification.
+These conventions apply to every chapter and its child sections. They cover the grammar references, compiler-known
+declarations, and standard-library contracts in this specification.
 
 ## Requirements and explanations
 
-**Normative** material specifies Bray: its source forms, validity rules, execution behavior, declaration contracts,
-implementation obligations, and permitted choices. Definitions, grammar productions, and rules stated in prose, lists,
-or tables are normative unless identified as informative. A declarative sentence can state a requirement without using
-the word `must`.
+**Normative** material defines Bray's source forms, validity rules, execution behavior, declaration contracts,
+implementation obligations, and permitted choices. Definitions, grammar productions, and rules in prose, lists, or
+tables are normative unless marked informative. A declarative sentence can state a requirement without the word `must`.
 
-**Informative** material explains those rules without adding requirements or exceptions. Examples and passages
-introduced as `Example`, `Examples`, or `For example` are informative. Passages labeled `Note` or `Rationale` are also
-informative. A section titled `Summary` or `Availability summary` is informative and restates the detailed rules it
-summarizes. Navigation and references help locate material and do not independently specify behavior.
+**Informative** material explains rules without adding requirements or exceptions. Examples and passages introduced as
+`Example`, `Examples`, or `For example` are informative. Passages labeled `Note` or `Rationale` are informative too.
+A section titled `Summary` or `Availability summary` is informative and restates the detailed rules. Navigation and
+references locate material without specifying behavior.
 
-An inline `for example` marks the illustration it introduces: the rest of that sentence when it begins a sentence, or
-the example clause when it appears within a sentence. It does not change the status of preceding clauses or subsequent
-sentences. A `Note:` or `Rationale:` label at the start of a paragraph applies to that paragraph. A label on its own line
-applies to the following block, such as a paragraph, list, or code block. Delimit longer informative passages with a
-blockquote or a dedicated subsection, ending at the end of the blockquote or the next heading of the same or higher
-level. Rules outside those boundaries retain their normative role.
+At the start of a sentence, `for example` marks the rest of that sentence as informative. Within a sentence, the phrase
+marks only the example clause. Preceding clauses and subsequent sentences keep their status. A `Note:` or `Rationale:`
+label at the start of a paragraph applies to that paragraph. A label on its own line applies to the following block,
+such as a paragraph, list, or code block.
 
-An explanation, example, note, rationale, or summary cannot introduce an additional obligation, weaken a requirement,
-or grant an implementation choice. If such material appears to disagree with a rule, resolve the discrepancy under
-[implementation authority](#implementation-authority).
+Longer informative passages use a blockquote or a dedicated subsection. Their scope ends with the blockquote or at the
+next heading of the same or higher level. Rules outside those boundaries remain normative.
+
+An explanation, example, note, rationale, or summary cannot add an obligation, weaken a requirement, or grant an
+implementation choice. Disagreements with a rule follow the [implementation-authority policy](#implementation-authority).
 
 ## Requirement wording
 
-The subject and context of a sentence determine whether it concerns source code, execution, or an implementation.
-The following wording has the same meaning throughout this reference:
+The subject and context of a sentence determine whether the rule concerns source code, execution, or an implementation.
+The following wording applies throughout this reference:
 
 | Wording | Meaning |
 | --- | --- |
 | `must`, `is required to`, `shall` | A requirement on the stated subject. |
 | `must not`, `is not permitted`, `shall not` | A prohibition in the stated context. |
 | `may`, `is permitted to` | Permission within the limits stated by the rule. |
-| `can` | An available source form, capability, possible outcome, or implementation option, as determined by its subject and context. |
-| `cannot` | A restriction or absence of a capability, as determined by its subject and context. |
+| `can` | An available source form, capability, possible outcome, or implementation option, according to the subject and context. |
+| `cannot` | A restriction or absence of a capability, according to the subject and context. |
 | `should`, `is recommended` | Advice, not an additional validity or conformance requirement. |
 | `is`, `has`, `produces`, `evaluates` | A definition or specified property or behavior, when used in a rule. |
 
-A sentence about a possible effect does not require that effect on every execution. A permission to use a source form
-does not remove its other validity conditions. Where `may` or `can` leaves it unclear whether a sentence describes
-permission, possibility, or required support, clarification must name that distinction explicitly and follow the
-implementation-authority rule rather than infer a new choice.
+A possible effect need not occur on every execution. Permission to use a source form leaves its other validity
+conditions in force. Ambiguous uses of `may` or `can` follow the implementation-authority policy. A clarification states
+whether the rule permits a choice, describes a possibility, or requires support.
 
 ## Definitions and examples
 
-A definition introduces a term and its meaning. The term is often bold at its introduction, but highlighting is not
-required for a definition to be normative. Uses of a defined term retain that meaning within its stated context.
+A definition introduces a term and its meaning. The term is often bold at its introduction, but definitions are
+normative with or without that emphasis. A defined term retains its meaning within the stated context.
 The [Concepts](concepts.md) chapter introduces shared terminology and links to the detailed rules.
 
-Code fragments illustrating source forms, accepted or rejected programs, or execution outcomes are informative usage
-examples. Their surrounding explanation states the relevant context and consequence. A fragment can omit imports,
-support declarations, or surrounding code. Schematic ellipses and placeholder names describe omitted context, not
-additional Bray syntax. Literal syntax is defined by the grammar. Fragments with omitted context do not promise to be
-complete compilable programs.
+Code fragments that illustrate source forms, accepted or rejected programs, or execution outcomes are informative
+examples. The surrounding explanation states the context and consequence. A fragment can omit imports, support
+declarations, or surrounding code. Such fragments are incomplete programs. Schematic ellipses and placeholder names
+denote omitted context. The grammar defines literal syntax.
 
-An example's omission of a validity condition does not waive it. An accepted or rejected example illustrates the
-governing rule, and a rejection is distinct from a runtime panic, cancellation, or returned error.
+Omitting a validity condition from an example does not waive the condition. An accepted or rejected example illustrates
+the rule. Rejection is distinct from a runtime panic, cancellation, or returned error.
 
-### Required declaration surfaces
+### Required declarations
 
-A code block introduced as a required declaration surface or as declarations provided by a compiler-known scope or
-standard-library module is normative for the surface and contracts it specifies. This includes bodyless declarations
-used to describe compiler-provided operations. Those declarations are not ordinary source forms that packages can
-necessarily write. Their owning rules specify their availability and interpretation.
+A code block is normative when its introduction identifies required declarations or declarations provided by a
+compiler-known scope or standard-library module. The block specifies the declarations and their contracts.
+Bodyless declarations can describe compiler-provided operations. The rules for those declarations determine their
+availability and whether packages can write the bodyless form as source.
 
-Code-block formatting alone does not distinguish a usage example from a required declaration surface. Read the
-introducing text and the owning declaration rules. Grammar productions similarly specify source structure rather than
-serve as usage examples. The [syntax grammar](syntax-grammar.md#ebnf-notation) defines grammar notation, while semantic
-rules constrain which parsed forms are valid.
+The introducing text and declaration rules distinguish examples from required declarations, regardless of code-block
+formatting. Grammar productions specify source structure. The [syntax grammar](syntax-grammar.md#ebnf-notation) defines
+grammar notation, and semantic rules constrain which parsed forms are valid.
 
 ## Validity, execution, and implementation
 
-A source-validity rule determines which program forms are accepted in a stated context. Phrases such as `is rejected`,
-`is invalid`, and `is a compile-time error` identify an invalid form. They do not by themselves specify diagnostic
-wording, ordering, or a recovery strategy. Any diagnostic or checking-phase requirements are stated separately.
+A source-validity rule determines which program forms the compiler accepts in a stated context. Phrases such as
+`is rejected`, `is invalid`, and `is a compile-time error` identify an invalid form. These phrases alone do not specify
+diagnostic wording, diagnostic order, or error recovery. Separate rules state any diagnostic or checking-phase
+requirements.
 
 An execution rule describes evaluation, results, effects, control flow, and obligations such as ownership and cleanup.
-A rule specifying a panic, cancellation, or typed failure describes that outcome, not an implicit compile-time rejection.
-Checking steps are distinct from runtime operations, as described by
+A rule that specifies a panic, cancellation, or typed failure describes that outcome. The rule does not imply
+compile-time rejection. Checking steps are distinct from runtime operations, as described by
 [expression evaluation order](expressions/expression-evaluation-order.md).
 
 Conformance requirements can apply to the compiler, compiled interfaces, linker, runtime, product host, or standard
-library. Requirements to preserve identity, contracts, proof information, or observable behavior remain requirements
-even when they do not describe a runtime step. A reference to compiler work is not automatically implementation advice.
+library. Requirements to preserve identity, contracts, proof information, or observable behavior need not describe a
+runtime step. A reference to compiler work does not make a rule implementation advice.
 
-Implementation strategies explain how a requirement can be met. Where a rule permits different lowering strategies,
-representations, or optimizations, the choice must preserve the behavior and contracts required by that rule. A
-description of an available strategy does not require it unless the owning rule explicitly does so.
+An implementation strategy describes how the compiler, runtime, or standard library can meet a requirement. A permitted
+choice of lowering strategy, representation, or optimization must preserve the required behavior and contracts.
+A strategy is required only when the rule that specifies it says so.
 
 ## Target and implementation choices
 
-Variation is permitted only where the owning rule states a choice and its limits. Target properties supply the selected
-target's values within the rules in [Target profiles and properties](targets-layout-abi-and-raw-memory/target-profiles-and-properties.md).
+Variation is permitted only when the relevant rule states a choice and its limits. Target properties supply values for
+the selected target under [Target profiles and properties](targets-layout-abi-and-raw-memory/target-profiles-and-properties.md).
 Rules for [layout](targets-layout-abi-and-raw-memory/layout-contracts.md) and
 [callable ABI](targets-layout-abi-and-raw-memory/callable-abi.md) state the relevant representation freedoms and explicit
 contracts.
 
-Read `compiler-defined`, `target-defined`, and `implementation-defined` with their owning rule. A reference to
-compiler-provided behavior does not itself grant freedom to change its specified meaning. For example, the
+The meaning of `compiler-defined`, `target-defined`, and `implementation-defined` depends on the relevant rule.
+Compiler-provided behavior retains its specified meaning. For example, the
 [compiler-provided declaration rules](compiler-known-and-standard-library/compiler-provided-declarations.md) preserve
-observable contracts while allowing different lowering strategies. These conventions do not create additional
+observable contracts while permitting different lowering strategies. These conventions do not create additional
 categories of unspecified or undefined behavior.
 
 ## Implementation authority
 
-Whenever this specification is ambiguous, incomplete, or contains conflicting formulations that leave a rule unclear,
-the actual current implementation in code is authoritative. Clarify the specification to match the relevant compiler,
-runtime, and standard-library code paths. Inferred design intent, analogy with another language, and a preferred
-reading of unclear prose do not override that implementation.
+When this specification leaves a rule ambiguous, incomplete, or internally conflicting, the current implementation in
+code is authoritative. Clarifications describe the relevant compiler, runtime, and standard-library code paths.
+Inferred design intent, analogy with another language, and a preferred interpretation of unclear prose do not override
+the implementation.
 
-Trace the implementing code at the revision being described. Tests and observed executions can corroborate that
-reading, but one observed result or an older test expectation does not replace source inspection. When documenting a
-substantive ambiguity resolution, record the implementation revision, responsible files or symbols, and corroborating
-evidence in the change's review description.
+The implementing code at the documented revision establishes the behavior. Tests and observed executions can
+corroborate the interpretation, but a single result or an older test expectation does not replace source inspection.
+Review descriptions for substantive ambiguity resolutions record the implementation revision, responsible files or
+symbols, and corroborating evidence.
 
-This policy resolves unclear documentation. It does not authorize changing implemented behavior during an editorial
-clarification or discarding an unambiguous requirement. If behavior is unimplemented, or conflicting code paths provide
-no determinate answer, identify the exact unresolved question for a tracked design decision rather than inventing
-semantics. An implementation is not defective merely because it differs from one interpretation of ambiguous prose.
+The policy resolves unclear documentation. Editorial clarifications preserve implemented behavior and unambiguous
+requirements. If behavior is unimplemented or code paths conflict without a determinate answer, the unresolved question
+requires a tracked design decision. A difference from one interpretation of ambiguous prose does not establish an
+implementation defect.
 
 ## Navigation
 

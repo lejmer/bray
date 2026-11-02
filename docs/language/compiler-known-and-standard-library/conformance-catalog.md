@@ -5,8 +5,7 @@ The compiler-known and recognized standard-library conformance catalog is closed
 A conforming compiler and standard library must preserve the declaration identity, availability, contract, and
 observable semantics of each catalog entry.
 
-These are [conformance requirements](../conventions.md#validity-execution-and-implementation), not an illustrative
-inventory or an informative summary.
+Each catalog entry states [conformance requirements](../conventions.md#validity-execution-and-implementation).
 
 ## Always-available compiler-known type entries
 
