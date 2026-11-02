@@ -1,6 +1,8 @@
-# Bray
+Bray is what happens when a stubborn donkey becomes a programming language: when things stops making sense, it brays and refuses to move.
 
-Bray is a programming language. This repository contains its compiler, standard library, and language specification.
+---
+
+This repository contains its compiler, standard library, and language specification.
 
 ## Documentation
 
