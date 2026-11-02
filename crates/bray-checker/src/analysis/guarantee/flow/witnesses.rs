@@ -115,7 +115,7 @@ pub(super) fn conditional_guarantees(
                 let source = owner.with_snapshots(inputs);
                 let mut evidence = BTreeSet::new();
 
-                for (_, witness) in owned_witnesses(state, &source) {
+                for (_, witness) in state.owned_witnesses([source]) {
                     for condition in witness.conditions.keys().filter(|condition| {
                         !witness.available || condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                             == Some(true)
@@ -139,7 +139,7 @@ pub(super) fn conditional_guarantees(
         // A join preserves validity while the child owns execution. It must not
         // make any unavailable predecessor's authority usable in the caller.
         let available = predecessors.iter().all(|(state, inputs, _)| {
-            owned_witnesses(state, &owner.with_snapshots(inputs))
+            state.owned_witnesses([owner.with_snapshots(inputs)])
                 .all(|(_, witness)| witness.available)
         });
 
@@ -188,7 +188,7 @@ pub(super) fn retain_conditional_guarantees(
         let mut dependencies = BTreeSet::new();
 
         for state in [&*left, &*right] {
-            for (_, witness) in owned_witnesses(state, owner) {
+            for (_, witness) in state.owned_witnesses([owner.clone()]) {
                 dependencies.extend(witness.dependencies.iter().cloned());
 
                 guarantee.witness |= witness
@@ -234,24 +234,6 @@ pub(super) fn retain_conditional_guarantees(
             }
         }
     }
-}
-
-fn owned_witnesses<'a>(
-    state: &'a ExecutionState,
-    source: &ExecutionCondition,
-) -> impl Iterator<
-    Item = (
-        &'a ExecutionCondition,
-        &'a std::sync::Arc<crate::execution_guarantees::ExecutionWitness>,
-    ),
-> {
-    let owned = state.owned_values(source).collect::<Vec<_>>();
-
-    state.witnesses.iter().filter(move |(carrier, _)| {
-        owned
-                .iter()
-                .any(|value| carrier.is_owned_projection_of(value))
-    })
 }
 
 pub(in crate::analysis::guarantee) fn owned_alternatives(

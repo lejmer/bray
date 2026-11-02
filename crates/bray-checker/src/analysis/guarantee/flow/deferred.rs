@@ -261,12 +261,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ordinal: *ordinal,
             };
 
-            let captured = match value {
-                ExecutionCondition::Input(_) => identity,
-                _ => super::joins::owned_snapshot(&value, identity, &mut {
-                    ExecutionCondition::WORK_LIMIT
-                }),
-            };
+            let captured = super::joins::owned_snapshot(&value, identity, &mut {
+                ExecutionCondition::WORK_LIMIT
+            });
 
             ownership.push((captured.clone(), state.owned_result(&value)));
 

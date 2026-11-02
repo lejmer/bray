@@ -366,8 +366,7 @@ pub(super) fn owned_snapshot(
                 budget,
             )))
         }
-        ExecutionCondition::Input(_)
-        | ExecutionCondition::Borrowed(_)
+        ExecutionCondition::Borrowed(_)
         | ExecutionCondition::Boolean(_)
         | ExecutionCondition::Literal(_)
         | ExecutionCondition::Unknown => source.clone(),

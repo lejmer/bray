@@ -432,15 +432,9 @@ impl ExecutionState {
                 continue;
             }
 
-            let owners = entry
-                .owned_arguments()
-                .flat_map(|value| self.owned_values(&value).collect::<Vec<_>>())
-                .map(|value| value.owner_identity().clone())
-                .filter(|owner| {
-                    self.witnesses
-                        .get(owner)
-                        .is_some_and(|witness| witness.has_guards())
-                })
+            let owners = self.owned_witnesses(entry.owned_arguments())
+                .filter(|(_, witness)| witness.has_guards())
+                .map(|(owner, _)| owner.clone())
                 .collect::<BTreeSet<_>>();
 
             if owners.is_empty() && entry.copy_sources.is_empty() {

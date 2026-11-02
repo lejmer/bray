@@ -152,6 +152,26 @@ impl ExecutionState {
         })
     }
 
+    /// Finds actual witness carriers contained by owned values and their deferred captures.
+    pub(super) fn owned_witnesses(
+        &self,
+        values: impl IntoIterator<Item = ExecutionCondition>,
+    ) -> impl Iterator<Item = (&ExecutionCondition, &std::sync::Arc<crate::execution_guarantees::ExecutionWitness>)> {
+        let mut owned = Vec::new();
+
+        if !self.witnesses.is_empty() {
+            for value in values {
+                owned.extend(self.owned_values(&value));
+            }
+        }
+
+        let count = if owned.is_empty() { 0 } else { self.witnesses.len() };
+
+        self.witnesses.iter().take(count).filter(move |(carrier, _)| {
+            owned.iter().any(|value| carrier.is_owned_projection_of(value))
+        })
+    }
+
     pub(super) fn call_trusted_assumptions(
         &self,
         transferred: impl IntoIterator<Item = ExecutionCondition>,

@@ -99,6 +99,43 @@ const API: &str = r"
         return value;
     }
 
+    async func formal_tuple(pos input: (Marker, u32), pos cancel: bool) -> (Marker, u32)
+        requires(trusted held(owner = &input.0))
+    {
+        let wrapper: Box<(Marker, u32)> = { value = input };
+        let task = pass<Box<(Marker, u32)>>(wrapper).start();
+
+        let value = if cancel
+        {
+            yield try await task.cancel();
+        }
+        else
+        {
+            yield try await task.join();
+        };
+
+        observe(&value.value.0);
+        return value.value;
+    }
+
+    async func formal_array(pos input: [Marker; 2], pos cancel: bool) -> [Marker; 2]
+        requires(trusted held(owner = &input[1]))
+    {
+        let task = pass<[Marker; 2]>(input).start();
+
+        let value = if cancel
+        {
+            yield try await task.cancel();
+        }
+        else
+        {
+            yield try await task.join();
+        };
+
+        observe(&value[1]);
+        return value;
+    }
+
     async func task_result<T>(pos value: T, pos cancel: bool) -> RunResult<T>
     {
         let task = pass<T>(value).start();
@@ -282,6 +319,21 @@ const API: &str = r"
 ";
 
 const CASES: &[(&str, &str, bool)] = &[
+    (
+        "formal_tuple_task_resumes_nested_carrier",
+        r"let value = await api.formal_tuple((api.make(), 0), choice); api.observe(&value.0);",
+        true,
+    ),
+    (
+        "formal_array_task_resumes_nested_carrier",
+        r"let input: [api.Marker; 2] = [api.Marker {}, api.make()]; let value = await api.formal_array(input, choice); api.observe(&value[1]);",
+        true,
+    ),
+    (
+        "formal_tuple_rejects_another_owners_carrier",
+        r"let unrelated = api.make(); let value = await api.formal_tuple((api.Marker {}, 0), choice); api.observe(&value.0);",
+        false,
+    ),
     (
         "implicit_nullable_task_retains_frame",
         r"let task = api.pass<api.Marker>(api.make()).start(); let holder = api.forward<(Task<api.Marker>?)>(task); match consume holder { case ?moved { let value = try await moved.join(); api.observe(&value); } case none {} }",

@@ -419,6 +419,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
+        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+            .filter(|(_, witness)| witness.available)
+            .map(|(owner, _)| owner.clone())
+            .collect();
+
         if let Some(contract) = self
             .request
             .trusted_contracts()
@@ -634,23 +639,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let owned_inputs = self.owned_input_ordinals(selection);
 
-        let witness_inputs = owned_inputs
-            .iter()
-            .filter(|_| !state.witnesses.is_empty())
-            .filter_map(|ordinal| ExecutionPlace::argument(*ordinal).value_in(&arguments))
-            .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
-            .map(|value| value.owner_identity().clone())
-            .filter(|owner| {
-                state
-                    .witnesses
-                    .get(owner)
-                    .is_some_and(|witness| witness.available)
-            })
-            .collect();
-
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
-            witness_inputs,
+            witness_inputs: Default::default(),
             copy_sources: Default::default(),
             owned_inputs,
             addresses: Default::default(),
