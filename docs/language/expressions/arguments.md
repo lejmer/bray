@@ -101,7 +101,8 @@ After argument mapping, an explicitly supplied argument matches its parameter ty
 
 A typed numeric variable does not match a different numeric type through widening. Argument matching does not apply
 user-defined conversions or recursive `as` conversions. An explicit conversion can supply a value of the parameter type.
-Foreign variadic arguments follow the separate [C variadic promotion rules](../targets-layout-abi-and-raw-memory/callable-abi.md).
+Foreign variadic arguments follow the separate
+[C variadic promotion rules](../targets-layout-abi-and-raw-memory/callable-abi.md#variadic-callable-contracts).
 
 An expected parameter type can guide contextual construction when that parameter is known. For an overload family,
 [overload selection](../callables/function-overloading.md) uses the supplied expressions and each candidate's parameter

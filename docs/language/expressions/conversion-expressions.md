@@ -68,7 +68,9 @@ A value of source type `S` can be converted to target type `T` with plain `as` w
 5. `S` and `T` are array types with the same length, and the source element type is explicitly convertible to the target
    element type.
 6. `S` and `T` are nullable types, and the source contained type is explicitly convertible to the target contained type.
-7. `S` has a participating `ConvertTo<T>` implementation.
+7. `S` and `T` are callable types that satisfy
+   [callable contract conversion](../callables/callable-types-and-values.md#callable-contract-conversion).
+8. `S` has a participating `ConvertTo<T>` implementation.
 
 Composite conversion preserves structure.
 
