@@ -440,7 +440,9 @@ fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
 
         const GENERATED: [i32; 3] = example.package.api.fill<3>();
 
-        const FIRST: i32 = GENERATED[0];
+        const FIRST: i32 = GENERATED[2];
+
+        const STATIC_LAST: i32 = VALUES[2];
 
         func main()
         {
@@ -454,8 +456,15 @@ fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
 
     assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
 
-    let first = super::fixtures::source_constant_value(&consumer, "FIRST");
+    for (name, expected) in [("FIRST", 9), ("STATIC_LAST", 7)] {
+        let value = super::fixtures::source_constant_value(&consumer, name);
 
-    assert!(matches!(first.kind(), bray_symbols::ConstantValueKind::Integer(value)
-        if value == &bray_symbols::IntegerConstant::from_u64(9)));
+        assert!(matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+            if value == &bray_symbols::IntegerConstant::from_u64(expected)));
+    }
+
+    let lowered = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "main"))
+        .expect("imported repeated-array defaults lower");
+
+    assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
 }
