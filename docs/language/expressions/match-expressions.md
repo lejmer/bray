@@ -114,6 +114,9 @@ The default match operation mode is observe.
 
 A consuming match uses consume mode.
 
+Example: assume `buffer` owns a union value with `Inline` and `Heap` variants, each containing a non-copyable `data`
+payload of the same type. This fragment is accepted:
+
 ```bray
 let bytes = match consume buffer
 {
@@ -130,6 +133,10 @@ let bytes = match consume buffer
 ```
 
 In consume mode, selected payloads and fields can be moved out according to ownership rules.
+
+Removing only `consume` rejects both payload transfers. Ordinary match observes its subject, so a successful pattern
+does not grant ownership of a non-copyable payload. The
+[pattern operation mode](../patterns/pattern-operation-modes.md) determines whether bindings can move those values.
 
 A consuming match with guards evaluates structural matching and guards through observation first.
 

@@ -915,8 +915,9 @@ Async callable type forms use `async` before `func`.
 async func(pos request: Request) -> Response
 ```
 
-Trusted callable type forms preserve trusted callable obligations and trusted implementation capability requirements
-through their callable contract.
+Trusted callable type forms preserve the `trusted` modifier and trusted caller obligations. Body capabilities in
+`uses(...)` do not become caller obligations or have to match during
+[callable conversion](../callables/callable-types-and-values.md#callable-contract-conversion).
 
 ```bray
 trusted func(pos bytes: &mut [u8])

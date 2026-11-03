@@ -34,7 +34,7 @@ module counters;
 
 struct Counter
 {
-    value: u64;
+    mut value: u64;
 }
 
 func add(pos counter: &mut Counter, amount: u64) -> u64

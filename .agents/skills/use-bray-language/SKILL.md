@@ -15,10 +15,9 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 
 1. Identify the relevant domains and read only their routed references.
 2. Follow specification links when a summary or example is insufficient.
-3. If the specification is ambiguous, incomplete, or internally conflicting, inspect the implementing compiler,
-   runtime, and standard-library code. That code is authoritative under the
-   [specification conventions](https://github.com/lejmer/bray/blob/develop/docs/language/conventions.md#implementation-authority).
-   Tests and representative Bray source can corroborate the implementation.
+3. If a rule is unclear, compare its related specification rules and inspect the relevant compiler, runtime, and
+   standard-library code. Existing fixtures can help identify the intended boundary. Treat compiler bugs as defects,
+   not language rules. State resolved language rules in the specification without making repository code part of it.
 4. Identify any remaining conflict or unimplemented behavior before establishing a convention. Never fill a gap by analogy.
 
 Choose storage and APIs from Bray's ownership, dependency, lifecycle and capability contracts. Existing runtime code is
@@ -48,4 +47,5 @@ ambiguous documentation before using an existing consumer as implementation guid
 ## Verify the result
 
 - Compare new Bray code with relevant documentation and repository examples, then search for selected and competing patterns before introducing an idiom.
-- Run `bray fmt` to format the code, `bray check` to verify the code, and `bray test` to run tests.
+- For changes to Bray source files, use the repository's required formatting and focused checking workflow.
+  Documentation-only examples need no compiler, test, or formatter runs.

@@ -1,5 +1,8 @@
 # Expressions
 
+The [branch result contrast](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/expression-results.md#branch-result-example)
+shows why a panic branch supplies no value and why an expected result type does not convert an already-typed branch.
+
 The detailed rules are defined in the following sections:
 
 - [Expression evaluation order](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/expression-evaluation-order.md).

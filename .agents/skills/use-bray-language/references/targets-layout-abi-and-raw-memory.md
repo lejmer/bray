@@ -233,6 +233,11 @@ See [callable ABI](https://github.com/lejmer/bray/blob/develop/docs/language/tar
 
 ## Raw pointers and trusted memory access
 
+The [repeated raw-read contrast](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/raw-memory-access-and-copying.md#repeated-raw-read-example)
+compares copying a byte with moving a non-copyable value. The
+[incomplete-value contrast](https://github.com/lejmer/bray/blob/develop/docs/language/targets-layout-abi-and-raw-memory/product-layout.md#incomplete-value-example)
+separates passing a raw address from passing an incomplete pointee by value.
+
 `DataPointer<T>` is a copyable address value without ownership, lifetime, validity, alignment, initialization, aliasing, or provenance guarantees. `T` may be complete data, an incomplete bodyless struct, a flexible-layout product, or an ABI-qualified callable. Raw access succeeds only when the declaration contract proves the relevant predicates and the implementation acknowledges the required capabilities.
 
 `DataPointer<T>` addresses storage, including storage of a callable value. `FunctionPointer<F>` represents a raw function entry and grants no callable authority. Both can contain native null or unusable addresses. Ordinary absence uses `T?`/`none`, with absent and present-null raw pointers distinct.

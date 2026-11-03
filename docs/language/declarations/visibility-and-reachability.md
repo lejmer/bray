@@ -14,9 +14,9 @@ internal-use acknowledgement. The same rule applies to an internal module and de
 Cross-module references still require a matching `using` declaration, including within the defining package.
 
 ```bray
-using internal parser.impl;
+using internal parser.details;
 
-let state = internal parser.impl.create_state();
+let state = internal parser.details.create_state();
 ```
 
 Internal-use acknowledgement is lexical.

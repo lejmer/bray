@@ -5,9 +5,9 @@ Re-exporting an internal declaration requires internal-use acknowledgement.
 ```bray
 module api;
 
-using internal impl.Buffer;
+using internal details.Buffer;
 
-export impl.Buffer;
+export details.Buffer;
 ```
 
 The re-export of an internal declaration is internal.
@@ -22,11 +22,11 @@ from the public signature.
 ```bray
 module api;
 
-using internal impl.Buffer;
+using internal details.Buffer;
 
 public struct Buffer
 {
-    internal inner: impl.Buffer;
+    internal inner: details.Buffer;
 }
 ```
 

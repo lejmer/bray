@@ -69,6 +69,29 @@ Task-obligation checking follows ownership, movement, partial initialization, li
 and flow-sensitive contract rules. Tasks nested in aggregates carry the same obligation through their initialized access
 paths.
 
+## Deferred cancellation example
+
+Example: these are alternative fragments in an async body, each with a fresh owned `task: Task<i32>`.
+
+This statement is accepted and produces an inactive computation:
+
+```bray
+let pending: Future<RunResult<i32>> = task.cancel();
+```
+
+At this point the call has transferred the task obligation without requesting cancellation. Later execution or
+async cleanup of `pending` must resolve it.
+
+This alternative is also accepted, but requests cancellation and waits for the terminal outcome when the await runs:
+
+```bray
+let outcome: RunResult<i32> = await task.cancel();
+```
+
+The result can be `Completed` if normal completion won the race, `Cancelled` after cooperative cancellation, or
+`Panicked` after a child panic. A request does not promise the `Cancelled` variant.
+[Cancellation](cancellation.md) defines request observation, and [await](await-expressions.md) drives the computation.
+
 ## Navigation
 
 - [Language index](../index.md)

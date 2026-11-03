@@ -81,6 +81,40 @@ supply `main_thread_execution()`. A lane class does not replace an exact-thread 
 preservation. Direct await must establish these requirements in the current lane. `start()` must select a lane that
 meets them, and product validation rejects a reachable start when none exists.
 
+## Invocation and execution example
+
+Example: this async function defers its lane requirement until execution:
+
+```bray
+async func blocking_value(pos value: i32) -> i32
+    requires(blocking_execution())
+{
+    return value;
+}
+```
+
+The following alternative fragments occur in an async executable root on its cooperative main-thread lane.
+Assume the selected runtime also provides a compatible blocking lane.
+
+Constructing `pending` is valid, but the direct await is rejected because the current lane lacks
+`blocking_execution()`:
+
+```bray
+let pending = blocking_value(1);
+let value = await pending;
+```
+
+Starting the computation on a compatible lane and observing its outcome is accepted:
+
+```bray
+let task = blocking_value(1).start();
+let outcome: RunResult<i32> = await task.join();
+```
+
+The child executes on its selected lane. The root waits on its own lane and receives `RunResult<i32>`.
+[Lane compatibility](#lane-compatibility) governs execution, while
+[async invocation](async-functions-and-computations.md) constructs the inactive frame.
+
 ## Navigation
 
 - [Language index](../index.md)

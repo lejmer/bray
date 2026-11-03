@@ -379,6 +379,18 @@ its calendar or timezone interpretation. Named zones expose their name and datab
 Civil time-of-day seconds fields range from 0 through 59. Civil time constructors and text parsers reject leap-second
 spellings such as `23:59:60` rather than normalizing them.
 
+Example: these calls occur in an ordinary body whose module declares `using std.time`:
+
+```bray
+let ordinary = std.time.TimeOfDay(23, 59, 59);
+let invalid = std.time.TimeOfDay(23, 59, 60);
+```
+
+Both calls are accepted source. `ordinary` contains `Result.Ok`, while `invalid` contains `Result.Error` because
+its seconds field is outside the civil-time range. The invalid field is a typed construction failure, not a panic or
+an unsupported-target diagnostic. [Construction](lifecycle/construction.md) distinguishes a returned error from a
+constructed value.
+
 Parsing consumes the complete input unless an explicitly named prefix parser is used. `TimeError.InvalidFormat` reports
 the first invalid byte offset. Formatting patterns are validated Bray values, and localized names belong to separate
 locale services.

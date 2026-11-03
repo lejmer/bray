@@ -117,7 +117,7 @@ Normal trusted implementation rules apply to test functions.
 If a test needs internal access, it uses ordinary internal-use acknowledgement.
 
 ```bray
-using internal net.parser.impl;
+using internal net.parser.details;
 ```
 
 An `@test` function can call trusted declarations only when ordinary trusted caller obligation rules are satisfied.

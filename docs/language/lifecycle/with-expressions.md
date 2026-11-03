@@ -48,6 +48,34 @@ capability, and effect requirements. The expression retains their task, destruct
 [scoped use](scoped-use.md). Conditions about scoped bindings remain subject to
 [dependency invalidation](../contracts-and-trust/contract-reasoning.md) when those bindings or capabilities end.
 
+## Scoped borrow escape example
+
+Example: assume an ordinary synchronous resource whose infallible `enter` returns an owned guard with a `value: u8`
+field. Its infallible `exit` resolves that guard. These are alternative body fragments, each with a fresh owned
+`resource` and no other lifecycle obligations.
+
+Copying the byte out is accepted:
+
+```bray
+let value: u8 = with guard = resource
+{
+    yield guard.value;
+};
+```
+
+Returning a borrow of the guard's field is rejected:
+
+```bray
+let value: &u8 = with guard = resource
+{
+    yield &guard.value;
+};
+```
+
+The guard ends before the expression's continuation. The copied byte has its own value, while the borrow would depend
+on storage that has ended. [Scope exits and ownership boundaries](../ownership-and-borrowing/scope-exits-and-ownership-boundaries.md)
+require the destination to preserve that dependency.
+
 ## Navigation
 
 - [Language index](../index.md)

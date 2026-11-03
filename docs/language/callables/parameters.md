@@ -88,7 +88,7 @@ Detailed omission and evaluation-order rules are defined by
 A parameter of plain type receives an owned value.
 
 ```bray
-func consume(pos buffer: Buffer)
+func take(pos buffer: Buffer)
 {
     ...
 }

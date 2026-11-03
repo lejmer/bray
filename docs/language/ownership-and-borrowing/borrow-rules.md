@@ -52,6 +52,27 @@ used on another native thread, and any retained task is pinned while the depende
 Static declaration paths provide no direct mutable-borrow capability. A mutable borrow of interior state can be produced
 only through a valid scoped capability and remains dependent on that capability as well as the static roots.
 
+## Disjoint and overlapping borrows example
+
+Example: assume `pair` has type `&mut Pair`, where `Pair` has distinct mutable `i32` fields `left` and `right`.
+The ordinary helper `use_both(pos first: &mut i32, second: &mut i32)` retains both borrows for its call.
+The following are alternative body fragments.
+
+This call is accepted because its borrows reach disjoint fields:
+
+```bray
+use_both(&mut pair.left, second = &mut pair.right);
+```
+
+This call is rejected because both exclusive borrows reach the same field and must be live during the call:
+
+```bray
+use_both(&mut pair.left, second = &mut pair.left);
+```
+
+Distinct argument positions do not make storage disjoint. The
+[storage and access path rules](storage-and-access-paths.md) identify the reached fields.
+
 ## Navigation
 
 - [Language index](../index.md)

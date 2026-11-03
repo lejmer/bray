@@ -92,6 +92,40 @@ behavior.
 The caller is responsible for ensuring that raw memory copying preserves every ownership, initialization, finalization,
 aliasing, and representation invariant required by the involved type and storage.
 
+## Repeated raw read example
+
+Example: the following are alternative body fragments in trusted declarations with `uses(raw_memory)` and
+`using core.memory` in their module. Each declaration exposes `valid_read`, `aligned_for`, and `initialized_as`
+requirements for one value at its `pointer` parameter.
+
+For `pointer: DataPointer<u8>`, both reads are accepted:
+
+```bray
+let first = trusted core.memory.read<u8>(pointer);
+let second = trusted core.memory.read<u8>(pointer);
+```
+
+The first read copies the byte and preserves initialization. With a non-copyable product instead:
+
+```bray
+struct Parcel
+{
+    code: u8;
+}
+```
+
+For `pointer: DataPointer<Parcel>`, the second read is rejected:
+
+```bray
+let first = trusted core.memory.read<Parcel>(pointer);
+let second = trusted core.memory.read<Parcel>(pointer);
+```
+
+The first read moves the `Parcel` and invalidates its source initialization condition. The second trust boundary
+cannot restore that checked state. The
+[trusted caller obligation rules](../contracts-and-trust/trusted-caller-obligations.md#establishing-trusted-guarantees)
+do not permit trusted premises to override a conflicting initialization state.
+
 ## Navigation
 
 - [Language index](../index.md)

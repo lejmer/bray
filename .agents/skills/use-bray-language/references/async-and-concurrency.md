@@ -157,6 +157,11 @@ See [task handles and obligations](https://github.com/lejmer/bray/blob/develop/d
 
 ## Execution requirements and entrypoints
 
+The [invocation and execution contrast](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/execution-requirements.md#invocation-and-execution-example)
+separates valid frame construction from an incompatible direct await. The
+[deferred cancellation contrast](https://github.com/lejmer/bray/blob/develop/docs/language/async-and-concurrency/task-handles-and-obligations.md#deferred-cancellation-example)
+distinguishes constructing a cancellation future from driving it.
+
 Execution requirements are ordinary callable predicates. Synchronous calls must satisfy them immediately. Async calls defer the check until `await`, while `.start()` may route the new task to a compatible execution lane.
 
 ```bray

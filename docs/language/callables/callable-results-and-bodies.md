@@ -78,6 +78,25 @@ A `return` or an expression with no normal continuation prevents fallthrough on 
 [Sequenced expressions](../expressions/sequenced-expressions.md) define required semicolons, including sequenced
 `return` expressions, and the exception for self-delimiting block items.
 
+## Reachable fallthrough example
+
+Example: this function is rejected because the false path reaches the end without returning an `i32`:
+
+```bray
+func missing(pos condition: bool) -> i32
+{
+    if condition
+    {
+        return 1;
+    }
+}
+```
+
+Adding `return 2;` after the conditional makes both paths return and accepts the function. Adding a non-returning
+`panic("missing result");` there also accepts it, but that path panics instead of returning a value.
+A nested block's `yield` would supply that block, not the callable result.
+[Return and execution scopes](return-and-execution-scopes.md#callable-result-exits) defines the different targets.
+
 ## Navigation
 
 - [Language index](../index.md)

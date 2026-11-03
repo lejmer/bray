@@ -22,10 +22,9 @@ are:
 ```bray
 impl Once<T>
 {
-    static func empty() -> Self;
+    static trusted func empty() -> Self;
 
-    static const func prepare() ->
-        (std.sync.once.Marker, Uninit<std.sync.once.State<T>>);
+    static trusted const func prepare() -> std.sync.once.Prepared<T>;
 
     func get_or_init(pos initializer: func() -> T) -> &T
         requires(blocking_execution());
@@ -35,10 +34,12 @@ impl Once<T>
 }
 ```
 
-`empty()` forms an empty runtime owner with its cleanup backing. `prepare()` creates its initialized fields without
-forming the owner. A static initializer moves those fields into the static's `instance` and `storage` fields, as shown
-in [static storage declarations](../declarations/static-storage-declarations.md). Lifecycle obligations attach when the
-static owner materializes. Preparation grants no authority over another cell.
+`empty()` forms an empty runtime owner with its cleanup backing. `prepare()` returns a `std.sync.once.Prepared<T>`
+carrier containing initialized storage and its matching marker without forming the `Once<T>` owner. A static
+initializer moves that carrier into the static's `prepared` field, as shown in
+[static storage declarations](../declarations/static-storage-declarations.md). Lifecycle obligations attach when the
+static owner materializes. Preparation grants no authority over another cell. These trusted declarations expose no
+trusted caller obligation merely because their bodies use trusted operations.
 
 The first successful initializer publishes exactly one completely initialized `T`. Concurrent callers wait for that
 attempt and observe its synchronization edge before borrowing the value. Normal completion changes the state to

@@ -128,6 +128,28 @@ Product layout does not change field names, field order as semantic representati
 initialization, lifecycle behavior, construction, field access, pattern matching, method resolution, or trait
 satisfaction.
 
+## Incomplete value example
+
+Example: with the bodyless `FILE` declaration above, this function is accepted:
+
+```bray
+func accept_address(pos address: DataPointer<FILE>)
+{
+}
+```
+
+This independent function is rejected:
+
+```bray
+func accept_value(pos value: FILE)
+{
+}
+```
+
+The pointer has its own complete representation. Passing `FILE` by value would require a complete stored value.
+An explicit opaque size and alignment can provide storage completeness, but still grant no structural constructor or
+field access under [bodyless opaque products](#bodyless-opaque-products).
+
 ## Navigation
 
 - [Language index](../index.md)

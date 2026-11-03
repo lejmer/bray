@@ -958,7 +958,7 @@ When a qualified member reference uses a constrained implementation-eligible typ
 Static predicate expressions can also state type equality.
 
 ```bray
-func first_token<I>(iter: I) -> Token?
+func first_token<I>(mut iter: I) -> Token?
     with(
         I: Iterator,
         I(Iterator).Element == Token,

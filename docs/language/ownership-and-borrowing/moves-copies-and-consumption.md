@@ -41,6 +41,44 @@ borrowing, capability, and dependency-contract state.
 
 Copying a value copies its dependency contract only when the value's copy contract permits the copy.
 
+## Borrowing and moving example
+
+Example: the following functions are independent alternatives in a module containing this non-copyable type:
+
+```bray
+struct Parcel
+{
+    code: u8;
+}
+```
+
+This function is accepted. Borrowing preserves ownership of `parcel`, and the borrow's last use precedes the return:
+
+```bray
+func observe(pos parcel: Parcel) -> u8
+{
+    let other = &parcel;
+    _ = other.code;
+
+    return parcel.code;
+}
+```
+
+Changing only the initializer to an owned transfer makes the final access invalid:
+
+```bray
+func moved(pos parcel: Parcel) -> u8
+{
+    let other = parcel;
+    _ = other.code;
+
+    return parcel.code;
+}
+```
+
+The second function is rejected for using moved storage. `other` owns the value after the transfer.
+[Ownership states](ownership-states.md) govern subsequent use of the old path.
+
 ## Navigation
 
 - [Language index](../index.md)

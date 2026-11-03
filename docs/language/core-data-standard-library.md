@@ -1,8 +1,7 @@
 # Core data standard library
 
 Core data APIs are ordinary declarations in `std`. They reuse the language's text, numeric, iteration, comparison, and
-memory contracts. The [library design](../design/core-data-standard-library.md) describes their structure. This chapter
-collects caller-visible behavior that is specific to these library operations.
+memory contracts. This chapter collects caller-visible behavior that is specific to these library operations.
 
 ## Text and characters
 
@@ -13,6 +12,18 @@ returns an owning string or `Utf8Error.InvalidEncoding`.
 
 Scalar cursors preserve scalar order and remain exhausted after returning `none`. Byte traversal uses the ordinary byte
 slice contract. Basic equality and ordering do not implicitly normalize text or apply locale-sensitive collation.
+
+Example: in a body whose module declares `using std.string`, these calls are accepted:
+
+```bray
+let text: string = "é";
+let scalars = text.length();
+let bytes = text.as_bytes().length();
+```
+
+`scalars` is one and `bytes` is two. The string contains one Unicode scalar encoded as two UTF-8 bytes.
+The byte view retains its dependency on `text` under the
+[string contract](expressions/literal-expressions.md#string-literals) and ordinary borrow rules.
 
 Character conversion rejects values outside the Unicode scalar domain. UTF-8 encoding produces exactly one scalar's
 encoding. Character classification uses Unicode 17.0.0 data selected with the standard-library artifact and is

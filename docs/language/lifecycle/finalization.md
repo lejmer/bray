@@ -77,6 +77,61 @@ This fallback is restricted to abnormal exit.
 Cleanup-incident ownership, reporting, ordering, and destruction are defined by
 [Cancellation](../async-and-concurrency/cancellation.md#fallible-finalization-during-abnormal-exit).
 
+## Completion and ownership end example
+
+Example: this type has a possibly fallible finalizer and an ordinary operation that establishes completion:
+
+```bray
+struct Session
+{
+    mut complete: bool;
+
+    mut func finish()
+        ensures(self.complete)
+    {
+        self.complete = true;
+    }
+
+    finalize() -> Result<unit, bool>
+        when(self.complete)
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
+    {
+        if self.complete
+        {
+            return Ok(unit);
+        }
+
+        return Error(false);
+    }
+}
+```
+
+This independent function is rejected. Its input is not known to be complete, so ending ownership could require a
+fallible implicit finalizer:
+
+```bray
+func unfinished(pos session: Session)
+{
+}
+```
+
+This function is accepted because `finish` establishes the condition for the finalizer's known successful, pure and
+total domain:
+
+```bray
+func completed(pos mut session: Session)
+{
+    session.finish();
+}
+```
+
+The completed whole-value finalizer step is discharged. The ordinary destruction of the initialized value still
+occurs. [Completion through ordinary operations](#completion-through-ordinary-operations) defines that distinction.
+Returning the unresolved `Session` to another owner would instead transfer its obligation.
+
 ## Navigation
 
 - [Language index](../index.md)
