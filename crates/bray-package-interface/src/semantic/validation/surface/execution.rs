@@ -523,7 +523,9 @@ impl InterfaceSemantics {
 
             match term {
                 InterfaceConstantTerm::Typed { term, .. } => pending.push(*term),
-                InterfaceConstantTerm::Value(_) => {}
+                InterfaceConstantTerm::Value(_)
+                | InterfaceConstantTerm::DefinitionApplication { .. }
+                | InterfaceConstantTerm::TraitConstant { .. } => {}
                 InterfaceConstantTerm::Parameter(parameter) => {
                     if validate_symbol_kind(parameter, surface)?
                         != bray_symbols::SymbolKind::GenericConstParameter
@@ -554,8 +556,8 @@ impl InterfaceSemantics {
                 }
                 InterfaceConstantTerm::Call {
                     callable,
-                    selected_implementation: None,
                     arguments,
+                    ..
                 } => {
                     let instance = callable
                         .to_index()

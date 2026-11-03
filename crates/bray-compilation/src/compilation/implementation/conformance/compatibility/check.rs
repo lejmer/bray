@@ -989,6 +989,14 @@ fn trusted_predicates_are_compatible(
         },
         &|place| Ok(bray_checker::ExecutionCondition::Input(place.clone())),
         &|value| Ok(std::sync::Arc::clone(value)),
+        &mut |callable, implementation, witnesses, operands| {
+            Ok(bray_checker::ExecutionCondition::Call(
+                callable,
+                implementation,
+                witnesses.into(),
+                operands.into(),
+            ))
+        },
     )?;
 
     let provided = bray_checker::execution_condition_from_type_term(values, provided, input_count)?;

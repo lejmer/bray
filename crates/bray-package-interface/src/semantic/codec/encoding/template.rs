@@ -279,6 +279,7 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             arguments,
             ordinals,
             dispatch,
+            implementation_witnesses,
             state_inputs,
         } => {
             encoder.write_u32(4);
@@ -304,6 +305,13 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             match dispatch {
                 Some(dispatch) => encode_template_dispatch(encoder, dispatch),
                 None => encoder.write_u32(0),
+            }
+
+            write_count(encoder, implementation_witnesses.len());
+
+            for (witness, application) in implementation_witnesses.iter() {
+                encode_implementation_reference(encoder, witness);
+                encoder.write_u32(application.raw());
             }
         }
         InterfaceCheckedTemplateOperation::Convert { value, target } => {

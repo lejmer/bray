@@ -103,6 +103,7 @@ where
         arguments: &[CheckedTemplateNodeId],
         ordinals: &[u32],
         dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
+        saved_witnesses: &[(bray_symbols::SymbolKey, GenericSubstitutionId)],
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let evaluated = self.evaluate_nodes(arguments)?;
@@ -136,25 +137,17 @@ where
             ) => None,
         };
 
-        let implementation = implementation
-            .and_then(|(declaration, substitution)| {
-                let Some(declaration) = self
-                    .resolver
-                    .symbol(declaration)
-                    .and_then(ImplementationSymbolId::try_from_any)
-                else {
-                    panic!("constant call implementation must resolve to a declared implementation: {declaration:?}");
-                };
+        let implementation = implementation.map(|(declaration, substitution)| {
+            self.instantiate_implementation(declaration, *substitution)
+        });
 
-                let substitution = self.substitute_arguments(*substitution);
-
-                values
-                    .intern_implementation_instance(ImplementationInstanceData::new(
-                        declaration,
-                        substitution,
-                    ))
-                    .map(Some).unwrap_or_else(|error| panic!("evaluate_call must satisfy its checked construction contract: {error:?}"))
-            });
+        let witnesses = saved_witnesses
+            .iter()
+            .map(|(declaration, substitution)| {
+                self.instantiate_implementation(declaration, *substitution)
+            })
+            .chain(self.implementation_witnesses.iter().copied())
+            .collect::<Vec<_>>();
 
         let limits = self.budget.remaining_limits(self.limits);
 
@@ -164,19 +157,45 @@ where
             ));
         };
 
+        let requirement = self.instantiate_dispatch_requirement(dispatch)?;
+
         if let Some(provider) = bray_symbols::DefaultValueProvider::try_from_symbol(symbol) {
-            assert!(
-                implementation.is_none(),
-                "default invocation has no selected trait dispatch"
-            );
+            let implementation = match (implementation, requirement) {
+                (Some(witness), _) => Some(witness),
+                (None, Some(requirement)) => {
+                    let selection = self
+                        .context
+                        .implementation_selection(requirement, &witnesses)
+                        .map_err(|error| self.record_query_failure(error))?;
+
+                    self.diagnostics
+                        .extend(selection.diagnostics().iter().cloned());
+
+                    if self.diagnostics.has_errors() {
+                        return Err(TemplateEvaluationFailure::Diagnosed);
+                    }
+
+                    let bray_symbols::ImplementationSelection::Selected(witness) =
+                        selection.value()
+                    else {
+                        panic!(
+                            "admitted default retains its concrete dispatch witness: {requirement:?}"
+                        );
+                    };
+
+                    Some(*witness)
+                }
+                (None, None) => None,
+            };
 
             let request = ConstantCallRequest::new(
                 crate::ConstantCallTarget::Default(provider, substitution),
-                None,
+                implementation,
                 arguments,
                 result_type,
                 limits,
-            );
+            )
+            .with_implementation_witnesses(witnesses);
 
             return self.resolve_call(&request, result_type);
         }
@@ -187,48 +206,19 @@ where
         let mut callable = CallableInstanceData::new(callable, substitution);
         let mut implementation = implementation;
 
-        if let Some(dispatch) = dispatch {
-            let route = dispatch
-                .trait_dispatch::<bray_symbols::SemanticValueStoreError>(values, |key| {
-                    Ok(self
-                        .resolver
-                        .symbol(key)
-                        .expect("checked dispatch owner resolves"))
-                })
-                .unwrap_or_else(|error| {
-                    panic!("checked dispatch retains valid semantic values: {error:?}")
-                });
+        if let Some(requirement) = requirement {
+            let abstract_callable = values
+                .intern_callable_instance(callable)
+                .expect("checked abstract invocation retains valid arguments");
 
-            if let Some(route) = route {
-                let requirement = self
-                    .context
-                    .dispatch_requirement(route)
-                    .map_err(|error| self.record_query_failure(error))?;
+            let selected = self
+                .context
+                .witness_callable(abstract_callable, requirement, &witnesses)
+                .map_err(|error| self.record_query_failure(error))?
+                .expect("admitted concrete call retains its selected implementation");
 
-                let requirement = bray_symbols::ImplementationRequirementKey::new(
-                    self.instantiate_type(requirement.subject())?,
-                    values
-                        .substitute_trait_application(
-                            requirement.trait_application(),
-                            self.substitution
-                                .expect("dispatch nodes retain their generic environment"),
-                        )
-                        .unwrap_or_else(|error| panic!("checked trait substitution: {error:?}")),
-                );
-
-                let abstract_callable = values
-                    .intern_callable_instance(callable)
-                    .unwrap_or_else(|error| panic!("checked abstract invocation: {error:?}"));
-
-                let selected = self
-                    .context
-                    .witness_callable(abstract_callable, requirement)
-                    .map_err(|error| self.record_query_failure(error))?
-                    .expect("admitted concrete template call retains its selected implementation");
-
-                callable = selected.0;
-                implementation = Some(selected.2);
-            }
+            callable = selected.0;
+            implementation = Some(selected.2);
         }
 
         let request = ConstantCallRequest::new(
@@ -239,13 +229,84 @@ where
             limits,
         );
 
-        let request = request.with_observation(state_inputs.is_some());
+        let request = request
+            .with_implementation_witnesses(witnesses)
+            .with_observation(state_inputs.is_some());
 
         self.resolve_call_outputs(
             &request,
             result_type,
             Some((owner, state_inputs.unwrap_or(&[]))),
         )
+    }
+
+    fn instantiate_dispatch_requirement(
+        &mut self,
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
+    ) -> Result<Option<bray_symbols::ImplementationRequirementKey>, TemplateEvaluationFailure> {
+        let route = dispatch
+            .map(|dispatch| {
+                dispatch.trait_dispatch::<bray_symbols::SemanticValueStoreError>(
+                    self.context.semantic_values(),
+                    |key| {
+                        Ok(self
+                            .resolver
+                            .symbol(key)
+                            .expect("checked dispatch owner resolves"))
+                    },
+                )
+            })
+            .transpose()
+            .expect("checked dispatch retains valid semantic values")
+            .flatten();
+
+        let Some(route) = route else {
+            return Ok(None);
+        };
+
+        let requirement = self
+            .context
+            .dispatch_requirement(route)
+            .map_err(|error| self.record_query_failure(error))?;
+
+        let subject = self.instantiate_type(requirement.subject())?;
+        let values = self.context.semantic_values();
+        let application = values.trait_application_data(requirement.trait_application());
+        let substitution = self.substitute_arguments(application.substitution());
+
+        let application = values
+            .intern_trait_application(bray_symbols::TraitApplicationData::new(
+                application.definition(),
+                substitution,
+            ))
+            .expect("checked trait arguments retain their owner");
+
+        Ok(Some(bray_symbols::ImplementationRequirementKey::new(
+            subject,
+            application,
+        )))
+    }
+
+    fn instantiate_implementation(
+        &self,
+        declaration: &bray_symbols::SymbolKey,
+        substitution: GenericSubstitutionId,
+    ) -> bray_symbols::ImplementationInstanceId {
+        let definition = self
+            .resolver
+            .symbol(declaration)
+            .and_then(ImplementationSymbolId::try_from_any)
+            .unwrap_or_else(|| panic!("checked implementation resolves: {declaration:?}"));
+
+        let substitution = self.substitute_arguments(substitution);
+
+        self.context
+            .semantic_values()
+            .intern_implementation_instance(ImplementationInstanceData::new(
+                definition,
+                substitution,
+            ))
+            .expect("checked implementation retains valid arguments")
     }
 
     pub(in crate::constant::template_evaluation) fn resolve_call(

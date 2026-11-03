@@ -948,8 +948,14 @@ mod tests {
             substitution,
         );
 
+        let cancellation = CancellationToken::new();
+
+        let context = compilation
+            .checker_context(&cancellation)
+            .expect("constant signature context");
+
         let signature = compilation
-            .constant_callable_signature(callable, &CancellationToken::new())
+            .constant_callable_signature(callable, &context, &cancellation)
             .expect("fixture `constant_callable_signature` call must succeed");
 
         let callable_type = signature

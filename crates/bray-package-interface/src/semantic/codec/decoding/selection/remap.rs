@@ -585,12 +585,17 @@ fn remap_constant_term(
             callable,
             selected_implementation,
             arguments,
+            implementation_witnesses,
         } => {
             *callable = maps.callable_instance_id(*callable)?;
 
             *selected_implementation = selected_implementation
                 .map(|implementation| maps.implementation_instance_id(implementation))
                 .transpose()?;
+
+            for witness in Arc::make_mut(implementation_witnesses) {
+                *witness = maps.implementation_instance_id(*witness)?;
+            }
 
             remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
         }

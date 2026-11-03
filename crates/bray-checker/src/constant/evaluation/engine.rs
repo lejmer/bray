@@ -1514,6 +1514,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> crate::CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {
@@ -1560,6 +1562,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> crate::CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {
@@ -1597,6 +1601,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> crate::CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {

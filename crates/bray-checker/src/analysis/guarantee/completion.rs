@@ -330,6 +330,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if matches!(scoped.invocation(invocation).2, bray_bound_tree::BoundCallResult::LazyFuture(_)));
 
         Some(crate::ExecutionCallEvidence {
+            implementation_witnesses: Default::default(),
             returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -388,6 +389,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         Some(crate::ExecutionCallEvidence {
+            implementation_witnesses: Default::default(),
             returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -571,6 +573,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
         let mut evidence = crate::ExecutionCallEvidence {
+            implementation_witnesses: call.resolution().implementation_witnesses().into(),
             returned: Default::default(),
             anonymous_target: call
                 .resolution()

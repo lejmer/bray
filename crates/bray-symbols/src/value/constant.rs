@@ -556,6 +556,8 @@ pub enum ConstantTermData {
         callable: CallableInstanceId,
         /// Selected implementation whose fulfillment supplies the callable, when applicable.
         selected_implementation: Option<ImplementationInstanceId>,
+        /// Saved implementation choices in lookup priority order.
+        implementation_witnesses: Arc<[ImplementationInstanceId]>,
         /// Ordered argument terms.
         arguments: Arc<[ConstantTermId]>,
     },
@@ -618,11 +620,13 @@ impl ConstantTermData {
     pub fn call(
         callable: CallableInstanceId,
         selected_implementation: Option<ImplementationInstanceId>,
+        implementation_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         arguments: impl IntoIterator<Item = ConstantTermId>,
     ) -> Self {
         Self::Call {
             callable,
             selected_implementation,
+            implementation_witnesses: shared_slice(implementation_witnesses),
             arguments: shared_slice(arguments),
         }
     }

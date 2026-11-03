@@ -57,6 +57,7 @@ pub trait PredicateLoweringContext: SyntheticLoweringContext {
         &self,
         callable: bray_symbols::CallableInstanceData,
         implementation: Option<bray_symbols::ImplementationInstanceId>,
+        implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error>;
     /// Resolves an indexed slice's already-checked nullable bound parameter type.
@@ -76,6 +77,7 @@ pub trait PredicateLoweringContext: SyntheticLoweringContext {
         key: &SymbolKey,
         substitution: GenericSubstitutionId,
         dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
+        implementation_witnesses: &[(SymbolKey, GenericSubstitutionId)],
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error>;
 }
@@ -456,6 +458,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 ordinals,
                 state_inputs,
                 dispatch,
+                implementation_witnesses,
             } => {
                 let mut inputs = Vec::with_capacity(arguments.len());
 
@@ -497,6 +500,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     callable,
                     *substitution,
                     dispatch.as_ref(),
+                    implementation_witnesses,
                     inputs,
                 )?;
 

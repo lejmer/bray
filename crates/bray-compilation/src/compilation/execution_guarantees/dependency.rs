@@ -4,7 +4,8 @@ use bray_binder::SymbolQueryProvider;
 
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKey};
 use bray_checker::{
-    ExecutionCallEvidence, ExecutionDependencyTarget, ExecutionObligation, ExecutionProperty,
+    CheckerRequestContext, ExecutionCallEvidence, ExecutionDependencyTarget, ExecutionObligation,
+    ExecutionProperty,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticBag;
@@ -161,12 +162,31 @@ impl Compilation {
             } => {
                 let binding = self.binding_context(cancellation)?;
 
-                let selected = implementation::witness_callable(&binding, callable, requirement)
-                    .map_err(FactQueryError::from)?;
+                let context = crate::compilation::checker::CompilationCheckerContext::new(binding);
+
+                let witnesses = match &entry {
+                    ExecutionProofEntry::Invocation(Some(evidence)) => {
+                        evidence.implementation_witnesses()
+                    }
+                    _ => &[],
+                };
+
+                let promised = matches!(entry, ExecutionProofEntry::Dependency)
+                    && self.requirement_promises(callable, required, diagnostics, cancellation)?;
+
+                // A checked dependency already proved its trait premises in the declaring module.
+                let selected = if promised {
+                    None
+                } else {
+                    context
+                        .witness_callable(callable, requirement, witnesses)
+                        .map_err(FactQueryError::from)?
+                };
 
                 match selected {
                     Some((callable, _, _)) => callable,
-                    None if (permit_premises && required.is_internal())
+                    None if promised
+                        || (permit_premises && required.is_internal())
                         || self.requirement_promises(
                             callable,
                             required,

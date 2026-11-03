@@ -344,13 +344,24 @@ fn decode_operation(
                 Some(decode_template_dispatch(reader, context, raw)?)
             };
 
+            let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+            let mut witnesses = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                witnesses.push((
+                    decode_implementation_reference(reader, context)?,
+                    crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+                ));
+            }
+
             let call = InterfaceCheckedTemplateOperation::ordered_call(
                 callable,
                 substitution,
                 arguments,
                 ordinals,
                 dispatch,
-            );
+            )
+            .with_implementation_witnesses(witnesses);
 
             Ok(match state_inputs {
                 Some(inputs) => call.with_state_inputs(inputs),
@@ -2095,7 +2106,9 @@ mod tests {
         ));
 
         nodes.push(InterfaceCheckedTemplateNode::new(
-            InterfaceCheckedTemplateOperation::RepeatedArray { value: CheckedTemplateNodeId::new(0) },
+            InterfaceCheckedTemplateOperation::RepeatedArray {
+                value: CheckedTemplateNodeId::new(0),
+            },
             InterfaceTypeId::new(2),
         ));
 

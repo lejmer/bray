@@ -180,8 +180,12 @@ impl Compilation {
         instance: CallableInstanceData,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
-        let Some(signature) =
-            self.resolve_callable_signature_types(binding_context, instance, diagnostics)?
+        let Some(signature) = self.resolve_callable_signature_types(
+            binding_context,
+            instance,
+            &super::checker::CompilationCheckerContext::new(*binding_context),
+            diagnostics,
+        )?
         else {
             return Ok(None);
         };
@@ -216,6 +220,7 @@ impl Compilation {
         &self,
         binding_context: &CompilationBindingContext<'_>,
         instance: CallableInstanceData,
+        checker: &super::checker::CompilationCheckerContext<'_>,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_symbols::CallableSignature>, FactQueryError> {
         let result = binding_context
@@ -244,10 +249,8 @@ impl Compilation {
             return Ok(None);
         };
 
-        let checker = super::checker::CompilationCheckerContext::new(*binding_context);
-
         let signature = bray_checker::normalize_callable_signature(
-            &checker,
+            checker,
             signature,
             Some(instance.substitution()),
             diagnostics,

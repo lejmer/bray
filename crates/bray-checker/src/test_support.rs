@@ -172,6 +172,7 @@ impl CheckerRequestContext for TestCheckerContext {
         &self,
         _callable: bray_symbols::CallableInstanceId,
         _requirement: bray_symbols::ImplementationRequirementKey,
+        _witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> crate::CheckerQueryResult<
         Option<(
             bray_symbols::CallableInstanceData,

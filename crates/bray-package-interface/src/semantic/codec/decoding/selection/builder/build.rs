@@ -920,11 +920,16 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 callable,
                 selected_implementation,
                 arguments,
+                implementation_witnesses,
             } => {
                 self.enqueue(PendingRecord::CallableInstance(callable.raw()));
 
                 if let Some(implementation) = selected_implementation {
                     self.enqueue(PendingRecord::ImplementationInstance(implementation.raw()));
+                }
+
+                for witness in &**implementation_witnesses {
+                    self.enqueue(PendingRecord::ImplementationInstance(witness.raw()));
                 }
 
                 for argument in &**arguments {

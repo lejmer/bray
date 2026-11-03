@@ -23,6 +23,8 @@ where
     pub(in crate::constant::template_evaluation) substitution: Option<GenericSubstitutionId>,
     pub(in crate::constant::template_evaluation) selected_implementation:
         Option<bray_symbols::ImplementationInstanceId>,
+    pub(in crate::constant::template_evaluation) implementation_witnesses:
+        &'evaluation [bray_symbols::ImplementationInstanceId],
     pub(in crate::constant::template_evaluation) contextual_self:
         Option<(bray_symbols::SelfTypeContext, TypeId)>,
     pub(in crate::constant::template_evaluation) arguments: &'evaluation [ConstantValueId],
@@ -58,6 +60,7 @@ where
             template,
             substitution,
             selected_implementation: None,
+            implementation_witnesses: &[],
             contextual_self: None,
             arguments: &[],
             resolver,
@@ -72,6 +75,42 @@ where
             upstream_failure: None,
             static_initializer: false,
         }
+    }
+
+    pub(in crate::constant::template_evaluation) fn bind_implementation_self(
+        &mut self,
+        symbol: bray_symbols::AnySymbolId,
+        witness: Option<bray_symbols::ImplementationInstanceId>,
+    ) -> Result<(), TemplateEvaluationFailure> {
+        if let Some(witness) = witness
+            && let Some(context) = self
+                .context
+                .enclosing_self_type_context(symbol)
+                .map_err(|error| self.record_query_failure(error))?
+        {
+            let implementation = self
+                .context
+                .semantic_values()
+                .implementation_instance_data(witness);
+
+            let subject = self
+                .context
+                .implementation_subject_type(implementation.definition())
+                .map_err(|error| self.record_query_failure(error))?;
+
+            self.diagnostics
+                .extend(subject.diagnostics().iter().cloned());
+
+            let subject = self
+                .context
+                .semantic_values()
+                .substitute_type(*subject.value(), implementation.substitution())
+                .expect("selected implementation retains its subject arguments");
+
+            self.contextual_self = Some((context, subject));
+        }
+
+        Ok(())
     }
 
     pub(in crate::constant::template_evaluation) fn template(
@@ -135,12 +174,20 @@ where
         &self,
         arguments: GenericSubstitutionId,
     ) -> GenericSubstitutionId {
-        self.substitution.map_or(arguments, |substitution| {
+        let arguments = self.substitution.map_or(arguments, |substitution| {
             self.context
                 .semantic_values()
                 .substitute_generic_substitution(arguments, substitution)
                 .expect("checked evaluation retains valid generic arguments")
-        })
+        });
+
+        self.contextual_self
+            .map_or(arguments, |(context, subject)| {
+                self.context
+                    .semantic_values()
+                    .substitute_contextual_self_in_substitution(arguments, context, subject)
+                    .expect("selected call arguments retain their Self binding")
+            })
     }
 
     pub(in crate::constant::template_evaluation) fn evaluate_generic_inputs(
@@ -328,6 +375,7 @@ where
                 ordinals,
                 state_inputs,
                 dispatch,
+                implementation_witnesses,
             } => self.evaluate_call(
                 owner,
                 state_inputs.as_deref(),
@@ -336,6 +384,7 @@ where
                 arguments,
                 ordinals,
                 dispatch.as_ref(),
+                implementation_witnesses,
                 ty,
             ),
             CheckedTemplateOperation::Convert { value, target } => {

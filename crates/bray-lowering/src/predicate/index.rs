@@ -102,6 +102,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
             &call.callable,
             call.substitution,
             Some(&call.dispatch),
+            &[],
             inputs,
         )?;
 

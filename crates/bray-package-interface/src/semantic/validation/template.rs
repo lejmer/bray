@@ -517,6 +517,7 @@ fn validate_operation_references(
             callable,
             substitution,
             dispatch,
+            implementation_witnesses,
             arguments,
             ordinals,
             state_inputs,
@@ -548,6 +549,15 @@ fn validate_operation_references(
             }
 
             validate_call_references(context, callable, *substitution, dispatch.as_ref())?;
+
+            for (implementation, substitution) in implementation_witnesses.iter() {
+                validate_implementation_reference(context, implementation)?;
+
+                validate_index(
+                    substitution.to_index(),
+                    context.semantics.substitutions.len(),
+                )?;
+            }
         }
         InterfaceCheckedTemplateOperation::Index { call, .. }
         | InterfaceCheckedTemplateOperation::Slice { call, .. } => {
@@ -1043,12 +1053,6 @@ fn validate_call_references(
                 | SymbolKind::CallableParameterDefaultProvider
         )
     {
-        return Err(crate::semantic::codec::invalid_value(
-            crate::InterfaceValidationField::Template,
-        ));
-    }
-
-    if declaration_kind == SymbolKind::CallableParameterDefaultProvider && dispatch.is_some() {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Template,
         ));

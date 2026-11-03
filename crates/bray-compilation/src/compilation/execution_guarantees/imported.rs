@@ -114,7 +114,9 @@ impl Compilation {
         &self,
         callable: CallableInstanceData,
         terms: impl IntoIterator<Item = bray_symbols::ConstantTermId>,
+        witnesses: &[bray_symbols::ImplementationInstanceId],
         cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
     ) -> Result<Vec<ExecutionCondition>, FactQueryError> {
         let inputs =
             self.execution_callable_inputs(callable.definition().symbol(), cancellation)?;
@@ -124,8 +126,14 @@ impl Compilation {
         terms
             .into_iter()
             .map(|term| {
-                execution_condition_from_term(values, term, &inputs)
-                    .map_err(FactQueryError::SemanticValueStore)
+                let condition = execution_condition_from_term(values, term, &inputs)?;
+
+                self.instantiate_execution_condition_calls(
+                    &condition,
+                    witnesses,
+                    cancellation,
+                    diagnostics,
+                )
             })
             .collect()
     }
@@ -141,6 +149,12 @@ impl Compilation {
         if self.intrinsic_projection_obligation(callable, required, cancellation)? {
             return Ok(Some(required));
         }
+
+        let evidence = self.instantiate_execution_evidence(
+            evidence.unwrap_or(&ExecutionCallEvidence::default()),
+            cancellation,
+            diagnostics,
+        )?;
 
         let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
@@ -184,12 +198,13 @@ impl Compilation {
                     let entry = self.imported_execution_conditions(
                         callable,
                         domain.entry.iter().copied(),
+                        evidence.implementation_witnesses(),
                         cancellation,
+                        diagnostics,
                     )?;
 
-                    if evidence
-                        .unwrap_or(&ExecutionCallEvidence::default())
-                        .proves_trusted_with_inputs(&entry, &inputs)
+                    if !diagnostics.has_errors()
+                        && evidence.proves_trusted_with_inputs(&entry, &inputs)
                     {
                         return Ok(Some(ExecutionObligation::Property(
                             property,

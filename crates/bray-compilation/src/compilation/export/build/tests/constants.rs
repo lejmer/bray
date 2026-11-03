@@ -562,7 +562,7 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
             type Target = Small;
         }
 
-        func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
+        const func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
         {
             return T(Project).Target(Capacity).VALUE;
         }
@@ -611,6 +611,7 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
         using example.package.api.BufferScale;
         using example.package.api.BufferProject;
 
+        const PROJECTED: usize = example.package.api.projected<example.package.api.Buffer<3>>();
         const ALIAS: usize = example.package.api.Buffer<3>.Target.VALUE;
         const ALIAS_CALL: usize = example.package.api.Buffer<3>.Target.read();
         const ALIAS_TRAIT: usize = example.package.api.Buffer<3>.Subject(example.package.api.Capacity).VALUE;
@@ -649,6 +650,7 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
     );
 
     for (name, expected) in [
+        ("PROJECTED", 2),
         ("ALIAS", 3),
         ("ALIAS_CALL", 3),
         ("ALIAS_TRAIT", 5),
@@ -755,6 +757,209 @@ fn associated_constants_keep_provider_witnesses_for_imported_default_extents() {
         assert!(
             matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value) if value.to_u64() == Some(expected)),
             "{name}"
+        );
+    }
+}
+
+#[test]
+fn constant_invocations_keep_saved_provider_proofs_after_import() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        trait First
+        {
+            const VALUE: usize;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total);
+
+            static const func read_default(pos extra: usize = VALUE) -> usize executes(pure, total)
+            {
+                return VALUE + extra;
+            }
+        }
+
+        trait Second
+        {
+            const VALUE: usize;
+        }
+
+        struct Small
+        {
+        }
+
+        impl ProviderFirst = Small(First)
+        {
+            const VALUE: usize = 2;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total)
+            {
+                return VALUE + extra;
+            }
+        }
+
+        impl ProviderSecond = Small(Second)
+        {
+            const VALUE: usize = 3;
+        }
+
+        const func literal<T>() -> usize with(T: First, T: Second)
+        {
+            return 7;
+        }
+
+        const func sum<T>() -> usize with(T: First, T: Second)
+        {
+            return T(First).VALUE + T(Second).VALUE;
+        }
+
+        const func generated<T>() -> [usize; T(First).VALUE]
+            with(T: First, T: Second)
+        {
+            return [T(Second).VALUE; T(First).VALUE];
+        }
+
+        const func method<T>(pos defaulted: bool) -> usize with(T: First, T: Second)
+        {
+            if defaulted
+            {
+                return T(First).read_default();
+            }
+
+            return T(First).read(1);
+        }
+
+        const func selected_method(pos defaulted: bool) -> usize
+        {
+            return method<Small>(defaulted);
+        }
+
+        const PROVIDER_METHOD: usize = selected_method(false);
+        const PROVIDER_DEFAULT: usize = selected_method(true);
+        const CAPTURED: usize = sum<Small>();
+
+        const func selected() -> usize
+        {
+            return sum<Small>();
+        }
+
+        const func values() -> [usize; 2]
+        {
+            return generated<Small>();
+        }
+        "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let provider_only = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const PROVIDER_METHOD: usize = example.package.api.selected_method(false);
+        const PROVIDER_DEFAULT: usize = example.package.api.selected_method(true);
+        "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    assert!(
+        provider_only.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider_only.check_diagnostics()
+    );
+
+    for checked in [&provider, &provider_only] {
+        for (name, expected) in [("PROVIDER_METHOD", 3), ("PROVIDER_DEFAULT", 4)] {
+            let value = super::fixtures::source_constant_value(checked, name);
+
+            assert!(
+                matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+                if value.to_u64() == Some(expected)),
+                "{name}: {value:?}"
+            );
+        }
+    }
+
+    let dependency = super::fixtures::implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        impl ConsumerFirst = example.package.api.Small(example.package.api.First)
+        {
+            const VALUE: usize = 4;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total)
+            {
+                return 5 + extra;
+            }
+        }
+
+        impl ConsumerSecond = example.package.api.Small(example.package.api.Second)
+        {
+            const VALUE: usize = 5;
+        }
+
+        const func selected_consumer() -> usize
+        {
+            return example.package.api.sum<example.package.api.Small>();
+        }
+
+        const func selected_consumer_method(pos defaulted: bool) -> usize
+        {
+            return example.package.api.method<example.package.api.Small>(defaulted);
+        }
+
+        const PROVIDER_METHOD: usize = example.package.api.selected_method(false);
+        const PROVIDER_DEFAULT: usize = example.package.api.selected_method(true);
+        const CONSUMER_METHOD: usize = selected_consumer_method(false);
+        const CONSUMER_DEFAULT: usize = selected_consumer_method(true);
+        const LITERAL: usize = example.package.api.literal<example.package.api.Small>();
+        const SYMBOLIC: usize = example.package.api.CAPTURED;
+        const PROVIDER: usize = example.package.api.selected();
+        const CONSUMER: usize = selected_consumer();
+        const PROVIDER_VALUES: [usize; 2] = example.package.api.values();
+        const CONSUMER_VALUES: [usize; 4] = example.package.api.generated<example.package.api.Small>();
+        const PROVIDER_ELEMENT: usize = PROVIDER_VALUES[1];
+        const CONSUMER_ELEMENT: usize = CONSUMER_VALUES[3];
+        "#,
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    for (name, expected) in [
+        ("PROVIDER_METHOD", 3),
+        ("PROVIDER_DEFAULT", 4),
+        ("CONSUMER_METHOD", 6),
+        ("CONSUMER_DEFAULT", 8),
+        ("LITERAL", 7),
+        ("SYMBOLIC", 5),
+        ("PROVIDER", 5),
+        ("CONSUMER", 9),
+        ("PROVIDER_ELEMENT", 3),
+        ("CONSUMER_ELEMENT", 5),
+    ] {
+        let value = super::fixtures::source_constant_value(&consumer, name);
+
+        assert!(
+            matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value) if value.to_u64() == Some(expected)),
+            "{name}: {value:?}"
         );
     }
 }

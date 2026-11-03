@@ -379,7 +379,7 @@ where
             let selected = self
                 .request
                 .context()
-                .implementation_selection(requirement)?;
+                .implementation_selection(requirement, &[])?;
 
             return Ok(match selected.value() {
                 bray_symbols::ImplementationSelection::Selected(witness) => {

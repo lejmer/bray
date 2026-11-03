@@ -444,6 +444,11 @@ pub(super) fn decode_constant_term(
             callable: InterfaceCallableInstanceId::new(read_u32(reader)?),
             selected_implementation: read_optional_u32(reader)?
                 .map(InterfaceImplementationInstanceId::new),
+            implementation_witnesses: read_ids(
+                reader,
+                context,
+                InterfaceImplementationInstanceId::new,
+            )?,
             arguments: read_ids(reader, context, InterfaceConstantTermId::new)?,
         }),
         8 => Ok(InterfaceConstantTerm::Projection {

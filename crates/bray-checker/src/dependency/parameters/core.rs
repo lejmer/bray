@@ -289,7 +289,7 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
 
     request
         .context()
-        .witness_callable(callable, *requirement)
+        .witness_callable(callable, *requirement, &[])
         .map(|selected| {
             selected.map(|(callable, context, _)| ResultKey {
                 callable,

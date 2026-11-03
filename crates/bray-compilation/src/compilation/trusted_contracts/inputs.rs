@@ -165,16 +165,24 @@ impl Compilation {
 
             let values = self.semantic_value_store()?;
 
-            let decode =
-                |predicate: &bray_symbols::PredicateSemanticSummary| -> Result<_, FactQueryError> {
-                    Ok(predicate
-                        .condition()
-                        .map(|term| {
-                            bray_checker::execution_condition_from_type_term(values, term, count)
-                        })
-                        .transpose()?
-                        .unwrap_or(ExecutionCondition::Unknown))
-                };
+            let decode = |predicate: &bray_symbols::PredicateSemanticSummary,
+                          diagnostics: &mut DiagnosticBag|
+             -> Result<_, FactQueryError> {
+                let condition = predicate
+                    .condition()
+                    .map(|term| {
+                        bray_checker::execution_condition_from_type_term(values, term, count)
+                    })
+                    .transpose()?
+                    .unwrap_or(ExecutionCondition::Unknown);
+
+                self.instantiate_execution_condition_calls(
+                    &condition,
+                    call.resolution().implementation_witnesses(),
+                    cancellation,
+                    diagnostics,
+                )
+            };
 
             let result = match call.resolution().result() {
                 bray_bound_tree::BoundCallResult::Immediate(ty) => Some(ty),

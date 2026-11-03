@@ -132,7 +132,7 @@ impl ExecutionCondition {
                 Self::Input(place) => inputs.push(place),
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
-                | Self::Call(_, operands) => pending.extend(operands.iter()),
+                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
@@ -175,7 +175,7 @@ impl ExecutionCondition {
                 }
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
-                | Self::Call(_, operands) => pending.extend(operands.iter()),
+                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Projection(_, value)
@@ -240,7 +240,7 @@ impl ExecutionCondition {
                 | Self::Borrowed(value)
                 | Self::Present(value) => pending.push(value),
                 Self::Predicate(_, _, values)
-                | Self::Call(_, values)
+                | Self::Call(_, _, _, values)
                 | Self::Operation(_, values) => pending.extend(values.iter()),
                 _ => return false,
             }
@@ -270,7 +270,7 @@ impl ExecutionCondition {
                 match condition {
                     Self::Operation(_, operands)
                     | Self::Predicate(_, _, operands)
-                    | Self::Call(_, operands) => {
+                    | Self::Call(_, _, _, operands) => {
                         pending.extend(operands.iter());
                     }
                     Self::Tagged(_, subject)
@@ -323,7 +323,7 @@ impl ExecutionCondition {
                 }
                 Self::Operation(_, operands)
                 | Self::Predicate(_, _, operands)
-                | Self::Call(_, operands) => pending.extend(operands.iter()),
+                | Self::Call(_, _, _, operands) => pending.extend(operands.iter()),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)
                 | Self::Trusted(value)

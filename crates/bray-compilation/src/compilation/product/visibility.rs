@@ -800,6 +800,7 @@ fn constant_term_exposes_internal(
             callable,
             selected_implementation,
             arguments,
+            implementation_witnesses,
         } => {
             let callable = semantic_values.callable_instance_data(*callable);
 
@@ -815,8 +816,12 @@ fn constant_term_exposes_internal(
                 callable.substitution(),
             ));
 
-            if let Some(implementation) = selected_implementation {
-                pending.push(SemanticValueDependency::Implementation(*implementation));
+            for implementation in implementation_witnesses
+                .iter()
+                .copied()
+                .chain(*selected_implementation)
+            {
+                pending.push(SemanticValueDependency::Implementation(implementation));
             }
 
             pending.extend(

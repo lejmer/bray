@@ -290,6 +290,7 @@ where
                     expression,
                     *fulfillment,
                     Some(*witness),
+                    std::slice::from_ref(witness),
                     [value],
                     conversion.target_type(),
                 );
@@ -588,6 +589,7 @@ where
                     expression,
                     callable,
                     Some(witness),
+                    std::slice::from_ref(&witness),
                     inputs.into_iter().map(|(_, value, ty)| (value, ty)),
                     ty,
                 )

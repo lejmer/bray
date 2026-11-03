@@ -170,17 +170,36 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         key: &SymbolKey,
         substitution: GenericSubstitutionId,
         dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
+        saved_witnesses: &[(SymbolKey, GenericSubstitutionId)],
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let symbol = self.predicate_symbol(key)?;
 
-        if let Some(provider) = bray_symbols::DefaultValueProvider::try_from_symbol(symbol) {
-            assert!(
-                dispatch.is_none(),
-                "default helper has no selected trait dispatch"
-            );
+        let witnesses = saved_witnesses
+            .iter()
+            .map(|(key, substitution)| {
+                let definition =
+                    bray_symbols::ImplementationSymbolId::try_from_any(self.predicate_symbol(key)?)
+                        .expect("checked witness retains its implementation");
 
-            return self.predicate_default_call(provider, substitution, inputs);
+                self.values
+                    .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
+                        definition,
+                        *substitution,
+                    ))
+                    .map_err(FactQueryError::SemanticValueStore)
+                    .map_err(CodegenPreparationError::from)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        if let Some(provider) = bray_symbols::DefaultValueProvider::try_from_symbol(symbol) {
+            return self.predicate_default_call(
+                provider,
+                substitution,
+                dispatch,
+                &witnesses,
+                inputs,
+            );
         }
 
         if let Some(predicate) = PredicateDefinitionSymbolId::try_from_any(symbol) {
@@ -219,6 +238,7 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         let (mut call, parameters) = self.predicate_instance_call(
             CallableInstanceData::new(definition, substitution),
             implementation,
+            &witnesses,
             inputs,
         )?;
 
@@ -281,6 +301,7 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
         &self,
         callable: CallableInstanceData,
         implementation: Option<ImplementationInstanceId>,
+        implementation_witnesses: &[ImplementationInstanceId],
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), Self::Error> {
         let (signature, parameters) = self.predicate_callable_signature(callable)?;
@@ -325,7 +346,10 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
                 arguments,
                 contracts.value().phase_behaviors().clone(),
                 None,
-                implementation,
+                implementation_witnesses
+                    .iter()
+                    .copied()
+                    .chain(implementation),
                 None,
                 [],
             )

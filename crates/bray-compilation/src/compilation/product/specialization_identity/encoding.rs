@@ -345,10 +345,17 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 callable,
                 selected_implementation,
                 arguments,
+                implementation_witnesses,
             } => {
                 self.tag(13);
                 self.callable_instance(*callable)?;
                 self.optional_implementation(*selected_implementation)?;
+                self.length(implementation_witnesses.len());
+
+                for witness in implementation_witnesses.iter() {
+                    self.implementation_instance(*witness)?;
+                }
+
                 self.constant_terms(arguments)?;
             }
             ConstantTermData::PredicateCall {

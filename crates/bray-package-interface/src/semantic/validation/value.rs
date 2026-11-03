@@ -433,10 +433,15 @@ impl InterfaceSemantics {
                 callable,
                 selected_implementation,
                 arguments,
+                implementation_witnesses,
             } => {
                 validate_index(callable.to_index(), self.callable_instances.len())?;
 
                 if let Some(id) = selected_implementation {
+                    validate_index(id.to_index(), self.implementation_instances.len())?;
+                }
+
+                for id in &**implementation_witnesses {
                     validate_index(id.to_index(), self.implementation_instances.len())?;
                 }
 

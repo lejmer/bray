@@ -223,6 +223,7 @@ pub(crate) struct ConstantInstanceQueryKey {
 pub(crate) struct ConstantCallQueryKey {
     invocation: bray_checker::ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
+    implementation_witnesses: Arc<[ImplementationInstanceId]>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
@@ -362,6 +363,7 @@ impl CodegenArtifactQueryKey {
 pub(crate) struct ConstantCallDependencyKey {
     invocation: bray_checker::ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
+    implementation_witnesses: Arc<[ImplementationInstanceId]>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     target: TargetProfile,
@@ -380,12 +382,26 @@ impl ConstantCallQueryKey {
         Self {
             invocation,
             selected_implementation,
+            implementation_witnesses: bray_base::shared_slice(selected_implementation),
             arguments: arguments.into(),
             result_type,
             target,
             limits,
             observation: false,
         }
+    }
+
+    pub(crate) fn with_implementation_witnesses(
+        mut self,
+        witnesses: &[ImplementationInstanceId],
+    ) -> Self {
+        self.implementation_witnesses = Arc::from(witnesses);
+
+        self
+    }
+
+    pub(crate) fn implementation_witnesses(&self) -> &[ImplementationInstanceId] {
+        &self.implementation_witnesses
     }
 
     pub(crate) fn with_observation(mut self, observation: bool) -> Self {
@@ -427,6 +443,7 @@ impl ConstantCallQueryKey {
             invocation: self.invocation.clone(),
             observation: self.observation,
             selected_implementation: self.selected_implementation,
+            implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             arguments: Arc::clone(&self.arguments),
             result_type: self.result_type,
             // Cycle coordination owns its key independently of the cache entry.

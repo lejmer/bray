@@ -209,11 +209,13 @@ impl HeaderMatcher<'_> {
                     callable: pattern_callable,
                     selected_implementation: pattern_implementation,
                     arguments: pattern_arguments,
+                    implementation_witnesses: pattern_witnesses,
                 },
                 ConstantTermData::Call {
                     callable: actual_callable,
                     selected_implementation: actual_implementation,
                     arguments: actual_arguments,
+                    implementation_witnesses: actual_witnesses,
                 },
             ) => {
                 if !self.match_callable_instance(*pattern_callable, *actual_callable)? {
@@ -225,6 +227,16 @@ impl HeaderMatcher<'_> {
                     *actual_implementation,
                 )? {
                     return Ok(false);
+                }
+
+                if pattern_witnesses.len() != actual_witnesses.len() {
+                    return Ok(false);
+                }
+
+                for (pattern, actual) in pattern_witnesses.iter().zip(actual_witnesses.iter()) {
+                    if !self.match_optional_implementation(Some(*pattern), Some(*actual))? {
+                        return Ok(false);
+                    }
                 }
 
                 self.match_constants(pattern_arguments, actual_arguments)
@@ -488,11 +500,11 @@ mod tests {
         let callable = callable_instance(&values);
 
         let pattern_call = values
-            .intern_constant_term(ConstantTermData::call(callable, None, [parameter_term]))
+            .intern_constant_term(ConstantTermData::call(callable, None, [], [parameter_term]))
             .unwrap_or_else(|error| panic!("pattern call must be valid: {error:?}"));
 
         let actual_call = values
-            .intern_constant_term(ConstantTermData::call(callable, None, [value_term]))
+            .intern_constant_term(ConstantTermData::call(callable, None, [], [value_term]))
             .unwrap_or_else(|error| panic!("actual call must be valid: {error:?}"));
 
         let mut call_matcher = HeaderMatcher::new(&[parameter_id], &values);

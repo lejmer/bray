@@ -190,11 +190,16 @@ pub(super) fn validate_constant_term_data(
             callable,
             selected_implementation,
             arguments,
+            implementation_witnesses,
         } => {
             tables.callable_instances.get(store, *callable);
 
             if let Some(implementation) = selected_implementation {
                 tables.implementation_instances.get(store, *implementation);
+            }
+
+            for witness in implementation_witnesses.iter().copied() {
+                tables.implementation_instances.get(store, witness);
             }
 
             for argument in arguments.iter().copied() {

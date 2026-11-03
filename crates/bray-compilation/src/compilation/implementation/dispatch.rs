@@ -1,8 +1,6 @@
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 
-use bray_symbols::{
-    ExactSymbolId, ImplementationRequirementKey, ImplementationSelection, SymbolQueryRequest,
-};
+use bray_symbols::{ExactSymbolId, ImplementationRequirementKey, SymbolQueryRequest};
 
 use super::fulfillment::{implementation_callable_instance, implementation_fulfillments};
 use crate::compilation::binder::CompilationBindingContext;
@@ -48,6 +46,7 @@ pub(in crate::compilation) fn witness_callable(
     binding_context: &CompilationBindingContext<'_>,
     callable: bray_symbols::CallableInstanceId,
     requirement: ImplementationRequirementKey,
+    witness: bray_symbols::ImplementationInstanceId,
 ) -> CheckerQueryResult<
     Option<(
         bray_symbols::CallableInstanceData,
@@ -57,19 +56,7 @@ pub(in crate::compilation) fn witness_callable(
 > {
     let values = binding_context.semantic_values();
 
-    let selected = binding_context
-        .compilation()
-        .implementation_selection_result_with_cancellation(
-            requirement,
-            binding_context.cancellation(),
-        )
-        .map_err(checker_query_error)?;
-
-    let ImplementationSelection::Selected(witness) = selected.value() else {
-        return Ok(None);
-    };
-
-    let instance = values.implementation_instance_data(*witness);
+    let instance = values.implementation_instance_data(witness);
 
     let abstract_callable = values.callable_instance_data(callable);
 
@@ -104,7 +91,7 @@ pub(in crate::compilation) fn witness_callable(
                 selected.instance(),
                 *abstract_callable,
             )
-            .map(|instance| (instance, context, *witness))
+            .map(|instance| (instance, context, witness))
             .map_err(checker_query_error)
         })
         .transpose()

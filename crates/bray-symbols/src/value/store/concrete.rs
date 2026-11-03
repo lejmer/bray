@@ -117,15 +117,20 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                         callable,
                         arguments,
                         selected_implementation,
+                        implementation_witnesses,
                     } => {
                         let callable = tables.callable_instances.get(store, *callable);
 
                         pending.push(ConcreteWork::Substitution(callable.substitution()));
                         pending.extend(arguments.iter().copied().map(ConcreteWork::Term));
 
-                        if let Some(implementation) = selected_implementation {
+                        for implementation in implementation_witnesses
+                            .iter()
+                            .copied()
+                            .chain(*selected_implementation)
+                        {
                             let implementation =
-                                tables.implementation_instances.get(store, *implementation);
+                                tables.implementation_instances.get(store, implementation);
 
                             pending.push(ConcreteWork::Substitution(implementation.substitution()));
                         }

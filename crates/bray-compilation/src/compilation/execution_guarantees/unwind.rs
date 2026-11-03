@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use bray_binder::{SymbolQueryProvider, semantic_unit_context};
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKey, UnwindBehavior};
-use bray_checker::{CheckerUnitView, UnwindCandidate, check_unwind_candidate};
+use bray_checker::{
+    CheckerRequestContext, CheckerUnitView, UnwindCandidate, check_unwind_candidate,
+};
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
@@ -185,12 +187,11 @@ impl Compilation {
                     .semantic_value_store()?
                     .intern_callable_instance(callable)?;
 
-                let Some((callable, _, _)) = crate::compilation::implementation::witness_callable(
-                    &binding,
-                    callable,
-                    requirement,
-                )
-                .map_err(FactQueryError::from)?
+                let context = crate::compilation::checker::CompilationCheckerContext::new(binding);
+
+                let Some((callable, _, _)) = context
+                    .witness_callable(callable, requirement, &[])
+                    .map_err(FactQueryError::from)?
                 else {
                     return Ok(UnwindBehavior::ANY);
                 };

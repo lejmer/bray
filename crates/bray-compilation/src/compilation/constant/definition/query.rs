@@ -818,8 +818,12 @@ impl Compilation {
             cancellation,
         )?;
 
+        let selected_implementation = instance.selected_implementation();
+
         let resolver = CompilationConstantCallResolver::new(self, cancellation)
-            .with_substitution(instance.substitution());
+            .with_substitution(instance.substitution())
+            .with_contextual_self(contextual_self)
+            .with_implementation_witnesses(selected_implementation.as_slice());
 
         let patterns = self.patterns_with_cancellation(key, cancellation)?;
 
@@ -935,7 +939,10 @@ impl Compilation {
             .checker_context(cancellation)?
             .with_implementation_witnesses(instance.selected_implementation());
 
-        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, Some(symbols));
+        let selected_implementation = instance.selected_implementation();
+
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, Some(symbols))
+            .with_implementation_witnesses(selected_implementation.as_slice());
 
         let diagnostic_span = self
             .dependency_interface_input(address.interface())

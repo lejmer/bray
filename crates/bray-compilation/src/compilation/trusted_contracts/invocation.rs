@@ -243,14 +243,17 @@ impl Compilation {
 
         let inputs = self.execution_callable_inputs(target.definition().symbol(), cancellation)?;
 
-        let decode =
-            |predicate: &bray_symbols::PredicateSemanticSummary| -> Result<_, FactQueryError> {
-                Ok(predicate
-                    .condition()
-                    .map(|term| bray_checker::execution_condition_from_term(values, term, &inputs))
-                    .transpose()?
-                    .unwrap_or(ExecutionCondition::Unknown))
-            };
+        let decode = |predicate: &bray_symbols::PredicateSemanticSummary,
+                      diagnostics: &mut DiagnosticBag|
+         -> Result<_, FactQueryError> {
+            let condition = predicate
+                .condition()
+                .map(|term| bray_checker::execution_condition_from_term(values, term, &inputs))
+                .transpose()?
+                .unwrap_or(ExecutionCondition::Unknown);
+
+            self.instantiate_execution_condition_calls(&condition, &[], cancellation, diagnostics)
+        };
 
         let mut contract = self.trusted_phase_contract(
             behavior,
@@ -311,6 +314,7 @@ impl Compilation {
         result: Option<bray_symbols::TypeId>,
         decode: impl Fn(
             &bray_symbols::PredicateSemanticSummary,
+            &mut DiagnosticBag,
         ) -> Result<ExecutionCondition, FactQueryError>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
@@ -320,7 +324,7 @@ impl Compilation {
         let mut execution_requirements = Vec::new();
 
         for predicate in behavior.predicate_requirements() {
-            let condition = decode(predicate)?;
+            let condition = decode(predicate, diagnostics)?;
 
             if predicate.domain() == bray_symbols::PredicateDomain::Execution
                 && predicate
@@ -351,7 +355,7 @@ impl Compilation {
                 &mut postconditions
             };
 
-            conditions.push(decode(predicate)?);
+            conditions.push(decode(predicate, diagnostics)?);
         }
 
         Ok(TrustedCallContract {

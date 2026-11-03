@@ -95,6 +95,27 @@ impl SourceTemplateBuilder<'_, '_, '_> {
 
         let (callable, substitution) = self.declaration_reference(declaration, substitution)?;
 
+        let dispatch = if let Some(dispatch) = call.resolution().trait_dispatch() {
+            Some(self.constraint_dispatch(dispatch)?)
+        } else if let Some(witness) = call.dispatch_implementation() {
+            let (key, substitution) = self.implementation_reference(witness)?;
+
+            Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(
+                key,
+                substitution,
+            ))
+        } else {
+            None
+        };
+
+        // Defaults and the invocation share these immutable implementation identities.
+        let witnesses = call
+            .resolution()
+            .implementation_witnesses()
+            .iter()
+            .map(|witness| self.implementation_reference(*witness))
+            .collect::<Result<Vec<_>, _>>()?;
+
         let mut prepared_states = Vec::new();
         let mut arguments = Vec::new();
         let mut ordinals = Vec::new();
@@ -205,31 +226,15 @@ impl SourceTemplateBuilder<'_, '_, '_> {
                     substitution,
                     preceding,
                     0..count,
-                    None,
-                ),
+                    dispatch.clone(),
+                )
+                .with_implementation_witnesses(witnesses.iter().cloned()),
                 *ty,
             );
 
             arguments.push(value);
             ordinals.push(count);
         }
-
-        let dispatch = if let Some(dispatch) = call.resolution().trait_dispatch() {
-            Some(self.constraint_dispatch(dispatch)?)
-        } else {
-            match call.witnesses() {
-                [] => None,
-                [witness] => {
-                    let (key, substitution) = self.implementation_reference(witness.witness())?;
-
-                    Some(bray_bound_tree::CheckedTemplateDispatch::Implementation(
-                        key,
-                        substitution,
-                    ))
-                }
-                _ => return Err(incomplete("invalid_predicate_dispatch")),
-            }
-        };
 
         // Borrowed inputs observe their reached owner after every argument/default has evaluated.
         for (ordinal, _, _) in &prepared_states {
@@ -251,7 +256,8 @@ impl SourceTemplateBuilder<'_, '_, '_> {
             arguments,
             ordinals,
             dispatch,
-        );
+        )
+        .with_implementation_witnesses(witnesses);
 
         if !observational {
             return Ok(operation);

@@ -58,6 +58,8 @@ impl CompilationSyntheticLoweringContext<'_> {
         &self,
         provider: bray_symbols::DefaultValueProvider,
         substitution: GenericSubstitutionId,
+        dispatch: Option<&bray_bound_tree::CheckedTemplateDispatch>,
+        witnesses: &[bray_symbols::ImplementationInstanceId],
         inputs: Vec<MirOperand>,
     ) -> Result<(MirCall, Vec<TypeId>), CodegenPreparationError> {
         let bray_symbols::DefaultValueProvider::CallableParameter(_) = provider else {
@@ -126,9 +128,14 @@ impl CompilationSyntheticLoweringContext<'_> {
             MirCallTarget::DefaultValue {
                 owner: MirDefaultOwner::Callable(bray_ir::MirCallableSelection::new(
                     MirCallableReference::new(callable, ty.abi()),
+                    dispatch
+                        .map(|dispatch| {
+                            dispatch.trait_dispatch(self.values, |key| self.predicate_symbol(key))
+                        })
+                        .transpose()?
+                        .flatten(),
                     None,
-                    None,
-                    [],
+                    witnesses.iter().copied(),
                 )),
                 provider,
             },

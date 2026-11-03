@@ -2018,3 +2018,104 @@ fn closed_callable_requirements_share_one_helper_across_caller_contexts() {
         );
     }
 }
+
+#[test]
+fn generic_execution_conditions_preserve_instantiated_proofs() {
+    let declarations = r#"
+        module api;
+
+        trait Marker
+        {
+        }
+
+        struct Item
+        {
+        }
+
+        impl ItemMarker = Item(Marker)
+        {
+        }
+
+        const func check<T>(pos value: bool) -> bool
+            with(T: Marker)
+            executes(pure, total)
+        {
+            return value;
+        }
+
+        func guarded<T>(pos value: bool)
+            with(T: Marker)
+            requires(check<T>(value))
+            executes(total)
+        {
+        }
+
+        func forward<T>(pos value: bool) -> bool
+            with(T: Marker)
+            requires(check<T>(value))
+            ensures(check<T>(result))
+            executes(total)
+        {
+            return value;
+        }
+    "#;
+
+    let provider = compilation(declarations);
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    for (argument, valid) in [("value", true), ("!value", false)] {
+        let caller = r#"
+            func caller(pos value: bool)
+                requires(API.check<API.Item>(value))
+                executes(total)
+            {
+                API.guarded<API.Item>(ARGUMENT);
+                let forwarded = API.forward<API.Item>(value);
+                API.guarded<API.Item>(forwarded);
+            }
+        "#
+        .replace("ARGUMENT", argument);
+
+        let source = compilation(&format!("{declarations}{}", caller.replace("API.", "")));
+
+        let imported = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+
+            using example.package.api;
+
+            impl ConsumerMarker = example.package.api.Item(example.package.api.Marker)
+            {{
+            }}
+
+            {}
+        "#,
+                caller.replace("API.", "example.package.api.")
+            ),
+        );
+
+        for (origin, checked) in [("source", &source), ("import", &imported)] {
+            let diagnostics = checked.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{origin}, {argument}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+}

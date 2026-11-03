@@ -231,7 +231,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .iter()
             .flat_map(|(condition, _)| condition.observations())
             .any(|length| {
-                let ExecutionCondition::Call(instance, arguments) = length else {
+                let ExecutionCondition::Call(instance, _, _, arguments) = length else {
                     return false;
                 };
 

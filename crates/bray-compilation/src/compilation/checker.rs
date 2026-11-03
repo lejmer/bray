@@ -83,6 +83,25 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         self
     }
 
+    pub(super) fn with_contextual_self(
+        mut self,
+        binding: Option<(bray_symbols::SelfTypeContext, TypeId)>,
+    ) -> Result<Self, FactQueryError> {
+        if let Some((context, subject)) = binding {
+            let contextual = self
+                .binding_context
+                .semantic_values()
+                .intern_type(bray_symbols::TypeData::ContextualSelf(context))?;
+
+            let (mut equalities, diagnostics) = self.type_equalities.into_parts();
+
+            equalities.push((contextual, subject));
+            self.type_equalities = DiagnosticResult::new(equalities, diagnostics);
+        }
+
+        Ok(self)
+    }
+
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
         self.binding_context.symbols()
     }
@@ -90,13 +109,24 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
     fn matching_implementation_witness(
         &self,
         requirement: ImplementationRequirementKey,
+        witnesses: &[ImplementationInstanceId],
     ) -> CheckerQueryResult<Option<ImplementationInstanceId>> {
-        super::implementation::matching_implementation_witness(
+        let selected = super::implementation::matching_implementation_witness(
             &self.binding_context,
             requirement,
-            &self.implementation_witnesses,
+            witnesses,
         )
-        .map_err(checker_query_error)
+        .map_err(checker_query_error)?;
+
+        match selected {
+            Some(witness) => Ok(Some(witness)),
+            None => super::implementation::matching_implementation_witness(
+                &self.binding_context,
+                requirement,
+                &self.implementation_witnesses,
+            )
+            .map_err(checker_query_error),
+        }
     }
 
     fn statically_establishes_copyability(
@@ -392,6 +422,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         callable: bray_symbols::CallableInstanceId,
         requirement: ImplementationRequirementKey,
+        witnesses: &[ImplementationInstanceId],
     ) -> CheckerQueryResult<
         Option<(
             bray_symbols::CallableInstanceData,
@@ -399,7 +430,18 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             bray_symbols::ImplementationInstanceId,
         )>,
     > {
-        super::implementation::witness_callable(&self.binding_context, callable, requirement)
+        let selected = self.implementation_selection(requirement, witnesses)?;
+
+        let ImplementationSelection::Selected(witness) = selected.value() else {
+            return Ok(None);
+        };
+
+        super::implementation::witness_callable(
+            &self.binding_context,
+            callable,
+            requirement,
+            *witness,
+        )
     }
 
     fn callable_predicate_contracts(
@@ -791,7 +833,14 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
     fn implementation_selection(
         &self,
         requirement: ImplementationRequirementKey,
+        witnesses: &[ImplementationInstanceId],
     ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>> {
+        if let Some(witness) = self.matching_implementation_witness(requirement, witnesses)? {
+            return Ok(DiagnosticResult::without_diagnostics(
+                ImplementationSelection::Selected(witness),
+            ));
+        }
+
         self.binding_context
             .compilation()
             .implementation_selection_result_with_cancellation(
@@ -807,6 +856,12 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         requirement: ImplementationRequirementKey,
         evidence: &[(TypeId, TraitApplicationId)],
     ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>> {
+        if let Some(witness) = self.matching_implementation_witness(requirement, &[])? {
+            return Ok(DiagnosticResult::without_diagnostics(
+                ImplementationSelection::Selected(witness),
+            ));
+        }
+
         self.binding_context
             .compilation()
             .implementation_selection_with_constraint_evidence(
@@ -832,7 +887,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         let requirement = ImplementationRequirementKey::new(subject, application);
 
         let (instance, mut diagnostics) =
-            if let Some(instance) = self.matching_implementation_witness(requirement)? {
+            if let Some(instance) = self.matching_implementation_witness(requirement, &[])? {
                 (instance, bray_diagnostics::DiagnosticBag::new())
             } else {
                 let selection = self

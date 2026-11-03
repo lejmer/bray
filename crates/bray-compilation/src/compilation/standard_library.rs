@@ -198,6 +198,8 @@ impl Compilation {
 
                 Ok(ExecutionCondition::Call(
                     bray_symbols::CallableInstanceData::new(definition, substitution),
+                    None,
+                    std::sync::Arc::new([]),
                     std::sync::Arc::new([]),
                 ))
             };

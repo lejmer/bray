@@ -202,10 +202,11 @@ impl Compilation {
         &self,
         owner: &BoundUnitKey,
         callable: Option<bray_symbols::CallableInstanceData>,
+        witnesses: &[bray_symbols::ImplementationInstanceId],
         anchors: &[SyntaxAnchor],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<(ExecutionCondition, SourceSpan)>>, FactQueryError> {
-        let (conditions, diagnostics) = self
+        let (conditions, mut diagnostics) = self
             .execution_condition_inputs(owner, anchors, cancellation)?
             .into_parts();
 
@@ -222,6 +223,13 @@ impl Compilation {
                     values,
                     &condition,
                     callable.substitution(),
+                )?;
+
+                let condition = self.instantiate_execution_condition_calls(
+                    &condition,
+                    witnesses,
+                    cancellation,
+                    &mut diagnostics,
                 )?;
 
                 Ok((condition, source))
@@ -542,9 +550,22 @@ impl Compilation {
             panic!("execution-domain selection requires a property obligation");
         };
 
+        let mut diagnostics = DiagnosticBag::new();
+
+        let evidence = self.instantiate_execution_evidence(
+            evidence.unwrap_or(&bray_checker::ExecutionCallEvidence::default()),
+            cancellation,
+            &mut diagnostics,
+        )?;
+
+        if diagnostics.has_errors() {
+            return Ok(None);
+        }
+
         let requirements = self.instance_execution_condition_inputs(
             body,
             callable,
+            evidence.implementation_witnesses(),
             declaration.requirements(),
             cancellation,
         )?;
@@ -556,9 +577,7 @@ impl Compilation {
         let inputs = self.execution_unit_inputs(body, cancellation)?;
 
         let proves = |conditions: &[ExecutionCondition]| {
-            evidence
-                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
-                .proves_trusted_with_inputs(conditions, &inputs)
+            evidence.proves_trusted_with_inputs(conditions, &inputs)
         };
 
         let requirements = requirements
@@ -586,6 +605,7 @@ impl Compilation {
             let guards = self.instance_execution_condition_inputs(
                 body,
                 callable,
+                evidence.implementation_witnesses(),
                 &domain.guards,
                 cancellation,
             )?;
@@ -655,7 +675,11 @@ impl Compilation {
                 continue;
             };
 
-            let contracts = self.callable_completion_contracts(callable, cancellation)?;
+            let contracts = self.callable_completion_contracts(
+                callable,
+                call.resolution().implementation_witnesses(),
+                cancellation,
+            )?;
 
             diagnostics.add_range(contracts.diagnostics().iter().cloned());
 
@@ -670,6 +694,7 @@ impl Compilation {
     pub(super) fn callable_completion_contracts(
         &self,
         callable: bray_symbols::CallableInstanceData,
+        witnesses: &[bray_symbols::ImplementationInstanceId],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Vec<bray_checker::ExecutionCompletionContract>>, FactQueryError>
     {
@@ -716,14 +741,21 @@ impl Compilation {
                 let entry = self.imported_execution_conditions(
                     callable,
                     domain.entry.iter().copied(),
+                    witnesses,
                     cancellation,
+                    &mut diagnostics,
                 )?;
 
                 let mut postconditions = Vec::new();
 
                 for (ordinal, term) in &*domain.postconditions {
-                    let conditions =
-                        self.imported_execution_conditions(callable, [*term], cancellation)?;
+                    let conditions = self.imported_execution_conditions(
+                        callable,
+                        [*term],
+                        witnesses,
+                        cancellation,
+                        &mut diagnostics,
+                    )?;
 
                     postconditions.extend(conditions.into_iter().map(|condition| {
                         (
@@ -762,6 +794,7 @@ impl Compilation {
             let entry = self.instance_execution_condition_inputs(
                 &body,
                 Some(callable),
+                witnesses,
                 &anchors,
                 cancellation,
             )?;
@@ -769,6 +802,7 @@ impl Compilation {
             let posts = self.instance_execution_condition_inputs(
                 &body,
                 Some(callable),
+                witnesses,
                 &domain.postconditions,
                 cancellation,
             )?;

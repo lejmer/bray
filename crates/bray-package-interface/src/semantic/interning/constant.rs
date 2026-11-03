@@ -316,33 +316,13 @@ impl InternState {
                 callable,
                 selected_implementation,
                 arguments,
-            } => {
-                let Some(callable) = self.callable_instance_id(*callable) else {
-                    return Ok(None);
-                };
-
-                let selected_implementation = match selected_implementation {
-                    Some(id) => {
-                        let Some(id) = self.implementation_instance_id(*id) else {
-                            return Ok(None);
-                        };
-
-                        Some(id)
-                    }
-                    None => None,
-                };
-
-                let Some(arguments) = collect_ids(arguments, |id| self.constant_term_id(*id))
-                else {
-                    return Ok(None);
-                };
-
-                Some(ConstantTermData::call(
-                    callable,
-                    selected_implementation,
-                    arguments,
-                ))
-            }
+                implementation_witnesses,
+            } => self.convert_constant_call(
+                *callable,
+                *selected_implementation,
+                implementation_witnesses,
+                arguments,
+            ),
             InterfaceConstantTerm::PredicateCall {
                 predicate,
                 substitution,
@@ -382,6 +362,34 @@ impl InternState {
                 )))
             }
         })
+    }
+
+    fn convert_constant_call(
+        &self,
+        callable: crate::InterfaceCallableInstanceId,
+        selected_implementation: Option<crate::InterfaceImplementationInstanceId>,
+        implementation_witnesses: &[crate::InterfaceImplementationInstanceId],
+        arguments: &[crate::InterfaceConstantTermId],
+    ) -> Option<ConstantTermData> {
+        let callable = self.callable_instance_id(callable)?;
+
+        let selected_implementation = match selected_implementation {
+            Some(id) => Some(self.implementation_instance_id(id)?),
+            None => None,
+        };
+
+        let witnesses = collect_ids(implementation_witnesses, |id| {
+            self.implementation_instance_id(*id)
+        })?;
+
+        let arguments = collect_ids(arguments, |id| self.constant_term_id(*id))?;
+
+        Some(ConstantTermData::call(
+            callable,
+            selected_implementation,
+            witnesses,
+            arguments,
+        ))
     }
 
     pub(super) fn convert_constant_projection(

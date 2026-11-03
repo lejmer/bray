@@ -173,6 +173,8 @@ pub enum InterfaceConstantTerm {
         callable: InterfaceCallableInstanceId,
         /// Selected implementation whose fulfillment supplies the callable, when applicable.
         selected_implementation: Option<InterfaceImplementationInstanceId>,
+        /// Saved implementation choices in lookup priority order.
+        implementation_witnesses: Arc<[InterfaceImplementationInstanceId]>,
         /// Ordered argument terms.
         arguments: Arc<[InterfaceConstantTermId]>,
     },

@@ -329,6 +329,7 @@ where
                     selected_arguments,
                     witnesses,
                 )
+                .with_member_dispatch(input.callee_member)
                 .with_invocation(candidate.declaration_signature().map_or_else(
                     || bray_symbols::CallableInvocation::for_abi(abi),
                     bray_symbols::CallableSignature::invocation,

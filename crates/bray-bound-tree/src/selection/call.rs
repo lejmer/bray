@@ -144,6 +144,7 @@ pub struct SelectedCall {
     receiver: Option<SelectedReceiver>,
     arguments: Arc<[SelectedArgument]>,
     witnesses: Arc<[SelectedImplementationWitness]>,
+    dispatch_implementation: Option<bray_symbols::ImplementationInstanceId>,
 }
 
 impl SelectedCall {
@@ -179,6 +180,7 @@ impl SelectedCall {
             implementation_hook: None,
             receiver,
             arguments: shared_slice(arguments),
+            dispatch_implementation: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -323,6 +325,29 @@ impl SelectedCall {
         &self.arguments
     }
 
+    /// Retains the implementation supplying the member body, separate from generic proofs.
+    pub fn with_member_dispatch(mut self, member: Option<&crate::MemberTarget>) -> Self {
+        self.set_member_dispatch(member);
+
+        self
+    }
+
+    fn set_member_dispatch(&mut self, member: Option<&crate::MemberTarget>) {
+        self.dispatch_implementation = match member
+            .map(crate::MemberTarget::witnesses)
+            .unwrap_or(&[])
+        {
+            [] => None,
+            [witness] => Some(witness.witness()),
+            witnesses => panic!("selected member has one dispatch witness, actual: {witnesses:?}"),
+        };
+    }
+
+    /// Returns the implementation supplying the callable body, excluding generic proof witnesses.
+    pub const fn dispatch_implementation(&self) -> Option<bray_symbols::ImplementationInstanceId> {
+        self.dispatch_implementation
+    }
+
     /// Returns exact implementation requirements and witnesses in canonical order.
     pub fn witnesses(&self) -> &[SelectedImplementationWitness] {
         &self.witnesses
@@ -333,6 +358,8 @@ impl SelectedCall {
     }
 
     pub(crate) fn set_trait_view_source(&mut self, method: &crate::MemberTarget) {
+        self.set_member_dispatch(Some(method));
+
         self.resolution.set_trait_view_source(method);
         self.witnesses = sorted_unique_shared_slice(method.witnesses().iter().copied());
     }

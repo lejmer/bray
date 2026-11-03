@@ -175,7 +175,16 @@ pub(crate) fn selected_call_condition(
             }
         }
 
-        let condition = ExecutionCondition::call(callable, arguments);
+        let condition = ExecutionCondition::call(
+            callable,
+            call.dispatch_implementation()
+                .map(|witness| *values.implementation_instance_data(witness)),
+            call.resolution()
+                .implementation_witnesses()
+                .iter()
+                .map(|witness| *values.implementation_instance_data(*witness)),
+            arguments,
+        );
 
         return if condition == ExecutionCondition::Unknown {
             ExecutionCondition::Expression(expression)
