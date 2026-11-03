@@ -113,10 +113,11 @@ the required trusted predicate after ordinary path, field, equality, and depende
 Guarantees carried by a witness value can satisfy matching trusted requirements at program points where the witness and
 its dependencies remain valid.
 
-Witness evidence discharges a matching trusted requirement. It grants no additional storage access or mutation
-authority under [borrow rules](../ownership-and-borrowing/borrow-rules.md), and its ownership, initialization,
-destruction, and finalization remain governed by [ownership states](../ownership-and-borrowing/ownership-states.md) and
-[lifecycle rules](../lifecycle.md). Uses must still satisfy capability and effect requirements and the ordinary
+Witness evidence discharges a matching trusted requirement. Discharging that requirement does not waive the storage
+access and mutation-authority checks in [borrow rules](../ownership-and-borrowing/borrow-rules.md). The witness value's
+ownership, initialization, destruction, and finalization remain governed by
+[ownership states](../ownership-and-borrowing/ownership-states.md) and [lifecycle rules](../lifecycle.md). Uses must still
+satisfy capability and effect requirements and the ordinary
 [visibility and internal-access rules](../declarations/visibility-and-reachability.md).
 
 A callable or lifecycle declaration that receives, returns, stores, or captures a witness value must preserve the

@@ -2,8 +2,8 @@
 
 Syntax follows the [callable parameters grammar](../syntax-grammar.md#callable-parameters).
 
-A **defaulted argument** is an argument value supplied by a parameter's declared default expression when the call omits
-that parameter.
+A **defaulted argument** is a parameter value supplied by its declared default expression when the call provides no
+explicit argument for that parameter.
 
 A callable parameter can declare a default value.
 
@@ -39,9 +39,9 @@ declared context.
 Defaults are applied to direct calls after callable selection and do not participate in overload selection. The compiler
 checks a used default as part of the call in the same way as an argument supplied by the declaration.
 
-A default is evaluated only when its parameter is omitted. Supplying an explicit argument suppresses evaluation, but
-does not suppress declaration checking. An evaluated default's effects become effects of the call. Its finalization
-obligations attach to the call result or local temporaries according to ownership rules.
+A default is evaluated only when no explicit argument is supplied for its parameter. Supplying an explicit argument
+suppresses evaluation, but does not suppress declaration checking. An evaluated default's effects become effects of the
+call. Its finalization obligations attach to the call result or local temporaries according to ownership rules.
 [Call argument evaluation order](expression-evaluation-order.md#call-arguments-and-defaults) defines the ordering of
 explicit arguments and omitted defaults.
 

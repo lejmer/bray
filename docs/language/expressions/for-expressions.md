@@ -55,8 +55,8 @@ inside either body targets the nearest enclosing yield-capable region unless a n
 
 `continue` is not valid in the else body.
 
-On natural exhaustion, the else body is selected when present. Without an else body, the for expression completes as
-`unit`. An else body that completes naturally also contributes `unit`.
+On natural exhaustion, the else body is selected when present. Natural exhaustion without an else body completes the
+for expression as `unit`. An else body that completes naturally also contributes `unit`.
 
 Natural exhaustion does not occur on a path that exits through `break`, `return`, `yield`, panic, nullable propagation,
 result propagation, run-result propagation, or another outer-boundary exit.

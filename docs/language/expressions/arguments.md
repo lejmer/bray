@@ -69,8 +69,10 @@ draw(Point { x = 1.0, y = 2.0 })
 
 The supplied value or access path must satisfy the parameter's ownership, borrowing, mutation-authority, and
 initialization requirements. Its destruction and finalization obligations follow the call's ownership transfers.
-The call must also permit the argument's effects and capabilities and preserve any conditions it relies on, under
-[expression context](expression-context.md).
+The argument's effects and required capabilities must be permitted by the surrounding
+[expression context](expression-context.md). Conditions used to check an argument must be available at that program
+point. Argument evaluation and the call can invalidate conditions according to
+[contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not
 marked `pos`.

@@ -90,8 +90,8 @@ Nested array generator expressions are checked recursively.
 The compiler checks the effects and capabilities required by the source expression, selected `Iterable` and `Iterator`
 operations, pattern operation, iteration body, and yielded expressions against the surrounding context.
 
-The source expression is evaluated once before iteration, including its effects. The iteration body's effects occur
-once per executed iteration.
+Each evaluation of an array generator evaluates its source expression once before iteration, including its effects.
+The iteration body's effects occur once per executed iteration.
 
 Finalization obligations created in an iteration body must be completed, transferred, or moved into yielded values
 before the iteration body exits.

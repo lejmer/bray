@@ -69,9 +69,9 @@ func log(pos message: string)
 }
 ```
 
-For a function with a declared result type other than `unit`, every reachable normal completion path supplies the
-callable result through `return` or ends in a `never` expression. A function declared to return `never` has no normal
-completion path.
+A function whose declared result type is not `unit` is rejected if a reachable path falls through the end of its body.
+A `return` or an expression with no normal continuation prevents fallthrough on that path. A function declared to return
+`never` has no normal completion path.
 
 ## Semicolons
 

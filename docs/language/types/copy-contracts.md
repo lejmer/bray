@@ -2,9 +2,9 @@
 
 A **copy contract** is a type contract that permits copying a value of that type.
 
-Copying creates a separate value with its own ownership obligations while preserving the source's abstract value. It
-does not move from the source access path, which remains initialized and usable under its previous ownership and
-capability state.
+Copying creates a separate value with the same abstract value as the source and its own ownership obligations. It does
+not move from the source access path, which remains initialized and usable under its previous ownership and capability
+state.
 
 A copy cannot fail, call user-defined code, perform I/O, allocate source-visible resources, access raw memory, or require
 trusted caller obligations.

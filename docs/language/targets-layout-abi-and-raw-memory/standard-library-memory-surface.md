@@ -16,8 +16,8 @@ All `std.memory` declarations use ordinary import and path visibility rules. An 
 name resolution. Recognition does not make a declaration ambient.
 
 Once a declaration is visible, the compiler can recognize its stable standard-library identity for checking,
-optimization, const evaluation, target availability, and trusted guarantee propagation. A declaration with the same
-name and a different identity is checked as an ordinary declaration.
+optimization, const evaluation, target availability, and trusted guarantee propagation. A visible declaration with the
+same name but a different identity is checked as an ordinary declaration.
 
 A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted
 capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic,

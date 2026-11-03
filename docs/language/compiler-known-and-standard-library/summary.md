@@ -6,8 +6,8 @@ This summary is informative. The detailed rules include:
 - [standard-library recognition](standard-library-recognition.md).
 - [conformance catalog](conformance-catalog.md).
 
-Compiler-known declarations have language-defined identity and contracts. Compiler-provided declarations also have
-compiler-supplied implementations while preserving ordinary declaration contracts.
+Compiler-known declarations have language-defined identity and contracts. Compiler-provided declarations are
+compiler-known declarations with compiler-supplied implementations that preserve ordinary declaration contracts.
 
 Ambient compiler-known names are available without `using` when target-available. References into named compiler-known
 modules require matching using declarations. The ambient `target` path exposes selected target properties without

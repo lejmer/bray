@@ -6,8 +6,8 @@ contract remains satisfied. Its lifetime can be shortened to its last required u
 A shared borrow value is copyable. Copying it preserves the same reached storage, lifetime, and capability requirements.
 A mutable borrow value is not copyable.
 
-A reborrow is created from an existing borrow and has no greater authority. While it is active, it suspends use of the
-original borrow that would conflict under [borrow rules](borrow-rules.md) for the reached storage.
+A reborrow is created from an existing borrow and has no greater authority than that borrow. While it is active, it
+suspends use of the original borrow that would conflict under [borrow rules](borrow-rules.md) for the reached storage.
 
 Nested borrow types are allowed.
 

@@ -629,8 +629,9 @@ participating implementation lifecycle declaration can be visible in a coherence
 Trait implementation lifecycle declarations can fulfill only an `enter` or `exit` requirement of the implemented
 trait. A trait implementation cannot add lifecycle declarations that fulfill no such requirement.
 
-Generic satisfaction checks that the selected lifecycle behavior fulfills the trait's requirements. Invoking that
-behavior must preserve ownership and borrows, resolve required finalization, and satisfy the applicable
+Generic satisfaction checks that the selected lifecycle behavior fulfills the trait's requirements. Invocations follow
+the selected operation's ownership and borrowing rules. Its finalization obligations and scoped-capability behavior
+follow the [lifecycle rules](../lifecycle.md), including the applicable
 [`with` expression rules](../lifecycle/with-expressions.md). These requirements affect documentation and, when exposed,
 public API compatibility.
 

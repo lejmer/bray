@@ -722,8 +722,9 @@ Copying an array requires the element type to satisfy the required copy contract
 Borrowing an array borrows the array storage. Element access and slice projection can derive narrower borrows from that
 borrow when ordinary borrowing rules permit it.
 
-Moving an element out of an owned array access path leaves the array partially initialized. Array destruction processes
-only initialized elements, in reverse index order. The array retains its elements' finalization obligations.
+Moving an element out of an owned array access path is a partial move that leaves the array partially initialized.
+Array destruction processes only initialized elements, in reverse index order. The array retains its elements'
+finalization obligations.
 
 Array expression rules are defined in [Array expressions](../expressions/array-expressions.md) and
 [Array generator expressions](../expressions/array-generator-expressions.md).
@@ -837,8 +838,9 @@ Copying a tuple requires every element type to satisfy the required copy contrac
 Borrowing a tuple borrows the tuple storage. Tuple element projection can derive narrower borrows from that borrow when
 ordinary borrowing rules permit it.
 
-Moving an element out of an owned tuple access path leaves the tuple partially initialized. Tuple destruction processes
-only initialized elements, in reverse element order. The tuple retains its elements' finalization obligations.
+Moving an element out of an owned tuple access path is a partial move that leaves the tuple partially initialized.
+Tuple destruction processes only initialized elements, in reverse element order. The tuple retains its elements'
+finalization obligations.
 
 Tuple expression rules are defined in [Tuple expressions](../expressions/tuple-expressions.md).
 
