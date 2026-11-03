@@ -542,11 +542,15 @@ fn repeated_arrays_check_patterns_in_named_counts_and_type_extents() {
         func main()
         {
             let named: [i32; 3] = [7; COUNT];
-            let typed: [i32; match true
-            {
-                case true { yield 3; }
-                case false { yield 1; }
-            }] = [7; 3];
+            let typed:
+            [
+                i32;
+                match true
+                {
+                    case true { yield 3; }
+                    case false { yield 1; }
+                }
+            ] = [7; 3];
 
             assert(VALUES[2] == 7);
         }
