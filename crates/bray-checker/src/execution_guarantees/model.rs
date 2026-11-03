@@ -448,8 +448,7 @@ impl ExecutionCallEvidence {
     ) -> Result<Self, E> {
         let mut mapped = Self {
             implementation_witnesses: std::sync::Arc::clone(&self.implementation_witnesses),
-            // Proof queries own their snapshot while analysis retains the original entry evidence.
-            returned: self.returned.clone(),
+            owned_inputs: std::sync::Arc::clone(&self.owned_inputs),
             anonymous_target: self.anonymous_target.clone(),
             trusted_boundary: self.trusted_boundary,
             pending_execution: self.pending_execution,
@@ -461,6 +460,30 @@ impl ExecutionCallEvidence {
             .iter()
             .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
             .collect::<Result<_, E>>()?;
+
+        mapped.copy_sources = self
+            .copy_sources
+            .iter()
+            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
+            .collect::<Result<_, E>>()?;
+
+        mapped.witness_inputs = self
+            .witness_inputs
+            .iter()
+            .map(&mut map)
+            .collect::<Result<_, E>>()?;
+
+        // Proof queries retain the physical dependencies of each independently mapped address.
+        for (place, addresses) in &self.addresses {
+            let mapped_addresses = mapped.addresses.entry(place.clone()).or_default();
+
+            for (address, owners) in addresses {
+                mapped_addresses
+                    .entry(map(address)?)
+                    .or_default()
+                    .extend(owners.iter().cloned());
+            }
+        }
 
         mapped.assumptions = self
             .assumptions
@@ -487,6 +510,7 @@ impl ExecutionCallEvidence {
             self.implementation_witnesses, other.implementation_witnesses,
             "a selected invocation retains its implementation choices across control flow"
         );
+
         assert_eq!(
             self.owned_inputs, other.owned_inputs,
             "one checked invocation retains its input ownership modes"

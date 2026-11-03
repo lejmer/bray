@@ -406,6 +406,7 @@ impl super::ExecutionCallEvidence {
 
         // Reuse each mapped field once, without copying the original historical context first.
         Some(Self {
+            implementation_witnesses: Arc::clone(&self.implementation_witnesses),
             arguments,
             copy_sources,
             witness_inputs,
