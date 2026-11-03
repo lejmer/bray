@@ -520,10 +520,17 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
             return Buffer<N>.Target.read();
         }
 
+        struct Wrapper<T>
+        {
+            const VALUE: usize = 3;
+        }
+
         trait Capacity
         {
             const VALUE: usize;
             const DOUBLE: usize = VALUE + VALUE;
+            const WRAPPED: usize = Wrapper<Self>.VALUE;
+            const BORROWED: usize = Wrapper<(&Self)>.VALUE;
             const VALUES: [i32; VALUE] = [8; VALUE];
         }
 
@@ -619,6 +626,8 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
         const DEFAULT_ELEMENT: i32 = example.package.api.Small(example.package.api.Capacity).VALUES[1];
         const SCALED_FIRST: usize = example.package.api.scaled<example.package.api.Buffer<3>, 3>();
         const SCALED_SECOND: usize = example.package.api.scaled<example.package.api.Buffer<5>, 5>();
+        const SELF_WRAPPED: usize = example.package.api.Small(example.package.api.Capacity).WRAPPED;
+        const SELF_BORROWED: usize = example.package.api.Small(example.package.api.Capacity).BORROWED;
         const DOUBLED: usize = example.package.api.Large(example.package.api.Capacity).DOUBLE;
 
         func main()
@@ -654,6 +663,8 @@ fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
         ("SCALED_FIRST", 3),
         ("SCALED_SECOND", 5),
         ("DOUBLED", 10),
+        ("SELF_WRAPPED", 3),
+        ("SELF_BORROWED", 3),
         ("DEFAULT_ELEMENT", 8),
     ] {
         let value = super::fixtures::source_constant_value(&consumer, name);

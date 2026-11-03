@@ -116,11 +116,18 @@ where
         &self,
         term: bray_symbols::ConstantTermId,
     ) -> bray_symbols::ConstantTermId {
-        self.substitution.map_or(term, |substitution| {
+        let term = self.substitution.map_or(term, |substitution| {
             self.context
                 .semantic_values()
                 .substitute_constant_term(term, substitution)
                 .expect("checked evaluation retains a valid constant substitution")
+        });
+
+        self.contextual_self.map_or(term, |(context, subject)| {
+            self.context
+                .semantic_values()
+                .substitute_contextual_self_in_constant_term(term, context, subject)
+                .expect("selected constant term retains its Self binding")
         })
     }
 

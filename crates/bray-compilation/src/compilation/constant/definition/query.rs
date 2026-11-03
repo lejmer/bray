@@ -22,7 +22,7 @@ use bray_symbols::{
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
     SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
     TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
-    TraitConstantMemberDefinitionQuery,
+    TraitConstantMemberDefinitionQuery, TypeId,
 };
 
 use super::support::{
@@ -813,6 +813,7 @@ impl Compilation {
             bound.result().value(),
             semantics.result().value().selections(),
             instance,
+            contextual_self,
             limits,
             cancellation,
         )?;
@@ -1074,6 +1075,7 @@ impl Compilation {
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
         instance: ConstantInstanceKey,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, TypeId)>,
         limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<
@@ -1089,6 +1091,7 @@ impl Compilation {
             ConcreteReferenceContext {
                 substitution: Some(instance.substitution()),
                 selected_implementation: instance.selected_implementation(),
+                contextual_self,
                 parameters: &BTreeMap::new(),
                 current_constant: Some(instance),
             },
@@ -1123,6 +1126,7 @@ impl Compilation {
             ConcreteReferenceContext {
                 substitution: Some(substitution),
                 selected_implementation,
+                contextual_self: None,
                 parameters,
                 current_constant: None,
             },
@@ -1150,6 +1154,7 @@ impl Compilation {
             ConcreteReferenceContext {
                 substitution: None,
                 selected_implementation: None,
+                contextual_self: None,
                 parameters: &BTreeMap::new(),
                 current_constant: None,
             },
@@ -1189,6 +1194,17 @@ impl Compilation {
                             .substitute_constant_term(instance, substitution)
                             .map_err(FactQueryError::SemanticValueStore)?,
                         None => instance,
+                    };
+
+                    let term = match context.contextual_self {
+                        Some((self_context, subject)) => values
+                            .substitute_contextual_self_in_constant_term(
+                                term,
+                                self_context,
+                                subject,
+                            )
+                            .map_err(FactQueryError::SemanticValueStore)?,
+                        None => term,
                     };
 
                     return self.resolve_constant_term_reference(

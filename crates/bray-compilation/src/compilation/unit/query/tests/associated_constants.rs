@@ -299,9 +299,16 @@ fn associated_constants_in_trait_default_aggregates_use_selected_self() {
         r#"
         module app;
 
+        struct Wrapper<T>
+        {
+            const VALUE: usize = 3;
+        }
+
         trait Capacity
         {
             const VALUE: usize;
+            const WRAPPED: usize = Wrapper<Self>.VALUE;
+            const BORROWED: usize = Wrapper<(&Self)>.VALUE;
             const VALUES: [i32; VALUE] = [7; VALUE];
         }
 
@@ -315,6 +322,8 @@ fn associated_constants_in_trait_default_aggregates_use_selected_self() {
         }
 
         const FIRST: i32 = Small(Capacity).VALUES[1];
+        const SECOND: usize = Small(Capacity).WRAPPED;
+        const THIRD: usize = Small(Capacity).BORROWED;
 
         func main()
         {
@@ -332,6 +341,14 @@ fn associated_constants_in_trait_default_aggregates_use_selected_self() {
     let value = source_constant_value(&compilation, "FIRST");
 
     assert!(matches!(value.kind(), ConstantValueKind::Integer(value) if value.to_u64() == Some(7)));
+
+    for name in ["SECOND", "THIRD"] {
+        let value = source_constant_value(&compilation, name);
+
+        assert!(
+            matches!(value.kind(), ConstantValueKind::Integer(value) if value.to_u64() == Some(3))
+        );
+    }
 }
 
 #[test]

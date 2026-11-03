@@ -74,6 +74,7 @@ pub(super) fn imported_constant_definition(
 pub(super) struct ConcreteReferenceContext<'parameters> {
     pub(super) substitution: Option<GenericSubstitutionId>,
     pub(super) selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+    pub(super) contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
     pub(super) parameters: &'parameters BTreeMap<AnySymbolId, ConstantValueId>,
     pub(super) current_constant: Option<ConstantInstanceKey>,
 }
