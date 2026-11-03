@@ -117,6 +117,8 @@ pub enum DiagnosticNoteKind {
     UnionTagDirectiveForms,
     /// Requirements imposed by an explicit copy contract.
     CopyContractRequirements,
+    /// Guidance for constructing arrays of non-copyable values.
+    ConstructArrayElementsIndividually,
     /// Recovery guidance for a type that cannot be stored inline.
     StoredTypeRequiresIndirection,
     /// Recovery guidance for propagation without a compatible result boundary.
@@ -227,6 +229,7 @@ impl DiagnosticNoteKind {
             Self::TypeLayoutDirectiveForms => "type_layout_directive_forms",
             Self::UnionTagDirectiveForms => "union_tag_directive_forms",
             Self::CopyContractRequirements => "copy_contract_requirements",
+            Self::ConstructArrayElementsIndividually => "construct_array_elements_individually",
             Self::StoredTypeRequiresIndirection => "stored_type_requires_indirection",
             Self::PropagationBoundaryMustMatch => "propagation_boundary_must_match",
             Self::ArrayGeneratorMustYieldOncePerElement => {

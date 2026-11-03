@@ -974,6 +974,10 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::CopyContractRequirements
                 ),
             ),
+            Self::CheckingRepeatedArrayElementNotCopyable => Self::quality_source(
+                &[ActualType],
+                note_components!(&[ActualType], DiagnosticNoteKind::ConstructArrayElementsIndividually),
+            ),
             Self::CheckingInvalidUnionTag => Self::quality_source(
                 &[UnionTagProblem],
                 note_components!(

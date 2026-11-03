@@ -16,7 +16,7 @@ use crate::representation::type_representation;
 use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::ExpressionTypeInput;
-use super::array::append_inferred_bytes_diagnostics;
+use super::array::{append_inferred_bytes_diagnostics, check_repeated_array_copyability};
 use super::cardinality::unproven_array_generators;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
@@ -178,12 +178,25 @@ where
             continue;
         }
 
-        let Some(BoundExpression::Structured(range)) = request.view().expression(*expression)
+        let Some(BoundExpression::Structured(structured)) = request.view().expression(*expression)
         else {
             continue;
         };
 
-        if range.kind() != BoundStructuredExpressionKind::Range {
+        if structured.kind() == BoundStructuredExpressionKind::RepeatedArray {
+            if let Err(error) = check_repeated_array_copyability(
+                request,
+                *expression,
+                result.ty(),
+                &mut diagnostics,
+            ) {
+                return CheckerOutcome::from_query_error(error);
+            }
+
+            continue;
+        }
+
+        if structured.kind() != BoundStructuredExpressionKind::Range {
             continue;
         }
 

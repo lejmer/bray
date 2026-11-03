@@ -31,8 +31,8 @@ For expressions evaluate the source expression once before iteration begins. The
 produced element until the source is exhausted or control leaves the for expression. The for else body is evaluated only
 when iteration reaches natural exhaustion.
 
-Repeated-element array expressions evaluate the repeated element expression before initializing repeated elements
-according to the repeat contract.
+Repeated-element array expressions evaluate the element expression exactly once, even for a zero count, before
+initializing the array under [repeated-element array expressions](array-expressions.md#repeated-element-array-expressions).
 
 Function call callee expressions are evaluated before call arguments.
 

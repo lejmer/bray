@@ -60,6 +60,11 @@ fn constant_layout_queries_reject_invalid_fixed_and_trailing_types() {
         );
 
         if expected == bray_diagnostics::DiagnosticKind::CheckingTypeLayoutOverflow {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingTypeLayoutOverflow,
+            );
+
             let overflow = diagnostics
                 .by_kind(expected)
                 .next()

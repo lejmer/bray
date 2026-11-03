@@ -155,3 +155,29 @@ fn constant_call_requirements_identify_the_call_and_required_correction() {
         "supply constant arguments that satisfy the selected callable's requires(...) clauses"
     );
 }
+
+#[test]
+fn repeated_array_copy_failure_names_the_element_type_and_alternative() {
+    let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+    let owner = bray_diagnostics::DiagnosticType::Named(
+        bray_diagnostics::DiagnosticNamedType::new([String::from("Owner")], []),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingRepeatedArrayElementNotCopyable,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_arg(DiagnosticArg::actual_type(owner))
+    .with_label(DiagnosticLabel::primary(DiagnosticLabelKind::RepeatedArrayElement, span))
+    .with_note(DiagnosticNote::new(DiagnosticNoteKind::ConstructArrayElementsIndividually));
+
+    let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+    assert_eq!(rendered.message(), "repeated-array syntax requires a copyable element type, but Owner has no copy contract");
+    assert_eq!(rendered.labels()[0].message(), "this repeated array requires a copy contract even for zero or one element");
+    assert_eq!(rendered.notes()[0].rendered_kind(), RenderedDiagnosticNoteKind::Help);
+    assert_eq!(rendered.notes()[0].message(), "use an element-list array or an array generator to construct each non-copyable element separately");
+}

@@ -129,6 +129,8 @@ pub enum DiagnosticLabelKind {
     IgnoredExpressionResult,
     /// Label for a half-open range whose bound type is not an integer type.
     InvalidRangeElementType,
+    /// Label for a repeated array whose element type has no copy contract.
+    RepeatedArrayElement,
     /// Label for an expression rejected during compile-time evaluation.
     InvalidConstantExpression,
     /// Label for a layout, tag, or copy declaration rejected during representation checking.
@@ -248,6 +250,7 @@ impl DiagnosticLabelKind {
             Self::UnconstrainedExpression => "unconstrained_expression",
             Self::IgnoredExpressionResult => "ignored_expression_result",
             Self::InvalidRangeElementType => "invalid_range_element_type",
+            Self::RepeatedArrayElement => "repeated_array_element",
             Self::InvalidConstantExpression => "invalid_constant_expression",
             Self::InvalidTypeRepresentationContract => "invalid_type_representation_contract",
             Self::IncompatiblePropagationBoundary => "incompatible_propagation_boundary",

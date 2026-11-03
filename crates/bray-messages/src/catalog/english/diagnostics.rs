@@ -2065,6 +2065,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::TypeLayoutDirectiveForms
         | DiagnosticNoteKind::UnionTagDirectiveForms
         | DiagnosticNoteKind::CopyContractRequirements
+        | DiagnosticNoteKind::ConstructArrayElementsIndividually
         | DiagnosticNoteKind::TrustedObligationEvidenceRequired
         | DiagnosticNoteKind::ExecutionRequirementEvidenceRequired
         | DiagnosticNoteKind::ConstantCallArgumentsMustSatisfyRequirements
@@ -2451,6 +2452,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingInvalidCopyContract => {
             MessageTemplate::new(CHECKING_INVALID_COPY_CONTRACT)
         }
+        DiagnosticKind::CheckingRepeatedArrayElementNotCopyable => MessageTemplate::new(&[
+            MessageTemplatePart::Text("repeated-array syntax requires a copyable element type, but "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" has no copy contract"),
+        ]),
         DiagnosticKind::CheckingInvalidUnionTag => MessageTemplate::new(CHECKING_INVALID_UNION_TAG),
         DiagnosticKind::CheckingRefinementCapacityExceeded => {
             MessageTemplate::new(CHECKING_REFINEMENT_CAPACITY_EXCEEDED)
@@ -3181,6 +3187,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::UnionTagDirectiveForms => {
             MessageTemplate::new(NOTE_UNION_TAG_DIRECTIVE_FORMS)
         }
+        DiagnosticNoteKind::ConstructArrayElementsIndividually => MessageTemplate::new(&[
+            MessageTemplatePart::Text("use an element-list array or an array generator to construct each non-copyable element separately"),
+        ]),
         DiagnosticNoteKind::CopyContractRequirements => {
             MessageTemplate::new(NOTE_COPY_CONTRACT_REQUIREMENTS)
         }

@@ -270,6 +270,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::UnconstrainedExpression => {
             MessageTemplate::new(UNCONSTRAINED_EXPRESSION)
         }
+        DiagnosticLabelKind::RepeatedArrayElement => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this repeated array requires a copy contract even for zero or one element"),
+        ]),
         DiagnosticLabelKind::InvalidRangeElementType => {
             MessageTemplate::new(INVALID_RANGE_ELEMENT_TYPE)
         }

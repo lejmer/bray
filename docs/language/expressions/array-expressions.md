@@ -134,30 +134,41 @@ A repeated-element array expression uses `[element; count]`.
 let zeros: [i32; 4] = [0; 4];
 ```
 
-The count determines the array length.
-
-The count participates in the array type.
-
-The count may be zero. `[element; 0]` has a zero-length fixed array type.
-
-The count must be known where the array length is required as a compile-time value.
+The count is a compile-time constant expression of type `usize` and determines the fixed array length. A generic const
+parameter can supply the count. The count must agree with an expected array extent when one is present.
 
 A local `let` annotated with bare `bytes` infers its extent from a repeated array when the count is an integer
 literal. A count computed from another expression requires an explicit `bytes<N>` extent.
 
-The element expression is checked against the expected array element type when one is available.
+The element expression is checked against the expected array element type when one is available. Its type must have a
+[copy contract](../types/copy-contracts.md). This requirement applies even when the count is zero or one. A non-copyable
+value requires separate construction through an element-list array or an array generator.
 
-Copy-based repetition requires an element type with a [copy contract](../types/copy-contracts.md). The element expression
-is evaluated once, and its value is copied into each array element according to that contract.
+Repeated-array syntax has no user-defined repetition operation. It does not call `clone`, a constructor, or a custom
+copy body to duplicate the element.
 
-Note: User-defined repetition has no specified contract declaration or selection rule.
-[BRA-675](https://linear.app/bray-lang/issue/BRA-675/define-repeated-array-repetition-contracts) tracks that language decision.
-The copy-based rule does not define permission to duplicate a non-copyable owner.
+The element expression is evaluated exactly once before array initialization, including when the count is zero. A
+non-returning element expression prevents array construction. For a zero count, evaluation still has its ordinary
+effects, but the resulting array has no initialized elements. For a count of one, the array has one copy of the value.
+For a larger count, each array position receives a copy of the same evaluated value.
 
-A repeated-element array expression is fully initialized when every array element has been initialized.
+Copying preserves the source access path's ownership and initialization state. Copied borrow values retain their
+reached-storage dependencies. Repetition does not extend a borrow's lifetime or grant mutation authority. The ordinary
+[trusted witness transfer rules](../contracts-and-trust/trusted-witness-values.md) also apply. A type's copy contract
+does not authorize duplication of live witness guarantees.
 
-Effects and finalization obligations of the repeated element expression and repeat operation become part of the
-repeated-element array expression.
+A repeated-element array expression is fully initialized when every array element has been initialized. Copying does
+not create finalization, task, or resource obligations that the element's copy contract forbids. The element expression
+still undergoes ordinary effect, capability, dependency, and lifecycle checking even when the count is zero.
+
+Example:
+
+```bray
+let zeros: [i32; 3] = [0; 3];
+let empty: [i32; 0] = [compute_value(); 0];
+```
+
+`compute_value()` is evaluated once. The empty array stores none of its result values.
 
 ## Navigation
 
