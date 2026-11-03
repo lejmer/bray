@@ -58,6 +58,10 @@ toolchain.
 
 Package identity determines how other packages refer to the compiled package.
 
+Source package paths use ordinary identifiers and match the identity components exactly. Each component must therefore
+be an identifier when the package is named in source. A hyphen permitted in a build identity is not an identifier
+character. Package paths have no alias or quoted-component form.
+
 Package identity is not a module declaration.
 
 Package identity is not introduced by writing a source declaration with the same name.

@@ -28,7 +28,9 @@ Argumentless directives omit parentheses.
 
 Directives with arguments use parenthesized directive arguments.
 
-Directive arguments use constant-expression syntax.
+Directive arguments use constant-expression syntax. The `kind = static` argument of `@link(...)` also accepts the
+reserved `static` keyword as a selector under the
+[directive grammar](../syntax-grammar.md#callable-and-function-directives).
 
 The directive name determines:
 

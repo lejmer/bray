@@ -23,7 +23,7 @@ and owner-provided inherent members form one type-associated surface. Trait fulf
 exist only where compiler-known semantics cannot be expressed by ordinary named types.
 
 Default layout is compiler-defined. Stable and C-compatible layout require explicit contracts. Public type contracts
-are part of the public API, and internal type surfaces require explicit acknowledgement outside their intended scope.
+are part of the public API, and internal types require explicit acknowledgement from consuming packages.
 Type behavior and polymorphism are explicit, and matching structure alone does not confer behavior.
 
 ## Navigation

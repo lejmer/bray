@@ -58,9 +58,8 @@ internal trait ParserReports
 
 A public trait exposes its full contract surface as public API.
 
-An internal trait is available within its intended scope.
-
-Use of an internal trait outside its intended scope requires explicit internal-use acknowledgement.
+An internal trait is accessible within its defining package. Access from a consuming package requires explicit
+internal-use acknowledgement under [visibility and reachability](../declarations/visibility-and-reachability.md).
 
 Trait members inherit the visibility of the trait.
 

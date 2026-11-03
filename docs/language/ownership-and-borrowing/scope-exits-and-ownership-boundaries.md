@@ -8,8 +8,10 @@ Values moved out of the scope are not destroyed as local owned values.
 
 Partially initialized local values resolve only initialized subparts.
 
-Reachable exits from a region must agree on ownership, borrowing, initialization, destruction, finalization,
-capabilities, effects, and which contract guarantees remain available.
+Reachable exits can carry different ownership and initialization states. Exits reaching the same continuation follow
+[flow-state merging](../expressions/expression-results.md#flow-state-merge). A later operation must be valid for every
+state that can reach it. Each exit separately resolves its destruction, finalization, capability, and other ownership
+obligations.
 
 A value can cross a boundary only when the destination can preserve every dependency contract carried by that value.
 

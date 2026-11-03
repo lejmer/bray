@@ -59,7 +59,8 @@ The callable contract includes:
 11. capability requirements,
 12. caller-visible effects,
 13. trusted caller obligations,
-14. finalization behavior.
+14. finalization behavior,
+15. const eligibility and the `trusted` modifier.
 
 A function assignment succeeds when the target callable type preserves the callable contract required by the function
 value.
@@ -90,9 +91,10 @@ dispatch, exports, and re-exports.
 A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source
 callable.
 
-Body trust and `uses(...)` describe how the implementation is checked. [Callable contract conversion](#callable-contract-conversion) compares caller
-requirements and execution guarantees independently of those implementation acknowledgments. Trusted predicate
-requirements and execution-lane requirements remain part of the caller contract.
+The `trusted` modifier and `uses(...)` describe how the implementation is checked. Callable conversion preserves the
+`trusted` modifier, but does not require matching `uses(...)` capabilities. Those capabilities do not become caller
+obligations. [Callable contract conversion](#callable-contract-conversion) separately compares caller requirements and
+execution guarantees, including trusted predicate requirements and execution-lane requirements.
 
 Example ordinary callable type:
 
@@ -210,9 +212,9 @@ There can be at most one visible callable contract declaration for a given name 
 ## Callable contract conversion
 
 A built-in callable conversion preserves parameter names, call-position permissions, parameter types, variadic status,
-result type, const eligibility, trust, ABI, and synchronous or asynchronous phase structure. It does not vary parameter
-or result types. Each corresponding invocation or deferred-execution phase must preserve dependency and other
-caller-visible behavior.
+result type, const eligibility, the `trusted` modifier, ABI, and synchronous or asynchronous phase structure. It does
+not vary parameter or result types. Each corresponding invocation or deferred-execution phase must preserve dependency
+and other caller-visible behavior.
 
 Every source precondition must occur in the target requirements with the same condition and predicate domain. The
 source must establish every target postcondition, either as a matching guarantee in the same domain or through
@@ -221,7 +223,7 @@ entry-state guard.
 
 The source must establish every target execution-property promise on the target's promised input domain. The source
 can have stronger guarantees and fewer preconditions. It cannot add a possible unwind when the target forbids unwind.
-Body implementation authority does not become a caller obligation through conversion.
+Body capabilities do not become caller obligations through conversion.
 
 These are the [built-in conversion](../expressions/conversion-expressions.md#built-in-conversion) rules for two callable
 types. Contextual formation of a function value must also preserve its callable contract. Conversion does not certify

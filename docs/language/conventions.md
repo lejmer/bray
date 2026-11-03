@@ -23,7 +23,7 @@ Longer informative passages use a blockquote or a dedicated subsection. Their sc
 next heading of the same or higher level. Rules outside those boundaries remain normative.
 
 An explanation, example, note, rationale, or summary cannot add an obligation, weaken a requirement, or grant an
-implementation choice. Disagreements with a rule follow the [implementation-authority policy](#implementation-authority).
+implementation choice.
 
 ## Requirement wording
 
@@ -41,8 +41,7 @@ The following wording applies throughout this reference:
 | `is`, `has`, `produces`, `evaluates` | A definition or specified property or behavior, when used in a rule. |
 
 A possible effect need not occur on every execution. Permission to use a source form leaves its other validity
-conditions in force. Ambiguous uses of `may` or `can` follow the implementation-authority policy. A clarification states
-whether the rule permits a choice, describes a possibility, or requires support.
+conditions in force.
 
 ## Definitions and examples
 
@@ -103,29 +102,11 @@ Compiler-provided behavior retains its specified meaning. For example, the
 observable contracts while permitting different lowering strategies. These conventions do not create additional
 categories of unspecified or undefined behavior.
 
-## Implementation authority
-
-When this specification leaves a rule ambiguous, incomplete, or internally conflicting, the current implementation in
-code is authoritative. Clarifications describe the relevant compiler, runtime, and standard-library code paths.
-Inferred design intent, analogy with another language, and a preferred interpretation of unclear prose do not override
-the implementation.
-
-The implementing code at the documented revision establishes the behavior. Tests and observed executions can
-corroborate the interpretation, but a single result or an older test expectation does not replace source inspection.
-Review descriptions for substantive ambiguity resolutions record the implementation revision, responsible files or
-symbols, and corroborating evidence.
-
-The policy resolves unclear documentation. Editorial clarifications preserve implemented behavior and unambiguous
-requirements. If behavior is unimplemented or code paths conflict without a determinate answer, the unresolved question
-requires a tracked design decision. A difference from one interpretation of ambiguous prose does not establish an
-implementation defect.
-
 ## Rule references
 
 A cross-reference to a definition or rule identifies the section that specifies that behavior. Short descriptions and
 examples beside a reference explain the linked rule without creating a separate requirement. A construct-specific
-restriction remains in the section for that construct. The implementation-authority policy applies when the referenced
-text is ambiguous.
+restriction remains in the section for that construct.
 
 ## Semantic relations and availability
 

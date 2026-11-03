@@ -1,8 +1,8 @@
 # Target control and inline assembly
 
 This chapter defines Bray operations whose meaning depends on selected-target instructions or optimizer barriers. They
-are compiler-provided declarations rather than a second command language. Every operation is checked before MIR lowering
-and remains explicit in MIR and compiled package interfaces.
+are compiler-provided declarations. Every operation is checked before code generation, and its contract is preserved in
+compiled package interfaces.
 
 ## Volatile access
 
@@ -38,8 +38,8 @@ meaningful fence contract. A compiler fence does not create a hardware synchroni
 
 `core.target.abort` performs catastrophic termination without source cleanup, panic propagation, or cancellation
 propagation. `core.target.debugger_trap` traps and may continue when a debugger resumes execution.
-`core.target.unreachable` terminates a trusted path whose reachability contract has been violated. MIR marks abort,
-unreachable, and diverging assembly as non-continuing control flow.
+`core.target.unreachable` terminates a trusted path whose reachability contract has been violated. Abort,
+unreachable, and diverging assembly have no normal continuation.
 
 `core.target.spin_loop_hint` emits the selected architecture's non-synchronizing spin hint. It does not yield a Bray
 task and does not observe cancellation.
@@ -52,7 +52,7 @@ registers, supported clobber ABIs, and inline-assembly availability. WebAssembly
 profile.
 
 Assembly feature lists are comma-separated literal feature names. Every named feature must be guaranteed by the selected
-profile. Unsupported or dynamically computed feature requirements are rejected before MIR lowering.
+profile. Unsupported or dynamically computed feature requirements are rejected before code generation.
 
 ## Trusted inline assembly
 
@@ -62,8 +62,8 @@ constraint, clobber, feature, and option operands must be literals. Inputs and o
 one-element tuples. Register and memory inputs are evaluated and moved according to their ordinary typed argument
 contracts. Immediate and callable-symbol inputs remain checked compile-time identities and do not become runtime tuple
 elements. A continuing assembly operation initializes its output tuple. A diverging operation has no output and no
-normal successor. Branching assembly also accepts a tuple of synchronous `func() -> never` label callables and is
-represented as an explicit MIR terminator with one normal result continuation.
+normal successor. Branching assembly also accepts a tuple of synchronous `func() -> never` label callables. It has one
+normal result continuation in addition to its label transfers.
 
 The declarations require `intrinsic`, `raw_memory`, `device_memory`, `unchecked_alias`, and `unchecked_init`. This
 capability set makes potential register, memory, device, alias, and initialization effects visible in the containing
@@ -72,19 +72,19 @@ trusted declaration. Ordinary source cannot invoke the operations without acknow
 The constraint literal is a comma-separated list. A late output begins with `=`. An early output begins with `=&`. An
 input-output operand begins with `+`, with `+&` selecting an early input-output operand. Register classes, explicit
 physical registers, immediate `i`, symbol `s`, memory `m`, and `label` constraints are target checked against each
-corresponding tuple element before MIR lowering. Register operands accept only target-compatible scalar or pointer
+corresponding tuple element before code generation. Register operands accept only target-compatible scalar or pointer
 representations and widths. Immediates must be checked integer constants. Symbol operands must be direct callable names
 whose fully closed instance is retained for relocation. Memory operands must be pointer values. Labels must be
 synchronous `func() -> never` values.
 
 Output-bearing constraints come first, followed by pure inputs and labels. Output tuple elements, input tuple elements,
 and label tuple elements each follow their own descriptor order. An input-output descriptor contributes one output and
-one tied input. LLVM template positions follow lowered constraint positions, so a `+reg,reg` contract uses `$0` for the
+one tied input. Template positions follow constraint positions, so a `+reg,reg` contract uses `$0` for the
 output, `$1` for its tied input, and `$2` for the pure input.
 
 The clobber literal is a comma-separated list of target registers and the portable names `memory`, `cc`, `flags`,
 `dirflag`, and `fpsr`. `abi:C` and `abi:system` request the selected target's exact caller-saved register set when that
-ABI exists. Unknown registers, clobbers, and ABIs are rejected before MIR lowering.
+ABI exists. Unknown registers, clobbers, and ABIs are rejected before code generation.
 
 The option value is a literal bit set:
 
@@ -100,15 +100,8 @@ frames, so a set unwind bit is rejected deterministically. Local assembler label
 operand is available only through `branching_assembly` and carries an alternate external transfer target.
 
 The target profile owns inline-assembly availability, target features, register classes, physical registers, clobber
-ABIs, and supported syntax dialects. The default dialect is the selected target's LLVM syntax. The Intel option is
-accepted only for an x86 profile that explicitly supports it. LLVM's integrated assembler consumes the validated inline
-assembly while object generation and linking remain ordinary Bray artifact orchestration. Bray Tack does not select,
-chain, or configure multiple external assembler programs for one target.
-
-The LLVM backend receives the checked typed descriptors, template, target constraints, expanded ABI clobbers,
-side-effect flag, stack contract, dialect, and control-flow shape without weakening them. Code generation derives its
-LLVM constraints and argument/result shapes from those descriptors. Any mismatch with the already checked contract is a
-compiler invariant failure.
+ABIs, and supported syntax dialects. The default dialect follows the selected architecture, with AT&T syntax on x86.
+The Intel option is accepted only for an x86 profile that explicitly supports it.
 
 ## Related chapters
 

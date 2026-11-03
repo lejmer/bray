@@ -26,7 +26,7 @@ trusted func write<T>(pos pointer: DataPointer<T>, pos value: T) -> unit
 
 `read` reads an initialized `T` value from raw memory and produces an owned `T` value.
 
-For a copyable `T`, `read` can preserve the source storage's initialized state.
+For a copyable `T`, `read` copies the value and preserves the source storage's initialized state.
 
 For a non-copyable `T`, `read` moves the value out of raw storage and invalidates the trusted guarantee that the source
 storage remains initialized as `T`.

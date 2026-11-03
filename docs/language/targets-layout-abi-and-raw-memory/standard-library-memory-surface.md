@@ -50,12 +50,12 @@ depend on the guard and protected lock remaining live. An inactive guard cannot 
 
 The internal trusted `slice_pointer<T>` and `slice_pointer_mut<T>` helpers produce an address for a checked prefix
 of an initialized slice. They check the requested element count against the slice length before returning. Shared
-slices establish readable, aligned, initialized storage for that prefix; mutable slices also establish writable
+slices establish readable, aligned, initialized storage for that prefix. Mutable slices also establish writable
 storage. An empty prefix returns the null pointer and grants no access to an element. Their Bray bodies use the
 ordinary slice bounds and address operations. These helpers require no compiler-known identity or native implementation.
 
 These addresses retain the ordinary raw-pointer copy and lifetime rules. Their trusted access conditions depend on
-the source storage and capability remaining valid; the address itself does not extend the source borrow or lifetime.
+the source storage and capability remaining valid. The address itself does not extend the source borrow or lifetime.
 
 ## Raw pointer helpers
 

@@ -272,8 +272,8 @@ consumed.
 A local binding declaration can establish conditions at that program point.
 
 Conditions established by local binding patterns can include product field availability, tuple shape, fixed array shape,
-active union variant when the pattern is irrefutable for the subject, payload initialization, literal equality when an
-irrefutable literal context exists, and initialized local bindings.
+active union variant when the pattern is irrefutable for the subject, payload initialization, and initialized local
+bindings. Literal patterns are refutable and cannot be used in a local binding declaration.
 
 Guarantees established by the initializer expression remain available after the declaration only while their carriers
 and dependencies meet [contract reasoning](../contracts-and-trust/contract-reasoning.md).

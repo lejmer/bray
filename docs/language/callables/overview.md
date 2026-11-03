@@ -10,7 +10,7 @@ A function defines:
 4. an execution mode,
 5. a callable ABI contract,
 6. a result type,
-7. a block expression body,
+7. a block expression body for a Bray implementation, or an external definition for an extern declaration,
 8. ownership and borrowing behavior,
 9. effects and capability requirements,
 10. constant-evaluation eligibility,

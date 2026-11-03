@@ -10,6 +10,7 @@ and [recognition](standard-library-recognition.md) rules. It introduces no addit
 | `string`                                                                               | yes                            | yes                                          | no                                  |
 | `Range<T>`                                                                             | yes                            | yes for target-available integer `T`         | no                                  |
 | `DataPointer<T>`, `FunctionPointer<F>`                                                                        | yes                            | yes                                          | no                                  |
+| `DevicePointer<T>`, `Uninit<T>`, `MemoryOrder`                                             | yes                            | yes, with operations subject to target rules | no                                  |
 | Compiler-known type forms                                                              | yes                            | yes, when target-available                   | no                                  |
 | `Result<T, E>`, `RunResult<T>`                                                         | yes                            | yes                                          | no                                  |
 | `Future<T>`, `Task<T>`                                                                 | yes                            | yes                                          | no                                  |

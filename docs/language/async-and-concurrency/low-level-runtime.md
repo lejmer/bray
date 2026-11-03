@@ -1,12 +1,7 @@
 # Low-level runtime
 
-Low-level runtime machinery is trusted Bray product support, not a source-visible compiler-known package. The compiler
-owns source contract checking, cleanup plans, concrete layouts and immutable descriptors. Bray owns runtime policy,
-storage ownership, activation, dispatch and reporting. Target-gated Bray code uses explicit OS and system ABIs.
-
-All project-owned runtime and platform support linked into produced programs is intended to be Bray. The pinned temporal
-provider is the exception. Compiler, build and test coordination tools may remain Rust outside produced programs.
-An ABI that Bray cannot yet express requires compiler or target support, not a permanent custom non-Bray shim.
+Low-level runtime machinery supplies product support without creating a source-visible compiler-known package. Its
+contracts preserve checked cleanup plans, storage ownership, activation, dispatch and reporting across target ABIs.
 
 Its binary symbols, calling conventions, frame descriptors, internal operations, and versioning are outside the
 source-language contract and do not reserve Bray declaration names.

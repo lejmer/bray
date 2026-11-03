@@ -8,7 +8,7 @@ Function declarations with Bray implementations have callable-body block express
 
 Extern callable declarations have no Bray body and end with `;`.
 
-Type declarations have type bodies.
+Struct declarations have type bodies or use the bodyless form ending with `;`. Union declarations have type bodies.
 
 Trait declarations have trait bodies.
 

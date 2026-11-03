@@ -44,8 +44,10 @@ A mutable borrow of scalar storage grants mutation authority over the scalar val
 
 Scalar operations use the exact operand types after literal adaptation and explicit conversions have been applied.
 
-Non-literal scalar values do not implicitly convert, promote, widen, narrow, or change numeric domain for assignment,
-calls, operators, overload selection, construction, or pattern matching.
+Non-literal scalar values do not implicitly convert between distinct scalar types, promote, widen, narrow, or change
+numeric domain for assignment, calls, operators, overload selection, construction, or pattern matching. Constructing a
+present nullable value from its exact contained type follows
+[value type acceptance](../expressions/expression-context.md#value-type-acceptance).
 
 Arithmetic expression rules are defined under
 [real exponentiation](../expressions/unary-and-binary-expressions.md#real-exponentiation) and

@@ -41,6 +41,9 @@ The always-available compiler-known type entries are:
 - `Future<T>`,
 - `Task<T>`,
 - `Heap`,
+- `Uninit<T>`,
+- `DevicePointer<T>`,
+- `MemoryOrder` and its `Relaxed`, `Acquire`, `Release`, `AcquireRelease`, and `SequentiallyConsistent` variants,
 - structural tuple type forms,
 - structural fixed-size and incomplete-extent array type forms,
 - slice type forms,
@@ -143,6 +146,7 @@ The compiler-known traits and contracts are:
 - `SliceIndex<Bound>`,
 - `MutableSliceIndex<Bound>`,
 - `Copyable`,
+- `RangeElement`,
 - overloadable operator traits defined by the type rules.
 
 The compiler-known default storage policy is `Heap`.
@@ -164,7 +168,14 @@ Their associated types, cursor behavior, order, finiteness, and cardinality foll
 The reserved compiler-known paths are:
 
 - `core.memory`,
+- `core.atomic`,
+- `core.target`,
 - `target`.
+
+The atomic and target-control declarations follow their
+[atomic operation](../async-and-concurrency/atomic-operation-contracts.md) and
+[target-control](../targets-layout-abi-and-raw-memory/target-control-and-inline-assembly.md) rules. Naming a support type
+does not make an operation available on an unsupported target.
 
 No compiler-known declaration is owned by the `std` package. The `std` root is reserved exclusively for ordinary
 standard-library packages and their declarations.
@@ -239,6 +250,7 @@ The recognized declarations under `std.memory` are:
 - `copy<T>(source, destination, count)`,
 - `copy_overlapping<T>(source, destination, count)`,
 - `uninit<T>()`,
+- `uninit_from<T>(value)`,
 - `uninit_pointer<T>(storage)`,
 - `uninit_pointer_mut<T>(storage)`,
 - `uninit_write<T>(storage, value)`,

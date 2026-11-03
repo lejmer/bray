@@ -206,7 +206,7 @@ struct Point
 }
 ```
 
-An `internal` field is available within its intended scope.
+An `internal` field is accessible within its defining package.
 
 ```bray
 struct CacheEntry
@@ -216,7 +216,8 @@ struct CacheEntry
 }
 ```
 
-Use of an internal field outside its intended scope requires explicit acknowledgement.
+Access to an internal field from a consuming package requires explicit acknowledgement under
+[visibility and reachability](../declarations/visibility-and-reachability.md).
 
 ```bray
 let h = internal entry.hash;

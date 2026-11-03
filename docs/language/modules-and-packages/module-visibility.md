@@ -15,9 +15,9 @@ Since `public` is the default, `public module api;` and `module api;` declare th
 
 Public modules are reachable through ordinary package and module path resolution.
 
-An internal module path is available within its intended scope.
-
-Use outside that scope requires explicit internal-use acknowledgement.
+An internal module path is accessible within its defining package. Access from a consuming package requires explicit
+internal-use acknowledgement under [visibility and reachability](../declarations/visibility-and-reachability.md).
+References into another logical module still require a matching `using` declaration.
 
 ```bray
 using internal impl;
@@ -25,8 +25,7 @@ using internal impl;
 
 Internal module visibility applies to the module path.
 
-Public declarations inside an internal module still require internal-use acknowledgement to reach from outside the
-module's intended scope.
+Public declarations inside an internal module still require internal-use acknowledgement from consuming packages.
 
 Split declarations of the same module must agree on module visibility.
 

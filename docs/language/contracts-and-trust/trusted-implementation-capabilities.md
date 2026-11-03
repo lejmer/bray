@@ -32,7 +32,7 @@ trusted func call_os_read(
 }
 ```
 
-The `uses(...)` clause declares implementation authority for the body. It does not by itself impose a trusted obligation
+The `uses(...)` clause permits the named capabilities within the body. It does not by itself impose a trusted obligation
 on callers.
 
 A trusted declaration must use exactly the capabilities it declares. Declaring an unused capability or using an

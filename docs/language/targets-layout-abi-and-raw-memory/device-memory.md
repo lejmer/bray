@@ -2,8 +2,8 @@
 
 Device memory support is target-conditional and lives under `std.memory.device`.
 
-When a target profile exposes device memory conditions, the standard library can provide recognized device memory
-declarations.
+When a target profile exposes device memory conditions, the standard library can provide target-specific device memory
+declarations. These are ordinary declarations, not entries in the compiler's recognized standard-library catalog.
 
 Device memory declarations are ordinary standard-library declarations whose contracts name the device, address space,
 access mode, byte count, alignment, synchronization state, and transfer behavior involved.
@@ -29,7 +29,8 @@ A device allocation owner is linear and carries the ownership and release obliga
 A device buffer owner is linear and carries the ownership, element type, capacity, initialized-device-state, and release
 obligation for one contiguous device allocation.
 
-Device memory is not host-accessible raw memory unless a recognized mapping declaration creates a scoped host mapping.
+Device memory is not host-accessible raw memory unless a mapping declaration's contract establishes a scoped host
+mapping.
 
 A scoped host mapping produces the raw pointer validity, alignment, initialization, synchronization, and access
 conditions declared by the mapping contract.

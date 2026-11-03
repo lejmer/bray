@@ -41,10 +41,8 @@ Operating-system threads, child processes, parallel algorithms, channels, synchr
 combinators, and other concurrency facilities are ordinary standard-library declarations implemented over trusted
 ABI operations. They do not add compiler-known types or syntax.
 
-Their public policy and ownership behavior are Bray source. Trusted Bray implements low-level internals and target
-mechanisms through explicit OS and system ABIs. Missing ABI expressiveness requires compiler or target support rather
-than a permanent custom non-Bray shim. The pinned temporal provider is the exception to Bray implementation of linked
-support. An ABI or `extern` declaration does not imply that its implementation language is C or another foreign language.
+Their public contracts define policy and ownership behavior. An ABI or `extern` declaration does not determine the
+language used to supply its definition.
 
 ## Navigation
 

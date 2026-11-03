@@ -27,7 +27,8 @@ func exported() -> i32
 }
 ```
 
-Use of internal functions outside their intended scope requires explicit acknowledgement.
+Internal functions are accessible within their defining package. Access from a consuming package requires explicit
+acknowledgement under [visibility and reachability](../declarations/visibility-and-reachability.md).
 
 ```bray
 using some.api;

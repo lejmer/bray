@@ -32,10 +32,9 @@ Partially initialized aggregates carry explicit state. A contiguous array builde
 Initialization records an element only after its write commits. Moving or destroying an element removes it from that
 state.
 
-Cleanup is a checked semantic operation represented in MIR. Cleanup visits initialized elements in reverse commit order,
+Cleanup is a checked semantic operation. It visits initialized elements in reverse commit order,
 destroys each element exactly once, then releases backing storage. Normal return, panic unwinding, cancellation, and
-async frame destruction use the same recorded state. LLVM lowering follows the checked cleanup operation and does not
-infer initialized elements.
+async frame destruction use the same recorded initialization state.
 
 The standard `RawBuffer<T>` is the contiguous initialized-prefix owner. Its initialized count is updated only after a
 successful write, and its checked release operation performs reverse element destruction before deallocation. Output and
@@ -59,8 +58,8 @@ scoped capability. Shared creation requires readable, aligned, initialized stora
 current epoch, synchronized access, stable movement, and pending finalization. Mutable creation additionally requires
 writable storage and exclusive alias authority under the same synchronization contract.
 
-The dependency follows the result through generic calls, aggregate fields, returned products, package interfaces, MIR
-values, and suspended async frames. Moving the owner moves the root. Invalidating the allocation, mapping, guard, epoch,
+The dependency follows the result through generic calls, aggregate fields, returned products, package interfaces,
+and suspended async frames. Moving the owner moves the root. Invalidating the allocation, mapping, guard, epoch,
 movement guarantee, or finalization state invalidates the borrow. A mutable capability cannot be reused while a
 dependent borrow remains active.
 

@@ -186,8 +186,8 @@ does not allocate. A nonzero-capacity buffer uses the selected standard-library 
 
 The recognized internal `raw_buffer_push<T>(&mut buffer, value)` and `raw_buffer_pop<T>(&mut buffer)` operations transfer
 one value and update the initialized-prefix count as one ownership operation. Push requires
-`buffer.initialized < buffer.capacity`; pop requires `buffer.initialized > 0`. The standard-library wrappers check these
-bounds before invoking the internal operations. Push initializes the first spare slot; pop transfers the last
+`buffer.initialized < buffer.capacity`. Pop requires `buffer.initialized > 0`. The standard-library wrappers check these
+bounds before invoking the internal operations. Push initializes the first spare slot. Pop transfers the last
 initialized value out. Neither operation copies the value or invokes its destruction or finalization behavior.
 
 `RawBuffer<T>` is a low-level storage owner, not a growable collection contract.

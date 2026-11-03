@@ -18,7 +18,7 @@ A `using` declaration creates neither unqualified names nor aliases. It does not
 implementation overload families, operators, conversions, behavioral contracts, or other polymorphic behavior.
 Declaring the dependency executes no code and initializes no module.
 
-Use of an internal module or declaration path outside its intended scope requires `using internal` or a local `internal`
+Use of an internal module or declaration path from a consuming package requires `using internal` or a local `internal`
 access acknowledgement.
 
 ```bray
