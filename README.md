@@ -8,3 +8,5 @@ This repository contains the Bray compiler, standard library, and language speci
 
 - The [language specification](docs/language/index.md) defines Bray's syntax and semantics.
 - The [BEP index](beps/README.md) lists formal proposals and links to the proposal process.
+
+See the [contribution guide](CONTRIBUTING.md) to get started with development, report bugs, and submit changes.
