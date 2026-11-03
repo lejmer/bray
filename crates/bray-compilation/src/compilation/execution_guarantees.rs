@@ -6,6 +6,7 @@ mod defaults;
 mod dependency;
 mod export;
 mod imported;
+mod instantiation;
 mod predicate;
 mod projection;
 mod proof;

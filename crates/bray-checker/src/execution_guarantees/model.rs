@@ -319,6 +319,7 @@ pub(crate) struct ExecutionValueEvidence {
 /// Values captured at a selected call's entry, before callee mutation can occur.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCallEvidence {
+    pub(crate) implementation_witnesses: std::sync::Arc<[bray_symbols::ImplementationInstanceId]>,
     pub(crate) returned: ExecutionValueEvidence,
     pub(crate) anonymous_target: Option<bray_bound_tree::BoundUnitKey>,
     pub(crate) trusted_boundary: bool,
@@ -353,12 +354,68 @@ impl ExecutionCallEvidence {
         }
     }
 
+    /// Retains the implementation choices selected for this invocation.
+    pub fn with_implementation_witnesses(
+        mut self,
+        witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceId>,
+    ) -> Self {
+        self.implementation_witnesses = witnesses.into_iter().collect::<Vec<_>>().into();
+
+        self
+    }
+
+    /// Returns the selected invocation's implementation choices.
+    pub fn implementation_witnesses(&self) -> &[bray_symbols::ImplementationInstanceId] {
+        &self.implementation_witnesses
+    }
+
+    /// Instantiates call identities in captured values without changing the reusable entry snapshot.
+    pub fn try_map_conditions<E>(
+        &self,
+        mut map: impl FnMut(&super::ExecutionCondition) -> Result<super::ExecutionCondition, E>,
+    ) -> Result<Self, E> {
+        let mut mapped = Self {
+            implementation_witnesses: std::sync::Arc::clone(&self.implementation_witnesses),
+            // Proof queries own their snapshot while analysis retains the original entry evidence.
+            returned: self.returned.clone(),
+            anonymous_target: self.anonymous_target.clone(),
+            trusted_boundary: self.trusted_boundary,
+            pending_execution: self.pending_execution,
+            ..Self::default()
+        };
+
+        mapped.arguments = self
+            .arguments
+            .iter()
+            .map(|(place, condition)| Ok((place.clone(), map(condition)?)))
+            .collect::<Result<_, E>>()?;
+
+        mapped.assumptions = self
+            .assumptions
+            .iter()
+            .map(|(condition, value)| Ok((map(condition)?, *value)))
+            .collect::<Result<_, E>>()?;
+
+        mapped.trusted_assumptions = self
+            .trusted_assumptions
+            .iter()
+            .map(|(condition, value)| Ok((map(condition)?, *value)))
+            .collect::<Result<_, E>>()?;
+
+        Ok(mapped)
+    }
+
     /// Exact local callable body established by the entry value flow, if known.
     pub fn anonymous_target(&self) -> Option<&bray_bound_tree::BoundUnitKey> {
         self.anonymous_target.as_ref()
     }
 
     pub(crate) fn intersect(&mut self, other: &Self) -> bool {
+        assert_eq!(
+            self.implementation_witnesses, other.implementation_witnesses,
+            "a selected invocation retains its implementation choices across control flow"
+        );
+
         let before = (
             self.anonymous_target.is_some(),
             self.trusted_boundary,

@@ -291,6 +291,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.call_trusted_assumptions(state, invocation, &arguments, &BTreeSet::new());
 
         ExecutionCallEvidence {
+            implementation_witnesses: match selection {
+                bray_bound_tree::SemanticSelection::Call(call) => {
+                    call.resolution().implementation_witnesses().into()
+                }
+                _ => Default::default(),
+            },
             returned: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),

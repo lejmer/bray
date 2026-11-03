@@ -148,7 +148,8 @@ where
             bray_compiler_known::RepresentationRole::ScalarBool,
         );
 
-        let evidence = crate::ExecutionCallEvidence::from_constants(values, self.arguments);
+        let evidence = crate::ExecutionCallEvidence::from_constants(values, self.arguments)
+            .with_implementation_witnesses(self.implementation_witnesses.iter().copied());
 
         for (index, requirement) in requirements.iter().enumerate() {
             let established = if requirement.domain() == bray_symbols::PredicateDomain::Value {

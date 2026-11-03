@@ -900,6 +900,7 @@ mod tests {
         state.entries.insert(
             occurrence,
             crate::ExecutionCallEvidence {
+                implementation_witnesses: Default::default(),
                 returned: Default::default(),
                 anonymous_target: None,
                 trusted_boundary: true,

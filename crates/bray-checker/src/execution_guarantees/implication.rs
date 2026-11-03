@@ -308,35 +308,41 @@ pub fn map_execution_condition_references<E>(
     literal: &impl Fn(
         &std::sync::Arc<bray_symbols::ConstantValueData>,
     ) -> Result<std::sync::Arc<bray_symbols::ConstantValueData>, E>,
+    call: &mut impl FnMut(
+        bray_symbols::CallableInstanceData,
+        Option<bray_symbols::ImplementationInstanceData>,
+        Vec<bray_symbols::ImplementationInstanceData>,
+        Vec<ExecutionCondition>,
+    ) -> Result<ExecutionCondition, E>,
 ) -> Result<ExecutionCondition, E> {
     Ok(match condition {
         ExecutionCondition::Input(place) => input(place)?,
         ExecutionCondition::Literal(value) => ExecutionCondition::Literal(literal(value)?),
         ExecutionCondition::Trusted(value) => ExecutionCondition::Trusted(std::sync::Arc::new(
-            map_execution_condition_references(value, map, input, literal)?,
+            map_execution_condition_references(value, map, input, literal, call)?,
         )),
         ExecutionCondition::VariantTest(variant, value) => {
-            map_execution_condition_references(value, map, input, literal)?
+            map_execution_condition_references(value, map, input, literal, call)?
                 .matches_variant(*variant)
         }
         ExecutionCondition::Tagged(variant, value) => ExecutionCondition::Tagged(
             *variant,
             std::sync::Arc::new(map_execution_condition_references(
-                value, map, input, literal,
+                value, map, input, literal, call,
             )?),
         ),
         ExecutionCondition::Present(value) => {
-            map_execution_condition_references(value, map, input, literal)?.present()
+            map_execution_condition_references(value, map, input, literal, call)?.present()
         }
         ExecutionCondition::Borrowed(value) => {
-            map_execution_condition_references(value, map, input, literal)?.borrowed()
+            map_execution_condition_references(value, map, input, literal, call)?.borrowed()
         }
         ExecutionCondition::Entry {
             condition,
             captured,
         } => ExecutionCondition::Entry {
             condition: std::sync::Arc::new(map_execution_condition_references(
-                condition, map, input, literal,
+                condition, map, input, literal, call,
             )?),
             captured: *captured,
         },
@@ -346,7 +352,9 @@ pub fn map_execution_condition_references<E>(
                 map(*substitution)?,
                 operands
                     .iter()
-                    .map(|operand| map_execution_condition_references(operand, map, input, literal))
+                    .map(|operand| {
+                        map_execution_condition_references(operand, map, input, literal, call)
+                    })
                     .collect::<Result<_, _>>()?,
             )
         }
@@ -354,51 +362,58 @@ pub fn map_execution_condition_references<E>(
             *operator,
             operands
                 .iter()
-                .map(|operand| map_execution_condition_references(operand, map, input, literal))
+                .map(|operand| {
+                    map_execution_condition_references(operand, map, input, literal, call)
+                })
                 .collect::<Result<_, _>>()?,
         ),
         ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
-            ExecutionCondition::call(
-                bray_symbols::CallableInstanceData::new(
-                    callable.definition(),
-                    map(callable.substitution())?,
-                ),
-                implementation
-                    .map(|witness| {
-                        Ok::<_, E>(bray_symbols::ImplementationInstanceData::new(
-                            witness.definition(),
-                            map(witness.substitution())?,
-                        ))
-                    })
-                    .transpose()?,
-                witnesses
-                    .iter()
-                    .map(|witness| {
-                        Ok(bray_symbols::ImplementationInstanceData::new(
-                            witness.definition(),
-                            map(witness.substitution())?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, E>>()?,
-                operands
-                    .iter()
-                    .map(|operand| map_execution_condition_references(operand, map, input, literal))
-                    .collect::<Result<_, _>>()?,
-            )
+            let callable = bray_symbols::CallableInstanceData::new(
+                callable.definition(),
+                map(callable.substitution())?,
+            );
+
+            let implementation = implementation
+                .map(|witness| {
+                    Ok::<_, E>(bray_symbols::ImplementationInstanceData::new(
+                        witness.definition(),
+                        map(witness.substitution())?,
+                    ))
+                })
+                .transpose()?;
+
+            let witnesses = witnesses
+                .iter()
+                .map(|witness| {
+                    Ok(bray_symbols::ImplementationInstanceData::new(
+                        witness.definition(),
+                        map(witness.substitution())?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, E>>()?;
+
+            let operands = operands
+                .iter()
+                .map(|operand| {
+                    map_execution_condition_references(operand, map, input, literal, call)
+                })
+                .collect::<Result<Vec<_>, E>>()?;
+
+            call(callable, implementation, witnesses, operands)?
         }
         ExecutionCondition::Projection(field, value) => {
-            map_execution_condition_references(value, map, input, literal)?.component(*field)
+            map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }
         ExecutionCondition::Constructed(base, fields) => ExecutionCondition::Constructed(
             std::sync::Arc::new(map_execution_condition_references(
-                base, map, input, literal,
+                base, map, input, literal, call,
             )?),
             fields
                 .iter()
                 .map(|(field, value)| {
                     Ok((
                         *field,
-                        map_execution_condition_references(value, map, input, literal)?,
+                        map_execution_condition_references(value, map, input, literal, call)?,
                     ))
                 })
                 .collect::<Result<Vec<_>, E>>()?
@@ -455,6 +470,14 @@ pub fn substitute_execution_condition(
             let value = values.substitute_constant_value(value, substitution)?;
 
             Ok(values.constant_value_data(value))
+        },
+        &mut |callable, implementation, witnesses, operands| {
+            Ok(ExecutionCondition::call(
+                callable,
+                implementation,
+                witnesses,
+                operands,
+            ))
         },
     )
 }

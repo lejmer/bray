@@ -393,7 +393,23 @@ impl Compilation {
             std::sync::Arc::new(bray_checker::ExecutionCondition::Result),
         );
 
-        let contracts = self.callable_completion_contracts(callable, cancellation)?;
+        let mut diagnostics = DiagnosticBag::new();
+
+        let evidence = self.instantiate_execution_evidence(
+            evidence.unwrap_or(&ExecutionCallEvidence::default()),
+            cancellation,
+            &mut diagnostics,
+        )?;
+
+        if diagnostics.has_errors() {
+            return Ok(false);
+        }
+
+        let contracts = self.callable_completion_contracts(
+            callable,
+            evidence.implementation_witnesses(),
+            cancellation,
+        )?;
 
         if contracts.diagnostics().has_errors() {
             return Ok(false);
@@ -402,10 +418,7 @@ impl Compilation {
         let mut postconditions = Vec::new();
 
         for contract in contracts.into_parts().0 {
-            if !evidence
-                .unwrap_or(&ExecutionCallEvidence::default())
-                .proves_trusted(&contract.entry)
-            {
+            if !evidence.proves_trusted(&contract.entry) {
                 continue;
             }
 
@@ -414,7 +427,7 @@ impl Compilation {
                     .verified_execution_obligation(
                         callable,
                         ExecutionObligation::Postcondition(clause),
-                        evidence,
+                        Some(&evidence),
                         cancellation,
                     )?
                     .is_some()
@@ -600,7 +613,13 @@ impl Compilation {
         );
 
         for (post, term) in &*domain.postconditions {
-            let conditions = self.imported_execution_conditions(callable, [*term], cancellation)?;
+            let conditions = self.imported_execution_conditions(
+                callable,
+                [*term],
+                &[],
+                cancellation,
+                &mut diagnostics,
+            )?;
 
             if conditions.as_slice() == std::slice::from_ref(&expected)
                 && self
