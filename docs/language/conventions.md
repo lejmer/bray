@@ -105,31 +105,27 @@ categories of unspecified or undefined behavior.
 
 ## Implementation authority
 
-This specification must state language rules completely and unambiguously. Readers must be able to determine those
-rules without inspecting compiler, runtime, or standard-library source code.
-
-When a rule is ambiguous, incomplete, or internally conflicting, the current implementation determines which behavior
-the correction must document. The owning section must then state the resolved rule explicitly, including the conditions
-and exceptions needed to understand it. A reference to implementation code does not replace that explanation. Inferred
-design intent, analogy with another language, and a preferred interpretation of unclear prose do not override the
-implementation evidence used to resolve the ambiguity.
+When this specification leaves a rule ambiguous, incomplete, or internally conflicting, the current implementation in
+code is authoritative. Clarifications describe the relevant compiler, runtime, and standard-library code paths.
+Inferred design intent, analogy with another language, and a preferred interpretation of unclear prose do not override
+the implementation.
 
 The implementing code at the documented revision establishes the behavior. Tests and observed executions can
 corroborate the interpretation, but a single result or an older test expectation does not replace source inspection.
 Review descriptions for substantive ambiguity resolutions record the implementation revision, responsible files or
 symbols, and corroborating evidence.
 
-Editorial clarifications preserve implemented behavior and unambiguous requirements. An ambiguity is resolved only
-when the specification itself clearly states the rule. If behavior is unimplemented or code paths conflict without a
-determinate answer, the unresolved question requires a tracked design decision. A difference from one interpretation of
-ambiguous prose does not establish an implementation defect.
+The policy resolves unclear documentation. Editorial clarifications preserve implemented behavior and unambiguous
+requirements. If behavior is unimplemented or code paths conflict without a determinate answer, the unresolved question
+requires a tracked design decision. A difference from one interpretation of ambiguous prose does not establish an
+implementation defect.
 
 ## Rule references
 
 A cross-reference to a definition or rule identifies the section that specifies that behavior. Short descriptions and
 examples beside a reference explain the linked rule without creating a separate requirement. A construct-specific
-restriction remains in the section for that construct. Ambiguous referenced text must be corrected under the
-implementation-authority policy so the specification itself states the resolved rule.
+restriction remains in the section for that construct. The implementation-authority policy applies when the referenced
+text is ambiguous.
 
 ## Semantic relations and availability
 

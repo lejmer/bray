@@ -6,8 +6,7 @@ This reference describes the source language accepted by a conforming Bray compi
 Bray programs.
 
 The [specification conventions](conventions.md) apply throughout this reference. They distinguish requirements from
-explanations and examples, require complete and unambiguous rules, and explain how implementation evidence is used to
-correct unclear wording.
+explanations and examples, and explain how the current implementation resolves ambiguous specification wording.
 
 ---
 
