@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_bound_tree::{BoundExpressionId, SelectedIterationSource, SemanticSelectionEntry};
-use bray_symbols::TypeId;
+use bray_symbols::{ConstantTermId, TypeId};
 
 /// Canonical type evidence established for one expression by an earlier focused rule.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -58,6 +58,7 @@ pub struct ExpressionTypeInput {
     evidence: Arc<[ExpressionTypeEvidence]>,
     expectations: Arc<[ExpressionTypeExpectation]>,
     box_storage_policies: Arc<[(BoundExpressionId, TypeId)]>,
+    repeated_array_lengths: Arc<[(BoundExpressionId, ConstantTermId)]>,
     iteration_sources: Arc<[SelectedIterationSource]>,
     operation_selections: Arc<[SemanticSelectionEntry]>,
     callable_result_type: Option<TypeId>,
@@ -81,6 +82,20 @@ impl ExpressionTypeInput {
 
     pub(crate) fn box_storage_policies(&self) -> &[(BoundExpressionId, TypeId)] {
         &self.box_storage_policies
+    }
+
+    /// Supplies normalized compile-time extents for repeated-array occurrences.
+    pub fn with_repeated_array_lengths(
+        mut self,
+        lengths: impl IntoIterator<Item = (BoundExpressionId, ConstantTermId)>,
+    ) -> Self {
+        self.repeated_array_lengths = sorted_unique_shared_slice(lengths);
+
+        self
+    }
+
+    pub(crate) fn repeated_array_lengths(&self) -> &[(BoundExpressionId, ConstantTermId)] {
+        &self.repeated_array_lengths
     }
 
     /// Replaces canonical type evidence supplied by other checker services.

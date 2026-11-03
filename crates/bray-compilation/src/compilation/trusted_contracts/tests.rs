@@ -4296,3 +4296,58 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
         }
     }
 }
+
+#[test]
+fn repeated_array_witness_copies_use_the_checked_extent() {
+    for (count, extent, valid) in [("ONE", 1, true), ("one()", 1, true), ("TWO", 2, false), ("two()", 2, false)] {
+        let compilation = compilation(&format!(
+            r#"
+            trusted module app;
+
+            @copy
+            struct Owner
+            {{
+                epoch: u64;
+            }}
+
+            trusted predicate live(value: &Owner);
+
+            trusted func owner() -> Owner
+                ensures(trusted live(&result))
+            {{
+                return Owner
+                {{
+                    epoch = 1,
+                }};
+            }}
+
+            const ONE: usize = 1;
+
+            const TWO: usize = 2;
+
+            const func one() -> usize
+            {{
+                return ONE;
+            }}
+
+            const func two() -> usize
+            {{
+                return TWO;
+            }}
+
+            func caller()
+            {{
+                let values: [Owner; {extent}] = [owner(); {count}];
+            }}
+            "#
+        ));
+
+        assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{count}: {:#?}", compilation.check_diagnostics());
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            );
+        }
+    }
+}

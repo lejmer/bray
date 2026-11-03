@@ -6,6 +6,34 @@ use super::support::{TemplateEvaluationFailure, template_index};
 use crate::CheckerRequestContext;
 
 impl<C: CheckerRequestContext + ?Sized> TemplateEvaluator<'_, C> {
+    pub(super) fn evaluate_repeated_array(
+        &mut self,
+        value: CheckedTemplateNodeId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let value = self.evaluate_node(value)?;
+
+        let count = crate::constant::known_array_length(self.context.semantic_values(), ty)
+            .expect("instantiated repeated array has a closed extent");
+
+        self.repeat_array_value(value, count, ty)
+    }
+
+    pub(super) fn repeat_array_value(
+        &mut self,
+        value: ConstantValueId,
+        count: usize,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        self.budget.try_charge_elements(count)
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+        self.budget.try_charge_expansion(count)
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+        Ok(self.intern_value(ty, ConstantValueKind::array(std::iter::repeat_n(value, count))))
+    }
+
     pub(super) fn evaluate_loop(
         &mut self,
         owner: CheckedTemplateNodeId,

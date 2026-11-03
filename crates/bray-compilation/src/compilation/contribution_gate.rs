@@ -251,6 +251,7 @@ impl Compilation {
         // Independently cached semantic results retain the same Arc-backed unit identity.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;
 
         let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
@@ -275,6 +276,7 @@ impl Compilation {
             semantics.result().value().types(),
             semantics.result().value().selections(),
         )
+        .with_patterns(patterns.result().value())
         .with_references(references);
 
         let unit =
@@ -284,8 +286,10 @@ impl Compilation {
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
         )?;
 
-        let diagnostics =
-            DiagnosticBag::merged_all([semantics.result().diagnostics(), evaluated.diagnostics()]);
+        let diagnostics = DiagnosticBag::merged_all([
+            semantics.result().diagnostics(), patterns.result().diagnostics(),
+            evaluated.diagnostics(),
+        ]);
 
         let enabled = self.target_gate_is_enabled(evaluated.value().value(), &diagnostics)?;
 

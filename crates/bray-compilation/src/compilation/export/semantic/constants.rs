@@ -96,6 +96,10 @@ impl<'a> SemanticExporter<'a> {
                             .collect::<Result<Vec<_>, _>>()?
                             .into(),
                     ),
+                    ConstantTermData::RepeatedArray { value, count } => InterfaceConstantTerm::RepeatedArray {
+                        value: self.constant_term_id(*value)?,
+                        count: self.constant_term_id(*count)?,
+                    },
                     ConstantTermData::Array(values) => InterfaceConstantTerm::Array(
                         values
                             .iter()

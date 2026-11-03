@@ -105,13 +105,14 @@ impl TrustedChecks {
         if let Some(bray_bound_tree::BoundExpression::Structured(bound)) =
             domain.request.view().expression(expression)
             && bound.kind() == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray
-            && let [value, count] = bound.operands()
+            && let [value] = bound.runtime_operands()
             && state.is_witness(&domain.value(state, *value))
         {
-            let count = domain.value(state, *count);
+            let ty = domain.semantics.types().expression(expression)
+                .expect("checked repetition retains its type").ty();
 
-            let singleton = matches!(count, ExecutionCondition::Literal(count)
-                if matches!(count.kind(), bray_symbols::ConstantValueKind::Integer(count) if count.to_u64().is_some_and(|count| count <= 1)));
+            let singleton = crate::constant::known_array_length(domain.request.semantic_values(), ty)
+                .is_some_and(|count| count <= 1);
 
             if !singleton {
                 self.transfers.insert(expression);

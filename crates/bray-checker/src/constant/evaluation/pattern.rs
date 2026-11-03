@@ -7,8 +7,6 @@ use bray_symbols::{
 };
 
 use crate::CheckerRequestContext;
-use crate::constant::literal::parse_literal;
-use crate::representation::type_representation;
 
 use super::engine::Evaluator;
 use super::flow::EvaluationFlow;
@@ -181,6 +179,7 @@ where
                 )
             }
             Some(PatternPredicate::Literal(literal)) => {
+                let expected = literal.value();
                 let literal = literal.literal();
 
                 let source = self.request.source(pattern.origin().source_anchor());
@@ -189,26 +188,9 @@ where
 
                 self.budget.charge_literal(owner, spelling.len())?;
 
-                let expected = if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
-                    crate::constant::literal::check_byte_string_literal(
-                        self.request.semantic_values(),
-                        pattern.input_type(),
-                        spelling,
-                    ).unwrap_or_else(|error| panic!("predicate_matches must satisfy its checked construction contract: {error:?}"))
-                } else {
-                    let representation = type_representation(self.request, pattern.input_type())
-                        .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
-
-                    parse_literal(literal.kind(), spelling, representation, || {
-                        self.request
-                            .selected_target()
-                            .machine()
-                            .pointer_width_bits()
-                    })
-                }
-                .map_err(|error| EvaluationFailure::literal(owner, error))?;
-
-                subject.kind() == &expected
+                crate::constant::constant_values_equal(
+                    self.request.semantic_values(), subject_id, expected,
+                )
             }
             Some(PatternPredicate::Constant(expected)) => {
                 let Some(expected) = self.term_value(expected) else {

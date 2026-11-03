@@ -599,9 +599,19 @@ impl BoundStructuredExpression {
         self.kind
     }
 
-    /// Returns nested expressions in evaluation order.
+    /// Returns source operands in syntactic order, including compile-time operands.
     pub fn operands(&self) -> &[BoundExpressionId] {
         &self.operands
+    }
+
+    /// Returns operands evaluated when this expression executes.
+    /// Repeated-array counts establish the type at compile time.
+    pub fn runtime_operands(&self) -> &[BoundExpressionId] {
+        if self.kind == BoundStructuredExpressionKind::RepeatedArray {
+            &self.operands[..self.operands.len().min(1)]
+        } else {
+            &self.operands
+        }
     }
 
     /// Returns nested blocks in source order.

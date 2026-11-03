@@ -344,6 +344,9 @@ where
 
                 Ok(self.intern_value(ty, ConstantValueKind::Tuple(values.into())))
             }
+            CheckedTemplateOperation::RepeatedArray { value } => {
+                self.evaluate_repeated_array(*value, ty)
+            }
             CheckedTemplateOperation::Array(elements) => {
                 let values = self.evaluate_nodes(elements)?;
 

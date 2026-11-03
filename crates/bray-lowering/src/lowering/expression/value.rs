@@ -108,22 +108,10 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let (block, mut operands) = match self.lower_operands(expression.operands(), current)? {
+        let (block, operands) = match self.lower_operands(expression.runtime_operands(), current)? {
             LoweredOperands::Continuing { block, operands } => (block, operands),
             LoweredOperands::Terminated(completion) => return Ok(completion),
         };
-
-        if kind == MirAggregateKind::RepeatedArray {
-            if operands.len() != 2 {
-                panic!(
-                    "lowering contract violation: UnsupportedExpression {value:?}",
-                    value = id
-                );
-            }
-
-            // Source evaluation is preserved, but the checked array type owns the MIR extent.
-            operands.truncate(1);
-        }
 
         let value = self.push_value_operation(
             id,

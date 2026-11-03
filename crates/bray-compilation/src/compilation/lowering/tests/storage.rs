@@ -714,6 +714,11 @@ fn repeated_arrays_evaluate_the_element_once_even_when_empty() {
                 return counter.count;
             }}
 
+            const func count() -> usize
+            {{
+                return {count};
+            }}
+
             func main() -> i32
             {{
                 let mut counter: Counter = Counter
@@ -721,7 +726,7 @@ fn repeated_arrays_evaluate_the_element_once_even_when_empty() {
                     count = 0,
                 }};
 
-                let items: [i32; {count}] = [seed(&mut counter); {count}];
+                let items: [i32; {count}] = [seed(&mut counter); count()];
 
                 return counter.count;
             }}
@@ -744,5 +749,41 @@ fn repeated_arrays_evaluate_the_element_once_even_when_empty() {
             operation.kind(), MirOperationKind::Aggregate(aggregate)
                 if aggregate.kind() == MirAggregateKind::RepeatedArray
         )));
+    }
+}
+
+#[test]
+fn repeated_arrays_preserve_nonreturning_element_evaluation() {
+    for count in [0, 3] {
+        let compilation = compilation(&format!(r#"
+            module app;
+
+            func stop() -> never
+            {{
+                panic("seed");
+            }}
+
+            func main() -> [i32; {count}]
+            {{
+                return [stop(); {count}];
+            }}
+
+            func inferred()
+            {{
+                let items = [stop(); {count}];
+            }}
+        "#));
+
+        assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+
+        let result = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+            .expect("nonreturning array element lowers");
+
+        let mir = lowered_mir(&result);
+
+        assert_eq!(mir.operations().iter().filter(|operation| matches!(operation.kind(), MirOperationKind::Call(_))).count(), 1);
+
+        assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Aggregate(aggregate)
+            if aggregate.kind() == MirAggregateKind::RepeatedArray)));
     }
 }

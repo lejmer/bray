@@ -415,6 +415,7 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Construct { .. }
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
+        | CheckedTemplateOperation::RepeatedArray { .. }
         | CheckedTemplateOperation::ArrayElement { .. }
         | CheckedTemplateOperation::ArrayTransform { .. }
         | CheckedTemplateOperation::Project { .. }

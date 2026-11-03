@@ -97,6 +97,7 @@ pub(super) fn infer_repeated_array<C>(
     expression_id: BoundExpressionId,
     operands: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
+    types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) where
     C: CheckerRequestContext + ?Sized,
@@ -115,15 +116,38 @@ pub(super) fn infer_repeated_array<C>(
         inference.add_expectation(count, usize, expression_id);
     }
 
-    let Some((ty, element)) =
-        contextual_container_element(request, variable, inference, array_element)
-    else {
+    let expected = contextual_container_element(request, variable, inference, array_element);
+
+    if let Some((_, element)) = expected {
+        add_operand_expectation(request, Some(*value), Some(element), variables, inference);
+    }
+
+    let Some(&length) = types.repeated_array_lengths.get(&expression_id) else {
+        // Cooperating constant checking supplies the count after operation selection.
+        if let Some((ty, _)) = expected {
+            add_aggregate_evidence(expression_id, ty, operands, variables, inference);
+        }
+
         return;
     };
 
-    add_operand_expectation(request, Some(*value), Some(element), variables, inference);
+    let Some(value_variable) = variables.get(value).copied() else { return; };
 
-    inference.add_evidence(variable, ty, expression_id);
+    let Some(element) = inference.evidence(value_variable) else { return; };
+
+    let element = if element == types.never {
+        let Some((_, element)) = expected else {
+            inference.add_evidence(variable, types.never, expression_id);
+            return;
+        };
+
+        element
+    } else { element };
+
+    let ty = request.semantic_values().intern_type(TypeData::Array { element, length })
+        .expect("checked array components form a canonical type");
+
+    add_aggregate_evidence(expression_id, ty, operands, variables, inference);
 }
 
 pub(super) fn infer_range<C>(

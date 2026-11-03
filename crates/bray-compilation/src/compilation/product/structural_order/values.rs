@@ -158,6 +158,9 @@ impl OrderEncoder<'_, '_> {
             ConstantTermData::NullablePresent(value) => {
                 Ok(term("nullable_present", [self.constant(*value)?]))
             }
+            ConstantTermData::RepeatedArray { value, count } => Ok(term(
+                "repeated-array", [self.constant(*value)?, self.constant(*count)?],
+            )),
             ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => Ok(term(
                 if matches!(data.as_ref(), ConstantTermData::Tuple(_)) {
                     "tuple"

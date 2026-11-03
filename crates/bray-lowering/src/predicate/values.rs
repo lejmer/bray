@@ -281,6 +281,15 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                     ty,
                 )?
             }
+            CheckedTemplateOperation::RepeatedArray { value } => {
+                let (continued, value) = self.node(block, *value)?;
+
+                block = continued;
+
+                self.value(block, MirOperationKind::Aggregate(MirAggregate::new(
+                    MirAggregateKind::RepeatedArray, [value],
+                )), ty)?
+            }
             CheckedTemplateOperation::Construct { variant, fields } => {
                 let target = match variant {
                     Some(key) => match self.context.predicate_symbol(key)? {

@@ -158,6 +158,7 @@ where
             | ConstantTermData::VariantTest { .. }
             | ConstantTermData::NullablePresent(_)
             | ConstantTermData::Tuple(_)
+            | ConstantTermData::RepeatedArray { .. }
             | ConstantTermData::Array(_)
             | ConstantTermData::Product(_)
             | ConstantTermData::Union { .. }

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_binder::semantic_unit_context;
 use bray_bound_tree::{
-    BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind,
+    AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind,
     CheckedSemanticSelections, CheckedTemplateKind,
 };
 use bray_checker::{
@@ -350,6 +350,8 @@ impl Compilation {
                 let semantics =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -358,6 +360,7 @@ impl Compilation {
                 let references = self.symbolic_references(
                     bound.result().value(),
                     semantics.result().value().selections(),
+                    bound.result().value().root(),
                 )?;
 
                 let resolver = CompilationConstantCallResolver::new(self, cancellation);
@@ -366,6 +369,7 @@ impl Compilation {
                     semantics.result().value().types(),
                     semantics.result().value().selections(),
                 )
+                .with_patterns(patterns.result().value())
                 .with_references(references)
                 .with_call_resolver(&resolver)
                 .for_definition();
@@ -381,6 +385,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     semantics.result().diagnostics(),
+                    patterns.result().diagnostics(),
                     checked.diagnostics(),
                 ]);
 
@@ -495,7 +500,10 @@ impl Compilation {
         let resolver = CompilationConstantCallResolver::new(self, cancellation)
             .with_substitution(instance.substitution());
 
+        let patterns = self.patterns_with_cancellation(key, cancellation)?;
+
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
+            .with_patterns(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(limits)
@@ -510,6 +518,7 @@ impl Compilation {
 
         let diagnostics = DiagnosticBag::merged_all([
             &type_diagnostics,
+            patterns.result().diagnostics(),
             &dependency_diagnostics,
             evaluated.diagnostics(),
         ]);
@@ -642,29 +651,11 @@ impl Compilation {
         &self,
         bound: &BoundUnit,
         selections: &CheckedSemanticSelections,
-    ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
-        self.symbolic_references_with_arguments(bound, selections, &BTreeMap::new())
-    }
-
-    pub(in crate::compilation) fn symbolic_references_with_arguments(
-        &self,
-        bound: &BoundUnit,
-        selections: &CheckedSemanticSelections,
-        arguments: &BTreeMap<AnySymbolId, bray_symbols::SymbolOrdinal>,
+        root: impl Into<AnyBoundNodeId>,
     ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        collect_constant_references(bound, selections, |_, target| {
-            if let Some(ordinal) = match target {
-                BoundReferenceTarget::Surface(symbol) => arguments.get(&symbol),
-                BoundReferenceTarget::Local(_) => None,
-            } {
-                return values
-                    .intern_constant_term(ConstantTermData::CallableArgument(*ordinal))
-                    .map(ConstantReferenceResolution::Term)
-                    .map_err(FactQueryError::SemanticValueStore);
-            }
-
+        super::support::collect_constant_references_from(bound, selections, root, |_, target| {
             match target {
                 BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
                     values
@@ -2099,6 +2090,84 @@ const RESULT: Holder<i32> = Holder<i32>.make();
             ),
             ConstantInstanceQueryKey::new(instance, alternate, ConstantEvaluationLimits::default(),)
         );
+    }
+
+    #[test]
+    fn repeated_arrays_charge_expansion_before_materializing_elements() {
+        let compilation = compilation(r#"
+            module app;
+
+            const VALUES: [i32; 3] = [7; 3];
+        "#);
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [definition] = definitions.as_slice() else { panic!("fixture has one constant"); };
+
+        let instance = instance_key(&compilation, *definition);
+
+        let result = compilation.constant_instance_with_limits(
+            instance, ConstantEvaluationLimits::new(1000, 10, 1000).with_expansions(2),
+            &compilation.state.cancellation,
+        ).expect("bounded evaluation returns a source diagnostic");
+
+        assert_goal_state_diagnostic_kind(result.diagnostics(), DiagnosticKind::CheckingConstantExpansionLimitExceeded);
+    }
+
+    #[test]
+    fn repeated_arrays_evaluate_constant_elements_even_at_zero_extent() {
+        let compilation = compilation(r#"
+            module app;
+
+            const VALUES: [i32; 0] = [1 / 0; 0];
+        "#);
+
+        assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), DiagnosticKind::CheckingConstantDivisionByZero);
+    }
+
+    #[test]
+    fn repeated_arrays_specialize_generic_constant_initializers() {
+        let compilation = compilation(r#"
+            module app;
+
+            struct Buffer<const N: usize>
+            {
+                const VALUES: [i32; N] = [7; N];
+            }
+        "#);
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [definition] = definitions.as_slice() else { panic!("fixture has one constant"); };
+
+        let graph = compilation.symbol_graph().expect("fixture symbol graph");
+
+        let structure = graph.structures().iter().find(|structure| structure.origin() == SymbolOrigin::Source)
+            .expect("fixture generic structure");
+
+        let [parameter] = structure.generic_const_parameters() else { panic!("fixture has one const parameter"); };
+
+        let usize_type = scalar_type(&compilation, bray_compiler_known::RepresentationRole::ScalarUsize);
+
+        for count in [0, 1, 3] {
+            let substitution = concrete_substitution(&compilation, structure.id().into(), *parameter, usize_type, count);
+
+            let result = compilation.constant_instance(ConstantInstanceKey::new(*definition, substitution, None))
+                .expect("generic repeated constant instance");
+
+            assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+
+            let values = compilation.semantic_value_store().expect("fixture values");
+            let value = values.constant_value_data(result.value().value());
+
+            let ConstantValueKind::Array(elements) = value.kind() else { panic!("repeated constant is an array"); };
+
+            assert_eq!(elements.len(), usize::from(count));
+
+            for element in elements.iter() {
+                assert_eq!(integer_value(&compilation, *element), 7);
+            }
+        }
     }
 
     fn source_constant_definitions(

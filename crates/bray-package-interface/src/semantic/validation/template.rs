@@ -629,6 +629,7 @@ fn validate_operation_references(
         | InterfaceCheckedTemplateOperation::Borrow { .. }
         | InterfaceCheckedTemplateOperation::Tuple(_)
         | InterfaceCheckedTemplateOperation::Array(_)
+        | InterfaceCheckedTemplateOperation::RepeatedArray { .. }
         | InterfaceCheckedTemplateOperation::TupleElement { .. }
         | InterfaceCheckedTemplateOperation::NullableValue { .. }
         | InterfaceCheckedTemplateOperation::Conditional { .. }
@@ -857,6 +858,11 @@ fn validate_operation_type(
                 && matches!(binding.operation(), InterfaceCheckedTemplateOperation::ArrayElement { subject: input }
                     if input == subject)
                 && element.raw() <= value.raw()
+        }
+        InterfaceCheckedTemplateOperation::RepeatedArray { value } => {
+            matches!(type_at(semantics, node.ty()),
+                Some(InterfaceType::Array { element, .. })
+                    if node_type(template, *value) == Some(*element))
         }
         InterfaceCheckedTemplateOperation::Array(elements) => {
             let Some(InterfaceType::Array { element, .. }) = type_at(semantics, node.ty()) else {

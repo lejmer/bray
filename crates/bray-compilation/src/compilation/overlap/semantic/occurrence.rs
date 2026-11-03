@@ -135,7 +135,8 @@ impl SemanticUnifier<'_> {
             | ConstantTermData::NullablePresent(operand) => {
                 self.constant_contains_parameter(*operand, parameter, visited)
             }
-            ConstantTermData::Binary { left, right, .. } => {
+            ConstantTermData::RepeatedArray { value: left, count: right }
+            | ConstantTermData::Binary { left, right, .. } => {
                 if self.constant_contains_parameter(*left, parameter, visited) {
                     return true;
                 }

@@ -313,7 +313,16 @@ impl Compilation {
                 let operations =
                     operation_expressions(&binding_context, bound.result().value(), cancellation)?;
 
-                if !has_iterations
+                let repetitions = self.repeated_array_lengths(
+                    &key, bound.result().value(), provisional.result().value(), &pattern_input,
+                    cancellation,
+                )?;
+
+                let has_repetitions = repetitions.is_some();
+
+                let (mut repeated_lengths, _) = repetitions.unwrap_or_default();
+
+                if !has_repetitions && !has_iterations
                     && operations.is_empty()
                     && crate::compilation::operation::trait_view_borrows(
                         &binding_context,
@@ -352,7 +361,8 @@ impl Compilation {
                     );
 
                     let operation_input = selection_type_input(&operation_resolutions)
-                        .with_iteration_sources(iteration_sources.iter().cloned());
+                        .with_iteration_sources(iteration_sources.iter().cloned())
+                        .with_repeated_array_lengths(repeated_lengths.iter().copied());
 
                     let mut result = self.compute_expression_semantics(
                         &key,
@@ -378,7 +388,13 @@ impl Compilation {
                             cancellation,
                         )?;
 
+                    let (next_lengths, count_diagnostics) = self.repeated_array_lengths(
+                        &key, bound.result().value(), result.0.value(), &selected_pattern_input,
+                        cancellation,
+                    )?.unwrap_or_default();
+
                     if next == operation_resolutions && next_iteration_sources == iteration_sources
+                        && next_lengths == repeated_lengths
                     {
                         let (semantics, diagnostics) = result.0.into_parts();
 
@@ -388,6 +404,7 @@ impl Compilation {
                                 &diagnostics,
                                 &iteration_diagnostics,
                                 &operation_diagnostics,
+                                &count_diagnostics,
                             ]),
                         );
 
@@ -401,6 +418,7 @@ impl Compilation {
                         return Ok(result);
                     }
 
+                    repeated_lengths = next_lengths;
                     operation_resolutions = next;
                     pattern_input = next_pattern_input;
                     iteration_sources = next_iteration_sources;

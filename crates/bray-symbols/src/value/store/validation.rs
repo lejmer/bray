@@ -138,7 +138,8 @@ pub(super) fn validate_constant_term_data(
         ConstantTermData::Unary { operand, .. } => {
             tables.constant_terms.get(store, *operand);
         }
-        ConstantTermData::Binary { left, right, .. } => {
+        ConstantTermData::RepeatedArray { value: left, count: right }
+        | ConstantTermData::Binary { left, right, .. } => {
             tables.constant_terms.get(store, *left);
             tables.constant_terms.get(store, *right);
         }

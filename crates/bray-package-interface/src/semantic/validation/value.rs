@@ -370,7 +370,8 @@ impl InterfaceSemantics {
             InterfaceConstantTerm::Unary { operand, .. } => {
                 validate_index(operand.to_index(), self.constant_terms.len())?;
             }
-            InterfaceConstantTerm::Binary { left, right, .. } => {
+            InterfaceConstantTerm::RepeatedArray { value: left, count: right }
+            | InterfaceConstantTerm::Binary { left, right, .. } => {
                 validate_index(left.to_index(), self.constant_terms.len())?;
                 validate_index(right.to_index(), self.constant_terms.len())?;
             }

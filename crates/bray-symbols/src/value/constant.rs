@@ -518,6 +518,13 @@ pub enum ConstantTermData {
     Tuple(Arc<[ConstantTermId]>),
     /// An ordered array whose elements may remain open.
     Array(Arc<[ConstantTermId]>),
+    /// Copies one element across a checked constant extent without expanding open terms.
+    RepeatedArray {
+        /// Element evaluated once.
+        value: ConstantTermId,
+        /// Checked compile-time extent.
+        count: ConstantTermId,
+    },
     /// Ordered product fields whose values may remain open.
     Product(Arc<[ConstantField<StructFieldSymbolId, ConstantTermId>]>),
     /// An active union variant whose payload values may remain open.

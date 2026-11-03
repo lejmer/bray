@@ -89,6 +89,26 @@ impl HeaderMatcher<'_> {
                 ConstantTermData::NullablePresent(pattern),
                 ConstantTermData::NullablePresent(actual),
             ) => self.match_constant(*pattern, *actual),
+            (ConstantTermData::RepeatedArray { value: pattern, count: pattern_count },
+             ConstantTermData::RepeatedArray { value: actual, count: actual_count }) => {
+                Ok(self.match_constant(*pattern_count, *actual_count)?
+                    && self.match_constant(*pattern, *actual)?)
+            }
+            (ConstantTermData::RepeatedArray { value, count }, ConstantTermData::Array(actual)) => {
+                let length = self.values.intern_constant_term(ConstantTermData::IntegerLiteral {
+                    ty: bray_symbols::TargetSizedIntegerType::Usize,
+                    value: bray_symbols::IntegerConstant::from_u64(
+                        u64::try_from(actual.len()).expect("checked constant array length fits u64")),
+                })?;
+
+                if !self.match_constant(*count, length)? { return Ok(false); }
+
+                for actual in actual.iter() {
+                    if !self.match_constant(*value, *actual)? { return Ok(false); }
+                }
+
+                Ok(true)
+            }
             (ConstantTermData::Tuple(pattern), ConstantTermData::Tuple(actual))
             | (ConstantTermData::Array(pattern), ConstantTermData::Array(actual)) => {
                 self.match_constants(pattern, actual)
@@ -201,6 +221,21 @@ impl HeaderMatcher<'_> {
                 ConstantTermData::NullablePresent(pattern),
                 ConstantValueKind::NullablePresent(actual),
             ) => self.match_constant_to_value(*pattern, *actual),
+            (ConstantTermData::RepeatedArray { value, count }, ConstantValueKind::Array(elements)) => {
+                let ty = self.values.type_data(actual.ty());
+
+                let bray_symbols::TypeData::Array { length, .. } = ty.as_ref() else {
+                    panic!("checked array constant retains its array type");
+                };
+
+                if !self.match_constant(*count, *length)? { return Ok(false); }
+
+                for element in elements.iter() {
+                    if !self.match_constant_to_value(*value, *element)? { return Ok(false); }
+                }
+
+                Ok(true)
+            }
             (ConstantTermData::Tuple(pattern), ConstantValueKind::Tuple(actual))
             | (ConstantTermData::Array(pattern), ConstantValueKind::Array(actual)) => {
                 self.match_constants_to_values(pattern, actual)

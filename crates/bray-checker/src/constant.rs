@@ -20,6 +20,7 @@ mod template;
 mod template_evaluation;
 
 pub use array::{ArrayLengthError, check_array_length};
+pub(crate) use array::known_array_length;
 pub use call::{
     ConstantCallContract, ConstantCallRequest, ConstantCallResolution, ConstantCallResolver,
     ConstantCallTarget, ConstantTemplateResolver, EvaluatedConstantCall,

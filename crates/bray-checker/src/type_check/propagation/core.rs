@@ -164,6 +164,7 @@ where
                 expression_id,
                 expression.operands(),
                 variables,
+                types,
                 inference,
             ),
             BoundStructuredExpressionKind::Range => infer_range(
