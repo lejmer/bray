@@ -22,6 +22,12 @@ Keep reviews bounded by the issue contract. Fix correctness defects, architectur
 
 Before editing anything under `docs/design/`, read and follow [docs/design/AGENTS.md](docs/design/AGENTS.md).
 
+## Writing issues, pull requests, and documentation
+
+Write issue and PR descriptions and comments, and documentation, so they stand on their own and remain useful long term. Do not include chat history, short-lived task or environment details, local filesystem paths, or temporary build and artifact locations. Use stable repository references and canonical issue or PR links when needed. Use brief, simple language and no semicolons in prose.
+
+For pull requests, follow the title and description format in [Work on Bray Issues](.agents/skills/work-on-bray-issues/SKILL.md#write-pull-requests).
+
 ## Repository approvals
 
 Before requesting approval to push or write through repository-hosting tools, verify the exact destination, repository visibility and ownership, and authenticated account using read-only commands. Include those verified results in the approval request.

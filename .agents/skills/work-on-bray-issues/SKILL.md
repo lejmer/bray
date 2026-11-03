@@ -48,6 +48,19 @@ Assess architecture before implementation and again on the completed diff. Ident
 
 Review maintainability and cost as seriously as correctness. Trace changed behavior through its producers and consumers, then ask whether the change leaves redundant concepts, representations, conversions, traversals, policies, branches, allocations, or APIs. Examine module cohesion in both directions, including oversized files and one-function files created only to satisfy a size limit. Watch for duplicated behavior, hidden work in hot paths, unnecessary clones, and fallback or validation that repeats established phase contracts. These are prompts, not automatic findings. Check proposed replacements against compiler speed, generated code speed and size, and the issue scope. Passing tests establishes behavioral evidence, not architectural quality. Report only problems supported by the code and a concrete improvement. Do not turn design review into an unrelated redesign or a source of speculative follow-up issues.
 
+## Write pull requests
+
+Use lower-case Conventional Commits titles in the form `type: description`, without a parenthesized scope. Keep the title brief and specific.
+
+Use these description sections in order:
+
+- `## Problem`: Explain why the PR exists in a short paragraph. Use simple language that is easy to understand without prior context.
+- `## Change Summary`: List the main changes as broad, clear bullets. Use imperative verbs such as "Add", "Fix", and "Refactor", rather than past-tense or third-person forms. Include details that have significant impact without listing every implementation step.
+- `## Related Issues`: Include this section when GitHub or Linear issues are mentioned. Link each issue with only its ID as the displayed text, such as `ABC-123` or `#123`. Omit this section when there are no related issues, and do not treat the PR itself or formatting examples as related issues.
+- `## LLM Contributions`: List the actual contributing model names. Use verified session information and never copy example names or guess a model identity.
+
+Do not include verification or test steps unless the user explicitly asks for them. Keep descriptions and comments understandable on their own and useful long term, following the writing rules in `AGENTS.md`. Keep temporary checkpoints and environment details in the task record rather than publishing them in issues, PRs, or documentation.
+
 ## Attribute PR comments
 
 Start every agent-authored PR comment with `Posted by <model name> on behalf of <GitHub user name>:` followed by a blank line. Apply this to review summaries, inline findings, replies, and comments posted for subagents. Use the authoring agent's model name from session information and the verified authenticated GitHub login. When publishing a subagent's review, retain that subagent's model attribution. Do not guess a model name or add agent attribution to human-authored comments.
