@@ -1043,6 +1043,30 @@ impl Compilation {
         requirement: ImplementationRequirementKey,
         cancellation: &CancellationToken,
     ) -> Result<ImplementationInstanceId, CodegenPreparationError> {
+        let available = available.into_iter().collect::<Vec<_>>();
+
+        let context = self
+            .checker_context(cancellation)?
+            .with_implementation_witnesses(available.iter().copied());
+
+        let mut normalizer = bray_checker::TypeNormalizer::new(&context, None);
+
+        let subject = normalizer
+            .normalize_type(requirement.subject())
+            .map_err(super::realization::codegen_checker_error)?;
+
+        let application = normalizer
+            .normalize_trait_application(requirement.trait_application())
+            .map_err(super::realization::codegen_checker_error)?;
+
+        let diagnostics = normalizer.take_diagnostics();
+
+        if diagnostics.has_errors() {
+            return Err(CodegenPreparationError::Diagnostics(diagnostics));
+        }
+
+        let requirement = ImplementationRequirementKey::new(subject, application);
+
         if let Some(witness) =
             self.concrete_codegen_matching_witness(available, requirement, cancellation)?
         {

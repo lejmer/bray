@@ -96,10 +96,12 @@ impl<'a> SemanticExporter<'a> {
                             .collect::<Result<Vec<_>, _>>()?
                             .into(),
                     ),
-                    ConstantTermData::RepeatedArray { value, count } => InterfaceConstantTerm::RepeatedArray {
-                        value: self.constant_term_id(*value)?,
-                        count: self.constant_term_id(*count)?,
-                    },
+                    ConstantTermData::RepeatedArray { value, count } => {
+                        InterfaceConstantTerm::RepeatedArray {
+                            value: self.constant_term_id(*value)?,
+                            count: self.constant_term_id(*count)?,
+                        }
+                    }
                     ConstantTermData::Array(values) => InterfaceConstantTerm::Array(
                         values
                             .iter()
@@ -132,6 +134,14 @@ impl<'a> SemanticExporter<'a> {
                             })
                             .collect::<Result<Vec<_>, _>>()?
                             .into(),
+                    },
+                    ConstantTermData::TraitConstant {
+                        requirement,
+                        member,
+                    } => InterfaceConstantTerm::TraitConstant {
+                        subject: self.type_id(requirement.subject())?,
+                        application: self.trait_application_id(requirement.trait_application())?,
+                        member: self.symbol_reference((*member).into())?,
                     },
                     ConstantTermData::DefinitionApplication {
                         definition,

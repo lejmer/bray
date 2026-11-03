@@ -866,7 +866,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceConstantTerm::Unary { operand, .. } => {
                 self.enqueue(PendingRecord::ConstantTerm(operand.raw()));
             }
-            InterfaceConstantTerm::RepeatedArray { value: left, count: right }
+            InterfaceConstantTerm::RepeatedArray {
+                value: left,
+                count: right,
+            }
             | InterfaceConstantTerm::Binary { left, right, .. } => {
                 self.enqueue(PendingRecord::ConstantTerm(left.raw()));
                 self.enqueue(PendingRecord::ConstantTerm(right.raw()));
@@ -893,6 +896,14 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 for field in fields.iter() {
                     self.enqueue(PendingRecord::ConstantTerm(field.value().raw()));
                 }
+            }
+            InterfaceConstantTerm::TraitConstant {
+                subject,
+                application,
+                ..
+            } => {
+                self.enqueue(PendingRecord::Type(subject.raw()));
+                self.enqueue(PendingRecord::TraitApplication(application.raw()));
             }
             InterfaceConstantTerm::DefinitionApplication {
                 substitution,

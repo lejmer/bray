@@ -63,14 +63,18 @@ impl Compilation {
         &self,
         instance: &CodegenInstance,
         realization: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
     ) -> Result<bool, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
         let demands = demanded_constants([instance.mir()]);
         let mut pending = demands.values().iter().copied().collect::<Vec<_>>();
 
         for template_term in demanded_constant_terms(instance.mir()) {
-            let term =
-                self.substitute_codegen_constant_term(template_term, realization.substitution())?;
+            let term = self.substitute_codegen_constant_term(
+                template_term,
+                Some(realization),
+                cancellation,
+            )?;
 
             let data = values.constant_term_data(term);
 
@@ -155,6 +159,7 @@ impl Compilation {
         &self,
         unit: &CodegenUnit,
         reachability: &ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
     ) -> Result<
         (
             Vec<CodegenConstantTermMapping>,
@@ -175,8 +180,11 @@ impl Compilation {
             })?;
 
             for template_term in demanded_constant_terms(instance.mir()) {
-                let term = self
-                    .substitute_codegen_constant_term(template_term, realization.substitution())?;
+                let term = self.substitute_codegen_constant_term(
+                    template_term,
+                    Some(realization),
+                    cancellation,
+                )?;
 
                 let data = values.constant_term_data(term);
 

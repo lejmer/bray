@@ -21,6 +21,7 @@ impl InterfaceSemantics {
         limits: InterfaceValidationLimits,
     ) -> Result<(), InterfaceValidationError> {
         self.validate_surface_ordering()?;
+        self.validate_trait_member_projections(surface)?;
         self.validate_constraints(symbol_count, dependency_count)?;
         self.validate_callable_surface(surface, symbol_count, dependency_count)?;
         self.validate_declarations(surface, symbol_count, dependency_count)?;
@@ -28,6 +29,66 @@ impl InterfaceSemantics {
         self.validate_implementations(symbol_count, dependency_count)?;
 
         self.validate_environment(symbol_count, dependency_count, limits)
+    }
+
+    fn validate_trait_member_projections(
+        &self,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        for ty in &*self.types {
+            if let crate::InterfaceType::TypeValuedMemberProjection {
+                application,
+                member,
+                ..
+            } = ty
+            {
+                self.validate_trait_member_reference(
+                    *application,
+                    member,
+                    SymbolKind::TraitTypeMember,
+                    surface,
+                )?;
+            }
+        }
+
+        for term in &*self.constant_terms {
+            if let crate::InterfaceConstantTerm::TraitConstant {
+                application,
+                member,
+                ..
+            } = term
+            {
+                self.validate_trait_member_reference(
+                    *application,
+                    member,
+                    SymbolKind::TraitConstantMember,
+                    surface,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_trait_member_reference(
+        &self,
+        application: crate::InterfaceTraitApplicationId,
+        member: &InterfaceSymbolReference,
+        kind: SymbolKind,
+        surface: &PackageInterfaceSurface,
+    ) -> Result<(), InterfaceValidationError> {
+        let application = application
+            .to_index()
+            .and_then(|index| self.trait_applications.get(index))
+            .expect("value-graph validation establishes trait application indices");
+
+        if validate_symbol_kind(&application.definition, surface)? != SymbolKind::Trait {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+
+        super::reference::validate_owned_parameter(&application.definition, member, kind, surface)
     }
 
     fn validate_surface_ordering(&self) -> Result<(), InterfaceValidationError> {
@@ -515,4 +576,111 @@ fn validate_storage_member(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        InterfaceConstantTerm, InterfaceGenericSubstitution, InterfaceGenericSubstitutionId,
+        InterfaceProductIdentity, InterfaceSemantics, InterfaceSymbolReference,
+        InterfaceTraitApplication, InterfaceTraitApplicationId, InterfaceType, InterfaceTypeId,
+    };
+    use bray_symbols::{PackageIdentity, SymbolKind};
+
+    #[test]
+    fn trait_member_projections_reject_wrong_owners_and_kinds() {
+        let package =
+            PackageIdentity::try_new("example.projections").expect("fixture package is valid");
+
+        let module = crate::test_support::module_key(package.clone(), "api");
+        let first = crate::test_support::named_key(module.clone(), SymbolKind::Trait, "First");
+        let second = crate::test_support::named_key(module, SymbolKind::Trait, "Second");
+
+        let constant =
+            crate::test_support::named_key(first.clone(), SymbolKind::TraitConstantMember, "VALUE");
+
+        let ty = crate::test_support::named_key(first.clone(), SymbolKind::TraitTypeMember, "Item");
+
+        let surface = crate::test_support::identity_surface(
+            package,
+            InterfaceProductIdentity::try_new("library").expect("fixture product is valid"),
+            [first.clone(), second.clone(), constant.clone(), ty.clone()],
+            [],
+        );
+
+        let reference = |key| {
+            InterfaceSymbolReference::Local(
+                surface
+                    .symbol_by_external_key(key)
+                    .expect("fixture symbol is exported"),
+            )
+        };
+
+        let first = reference(&first);
+        let second = reference(&second);
+        let constant = reference(&constant);
+        let ty = reference(&ty);
+
+        for (type_projection, wrong_owner, wrong_kind) in [
+            (false, false, false),
+            (false, true, false),
+            (false, false, true),
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
+        ] {
+            let application = InterfaceTraitApplicationId::new(u32::from(wrong_owner));
+
+            let member = if type_projection != wrong_kind {
+                ty.clone()
+            } else {
+                constant.clone()
+            };
+
+            let mut types = vec![InterfaceType::Tuple([].into())];
+            let mut terms = Vec::new();
+
+            if type_projection {
+                types.push(InterfaceType::TypeValuedMemberProjection {
+                    subject: InterfaceTypeId::new(0),
+                    application,
+                    member,
+                });
+            } else {
+                terms.push(InterfaceConstantTerm::TraitConstant {
+                    subject: InterfaceTypeId::new(0),
+                    application,
+                    member,
+                });
+            }
+
+            let semantics = InterfaceSemantics::new()
+                .with_applications(
+                    [
+                        InterfaceGenericSubstitution::new(first.clone(), []),
+                        InterfaceGenericSubstitution::new(second.clone(), []),
+                    ],
+                    [
+                        InterfaceTraitApplication::new(
+                            first.clone(),
+                            InterfaceGenericSubstitutionId::new(0),
+                        ),
+                        InterfaceTraitApplication::new(
+                            second.clone(),
+                            InterfaceGenericSubstitutionId::new(1),
+                        ),
+                    ],
+                    [],
+                    [],
+                )
+                .with_values([], types, [], terms);
+
+            assert_eq!(
+                semantics
+                    .validate_trait_member_projections(&surface)
+                    .is_ok(),
+                !wrong_owner && !wrong_kind
+            );
+        }
+    }
 }

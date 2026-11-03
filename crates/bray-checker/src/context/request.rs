@@ -125,6 +125,14 @@ pub trait CheckerRequestContext: Sync {
         Self::UpstreamError,
     >;
 
+    /// Returns the declaring Self context of a source or imported declaration.
+    fn enclosing_self_type_context(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerQueryResult<Option<bray_symbols::SelfTypeContext>, Self::UpstreamError> {
+        Ok(self.symbols().enclosing_self_type_context(symbol))
+    }
+
     /// Resolves the open subject type that defines an implementation's contextual Self.
     fn implementation_subject_type(
         &self,

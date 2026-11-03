@@ -102,17 +102,19 @@ impl Compilation {
         &self,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
-        types: &bray_bound_tree::CheckedExpressionTypes,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         expression: BoundExpressionId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<SemanticResolution>, FactQueryError> {
+        let types = semantics.types();
+
         if let Some(BoundExpression::TraitQualifiedMember(member)) =
             unit.view().expression(expression)
         {
             return self.resolve_trait_qualified_member_operation(
                 binding_context,
                 unit,
-                types,
+                semantics,
                 expression,
                 member,
                 diagnostics,
@@ -130,7 +132,11 @@ impl Compilation {
             }
         };
 
-        let raw_receiver_type = expression_type(types, receiver)?;
+        let Some(raw_receiver_type) =
+            self.member_receiver_type(binding_context, unit, types, receiver, diagnostics)?
+        else {
+            return Ok(None);
+        };
 
         let receiver_type =
             self.resolve_access_subject_type(binding_context, raw_receiver_type, diagnostics)?;
@@ -218,7 +224,9 @@ impl Compilation {
         let member = match surface.value().lookup(name.as_str()) {
             MemberLookupResult::Found(member) => member,
             MemberLookupResult::NotFound => {
-                return self.resolve_participating_trait_member_operation(
+                let previous_diagnostics = diagnostics.len();
+
+                let resolution = self.resolve_participating_trait_member_operation(
                     binding_context,
                     unit,
                     types,
@@ -228,7 +236,17 @@ impl Compilation {
                     receiver_type,
                     name.as_str(),
                     diagnostics,
-                );
+                )?;
+
+                if resolution.is_none() && diagnostics.len() == previous_diagnostics {
+                    diagnostics.add(super::query::member_selection_diagnostic(
+                        unit,
+                        expression,
+                        DiagnosticKind::BindingUnresolvedName,
+                    ));
+                }
+
+                return Ok(resolution);
             }
             MemberLookupResult::WrongKind(_)
             | MemberLookupResult::Ambiguous(_)
@@ -261,81 +279,40 @@ impl Compilation {
             })?
             .origin();
 
-        let (result_type, operation) = match member {
-            AnySymbolId::StructField(field) => {
-                let result_type = self.resolve_member_type(
-                    binding_context,
-                    SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
-                    substitution,
-                    diagnostics,
-                )?;
+        let Some(member_substitution) = self.member_substitution(
+            binding_context,
+            surface.value(),
+            member_origin,
+            substitution,
+            receiver_type,
+            diagnostics,
+        )?
+        else {
+            return Ok(None);
+        };
 
-                let Some(result_type) = result_type else {
-                    return Ok(None);
-                };
+        let (result_type, operation) = if matches!(member, AnySymbolId::UnionVariant(_)) {
+            (receiver_type, None)
+        } else {
+            let Some(target) = self.resolve_direct_member_target(
+                binding_context,
+                unit,
+                expression,
+                member,
+                member_substitution,
+                receiver_type,
+                unit.view()
+                    .is_compile_time_qualifier(receiver, Some(semantics.selections())),
+                diagnostics,
+            )?
+            else {
+                return Ok(None);
+            };
 
-                let operation =
-                    SelectedOperation::Member(MemberTarget::new(field.into(), result_type, []));
-
-                (result_type, Some(operation))
-            }
-            member if CallableDefinitionId::try_new(member).is_some() => {
-                let member_substitution = match member_origin {
-                    TypeAssociatedMemberOrigin::Direct => substitution,
-                    TypeAssociatedMemberOrigin::InherentImplementation(implementation) => {
-                        let Some(substitution) = self.inherent_member_substitution(
-                            binding_context,
-                            surface.value(),
-                            implementation,
-                            receiver_type,
-                            diagnostics,
-                        )?
-                        else {
-                            return Ok(None);
-                        };
-
-                        substitution
-                    }
-                };
-
-                let Some(callable) = self.resolve_callable_member_signature(
-                    binding_context,
-                    unit,
-                    expression,
-                    member,
-                    member_substitution,
-                    diagnostics,
-                )?
-                else {
-                    return Ok(None);
-                };
-
-                let result_type = callable.signature.callable_type();
-
-                let defaults = self.resolve_callable_defaults(
-                    binding_context,
-                    &callable.signature,
-                    diagnostics,
-                )?;
-
-                let signature = member_callable_signature(callable.signature, receiver_type);
-
-                let mut target = MemberTarget::new(member, result_type, []).with_callable(
-                    callable.instance,
-                    signature,
-                    defaults,
-                );
-
-                if let Some(template) = callable.template {
-                    target = target.with_callable_template(template);
-                }
-
-                let operation = SelectedOperation::Member(target);
-
-                (result_type, Some(operation))
-            }
-            AnySymbolId::UnionVariant(_) => (receiver_type, None),
-            _ => return Ok(None),
+            (
+                target.result_type(),
+                Some(SelectedOperation::Member(target)),
+            )
         };
 
         Ok(Some(SemanticResolution::new(
@@ -346,14 +323,125 @@ impl Compilation {
         )))
     }
 
-    fn inherent_member_substitution(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "direct member selection retains source, receiver type, qualifier kind and substitution"
+    )]
+    fn resolve_direct_member_target(
+        &self,
+        context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        expression: BoundExpressionId,
+        member: AnySymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+        receiver: TypeId,
+        qualifier: bool,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<MemberTarget>, FactQueryError> {
+        if let AnySymbolId::StructField(field) = member {
+            if qualifier {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::CheckingNoApplicableCandidate,
+                ));
+
+                return Ok(None);
+            }
+
+            let ty = self.resolve_member_type(
+                context,
+                SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
+                substitution,
+                diagnostics,
+            )?;
+
+            return Ok(ty.map(|ty| MemberTarget::new(member, ty, [])));
+        }
+
+        if matches!(member, AnySymbolId::Constant(_)) {
+            return if qualifier {
+                self.resolve_constant_member(context, member, substitution, diagnostics)
+            } else {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::CheckingNoApplicableCandidate,
+                ));
+
+                Ok(None)
+            };
+        }
+
+        if let AnySymbolId::InherentTypeMember(member) = member {
+            if !qualifier || !member_is_type_qualifier_use(unit, expression) {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::CheckingNoApplicableCandidate,
+                ));
+
+                return Ok(None);
+            }
+
+            let ty = self.resolve_member_type(
+                context,
+                SymbolQueryRequest::<bray_symbols::InherentTypeMemberValueQuery>::new(member),
+                substitution,
+                diagnostics,
+            )?;
+
+            return Ok(ty.map(|ty| MemberTarget::new(member.into(), ty, [])));
+        }
+
+        if CallableDefinitionId::try_new(member).is_none() {
+            return Ok(None);
+        }
+
+        let Some(callable) = self.resolve_callable_member_signature(
+            context,
+            unit,
+            expression,
+            member,
+            substitution,
+            diagnostics,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        let ty = callable.signature.callable_type();
+        let defaults = self.resolve_callable_defaults(context, &callable.signature, diagnostics)?;
+        let signature = member_callable_signature(callable.signature, receiver);
+
+        let mut target =
+            MemberTarget::new(member, ty, []).with_callable(callable.instance, signature, defaults);
+
+        if let Some(template) = callable.template {
+            target = target.with_callable_template(template);
+        }
+
+        Ok(Some(target))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "member substitution combines the surface origin and inherited receiver arguments"
+    )]
+    fn member_substitution(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         surface: &bray_symbols::TypeAssociatedSurface,
-        implementation: bray_symbols::InherentImplementationSymbolId,
+        origin: TypeAssociatedMemberOrigin,
+        inherited: bray_symbols::GenericSubstitutionId,
         receiver_type: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<bray_symbols::GenericSubstitutionId>, FactQueryError> {
+        let implementation = match origin {
+            TypeAssociatedMemberOrigin::Direct => return Ok(Some(inherited)),
+            TypeAssociatedMemberOrigin::InherentImplementation(implementation) => implementation,
+        };
+
         let contribution = surface
             .implementations()
             .iter()
@@ -727,10 +815,6 @@ impl Compilation {
             return Ok(None);
         };
 
-        let Some(member) = TraitCallableMemberSymbolId::try_from_any(member) else {
-            return Ok(None);
-        };
-
         if !bray_binder::check_member_access(
             binding_context,
             unit.view(),
@@ -767,6 +851,55 @@ impl Compilation {
                 substitution,
             ))
             .map_err(FactQueryError::SemanticValueStore)?;
+
+        if let AnySymbolId::TraitConstantMember(member) = member {
+            let Some(BoundExpression::MemberAccess(access)) = unit.view().expression(expression)
+            else {
+                unreachable!("default member lookup receives a member access");
+            };
+
+            if !unit
+                .view()
+                .is_compile_time_qualifier(access.receiver(), None)
+            {
+                return Ok(None);
+            }
+
+            let Some(target) = self.resolve_constant_member(
+                binding_context,
+                member.into(),
+                substitution,
+                diagnostics,
+            )?
+            else {
+                return Ok(None);
+            };
+
+            let term = binding_context
+                .semantic_values()
+                .intern_constant_term(bray_symbols::ConstantTermData::TraitConstant {
+                    requirement: bray_symbols::ImplementationRequirementKey::new(
+                        receiver_type,
+                        application,
+                    ),
+                    member,
+                })
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            let ty = target.result_type();
+            let target = MemberTarget::new(member.into(), ty, []).with_constant_reference(term);
+
+            return Ok(Some(SemanticResolution::new(
+                expression,
+                ty,
+                [],
+                Some(SelectedOperation::Member(target)),
+            )));
+        }
+
+        let Some(member) = TraitCallableMemberSymbolId::try_from_any(member) else {
+            return Ok(None);
+        };
 
         self.resolve_constrained_trait_member_operation(
             binding_context,
@@ -965,6 +1098,105 @@ impl Compilation {
         requirements
     }
 
+    fn member_receiver_type(
+        &self,
+        context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        expression: BoundExpressionId,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<TypeId>, FactQueryError> {
+        let Some(BoundExpression::Name(name)) = unit.view().expression(expression) else {
+            return Ok(types
+                .expression(expression)
+                .filter(|ty| !ty.is_recovered())
+                .map(|ty| ty.ty()));
+        };
+
+        if !name.target().is_compile_time_qualifier() {
+            return Ok(types
+                .expression(expression)
+                .filter(|ty| !ty.is_recovered())
+                .map(|ty| ty.ty()));
+        }
+
+        let bray_bound_tree::BoundReferenceTarget::Surface(symbol) = name.target() else {
+            unreachable!("type qualifier retains a surface declaration");
+        };
+
+        let owner = context
+            .symbols()
+            .symbol_for_key(unit.key().declared_owner())
+            .expect("member unit retains its owner");
+
+        if matches!(
+            symbol,
+            AnySymbolId::Trait(_)
+                | AnySymbolId::InherentImplementation(_)
+                | AnySymbolId::NamedTraitImplementation(_)
+                | AnySymbolId::UnnamedTraitImplementation(_)
+        ) {
+            let Some(self_context) =
+                bray_symbols::SelfTypeContext::try_new(symbol).filter(|self_context| {
+                    context.symbols().enclosing_self_type_context(owner) == Some(*self_context)
+                })
+            else {
+                return Ok(None);
+            };
+
+            return context
+                .semantic_values()
+                .intern_type(TypeData::ContextualSelf(self_context))
+                .map(Some)
+                .map_err(FactQueryError::SemanticValueStore);
+        }
+
+        let anchor = name.origin().source_anchor().syntax();
+
+        let syntax = context
+            .syntax()
+            .find_node(
+                anchor.source_id(),
+                anchor.syntax_kind(),
+                anchor.full_range(),
+                anchor.is_recovered(),
+            )
+            .expect("bound type qualifier retains its source syntax");
+
+        let arguments = name.generic_argument_list().map(|anchor| {
+            anchor
+                .find_descendant::<GenericArgumentListSyntax>(context.syntax())
+                .expect("bound generic argument list retains its syntax")
+        });
+
+        let bound = type_binder(context, owner)
+            .map_err(binding_query_error)?
+            .bind_type_reference(symbol, &syntax, arguments.as_ref())
+            .map_err(binding_query_error)?;
+
+        *diagnostics = diagnostics.merged(bound.diagnostics());
+
+        let checked = self.checked_constant_terms(bound.value())?;
+
+        *diagnostics = diagnostics.merged(checked.diagnostics());
+
+        let Some(ty) = resolve_type_expression_template(
+            context.semantic_values(),
+            bound.value(),
+            checked.value(),
+        ) else {
+            return Ok(None);
+        };
+
+        bray_checker::normalize_type_valued_members(
+            &CompilationCheckerContext::new(*context),
+            ty,
+            diagnostics,
+        )
+        .map(Some)
+        .map_err(FactQueryError::from)
+    }
+
     pub(super) fn resolve_access_subject_type(
         &self,
         binding_context: &CompilationBindingContext<'_>,
@@ -992,31 +1224,15 @@ impl Compilation {
         }
     }
 
-    fn resolve_trait_qualified_member_operation(
+    fn qualified_member_trait_application(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
-        types: &bray_bound_tree::CheckedExpressionTypes,
         expression: BoundExpressionId,
         member: &bray_bound_tree::BoundTraitQualifiedMemberExpression,
+        owner: AnySymbolId,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<SemanticResolution>, FactQueryError> {
-        let Some(BoundMemberSelector::Name(name)) = member.selector() else {
-            return Ok(None);
-        };
-
-        let receiver_type = expression_type(types, member.receiver())?;
-
-        let owner = binding_context
-            .symbols()
-            .symbol_for_key(unit.key().declared_owner())
-            .ok_or_else(|| {
-                unit_contract_failure(
-                    unit.key(),
-                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-                )
-            })?;
-
+    ) -> Result<Option<TraitApplicationId>, FactQueryError> {
         let reference = unit
             .view()
             .expression(member.trait_reference())
@@ -1090,17 +1306,77 @@ impl Compilation {
             return Ok(None);
         };
 
-        let application = type_binder(binding_context, owner)
-            .map_err(binding_query_error)?
-            .resolve_trait_application_template(bound)
-            .map_err(binding_query_error)?
+        let constants = self.checked_constant_terms_for_occurrences(
+            bound.constant_expressions(),
+            binding_context.cancellation(),
+        )?;
+
+        *diagnostics = diagnostics.merged(constants.diagnostics());
+
+        let application = bray_checker::resolve_trait_application_template(
+            binding_context.semantic_values(),
+            bound,
+            constants.value(),
+        )
+        .expect("checked qualified member retains its trait application");
+
+        let checker = CompilationCheckerContext::new(*binding_context);
+        let mut normalizer = bray_checker::TypeNormalizer::new(&checker, None);
+
+        let application = normalizer
+            .normalize_trait_application(application)
+            .map_err(FactQueryError::from)?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
+
+        Ok(Some(application))
+    }
+
+    fn resolve_trait_qualified_member_operation(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+        unit: &bray_bound_tree::BoundUnit,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        expression: BoundExpressionId,
+        member: &bray_bound_tree::BoundTraitQualifiedMemberExpression,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<SemanticResolution>, FactQueryError> {
+        let Some(BoundMemberSelector::Name(name)) = member.selector() else {
+            return Ok(None);
+        };
+
+        let Some(receiver_type) = self.member_receiver_type(
+            binding_context,
+            unit,
+            semantics.types(),
+            member.receiver(),
+            diagnostics,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        let owner = binding_context
+            .symbols()
+            .symbol_for_key(unit.key().declared_owner())
             .ok_or_else(|| {
-                expression_contract_failure(
+                unit_contract_failure(
                     unit.key(),
-                    expression,
-                    SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
                 )
             })?;
+
+        let Some(application) = self.qualified_member_trait_application(
+            binding_context,
+            unit,
+            expression,
+            member,
+            owner,
+            diagnostics,
+        )?
+        else {
+            return Ok(None);
+        };
 
         let application_data = binding_context
             .semantic_values()
@@ -1111,8 +1387,99 @@ impl Compilation {
             .map_err(binding_query_error)?;
 
         let MemberLookupResult::Found(trait_member) = lookup else {
+            if matches!(lookup, MemberLookupResult::NotFound) {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::BindingUnresolvedName,
+                ));
+            }
+
             return Ok(None);
         };
+
+        let member_receiver = member.receiver();
+
+        if let AnySymbolId::TraitConstantMember(member) = trait_member {
+            if !unit
+                .view()
+                .is_compile_time_qualifier(member_receiver, Some(semantics.selections()))
+            {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::CheckingNoApplicableCandidate,
+                ));
+
+                return Ok(None);
+            }
+
+            return self.resolve_trait_constant_member_operation(
+                binding_context,
+                unit,
+                expression,
+                receiver_type,
+                application,
+                member,
+                diagnostics,
+            );
+        }
+
+        if let AnySymbolId::TraitTypeMember(type_member) = trait_member {
+            if !unit
+                .view()
+                .is_compile_time_qualifier(member_receiver, Some(semantics.selections()))
+                || !member_is_type_qualifier_use(unit, expression)
+            {
+                diagnostics.add(super::query::member_selection_diagnostic(
+                    unit,
+                    expression,
+                    DiagnosticKind::CheckingNoApplicableCandidate,
+                ));
+
+                return Ok(None);
+            }
+
+            if !bray_binder::check_member_access(
+                binding_context,
+                unit.view(),
+                expression.into(),
+                application_data.definition().into(),
+                type_member.into(),
+                diagnostics,
+            )
+            .map_err(binding_query_error)?
+            {
+                return Ok(None);
+            }
+
+            let ty = binding_context
+                .semantic_values()
+                .intern_type(TypeData::TypeValuedMemberProjection {
+                    subject: receiver_type,
+                    application,
+                    member: type_member,
+                })
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            let ty = bray_checker::normalize_type_valued_members(
+                &CompilationCheckerContext::new(*binding_context),
+                ty,
+                diagnostics,
+            )
+            .map_err(FactQueryError::from)?;
+
+            return Ok(Some(SemanticResolution::new(
+                expression,
+                ty,
+                [],
+                Some(SelectedOperation::Member(MemberTarget::new(
+                    type_member.into(),
+                    ty,
+                    [],
+                ))),
+            )));
+        }
 
         let Some(trait_member) = TraitCallableMemberSymbolId::try_from_any(trait_member) else {
             return Ok(None);
@@ -1820,4 +2187,25 @@ fn custom_index_borrow_kind(
     }
 
     Ok(BorrowKind::Shared)
+}
+
+fn member_is_type_qualifier_use(
+    unit: &bray_bound_tree::BoundUnit,
+    expression: BoundExpressionId,
+) -> bool {
+    match unit
+        .view()
+        .expression_parent(expression)
+        .and_then(|parent| unit.view().expression(parent))
+    {
+        Some(BoundExpression::MemberAccess(member)) => member.receiver() == expression,
+        Some(BoundExpression::TraitQualifiedMember(member)) => {
+            member.receiver() == expression || member.trait_reference() == expression
+        }
+        Some(BoundExpression::StructConstruction(construction)) => {
+            construction.head() == Some(expression)
+        }
+        Some(BoundExpression::Call(call)) => call.callee() == expression,
+        _ => false,
+    }
 }

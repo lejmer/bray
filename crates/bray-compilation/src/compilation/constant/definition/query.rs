@@ -3,11 +3,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bray_binder::SymbolQueryProvider;
 use bray_binder::semantic_unit_context;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey, BoundUnitKind,
-    CheckedSemanticSelections, CheckedTemplateKind,
+    AnyBoundNodeId, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitKey,
+    BoundUnitKind, CheckedSemanticSelections, CheckedTemplateKind,
 };
 use bray_checker::{
     ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
@@ -48,6 +48,272 @@ use crate::fact::{
 };
 
 impl Compilation {
+    pub(in crate::compilation) fn selected_trait_constant_instance(
+        &self,
+        context: &crate::compilation::binder::CompilationBindingContext<'_>,
+        requirement: bray_symbols::ImplementationRequirementKey,
+        member: bray_symbols::TraitConstantMemberSymbolId,
+        hint: Option<bray_symbols::ImplementationInstanceId>,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<Option<ConstantInstanceKey>, FactQueryError> {
+        let values = context.semantic_values();
+
+        let hint = hint
+            .map(|witness| {
+                crate::compilation::implementation::implementation_instance_requirement(
+                    context, witness,
+                )
+                .map(|selected| (witness, selected))
+            })
+            .transpose()?;
+
+        let hint = hint
+            .map(|(witness, selected)| {
+                if selected == requirement {
+                    return Ok(Some(witness));
+                }
+
+                let checker = crate::compilation::checker::CompilationCheckerContext::new(*context);
+                let mut normalizer = bray_checker::TypeNormalizer::new(&checker, None);
+
+                let selected_subject = normalizer
+                    .normalize_type(selected.subject())
+                    .map_err(FactQueryError::from)?;
+
+                let subject = normalizer
+                    .normalize_type(requirement.subject())
+                    .map_err(FactQueryError::from)?;
+
+                let selected_application = normalizer
+                    .normalize_trait_application(selected.trait_application())
+                    .map_err(FactQueryError::from)?;
+
+                let application = normalizer
+                    .normalize_trait_application(requirement.trait_application())
+                    .map_err(FactQueryError::from)?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                Ok::<_, FactQueryError>(
+                    (selected_subject == subject && selected_application == application)
+                        .then_some(witness),
+                )
+            })
+            .transpose()?
+            .flatten();
+
+        let witness = if let Some(witness) = hint {
+            witness
+        } else {
+            let selected = self.implementation_selection_result_with_cancellation(
+                requirement,
+                context.cancellation(),
+            )?;
+
+            *diagnostics = diagnostics.merged(selected.diagnostics());
+
+            let bray_symbols::ImplementationSelection::Selected(witness) = selected.value() else {
+                return Ok(None);
+            };
+
+            *witness
+        };
+
+        let implementation = values.implementation_instance_data(witness);
+
+        let fulfillments = crate::compilation::implementation::implementation_fulfillments(
+            context,
+            implementation.definition(),
+        )?;
+
+        let application = values.trait_application_data(requirement.trait_application());
+
+        crate::compilation::implementation::implementation_constant_instance(
+            context,
+            fulfillments.constants,
+            member,
+            application.substitution(),
+            witness,
+            diagnostics,
+        )
+    }
+
+    pub(in crate::compilation) fn resolve_constant_term_reference(
+        &self,
+        term: ConstantTermId,
+        hint: Option<bray_symbols::ImplementationInstanceId>,
+        limits: ConstantEvaluationLimits,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<ConstantReferenceResolution, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        match values.constant_term_data(term).as_ref() {
+            ConstantTermData::DefinitionApplication {
+                definition,
+                substitution,
+                selected_implementation,
+            } => {
+                let witness = selected_implementation.or_else(|| {
+                    matches!(definition, AnyConstantDefinitionId::TraitMember(_))
+                        .then_some(hint)
+                        .flatten()
+                });
+
+                self.resolve_constant_instance_reference(
+                    ConstantInstanceKey::new(*definition, *substitution, witness),
+                    limits,
+                    cancellation,
+                    diagnostics,
+                )
+            }
+            ConstantTermData::TraitConstant {
+                requirement,
+                member,
+            } => {
+                let context = self.binding_context(cancellation)?;
+                let mut requirement = *requirement;
+
+                if let Some(witness) = hint
+                    && matches!(
+                        values.type_data(requirement.subject()).as_ref(),
+                        bray_symbols::TypeData::ContextualSelf(_)
+                    )
+                {
+                    let selected =
+                        crate::compilation::implementation::implementation_instance_requirement(
+                            &context, witness,
+                        )?;
+
+                    requirement = bray_symbols::ImplementationRequirementKey::new(
+                        selected.subject(),
+                        requirement.trait_application(),
+                    );
+                }
+
+                let checker = self.checker_context(cancellation)?;
+                let mut normalizer = bray_checker::TypeNormalizer::new(&checker, None);
+
+                requirement = bray_symbols::ImplementationRequirementKey::new(
+                    normalizer
+                        .normalize_type(requirement.subject())
+                        .map_err(FactQueryError::from)?,
+                    normalizer
+                        .normalize_trait_application(requirement.trait_application())
+                        .map_err(FactQueryError::from)?,
+                );
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                let application = values.trait_application_data(requirement.trait_application());
+
+                if !values.type_is_concrete(requirement.subject())
+                    || !values.substitution_is_concrete(application.substitution())
+                {
+                    return Ok(ConstantReferenceResolution::Term(term));
+                }
+
+                let Some(instance) = self.selected_trait_constant_instance(
+                    &context,
+                    requirement,
+                    *member,
+                    hint,
+                    diagnostics,
+                )?
+                else {
+                    return Ok(ConstantReferenceResolution::Invalid);
+                };
+
+                self.resolve_constant_instance_reference(
+                    instance,
+                    limits,
+                    cancellation,
+                    diagnostics,
+                )
+            }
+            _ => panic!(
+                "selected constant reference {term:?} must retain its definition or trait requirement"
+            ),
+        }
+    }
+
+    pub(in crate::compilation) fn resolve_constant_instance_reference(
+        &self,
+        instance: ConstantInstanceKey,
+        limits: ConstantEvaluationLimits,
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<ConstantReferenceResolution, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let checker = self.checker_context(cancellation)?;
+        let mut normalizer = bray_checker::TypeNormalizer::new(&checker, None);
+
+        let substitution = normalizer
+            .normalize_substitution(instance.substitution())
+            .map_err(FactQueryError::from)?;
+
+        let witness = instance
+            .selected_implementation()
+            .map(|witness| {
+                let witness = values.implementation_instance_data(witness);
+
+                let substitution = normalizer
+                    .normalize_substitution(witness.substitution())
+                    .map_err(FactQueryError::from)?;
+
+                values
+                    .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
+                        witness.definition(),
+                        substitution,
+                    ))
+                    .map_err(FactQueryError::SemanticValueStore)
+            })
+            .transpose()?;
+
+        diagnostics.extend(normalizer.take_diagnostics());
+
+        let instance = ConstantInstanceKey::new(instance.definition(), substitution, witness);
+
+        let witness_is_open = instance.selected_implementation().is_some_and(|witness| {
+            let witness = values.implementation_instance_data(witness);
+
+            !values.substitution_is_concrete(witness.substitution())
+        });
+
+        if !values.substitution_is_concrete(instance.substitution())
+            || witness_is_open
+            || (matches!(
+                instance.definition(),
+                AnyConstantDefinitionId::TraitMember(_)
+            ) && instance.selected_implementation().is_none())
+        {
+            let term = values
+                .intern_constant_term(ConstantTermData::DefinitionApplication {
+                    definition: instance.definition(),
+                    substitution: instance.substitution(),
+                    selected_implementation: instance.selected_implementation(),
+                })
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            return Ok(ConstantReferenceResolution::Term(term));
+        }
+
+        match self.constant_instance_with_limits(instance, limits, cancellation) {
+            Ok(result) => {
+                *diagnostics = diagnostics.merged(result.diagnostics());
+
+                Ok(ConstantReferenceResolution::Evaluated(
+                    result.value().clone(),
+                ))
+            }
+            Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle {
+                definition: self.constant_definition_span(instance.definition())?,
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(in crate::compilation) fn resolve_surface_constant(
         &self,
         symbol: AnySymbolId,
@@ -70,14 +336,17 @@ impl Compilation {
         let ty = definition_data.ty();
         let term = definition_data.term();
 
+        if !self.constant_can_evaluate_without_context(definition)? {
+            return Ok(Some((
+                ty,
+                ConstantReferenceResolution::Term(self.constant_reference_term(symbol)?),
+            )));
+        }
+
         let term_data = self.semantic_value_store()?.constant_term_data(term);
 
         if let ConstantTermData::Value(value) = term_data.as_ref() {
             return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
-        }
-
-        if !self.constant_can_evaluate_without_context(symbol, definition)? {
-            return Ok(Some((ty, ConstantReferenceResolution::Term(term))));
         }
 
         let substitution = crate::compilation::substitution::empty_substitution(
@@ -102,16 +371,15 @@ impl Compilation {
         Ok(Some((ty, resolution)))
     }
 
-    fn constant_can_evaluate_without_context(
+    pub(in crate::compilation) fn constant_can_evaluate_without_context(
         &self,
-        symbol: AnySymbolId,
         definition: AnyConstantDefinitionId,
     ) -> Result<bool, FactQueryError> {
         let symbols = self.symbol_graph()?;
 
         Ok(
             !matches!(definition, AnyConstantDefinitionId::TraitMember(_))
-                && !has_visible_generic_parameters(symbols, symbol),
+                && !has_visible_generic_parameters(symbols, definition.into_any()),
         )
     }
 
@@ -438,6 +706,35 @@ impl Compilation {
         limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
+        if let AnyConstantDefinitionId::TraitMember(member) = instance.definition()
+            && let Some(witness) = instance.selected_implementation()
+        {
+            let context = self.binding_context(cancellation)?;
+
+            let requirement =
+                crate::compilation::implementation::implementation_instance_requirement(
+                    &context, witness,
+                )?;
+
+            let mut diagnostics = DiagnosticBag::new();
+
+            if let Some(selected) = self.selected_trait_constant_instance(
+                &context,
+                requirement,
+                member,
+                Some(witness),
+                &mut diagnostics,
+            )? && selected != instance
+            {
+                let result = self.constant_instance_with_limits(selected, limits, cancellation)?;
+
+                return Ok(DiagnosticResult::new(
+                    result.value().clone(),
+                    diagnostics.merged(result.diagnostics()),
+                ));
+            }
+        }
+
         if let Some(value) = self.target_constant_value(instance.definition())? {
             return Ok(DiagnosticResult::without_diagnostics(
                 EvaluatedConstantCall::new(value, Default::default()),
@@ -451,14 +748,37 @@ impl Compilation {
         let term = self.symbolic_constant_term_with_cancellation(key.clone(), cancellation)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
-        let context = self.checker_context_for(&key, cancellation)?;
+
+        let context = self
+            .checker_context_for(&key, cancellation)?
+            .with_implementation_witnesses(instance.selected_implementation());
 
         let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
+
+        let contextual_self = match (
+            instance.selected_implementation(),
+            context
+                .symbols()
+                .enclosing_self_type_context(instance.definition().into_any()),
+        ) {
+            (Some(witness), Some(self_context)) => {
+                let binding = self.binding_context(cancellation)?;
+
+                let requirement =
+                    crate::compilation::implementation::implementation_instance_requirement(
+                        &binding, witness,
+                    )?;
+
+                Some((self_context, requirement.subject()))
+            }
+            _ => None,
+        };
 
         let (types, type_diagnostics) = instantiate_expression_types(
             &context,
             semantics.result().value().types(),
             instance.substitution(),
+            contextual_self,
         )?
         .into_parts();
 
@@ -610,7 +930,9 @@ impl Compilation {
             .into());
         };
 
-        let context = self.checker_context(cancellation)?;
+        let context = self
+            .checker_context(cancellation)?
+            .with_implementation_witnesses(instance.selected_implementation());
 
         let resolver = CompilationConstantTemplateResolver::new(self, cancellation, Some(symbols));
 
@@ -621,7 +943,7 @@ impl Compilation {
         let evaluated = checker_result(evaluate_constant_definition_template(
             &context,
             imported.template(),
-            instance.substitution(),
+            instance,
             definition.ty(),
             &resolver,
             diagnostic_span,
@@ -647,6 +969,67 @@ impl Compilation {
         )
     }
 
+    pub(in crate::compilation) fn constant_reference_term(
+        &self,
+        symbol: AnySymbolId,
+    ) -> Result<ConstantTermId, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        let definition =
+            constant_definition_id(symbol).expect("constant reference retains its definition");
+
+        let symbols = self.symbol_graph()?;
+        let parameters = crate::compilation::binder::visible_generic_parameters(symbols, symbol);
+
+        let substitution = crate::compilation::substitution::identity_substitution(
+            values,
+            bray_symbols::GenericOwnerId::try_new(symbol)
+                .expect("constant owns a generic environment"),
+            &parameters,
+        )?;
+
+        let data = if let AnyConstantDefinitionId::TraitMember(member) = definition {
+            let owner = symbols
+                .containing_symbol(symbol)
+                .expect("trait constant has a declaring trait");
+
+            let AnySymbolId::Trait(owner) = owner else {
+                panic!("trait constant owner must be a trait");
+            };
+
+            let application_substitution =
+                crate::compilation::substitution::substitution_for_owner(
+                    values,
+                    owner.into(),
+                    [substitution],
+                )?;
+
+            let application = values
+                .intern_trait_application(bray_symbols::TraitApplicationData::new(
+                    owner,
+                    application_substitution,
+                ))
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            let subject = values
+                .intern_type(bray_symbols::TypeData::ContextualSelf(
+                    bray_symbols::SelfTypeContext::Trait(owner),
+                ))
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            ConstantTermData::TraitConstant {
+                requirement: bray_symbols::ImplementationRequirementKey::new(subject, application),
+                member,
+            }
+        } else {
+            ConstantTermData::from(ConstantInstanceKey::new(definition, substitution, None))
+        };
+
+        values
+            .intern_constant_term(data)
+            .map_err(FactQueryError::SemanticValueStore)
+    }
+
     pub(in crate::compilation) fn symbolic_references(
         &self,
         bound: &BoundUnit,
@@ -655,44 +1038,35 @@ impl Compilation {
     ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        super::support::collect_constant_references_from(bound, selections, root, |_, target| {
-            match target {
-                BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
-                    values
+        super::support::collect_constant_references_from(
+            bound,
+            selections,
+            root,
+            |_, target, instance| {
+                if let Some(reference) = instance {
+                    return Ok(ConstantReferenceResolution::Term(reference));
+                }
+
+                match target {
+                    BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(
+                        parameter,
+                    )) => values
                         .intern_constant_term(ConstantTermData::Parameter(parameter))
                         .map(ConstantReferenceResolution::Term)
-                        .map_err(FactQueryError::SemanticValueStore)
+                        .map_err(FactQueryError::SemanticValueStore),
+                    BoundReferenceTarget::Surface(symbol) => {
+                        let Some(definition) = constant_definition_id(symbol) else {
+                            return Ok(ConstantReferenceResolution::Invalid);
+                        };
+
+                        let term = self.constant_reference_term(definition.into_any())?;
+
+                        Ok(ConstantReferenceResolution::Term(term))
+                    }
+                    BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
                 }
-                BoundReferenceTarget::Surface(symbol) => {
-                    let Some(definition) = constant_definition_id(symbol) else {
-                        return Ok(ConstantReferenceResolution::Invalid);
-                    };
-
-                    let parameters = crate::compilation::binder::visible_generic_parameters(
-                        self.symbol_graph()?,
-                        symbol,
-                    );
-
-                    let substitution = crate::compilation::substitution::identity_substitution(
-                        values,
-                        bray_symbols::GenericOwnerId::try_new(definition.into_any())
-                            .expect("constant definitions retain a generic environment"),
-                        &parameters,
-                    )?;
-
-                    let term = values
-                        .intern_constant_term(ConstantTermData::DefinitionApplication {
-                            definition,
-                            substitution,
-                            selected_implementation: None,
-                        })
-                        .map_err(FactQueryError::SemanticValueStore)?;
-
-                    Ok(ConstantReferenceResolution::Term(term))
-                }
-                BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
-            }
-        })
+            },
+        )
     }
 
     fn concrete_references(
@@ -808,120 +1182,181 @@ impl Compilation {
         let unit = bound.key().clone();
 
         let references =
-            collect_constant_references(bound, selections, |expression, target| match target {
-                BoundReferenceTarget::Surface(symbol)
-                    if context.parameters.contains_key(&symbol) =>
-                {
-                    context
-                        .parameters
-                        .get(&symbol)
-                        .copied()
-                        .map(ConstantReferenceResolution::Value)
-                        .ok_or_else(|| {
-                            SemanticQueryFailure::contract(
+            collect_constant_references(bound, selections, |expression, target, instance| {
+                if let Some(instance) = instance {
+                    let term = match context.substitution {
+                        Some(substitution) => values
+                            .substitute_constant_term(instance, substitution)
+                            .map_err(FactQueryError::SemanticValueStore)?,
+                        None => instance,
+                    };
+
+                    return self.resolve_constant_term_reference(
+                        term,
+                        context.selected_implementation,
+                        limits,
+                        cancellation,
+                        &mut dependency_diagnostics,
+                    );
+                }
+
+                match target {
+                    BoundReferenceTarget::Surface(symbol)
+                        if context.parameters.contains_key(&symbol) =>
+                    {
+                        context
+                            .parameters
+                            .get(&symbol)
+                            .copied()
+                            .map(ConstantReferenceResolution::Value)
+                            .ok_or_else(|| {
+                                SemanticQueryFailure::contract(
+                                    SemanticQueryContext::Expression {
+                                        unit: unit.clone(),
+                                        expression,
+                                    },
+                                    SemanticQueryViolation::Missing(SemanticDataKind::LiteralValue),
+                                )
+                                .into()
+                            })
+                    }
+                    BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(
+                        parameter,
+                    )) => {
+                        let Some(substitution) = &substitution else {
+                            return Err(SemanticQueryFailure::contract(
                                 SemanticQueryContext::Expression {
                                     unit: unit.clone(),
                                     expression,
                                 },
-                                SemanticQueryViolation::Missing(SemanticDataKind::LiteralValue),
+                                SemanticQueryViolation::Missing(
+                                    SemanticDataKind::GenericSubstitution,
+                                ),
                             )
-                            .into()
-                        })
-                }
-                BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
-                    let Some(substitution) = &substitution else {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Expression {
-                                unit: unit.clone(),
-                                expression,
-                            },
-                            SemanticQueryViolation::Missing(SemanticDataKind::GenericSubstitution),
-                        )
-                        .into());
-                    };
+                            .into());
+                        };
 
-                    let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
-                        .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
-                    else {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Expression {
-                                unit: unit.clone(),
-                                expression,
-                            },
-                            SemanticQueryViolation::Missing(SemanticDataKind::ConstantTerm),
-                        )
-                        .into());
-                    };
+                        let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
+                            .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
+                        else {
+                            return Err(SemanticQueryFailure::contract(
+                                SemanticQueryContext::Expression {
+                                    unit: unit.clone(),
+                                    expression,
+                                },
+                                SemanticQueryViolation::Missing(SemanticDataKind::ConstantTerm),
+                            )
+                            .into());
+                        };
 
-                    let data = values.constant_term_data(term);
+                        let checker = self.checker_context(cancellation)?;
 
-                    match data.as_ref() {
-                        ConstantTermData::Value(value) => {
-                            Ok(ConstantReferenceResolution::Value(*value))
+                        let normalized =
+                            bray_checker::CheckerRequestContext::normalize_constant_argument(
+                                &checker,
+                                parameter,
+                                context
+                                    .substitution
+                                    .expect("concrete reference retains substitution"),
+                                None,
+                                term,
+                            )
+                            .map_err(FactQueryError::from)?;
+
+                        dependency_diagnostics =
+                            dependency_diagnostics.merged(normalized.diagnostics());
+
+                        let term = *normalized.value();
+                        let data = values.constant_term_data(term);
+
+                        match data.as_ref() {
+                            ConstantTermData::Value(value) => {
+                                Ok(ConstantReferenceResolution::Value(*value))
+                            }
+                            _ => Err(SemanticQueryFailure::contract(
+                                SemanticQueryContext::Expression {
+                                    unit: unit.clone(),
+                                    expression,
+                                },
+                                SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantTerm),
+                            )
+                            .into()),
                         }
-                        _ => Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Expression {
-                                unit: unit.clone(),
-                                expression,
-                            },
-                            SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantTerm),
-                        )
-                        .into()),
                     }
-                }
-                BoundReferenceTarget::Surface(symbol) => {
-                    let Some(definition) = constant_definition_id(symbol) else {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Symbol(symbol),
-                            SemanticQueryViolation::Unsupported(
-                                SemanticDataKind::ConstantDefinition,
-                            ),
-                        )
-                        .into());
-                    };
+                    BoundReferenceTarget::Surface(symbol) => {
+                        let Some(definition) = constant_definition_id(symbol) else {
+                            return Err(SemanticQueryFailure::contract(
+                                SemanticQueryContext::Symbol(symbol),
+                                SemanticQueryViolation::Unsupported(
+                                    SemanticDataKind::ConstantDefinition,
+                                ),
+                            )
+                            .into());
+                        };
 
-                    let dependency = if let Some(instance) = context
-                        .current_constant
-                        .filter(|instance| definition == instance.definition())
-                    {
-                        instance
-                    } else {
-                        ConstantInstanceKey::new(
-                            definition,
-                            crate::compilation::substitution::empty_substitution(
-                                values,
-                                definition.into_any(),
-                            )?,
-                            selected_implementation_for_reference(
+                        let dependency = if let Some(instance) = context
+                            .current_constant
+                            .filter(|instance| definition == instance.definition())
+                        {
+                            instance
+                        } else {
+                            ConstantInstanceKey::new(
                                 definition,
-                                context.selected_implementation,
-                            ),
-                        )
-                    };
+                                {
+                                    let parameters =
+                                        crate::compilation::binder::visible_generic_parameters(
+                                            self.symbol_graph()?,
+                                            symbol,
+                                        );
 
-                    match self.constant_instance_with_limits(dependency, limits, cancellation) {
-                        Ok(result) => {
-                            dependency_diagnostics =
-                                dependency_diagnostics.merged(result.diagnostics());
+                                    let identity =
+                                        crate::compilation::substitution::identity_substitution(
+                                            values,
+                                            bray_symbols::GenericOwnerId::try_new(symbol)
+                                                .expect("constant owns a generic environment"),
+                                            &parameters,
+                                        )?;
 
-                            Ok(ConstantReferenceResolution::Evaluated(
-                                result.value().clone(),
-                            ))
+                                    match context.substitution {
+                                        Some(substitution) => values
+                                            .substitute_generic_substitution(identity, substitution)
+                                            .map_err(FactQueryError::SemanticValueStore)?,
+                                        None => identity,
+                                    }
+                                },
+                                selected_implementation_for_reference(
+                                    definition,
+                                    context.selected_implementation,
+                                ),
+                            )
+                        };
+
+                        match self.constant_instance_with_limits(dependency, limits, cancellation) {
+                            Ok(result) => {
+                                dependency_diagnostics =
+                                    dependency_diagnostics.merged(result.diagnostics());
+
+                                Ok(ConstantReferenceResolution::Evaluated(
+                                    result.value().clone(),
+                                ))
+                            }
+                            Err(FactQueryError::Cycle(_)) => {
+                                Ok(ConstantReferenceResolution::Cycle {
+                                    definition: self.constant_definition_span(definition)?,
+                                })
+                            }
+                            Err(error) => Err(error),
                         }
-                        Err(FactQueryError::Cycle(_)) => Ok(ConstantReferenceResolution::Cycle {
-                            definition: self.constant_definition_span(definition)?,
-                        }),
-                        Err(error) => Err(error),
                     }
+                    BoundReferenceTarget::Local(_) => Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Expression {
+                            unit: unit.clone(),
+                            expression,
+                        },
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+                    )
+                    .into()),
                 }
-                BoundReferenceTarget::Local(_) => Err(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Expression {
-                        unit: unit.clone(),
-                        expression,
-                    },
-                    SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
-                )
-                .into()),
             })?;
 
         Ok((references, dependency_diagnostics))
@@ -2094,73 +2529,113 @@ const RESULT: Holder<i32> = Holder<i32>.make();
 
     #[test]
     fn repeated_arrays_charge_expansion_before_materializing_elements() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             module app;
 
             const VALUES: [i32; 3] = [7; 3];
-        "#);
+        "#,
+        );
 
         let definitions = source_constant_definitions(&compilation);
 
-        let [definition] = definitions.as_slice() else { panic!("fixture has one constant"); };
+        let [definition] = definitions.as_slice() else {
+            panic!("fixture has one constant");
+        };
 
         let instance = instance_key(&compilation, *definition);
 
-        let result = compilation.constant_instance_with_limits(
-            instance, ConstantEvaluationLimits::new(1000, 10, 1000).with_expansions(2),
-            &compilation.state.cancellation,
-        ).expect("bounded evaluation returns a source diagnostic");
+        let result = compilation
+            .constant_instance_with_limits(
+                instance,
+                ConstantEvaluationLimits::new(1000, 10, 1000).with_expansions(2),
+                &compilation.state.cancellation,
+            )
+            .expect("bounded evaluation returns a source diagnostic");
 
-        assert_goal_state_diagnostic_kind(result.diagnostics(), DiagnosticKind::CheckingConstantExpansionLimitExceeded);
+        assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::CheckingConstantExpansionLimitExceeded,
+        );
     }
 
     #[test]
     fn repeated_arrays_evaluate_constant_elements_even_at_zero_extent() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             module app;
 
             const VALUES: [i32; 0] = [1 / 0; 0];
-        "#);
+        "#,
+        );
 
-        assert_goal_state_diagnostic_kind(compilation.check_diagnostics(), DiagnosticKind::CheckingConstantDivisionByZero);
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingConstantDivisionByZero,
+        );
     }
 
     #[test]
     fn repeated_arrays_specialize_generic_constant_initializers() {
-        let compilation = compilation(r#"
+        let compilation = compilation(
+            r#"
             module app;
 
             struct Buffer<const N: usize>
             {
                 const VALUES: [i32; N] = [7; N];
             }
-        "#);
+        "#,
+        );
 
         let definitions = source_constant_definitions(&compilation);
 
-        let [definition] = definitions.as_slice() else { panic!("fixture has one constant"); };
+        let [definition] = definitions.as_slice() else {
+            panic!("fixture has one constant");
+        };
 
         let graph = compilation.symbol_graph().expect("fixture symbol graph");
 
-        let structure = graph.structures().iter().find(|structure| structure.origin() == SymbolOrigin::Source)
+        let structure = graph
+            .structures()
+            .iter()
+            .find(|structure| structure.origin() == SymbolOrigin::Source)
             .expect("fixture generic structure");
 
-        let [parameter] = structure.generic_const_parameters() else { panic!("fixture has one const parameter"); };
+        let [parameter] = structure.generic_const_parameters() else {
+            panic!("fixture has one const parameter");
+        };
 
-        let usize_type = scalar_type(&compilation, bray_compiler_known::RepresentationRole::ScalarUsize);
+        let usize_type = scalar_type(
+            &compilation,
+            bray_compiler_known::RepresentationRole::ScalarUsize,
+        );
 
         for count in [0, 1, 3] {
-            let substitution = concrete_substitution(&compilation, structure.id().into(), *parameter, usize_type, count);
+            let substitution = concrete_substitution(
+                &compilation,
+                structure.id().into(),
+                *parameter,
+                usize_type,
+                count,
+            );
 
-            let result = compilation.constant_instance(ConstantInstanceKey::new(*definition, substitution, None))
+            let result = compilation
+                .constant_instance(ConstantInstanceKey::new(*definition, substitution, None))
                 .expect("generic repeated constant instance");
 
-            assert!(result.diagnostics().is_empty(), "{:#?}", result.diagnostics());
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
 
             let values = compilation.semantic_value_store().expect("fixture values");
             let value = values.constant_value_data(result.value().value());
 
-            let ConstantValueKind::Array(elements) = value.kind() else { panic!("repeated constant is an array"); };
+            let ConstantValueKind::Array(elements) = value.kind() else {
+                panic!("repeated constant is an array");
+            };
 
             assert_eq!(elements.len(), usize::from(count));
 

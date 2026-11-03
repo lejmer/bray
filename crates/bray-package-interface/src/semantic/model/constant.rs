@@ -7,7 +7,8 @@ use bray_symbols::{
 
 use super::{
     InterfaceCallableInstanceId, InterfaceConstantTermId, InterfaceConstantValueId,
-    InterfaceGenericSubstitutionId, InterfaceImplementationInstanceId, InterfaceTypeId,
+    InterfaceGenericSubstitutionId, InterfaceImplementationInstanceId, InterfaceTraitApplicationId,
+    InterfaceTypeId,
 };
 use crate::InterfaceSymbolReference;
 
@@ -147,6 +148,15 @@ pub enum InterfaceConstantTerm {
         variant: InterfaceSymbolReference,
         /// Ordered payload fields.
         fields: Arc<[ConstantField<InterfaceSymbolReference, InterfaceConstantTermId>]>,
+    },
+    /// A constant selected from the implementation of an instantiated trait requirement.
+    TraitConstant {
+        /// Implementation subject.
+        subject: InterfaceTypeId,
+        /// Applied trait that declares the constant.
+        application: InterfaceTraitApplicationId,
+        /// Selected trait constant member.
+        member: InterfaceSymbolReference,
     },
     /// An applied constant definition that remains open.
     DefinitionApplication {

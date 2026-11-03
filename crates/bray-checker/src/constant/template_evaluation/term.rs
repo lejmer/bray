@@ -3,7 +3,7 @@ use bray_compiler_known::IntegerRepresentation;
 use bray_symbols::{
     AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjection,
     ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
-    GenericSubstitutionId, ImplementationInstanceId, TargetSizedIntegerType, TypeId,
+    ImplementationInstanceId, TargetSizedIntegerType, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;
@@ -351,11 +351,16 @@ where
             let value = evaluator.evaluate_term(*value, *element)?;
 
             let usize_type = crate::representation::representation_type_for_context(
-                evaluator.context, bray_compiler_known::RepresentationRole::ScalarUsize,
+                evaluator.context,
+                bray_compiler_known::RepresentationRole::ScalarUsize,
             );
 
             let count = evaluator.evaluate_term(*count, usize_type)?;
-            let count = evaluator.context.semantic_values().constant_value_data(count);
+
+            let count = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(count);
 
             let count = super::support::integer_index(count.kind())
                 .expect("checked repeated-array count retains its usize value");
@@ -415,17 +420,9 @@ where
                 },
             ))
         }
-        ConstantTermData::DefinitionApplication {
-            definition,
-            substitution,
-            selected_implementation,
-        } => evaluate_definition_application(
-            evaluator,
-            *definition,
-            *substitution,
-            *selected_implementation,
-            ty,
-        ),
+        ConstantTermData::TraitConstant { .. } | ConstantTermData::DefinitionApplication { .. } => {
+            evaluate_constant_reference(evaluator, term, ty)
+        }
         ConstantTermData::Call {
             callable,
             selected_implementation,
@@ -596,25 +593,64 @@ where
     })
 }
 
-fn evaluate_definition_application<C>(
+fn evaluate_constant_reference<C: CheckerRequestContext + ?Sized>(
     evaluator: &mut TemplateEvaluator<'_, C>,
-    definition: AnyConstantDefinitionId,
-    substitution: GenericSubstitutionId,
-    selected_implementation: Option<ImplementationInstanceId>,
+    reference: ConstantTermId,
     ty: TypeId,
-) -> Result<ConstantValueId, TemplateEvaluationFailure>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let result = evaluator
-        .resolver
-        .resolve_constant(
-            ConstantInstanceKey::new(definition, substitution, selected_implementation),
-            evaluator.budget.remaining_limits(evaluator.limits),
-        )
-        .map_err(|error| evaluator.record_query_failure(error))?;
+) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+    let data = evaluator
+        .context
+        .semantic_values()
+        .constant_term_data(reference);
 
+    let limits = evaluator.budget.remaining_limits(evaluator.limits);
+
+    let result = match data.as_ref() {
+        ConstantTermData::TraitConstant {
+            requirement,
+            member,
+        } => evaluator.resolver.resolve_trait_constant(
+            *requirement,
+            *member,
+            evaluator.selected_implementation,
+            limits,
+        ),
+        ConstantTermData::DefinitionApplication {
+            definition,
+            substitution,
+            selected_implementation,
+        } => {
+            let witness = selected_implementation.or_else(|| {
+                matches!(definition, AnyConstantDefinitionId::TraitMember(_))
+                    .then_some(evaluator.selected_implementation)
+                    .flatten()
+            });
+
+            evaluator.resolver.resolve_constant(
+                ConstantInstanceKey::new(*definition, *substitution, witness),
+                limits,
+            )
+        }
+        _ => unreachable!(
+            "constant reference evaluation receives a selected declaration or trait member"
+        ),
+    }
+    .map_err(|error| evaluator.record_query_failure(error))?;
+
+    evaluate_reference_result(evaluator, reference, result, ty)
+}
+
+fn evaluate_reference_result<C: CheckerRequestContext + ?Sized>(
+    evaluator: &mut TemplateEvaluator<'_, C>,
+    reference: ConstantTermId,
+    result: bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>,
+    ty: TypeId,
+) -> Result<ConstantValueId, TemplateEvaluationFailure> {
     evaluator.diagnostics = evaluator.diagnostics.merged(result.diagnostics());
+
+    if evaluator.diagnostics.has_errors() {
+        return Err(TemplateEvaluationFailure::Diagnosed);
+    }
 
     match result.value() {
         ConstantReferenceResolution::Value(value) => Ok(*value),
@@ -626,14 +662,30 @@ where
 
             Ok(result.value())
         }
-        ConstantReferenceResolution::Term(term) => evaluator.evaluate_term(*term, ty),
+        ConstantReferenceResolution::Term(term) => {
+            assert_ne!(
+                *term,
+                reference,
+                "closed constant reference must make evaluation progress: {:?}",
+                evaluator
+                    .context
+                    .semantic_values()
+                    .constant_term_data(reference)
+            );
+
+            evaluator.evaluate_term(*term, ty)
+        }
         ConstantReferenceResolution::Cycle { definition } => Err(
             TemplateEvaluationFailure::Diagnostic(ConstantDiagnostic::Cycle {
                 definition: *definition,
             }),
         ),
         ConstantReferenceResolution::Invalid => panic!(
-            "constant definition application must have a valid reference resolution, definition: {definition:?}"
+            "checked constant reference must resolve: {:?}",
+            evaluator
+                .context
+                .semantic_values()
+                .constant_term_data(reference),
         ),
     }
 }

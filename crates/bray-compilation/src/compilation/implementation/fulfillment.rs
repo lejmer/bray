@@ -17,6 +17,8 @@ use crate::fact::FactQueryError;
 pub(in crate::compilation) struct ImplementationFulfillments<'symbols> {
     pub(in crate::compilation) callables: &'symbols [TraitCallableFulfillmentSymbolId],
     pub(in crate::compilation) types: &'symbols [TraitTypeFulfillmentSymbolId],
+    pub(in crate::compilation) constants:
+        &'symbols [bray_symbols::TraitConstantFulfillmentSymbolId],
 }
 
 pub(in crate::compilation) enum TypeValuedMemberResolution {
@@ -64,6 +66,20 @@ pub(in crate::compilation) fn implementation_requirement(
         subject,
         application,
     ))
+}
+
+pub(in crate::compilation) fn matching_implementation_witness(
+    context: &CompilationBindingContext<'_>,
+    requirement: ImplementationRequirementKey,
+    witnesses: &[ImplementationInstanceId],
+) -> Result<Option<ImplementationInstanceId>, FactQueryError> {
+    for witness in witnesses.iter().copied() {
+        if implementation_instance_requirement(context, witness)? == requirement {
+            return Ok(Some(witness));
+        }
+    }
+
+    Ok(None)
 }
 
 pub(in crate::compilation) fn implementation_instance_requirement(
@@ -165,6 +181,7 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
         ImplementationSymbolId::UnnamedTrait(id) => binding_context
             .symbols()
@@ -172,6 +189,7 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
         ImplementationSymbolId::NamedTrait(id) => binding_context
             .symbols()
@@ -179,6 +197,7 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
     };
 
@@ -196,18 +215,21 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
         ImplementationSymbolId::UnnamedTrait(id) => imported
             .and_then(|symbols| symbols.unnamed_trait_implementation(id))
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
         ImplementationSymbolId::NamedTrait(id) => imported
             .and_then(|symbols| symbols.named_trait_implementation(id))
             .map(|symbol| ImplementationFulfillments {
                 callables: symbol.callable_fulfillments(),
                 types: symbol.type_fulfillments(),
+                constants: symbol.constant_fulfillments(),
             }),
     };
 
@@ -394,6 +416,62 @@ pub(in crate::compilation) fn callable_instance(
         super::super::substitution::substitution_for_owner(values, callable, substitutions)?;
 
     Ok(CallableInstanceData::new(definition, substitution))
+}
+
+pub(in crate::compilation) fn implementation_constant_instance(
+    context: &CompilationBindingContext<'_>,
+    fulfillments: &[bray_symbols::TraitConstantFulfillmentSymbolId],
+    member: bray_symbols::TraitConstantMemberSymbolId,
+    trait_substitution: bray_symbols::GenericSubstitutionId,
+    witness: ImplementationInstanceId,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<Option<bray_symbols::ConstantInstanceKey>, FactQueryError> {
+    let name = fulfillment_name(context, member.into())?
+        .expect("trait constant member retains its declared name");
+
+    let selected = matching_fulfillment(context, fulfillments, name)?;
+    let values = context.semantic_values();
+    let implementation = values.implementation_instance_data(witness);
+
+    let (definition, substitutions) = match selected {
+        Some(selected) => (
+            bray_symbols::AnyConstantDefinitionId::TraitFulfillment(selected),
+            vec![trait_substitution, implementation.substitution()],
+        ),
+        None => {
+            let default = context
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::TraitConstantMemberDefinitionQuery,
+                >::new(member))
+                .map_err(binding_query_error)?;
+
+            *diagnostics = diagnostics.merged(default.diagnostics());
+
+            if !matches!(
+                default.value(),
+                bray_symbols::ConstantDefinitionState::Defined(_)
+            ) {
+                return Ok(None);
+            }
+
+            (
+                bray_symbols::AnyConstantDefinitionId::TraitMember(member),
+                vec![trait_substitution],
+            )
+        }
+    };
+
+    let substitution = crate::compilation::substitution::substitution_for_owner(
+        values,
+        definition.into_any(),
+        substitutions,
+    )?;
+
+    Ok(Some(bray_symbols::ConstantInstanceKey::new(
+        definition,
+        substitution,
+        Some(witness),
+    )))
 }
 
 fn fulfillment_name<'binding_context>(

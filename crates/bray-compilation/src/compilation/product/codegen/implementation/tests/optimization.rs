@@ -469,16 +469,82 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
             r#"
             module application;
 
-            const COUNT: usize = 4096;
-
-            const func count() -> usize
+            trait Capacity
             {{
-                return COUNT;
+                const VALUE: usize;
+
+                static func read() -> usize
+                {{
+                    return VALUE;
+                }}
+            }}
+
+            struct Buffer<const N: usize>
+            {{
+            }}
+
+            impl Buffer<M>(Capacity)
+            {{
+                const VALUE: usize = M;
+            }}
+
+            const func count<T>() -> usize with(T: Capacity)
+            {{
+                return T(Capacity).VALUE;
+            }}
+
+            func runtime_capacity<T>() -> usize with(T: Capacity)
+            {{
+                return T(Capacity).VALUE;
+            }}
+
+            public func capacity() -> usize
+            {{
+                return runtime_capacity<Buffer<4096>>();
+            }}
+
+            public func default_capacity() -> usize
+            {{
+                return Buffer<4096>(Capacity).read();
+            }}
+
+            struct Subjects
+            {{
+            }}
+
+            impl Subjects
+            {{
+                type Target = Buffer<4096>;
+            }}
+
+            trait Project
+            {{
+                type Target;
+            }}
+
+            impl Subjects(Project)
+            {{
+                type Target = Buffer<4096>;
+            }}
+
+            func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
+            {{
+                return T(Project).Target(Capacity).VALUE;
+            }}
+
+            public func deferred_capacity() -> usize
+            {{
+                return projected<Subjects>();
+            }}
+
+            public func alias_capacity() -> usize
+            {{
+                return Subjects.Target(Capacity).read();
             }}
 
             public func repeated(pos value: {element}) -> [{element}; 4096]
             {{
-                return [value; count()];
+                return [value; count<Buffer<4096>>()];
             }}
             "#
         );
@@ -490,6 +556,7 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
             .filter(|line| line.contains("call void @llvm.memset"))
             .collect::<Vec<_>>();
 
+        assert!(ir.contains("ret i64 4096"), "{ir}");
         assert_eq!(fills.len(), 1, "{ir}");
         assert!(fills[0].contains("i64 4096"), "{ir}");
         assert_eq!(ir.matches("store i8").count(), 1, "{ir}");

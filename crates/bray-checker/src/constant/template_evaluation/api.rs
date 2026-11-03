@@ -198,6 +198,7 @@ where
         resolver,
         diagnostic_span,
         crate::ConstantEvaluationLimits::default(),
+        None,
     ) {
         CheckerOutcome::Complete(result) => CheckerOutcome::Complete(
             result.map(|evaluated| evaluated.map(|evaluated| evaluated.value())),
@@ -211,7 +212,7 @@ where
 pub fn evaluate_constant_definition_template<C>(
     context: &C,
     template: &CheckedTemplate,
-    substitution: GenericSubstitutionId,
+    instance: bray_symbols::ConstantInstanceKey,
     result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
@@ -224,11 +225,12 @@ where
         context,
         template,
         CheckedTemplateKind::ConstantDefinition,
-        substitution,
+        instance.substitution(),
         result_type,
         resolver,
         diagnostic_span,
         limits,
+        Some(instance),
     )
 }
 
@@ -269,6 +271,7 @@ where
         resolver,
         diagnostic_span,
         limits,
+        None,
     )
 }
 
@@ -285,6 +288,7 @@ fn evaluate_closed_template<C>(
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
     limits: crate::ConstantEvaluationLimits,
+    constant_instance: Option<bray_symbols::ConstantInstanceKey>,
 ) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -300,10 +304,42 @@ where
         &mut budget,
     );
 
-    let evaluated = evaluator
-        .evaluate_generic_inputs()
-        .and_then(|()| evaluator.instantiate_type(result_type))
-        .and_then(|ty| evaluator.evaluate_result(kind, ty));
+    evaluator.selected_implementation =
+        constant_instance.and_then(|instance| instance.selected_implementation());
+
+    let evaluated = (|| {
+        if let Some(instance) = constant_instance
+            && let Some(witness) = instance.selected_implementation()
+            && let Some(self_context) = context
+                .enclosing_self_type_context(instance.definition().into_any())
+                .map_err(|error| evaluator.record_query_failure(error))?
+        {
+            let implementation = context
+                .semantic_values()
+                .implementation_instance_data(witness);
+
+            let subject = context
+                .implementation_subject_type(implementation.definition())
+                .map_err(|error| evaluator.record_query_failure(error))?;
+
+            evaluator
+                .diagnostics
+                .extend(subject.diagnostics().iter().cloned());
+
+            let subject = context
+                .semantic_values()
+                .substitute_type(*subject.value(), implementation.substitution())
+                .expect("selected implementation retains its subject substitution");
+
+            evaluator.contextual_self = Some((self_context, subject));
+        }
+
+        evaluator.evaluate_generic_inputs()?;
+
+        let ty = evaluator.instantiate_type(result_type)?;
+
+        evaluator.evaluate_result(kind, ty)
+    })();
 
     complete_closed_evaluation(evaluator, evaluated, result_type, diagnostic_span)
 }
@@ -1253,10 +1289,28 @@ mod tests {
             TextRange::new(TextSize::new(0), TextSize::new(1)),
         );
 
+        let definition = bray_symbols::ConstantSymbolId::from_symbol_id(SymbolId::new(999));
+
+        let substitution = values
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(
+                    GenericOwnerId::try_new(definition.into())
+                        .expect("constant owns a generic environment"),
+                    [],
+                    [],
+                )
+                .expect("fixture substitution is valid"),
+            )
+            .expect("fixture substitution must intern");
+
         let outcome = evaluate_constant_definition_template(
             &TestCheckerContext::new(false),
             &template,
-            substitution,
+            bray_symbols::ConstantInstanceKey::new(
+                bray_symbols::AnyConstantDefinitionId::Constant(definition),
+                substitution,
+                None,
+            ),
             unit,
             &UnusedTemplateResolver,
             Some(span),
@@ -1374,6 +1428,17 @@ mod tests {
             unreachable!("typed call template must not resolve constants")
         }
 
+        fn resolve_trait_constant(
+            &self,
+            _requirement: bray_symbols::ImplementationRequirementKey,
+            _member: bray_symbols::TraitConstantMemberSymbolId,
+            _implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _limits: ConstantEvaluationLimits,
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        {
+            panic!("this fixture does not evaluate trait constant references");
+        }
+
         fn resolve_static(
             &self,
             _declaration: StaticSymbolId,
@@ -1449,6 +1514,17 @@ mod tests {
             unreachable!("product template must not resolve constants")
         }
 
+        fn resolve_trait_constant(
+            &self,
+            _requirement: bray_symbols::ImplementationRequirementKey,
+            _member: bray_symbols::TraitConstantMemberSymbolId,
+            _implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _limits: ConstantEvaluationLimits,
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        {
+            panic!("this fixture does not evaluate trait constant references");
+        }
+
         fn resolve_static(
             &self,
             _declaration: StaticSymbolId,
@@ -1516,6 +1592,17 @@ mod tests {
         ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
         {
             unreachable!("closed test template must not resolve constants")
+        }
+
+        fn resolve_trait_constant(
+            &self,
+            _requirement: bray_symbols::ImplementationRequirementKey,
+            _member: bray_symbols::TraitConstantMemberSymbolId,
+            _implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _limits: ConstantEvaluationLimits,
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        {
+            panic!("this fixture does not evaluate trait constant references");
         }
 
         fn resolve_static(

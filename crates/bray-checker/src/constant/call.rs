@@ -266,6 +266,15 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         limits: ConstantEvaluationLimits,
     ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>, Self::UpstreamError>;
 
+    /// Evaluates a trait constant after its subject and trait arguments are instantiated.
+    fn resolve_trait_constant(
+        &self,
+        requirement: bray_symbols::ImplementationRequirementKey,
+        member: bray_symbols::TraitConstantMemberSymbolId,
+        selected_implementation: Option<ImplementationInstanceId>,
+        limits: ConstantEvaluationLimits,
+    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>, Self::UpstreamError>;
+
     /// Resolves one exact static reference retained by a checked initializer template.
     fn resolve_static(
         &self,

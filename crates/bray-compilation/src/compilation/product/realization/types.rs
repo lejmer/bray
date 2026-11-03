@@ -502,17 +502,82 @@ impl Compilation {
     pub(super) fn substitute_codegen_constant_term(
         &self,
         term: bray_symbols::ConstantTermId,
-        substitution: Option<GenericSubstitutionId>,
+        instance: Option<&ConcreteCodegenInstance>,
+        cancellation: &CancellationToken,
     ) -> Result<bray_symbols::ConstantTermId, CodegenPreparationError> {
-        let term = if let Some(substitution) = substitution {
-            self.semantic_value_store()?
-                .substitute_constant_term(term, substitution)
-                .map_err(FactQueryError::SemanticValueStore)?
-        } else {
-            term
+        let values = self.semantic_value_store()?;
+
+        let term =
+            if let Some(substitution) = instance.and_then(ConcreteCodegenInstance::substitution) {
+                values
+                    .substitute_constant_term(term, substitution)
+                    .map_err(FactQueryError::SemanticValueStore)?
+            } else {
+                term
+            };
+
+        if !matches!(
+            values.constant_term_data(term).as_ref(),
+            bray_symbols::ConstantTermData::DefinitionApplication { .. }
+                | bray_symbols::ConstantTermData::TraitConstant { .. }
+        ) {
+            return self.realize_codegen_constant_argument(term);
+        }
+
+        let binding_context = self.binding_context(cancellation)?;
+
+        let contextual_self = instance
+            .map(|instance| codegen_instance_contextual_self(&binding_context, instance))
+            .transpose()?
+            .flatten();
+
+        let term = match contextual_self {
+            Some((context, subject)) => values
+                .substitute_contextual_self_in_constant_term(term, context, subject)
+                .map_err(FactQueryError::SemanticValueStore)?,
+            None => term,
         };
 
-        self.realize_codegen_constant_argument(term)
+        let data = values.constant_term_data(term);
+
+        let mut hint = instance.and_then(ConcreteCodegenInstance::contextual_self_witness);
+
+        if let bray_symbols::ConstantTermData::TraitConstant { requirement, .. } = data.as_ref()
+            && let Some(instance) = instance
+        {
+            hint = crate::compilation::implementation::matching_implementation_witness(
+                &binding_context,
+                *requirement,
+                instance.implementation_witnesses(),
+            )?
+            .or(hint);
+        }
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        let resolved = self.resolve_constant_term_reference(
+            term,
+            hint,
+            Default::default(),
+            cancellation,
+            &mut diagnostics,
+        )?;
+
+        if diagnostics.has_errors() {
+            return Err(CodegenPreparationError::Diagnostics(diagnostics));
+        }
+
+        let value = match resolved {
+            bray_checker::ConstantReferenceResolution::Value(value) => value,
+            bray_checker::ConstantReferenceResolution::Evaluated(value) => value.value(),
+            _ => panic!(
+                "checked native constant reference must resolve to a closed value: {term:?}, reference: {data:?}"
+            ),
+        };
+
+        values
+            .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+            .map_err(|error| FactQueryError::SemanticValueStore(error).into())
     }
 
     pub(super) fn classify_codegen_callable_types(

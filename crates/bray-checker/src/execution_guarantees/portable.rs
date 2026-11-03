@@ -49,11 +49,13 @@ fn encode(
             ConstantTermData::Value(values.intern_constant_value(value.as_ref().clone())?)
         }
         ExecutionCondition::Input(place) => {
-            let root = if let Some(BoundReferenceTarget::Surface(
+            let mut term = if let Some(term) = place.constant_term() {
+                term
+            } else if let Some(BoundReferenceTarget::Surface(
                 bray_symbols::AnySymbolId::GenericConstParameter(parameter),
             )) = place.reference()
             {
-                ConstantTermData::Parameter(parameter)
+                values.intern_constant_term(ConstantTermData::Parameter(parameter))?
             } else {
                 let Some(ordinal) = inputs
                     .iter()
@@ -63,10 +65,10 @@ fn encode(
                     return Ok(None);
                 };
 
-                ConstantTermData::CallableArgument(SymbolOrdinal::new(ordinal))
+                values.intern_constant_term(ConstantTermData::CallableArgument(
+                    SymbolOrdinal::new(ordinal),
+                ))?
             };
-
-            let mut term = values.intern_constant_term(root)?;
 
             for field in &*place.projections {
                 let kind = match *field {
@@ -291,6 +293,9 @@ pub(crate) fn decode(
         ConstantTermData::Typed { term, .. } => decode(values, *term, inputs, budget)?,
         ConstantTermData::Parameter(parameter) => {
             ExecutionCondition::Input(BoundReferenceTarget::Surface((*parameter).into()).into())
+        }
+        ConstantTermData::DefinitionApplication { .. } | ConstantTermData::TraitConstant { .. } => {
+            ExecutionCondition::Input(super::ExecutionPlace::constant_reference(term))
         }
         ConstantTermData::Value(value) => {
             let value = values.constant_value_data(*value);

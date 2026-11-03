@@ -53,6 +53,7 @@ pub struct MemberTarget {
     member: AnySymbolId,
     result_type: TypeId,
     callable_instance: Option<CallableInstanceData>,
+    constant_reference: Option<bray_symbols::ConstantTermId>,
     callable_signature: Option<CallableSignature>,
     callable_template: Option<CallableDeclarationTemplate>,
     callable_defaults: Arc<
@@ -77,6 +78,7 @@ impl MemberTarget {
             member,
             result_type,
             callable_instance: None,
+            constant_reference: None,
             callable_signature: None,
             callable_template: None,
             callable_defaults: Arc::new([]),
@@ -84,6 +86,28 @@ impl MemberTarget {
             trait_view_dispatch: None,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Retains the applied constant or deferred trait constant selected by this member.
+    pub const fn with_constant_reference(mut self, term: bray_symbols::ConstantTermId) -> Self {
+        self.constant_reference = Some(term);
+
+        self
+    }
+
+    /// Returns whether this member denotes a type used as a qualifier.
+    pub const fn is_type_qualifier(&self) -> bool {
+        matches!(
+            self.member,
+            AnySymbolId::InherentTypeMember(_)
+                | AnySymbolId::TraitTypeMember(_)
+                | AnySymbolId::TraitTypeFulfillment(_)
+        )
+    }
+
+    /// Returns the selected constant reference, including its generic context.
+    pub const fn constant_reference(&self) -> Option<bray_symbols::ConstantTermId> {
+        self.constant_reference
     }
 
     /// Returns a member target with its exact substituted callable instance and signature.

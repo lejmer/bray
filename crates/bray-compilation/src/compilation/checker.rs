@@ -34,8 +34,7 @@ use bray_target::{TargetAtomicRepresentation, TargetProfile};
 use super::Compilation;
 use super::binder::CompilationBindingContext;
 use super::implementation::{
-    TypeValuedMemberResolution, implementation_fulfillments, implementation_instance_requirement,
-    selected_type_valued_member,
+    TypeValuedMemberResolution, implementation_fulfillments, selected_type_valued_member,
 };
 use super::standard_library::source_standard_library_scope_owner;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -92,17 +91,12 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         &self,
         requirement: ImplementationRequirementKey,
     ) -> CheckerQueryResult<Option<ImplementationInstanceId>> {
-        for witness in self.implementation_witnesses.iter().copied() {
-            let witness_requirement =
-                implementation_instance_requirement(&self.binding_context, witness)
-                    .map_err(checker_query_error)?;
-
-            if requirement == witness_requirement {
-                return Ok(Some(witness));
-            }
-        }
-
-        Ok(None)
+        super::implementation::matching_implementation_witness(
+            &self.binding_context,
+            requirement,
+            &self.implementation_witnesses,
+        )
+        .map_err(checker_query_error)
     }
 
     fn statically_establishes_copyability(
@@ -343,6 +337,29 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .compilation()
             .inherited_callable_substitution(&self.binding_context, instance)
             .map_err(checker_query_error)
+    }
+
+    fn enclosing_self_type_context(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerQueryResult<Option<bray_symbols::SelfTypeContext>> {
+        let mut owner = self
+            .binding_context
+            .containing_symbol(symbol)
+            .map_err(checker_binder_error)?;
+
+        while let Some(symbol) = owner {
+            if let Some(context) = bray_symbols::SelfTypeContext::try_new(symbol) {
+                return Ok(Some(context));
+            }
+
+            owner = self
+                .binding_context
+                .containing_symbol(symbol)
+                .map_err(checker_binder_error)?;
+        }
+
+        Ok(None)
     }
 
     fn implementation_subject_type(
@@ -623,7 +640,8 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             self.binding_context
                 .imported_symbols()
                 .map_err(checker_binder_error)?,
-        );
+        )
+        .with_implementation_witnesses(&self.implementation_witnesses);
 
         let result_type = bray_checker::representation_type_for_context(
             self,

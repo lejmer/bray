@@ -13,6 +13,7 @@ pub struct ExecutionPlace {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ExecutionInput {
     Reference(BoundReferenceTarget),
+    Constant(bray_symbols::ConstantTermId),
     Static(Arc<bray_symbols::StaticReferenceSelection>),
     Argument(bray_symbols::SymbolOrdinal),
     Storage(bray_bound_tree::StorageIdentityId),
@@ -28,6 +29,21 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    /// Identifies one associated constant application, including its generic arguments.
+    pub fn constant_reference(term: bray_symbols::ConstantTermId) -> Self {
+        Self {
+            root: ExecutionInput::Constant(term),
+            projections: Arc::new([]),
+        }
+    }
+
+    pub(crate) const fn constant_term(&self) -> Option<bray_symbols::ConstantTermId> {
+        match self.root {
+            ExecutionInput::Constant(term) => Some(term),
+            _ => None,
+        }
+    }
+
     /// Identifies one selected static instance, including its substitution and witnesses.
     pub fn static_instance(selection: bray_symbols::StaticReferenceSelection) -> Self {
         Self {
@@ -53,7 +69,8 @@ impl ExecutionPlace {
     pub(crate) const fn reference(&self) -> Option<BoundReferenceTarget> {
         match &self.root {
             ExecutionInput::Reference(reference) => Some(*reference),
-            ExecutionInput::Argument(_)
+            ExecutionInput::Constant(_)
+            | ExecutionInput::Argument(_)
             | ExecutionInput::Static(_)
             | ExecutionInput::Storage(_) => None,
         }

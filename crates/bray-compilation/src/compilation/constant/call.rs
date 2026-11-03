@@ -189,6 +189,7 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
 pub(in crate::compilation) struct CompilationConstantTemplateResolver<'compilation> {
     calls: CompilationConstantCallResolver<'compilation>,
     symbols: Option<&'compilation ImportedSymbolSkeleton>,
+    implementation_witnesses: &'compilation [bray_symbols::ImplementationInstanceId],
 }
 
 impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
@@ -200,7 +201,17 @@ impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
         Self {
             calls: CompilationConstantCallResolver::new(compilation, cancellation),
             symbols,
+            implementation_witnesses: &[],
         }
+    }
+
+    pub(in crate::compilation) fn with_implementation_witnesses(
+        mut self,
+        witnesses: &'compilation [bray_symbols::ImplementationInstanceId],
+    ) -> Self {
+        self.implementation_witnesses = witnesses;
+
+        self
     }
 }
 
@@ -283,6 +294,59 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
             )),
             Err(error) => Err(checker_call_query_error(error)),
         }
+    }
+
+    fn resolve_trait_constant(
+        &self,
+        requirement: bray_symbols::ImplementationRequirementKey,
+        member: bray_symbols::TraitConstantMemberSymbolId,
+        selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+        limits: bray_checker::ConstantEvaluationLimits,
+    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>> {
+        let selected_implementation =
+            if selected_implementation.is_some() || self.implementation_witnesses.is_empty() {
+                selected_implementation
+            } else {
+                let context = self
+                    .calls
+                    .compilation
+                    .binding_context(self.calls.cancellation)
+                    .map_err(checker_call_query_error)?;
+
+                super::super::implementation::matching_implementation_witness(
+                    &context,
+                    requirement,
+                    self.implementation_witnesses,
+                )
+                .map_err(checker_call_query_error)?
+            };
+
+        let term = self
+            .calls
+            .compilation
+            .semantic_value_store()
+            .map_err(checker_call_query_error)?
+            .intern_constant_term(bray_symbols::ConstantTermData::TraitConstant {
+                requirement,
+                member,
+            })
+            .map_err(|error| checker_call_query_error(FactQueryError::SemanticValueStore(error)))?;
+
+        let mut diagnostics = DiagnosticBag::new();
+
+        let result = self
+            .calls
+            .compilation
+            .resolve_constant_term_reference(
+                term,
+                selected_implementation,
+                limits,
+                self.calls.cancellation,
+                &mut diagnostics,
+            )
+            .map_err(checker_call_query_error)?;
+
+        Ok(DiagnosticResult::new(result, diagnostics))
     }
 
     fn resolve_static(

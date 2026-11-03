@@ -707,8 +707,11 @@ fn constant_term_exposes_internal(
         ConstantTermData::Unary { operand, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*operand));
         }
-        ConstantTermData::RepeatedArray { value: left, count: right }
-            | ConstantTermData::Binary { left, right, .. } => {
+        ConstantTermData::RepeatedArray {
+            value: left,
+            count: right,
+        }
+        | ConstantTermData::Binary { left, right, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*left));
             pending.push(SemanticValueDependency::ConstantTerm(*right));
         }
@@ -751,6 +754,31 @@ fn constant_term_exposes_internal(
             {
                 return Some(internal);
             }
+        }
+        ConstantTermData::TraitConstant {
+            requirement,
+            member,
+        } => {
+            if source_symbol_is_not_publicly_reachable((*member).into(), declarations, symbols) {
+                return Some((*member).into());
+            }
+
+            pending.push(SemanticValueDependency::Type(requirement.subject()));
+
+            let application =
+                semantic_values.trait_application_data(requirement.trait_application());
+
+            if source_symbol_is_not_publicly_reachable(
+                application.definition().into(),
+                declarations,
+                symbols,
+            ) {
+                return Some(application.definition().into());
+            }
+
+            pending.push(SemanticValueDependency::Substitution(
+                application.substitution(),
+            ));
         }
         ConstantTermData::DefinitionApplication {
             definition,

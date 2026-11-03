@@ -89,6 +89,9 @@ macro_rules! define_symbol_graph_builder {
                     crate::GenericParameterSymbolId::Const(id) => AnySymbolId::from(id),
                 };
 
+                let name = identity.inferred_name().expect("inferred parameter retains its name").clone();
+                self.add_member(identity.containing_symbol(), MemberEntry::new(erased, name, crate::MemberVisibility::Public, crate::MemberValidity::Valid));
+
                 self.relationship_index
                     .add_symbol(erased, identity.containing_symbol());
 

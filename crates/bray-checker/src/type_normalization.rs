@@ -506,8 +506,8 @@ where
         Ok(())
     }
 
-    /// Normalizes type arguments of one checked trait application.
-    pub(crate) fn normalize_trait_application(
+    /// Normalizes type and constant arguments in an already substituted trait application.
+    pub fn normalize_trait_application(
         &mut self,
         application: TraitApplicationId,
     ) -> Result<TraitApplicationId, CheckerQueryError<C::UpstreamError>> {
@@ -523,7 +523,8 @@ where
             .intern_trait_application(TraitApplicationData::new(data.definition(), substitution)).unwrap_or_else(|error| panic!("normalize_application must satisfy its checked construction contract: {error:?}")))
     }
 
-    fn normalize_substitution(
+    /// Normalizes type and constant arguments while retaining the substitution's owner.
+    pub fn normalize_substitution(
         &mut self,
         substitution: GenericSubstitutionId,
     ) -> Result<GenericSubstitutionId, CheckerQueryError<C::UpstreamError>> {

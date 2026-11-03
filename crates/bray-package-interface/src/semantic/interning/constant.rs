@@ -220,7 +220,9 @@ impl InternState {
             }
             InterfaceConstantTerm::RepeatedArray { value, count } => {
                 match (self.constant_term_id(*value), self.constant_term_id(*count)) {
-                    (Some(value), Some(count)) => Some(ConstantTermData::RepeatedArray { value, count }),
+                    (Some(value), Some(count)) => {
+                        Some(ConstantTermData::RepeatedArray { value, count })
+                    }
                     _ => None,
                 }
             }
@@ -261,6 +263,28 @@ impl InternState {
                     resolve_exact::<UnionVariantSymbolId>(symbols, variant)?,
                     values,
                 ))
+            }
+            InterfaceConstantTerm::TraitConstant {
+                subject,
+                application,
+                member,
+            } => {
+                let (Some(subject), Some(application)) = (
+                    self.type_id(*subject),
+                    self.trait_application_id(*application),
+                ) else {
+                    return Ok(None);
+                };
+
+                Some(ConstantTermData::TraitConstant {
+                    requirement: bray_symbols::ImplementationRequirementKey::new(
+                        subject,
+                        application,
+                    ),
+                    member: resolve_exact::<bray_symbols::TraitConstantMemberSymbolId>(
+                        symbols, member,
+                    )?,
+                })
             }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,

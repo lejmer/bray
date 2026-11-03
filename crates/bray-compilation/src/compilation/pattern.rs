@@ -7,8 +7,8 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     CheckerOutcome, CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator,
-    ConstantReferenceResolution, DefaultConstantEvaluator, DefaultPatternChecker, GuardConstantEvidence,
-    PatternCheckInput, PatternChecker, PatternConstantEvidence,
+    ConstantReferenceResolution, DefaultConstantEvaluator, DefaultPatternChecker,
+    GuardConstantEvidence, PatternCheckInput, PatternChecker, PatternConstantEvidence,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -91,8 +91,7 @@ impl Compilation {
         }
 
         Ok((
-            local_constants.patterns
-                .with_constant_guards(guards),
+            local_constants.patterns.with_constant_guards(guards),
             diagnostics,
         ))
     }
@@ -233,7 +232,17 @@ impl Compilation {
             request.unit(),
             selections,
             expression,
-            |reference, target| {
+            |reference, target, instance| {
+                if let Some(instance) = instance {
+                    return self.resolve_constant_term_reference(
+                        instance,
+                        None,
+                        Default::default(),
+                        cancellation,
+                        &mut dependency_diagnostics,
+                    );
+                }
+
                 let symbol = match target {
                     BoundReferenceTarget::Surface(symbol) => symbol,
                     BoundReferenceTarget::Local(local) => {
@@ -279,7 +288,9 @@ impl Compilation {
 
         if local_constants.checked_patterns.is_none() {
             let patterns = super::checker::checker_result(DefaultPatternChecker.check_patterns(
-                request, types, &local_constants.patterns,
+                request,
+                types,
+                &local_constants.patterns,
             ))?;
 
             local_constants.checked_patterns = Some(patterns.into_parts().0);
@@ -287,8 +298,12 @@ impl Compilation {
 
         let input = ConstantEvaluationInput::new(types, selections)
             .with_root(expression)
-            .with_patterns(local_constants.checked_patterns.as_ref()
-                .expect("constant pattern inputs were checked for the current evidence"))
+            .with_patterns(
+                local_constants
+                    .checked_patterns
+                    .as_ref()
+                    .expect("constant pattern inputs were checked for the current evidence"),
+            )
             .with_references(references)
             .with_local_terms(
                 local_constants

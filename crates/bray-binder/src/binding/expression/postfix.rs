@@ -115,7 +115,7 @@ impl ExpressionBinder {
         failure.map_or(Ok(current), Err)
     }
 
-    fn bind_generic_application<C>(
+    pub(super) fn bind_generic_application<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
         syntax: &GenericArgumentListSyntax,

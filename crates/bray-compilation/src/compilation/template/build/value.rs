@@ -169,6 +169,15 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
             return Ok(CheckedTemplateOperation::Input(input));
         };
 
+        if crate::compilation::constant::constant_definition_id(symbol).is_some() {
+            let term = self.context.compilation().constant_reference_term(symbol)?;
+
+            return Ok(CheckedTemplateOperation::Constant {
+                term,
+                usage: Default::default(),
+            });
+        }
+
         let substitution = match self.selections.expression(expression) {
             Some(SemanticSelection::StaticReference(instance)) => Some(instance.substitution()),
             _ => None,

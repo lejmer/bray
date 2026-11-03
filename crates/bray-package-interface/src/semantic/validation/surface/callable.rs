@@ -401,7 +401,10 @@ impl InterfaceSemantics {
                 Term::Typed { term, .. } => child(*term),
                 Term::Unary { operand, .. } | Term::Conversion { operand, .. } => child(*operand),
                 Term::NullablePresent(value) => child(*value),
-                Term::RepeatedArray { value: left, count: right }
+                Term::RepeatedArray {
+                    value: left,
+                    count: right,
+                }
                 | Term::Binary { left, right, .. } => {
                     child(*left);
                     child(*right);
@@ -457,6 +460,7 @@ impl InterfaceSemantics {
                 | Term::Parameter(_)
                 | Term::TargetProperty(_)
                 | Term::DefinitionApplication { .. } => {}
+                Term::TraitConstant { .. } => {}
             }
         }
 

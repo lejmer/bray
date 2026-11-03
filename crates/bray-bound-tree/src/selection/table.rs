@@ -128,10 +128,6 @@ impl CheckedSemanticSelections {
 
         let mut entries = entries.into_iter().collect::<Vec<_>>();
 
-        for entry in &entries {
-            validate_entry(unit, types, entry)?;
-        }
-
         entries.sort_unstable_by_key(SemanticSelectionEntry::expression);
 
         if let Some(pair) = entries
@@ -143,13 +139,19 @@ impl CheckedSemanticSelections {
             ));
         }
 
-        retain_callable_value_sources(unit, &mut entries);
-
-        Ok(Self {
+        let mut selections = Self {
             unit: unit.unit(),
             kind: unit.key().kind(),
             entries: entries.into(),
-        })
+        };
+
+        for entry in selections.entries() {
+            validate_entry(unit, types, &selections, entry)?;
+        }
+
+        retain_callable_value_sources(unit, Arc::make_mut(&mut selections.entries));
+
+        Ok(selections)
     }
 
     /// Returns the exact bound unit described by these selections.
@@ -335,6 +337,7 @@ fn retain_callable_value_sources(unit: &BoundUnit, entries: &mut [SemanticSelect
 fn validate_entry(
     unit: &BoundUnit,
     types: &CheckedExpressionTypes,
+    selections: &CheckedSemanticSelections,
     entry: &SemanticSelectionEntry,
 ) -> Result<(), SemanticSelectionTableBuildError> {
     let expression_id = entry.expression();
@@ -345,7 +348,13 @@ fn validate_entry(
         ));
     };
 
-    if !selection_matches_expression(unit, expression_id, entry.selection(), expression) {
+    if !selection_matches_expression(
+        unit,
+        selections,
+        expression_id,
+        entry.selection(),
+        expression,
+    ) {
         return Err(SemanticSelectionTableBuildError::SelectionKindMismatch(
             expression_id,
         ));
@@ -374,6 +383,7 @@ fn validate_entry(
 
 fn selection_matches_expression(
     unit: &BoundUnit,
+    selections: &CheckedSemanticSelections,
     expression_id: BoundExpressionId,
     selection: &SemanticSelection,
     expression: &BoundExpression,
@@ -397,7 +407,7 @@ fn selection_matches_expression(
             )
         }
         (SemanticSelection::Call(call), BoundExpression::Call(source)) => {
-            call_matches_expression(unit, call, source)
+            call_matches_expression(unit, selections, call, source)
         }
         (SemanticSelection::Predicate(predicate), BoundExpression::Call(source)) => {
             source.callee() == predicate.callee()
@@ -592,6 +602,7 @@ fn construction_matches(
 
 fn call_matches_expression(
     unit: &BoundUnit,
+    selections: &CheckedSemanticSelections,
     call: &SelectedCall,
     source: &crate::BoundCallExpression,
 ) -> bool {
@@ -609,7 +620,7 @@ fn call_matches_expression(
     );
 
     let source_receiver = declaration_backed
-        .then(|| source_call_receiver(unit, source.callee()))
+        .then(|| source_call_receiver(unit, selections, source.callee()))
         .flatten();
 
     if call.receiver().map(crate::SelectedReceiver::expression) != source_receiver {
@@ -665,19 +676,21 @@ fn call_matches_expression(
                 .map(crate::BoundArgument::expression))
 }
 
-fn source_call_receiver(unit: &BoundUnit, callee: BoundExpressionId) -> Option<BoundExpressionId> {
+fn source_call_receiver(
+    unit: &BoundUnit,
+    selections: &CheckedSemanticSelections,
+    callee: BoundExpressionId,
+) -> Option<BoundExpressionId> {
     let receiver = match unit.view().expression(callee) {
         Some(BoundExpression::MemberAccess(member)) => member.receiver(),
         Some(BoundExpression::TraitQualifiedMember(member)) => member.receiver(),
         _ => return None,
     };
 
-    let is_compile_time_qualifier = matches!(
-        unit.view().expression(receiver),
-        Some(BoundExpression::Name(name)) if name.target().is_compile_time_qualifier()
-    );
-
-    (!is_compile_time_qualifier).then_some(receiver)
+    (!unit
+        .view()
+        .is_compile_time_qualifier(receiver, Some(selections)))
+    .then_some(receiver)
 }
 
 fn construction_inputs_are_valid(construction: &crate::SelectedConstruction) -> bool {

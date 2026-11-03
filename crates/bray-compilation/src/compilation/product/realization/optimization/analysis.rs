@@ -53,7 +53,7 @@ impl Compilation {
 
         for term in demanded_constant_terms(unit) {
             let resolved =
-                self.substitute_codegen_constant_term(term, realization.substitution())?;
+                self.substitute_codegen_constant_term(term, Some(realization), cancellation)?;
 
             let data = values.constant_term_data(resolved);
 
@@ -80,9 +80,13 @@ impl Compilation {
 
             let local = analysis.evaluate_operations(self, realization, block_id, cancellation)?;
 
-            if let Decision::Known(edge) =
-                analysis.decision(self, realization, block.terminator().kind(), &local)?
-                && !matches!(block.terminator().kind(), MirTerminatorKind::Goto(_))
+            if let Decision::Known(edge) = analysis.decision(
+                self,
+                realization,
+                block.terminator().kind(),
+                &local,
+                cancellation,
+            )? && !matches!(block.terminator().kind(), MirTerminatorKind::Goto(_))
             {
                 terminators.insert(block_id, MirTerminatorKind::Goto(edge));
             }
@@ -268,8 +272,13 @@ impl<'a> ScalarAnalysis<'a> {
             let local =
                 self.evaluate_operations(compilation, realization, block_id, cancellation)?;
 
-            let decision =
-                self.decision(compilation, realization, block.terminator().kind(), &local)?;
+            let decision = self.decision(
+                compilation,
+                realization,
+                block.terminator().kind(),
+                &local,
+                cancellation,
+            )?;
 
             match decision {
                 Decision::Known(edge) => self.enter_edge(&edge, &local),
@@ -477,6 +486,7 @@ impl<'a> ScalarAnalysis<'a> {
         realization: &ConcreteCodegenInstance,
         terminator: &MirTerminatorKind,
         local: &BTreeMap<MirStorageId, Scalar>,
+        cancellation: &CancellationToken,
     ) -> Result<Decision, CodegenPreparationError> {
         let result = match terminator {
             MirTerminatorKind::Branch {
@@ -509,8 +519,11 @@ impl<'a> ScalarAnalysis<'a> {
                         .map(|present| !present),
                     MirPatternPredicate::Literal(value) => self.equals_constant(state, *value),
                     MirPatternPredicate::Constant(term) => {
-                        let term = compilation
-                            .substitute_codegen_constant_term(*term, realization.substitution())?;
+                        let term = compilation.substitute_codegen_constant_term(
+                            *term,
+                            Some(realization),
+                            cancellation,
+                        )?;
 
                         let data = self.values.constant_term_data(term);
 

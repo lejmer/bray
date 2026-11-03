@@ -106,9 +106,18 @@ where
         let target = self.request.semantic_values().type_data(target_type);
 
         if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
+            let values = self.request.semantic_values();
+
+            let extent = |ty| match values.type_data(ty).as_ref() {
+                TypeData::Array { length, .. } => Some(values.constant_term_data(*length)),
+                _ => None,
+            };
+
             panic!(
-                "nullable adaptation must contain source type {source_type:?} ({:?}), target type {target_type:?} ({target:?})",
-                self.request.semantic_values().type_data(source_type)
+                "nullable adaptation must contain source type {source_type:?} ({:?}), target type {target_type:?} ({target:?}), source extent: {:?}, target extent: {:?}",
+                values.type_data(source_type),
+                extent(source_type),
+                extent(target_type)
             );
         }
 
@@ -163,6 +172,7 @@ where
             | ConstantTermData::Product(_)
             | ConstantTermData::Union { .. }
             | ConstantTermData::DefinitionApplication { .. }
+            | ConstantTermData::TraitConstant { .. }
             | ConstantTermData::Call { .. }
             | ConstantTermData::PredicateCall { .. }
             | ConstantTermData::Projection(_) => None,

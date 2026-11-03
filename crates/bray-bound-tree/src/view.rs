@@ -57,6 +57,19 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    /// Identifies namespace and type names that qualify paths without producing runtime values.
+    pub fn is_compile_time_qualifier(
+        self,
+        expression: BoundExpressionId,
+        selections: Option<&crate::CheckedSemanticSelections>,
+    ) -> bool {
+        matches!(self.expression(expression).expect("qualifier classification receives a committed expression"),
+            BoundExpression::Name(name) if name.target().is_compile_time_qualifier())
+            || matches!(selections.and_then(|selections| selections.expression(expression)),
+                Some(crate::SemanticSelection::Operation(crate::SelectedOperation::Member(target)))
+                    if target.is_type_qualifier())
+    }
+
     /// Returns the real and imaginary literal operands of a complex literal expression.
     ///
     /// The real literal may have a leading minus. Addition or subtraction supplies the

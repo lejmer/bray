@@ -265,6 +265,16 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
         expression: &BoundExpression,
         ty: TypeId,
     ) -> Result<CheckedTemplateOperation, FactQueryError> {
+        if let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
+            self.selections.expression(expression_id)
+            && let Some(term) = target.constant_reference()
+        {
+            return Ok(CheckedTemplateOperation::Constant {
+                term,
+                usage: Default::default(),
+            });
+        }
+
         match expression {
             BoundExpression::Literal(_) => self.literal(expression_id),
             BoundExpression::Name(reference) => {
@@ -368,7 +378,9 @@ impl<'context, 'compilation, 'unit> SourceTemplateBuilder<'context, 'compilation
                         panic!("checked repetition retains its element");
                     };
 
-                    Ok(CheckedTemplateOperation::RepeatedArray { value: self.expression(*value)? })
+                    Ok(CheckedTemplateOperation::RepeatedArray {
+                        value: self.expression(*value)?,
+                    })
                 }
                 BoundStructuredExpressionKind::Borrow => {
                     let [operand] = expression.operands() else {

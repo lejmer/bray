@@ -64,7 +64,11 @@ where
             BoundExpression::Unary(expression) => self.plan_operator(id, expression.operands())?,
             BoundExpression::Binary(expression) => self.plan_operator(id, expression.operands())?,
             BoundExpression::MemberAccess(member) => {
-                if self.is_compile_time_qualifier(member.receiver())? {
+                if self
+                    .request
+                    .view()
+                    .is_compile_time_qualifier(member.receiver(), Some(self.selections))
+                {
                     self.temporary_access(id)?
                 } else {
                     let receiver = self.plan_expression(member.receiver(), None)?;
@@ -77,13 +81,21 @@ where
                 }
             }
             BoundExpression::TraitQualifiedMember(member) => {
-                let receiver = self.plan_expression(member.receiver(), None)?;
-                let projection = self.selected_member_projection(id)?;
-                let access = self.member_access(id, receiver, projection)?;
+                if self
+                    .request
+                    .view()
+                    .is_compile_time_qualifier(member.receiver(), Some(self.selections))
+                {
+                    self.temporary_access(id)?
+                } else {
+                    let receiver = self.plan_expression(member.receiver(), None)?;
+                    let projection = self.selected_member_projection(id)?;
+                    let access = self.member_access(id, receiver, projection)?;
 
-                self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
+                    self.record_purpose(id, Some(StorageAccessPurpose::Member), access)?;
 
-                access
+                    access
+                }
             }
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::With =>
@@ -257,22 +269,6 @@ where
         self.plan_expression(operand, Some(StorageAccessPurpose::ValueTransfer))?;
 
         self.temporary_access(expression)
-    }
-
-    fn is_compile_time_qualifier(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Result<bool, PlanError<C::UpstreamError>> {
-        let expression = self
-            .request
-            .view()
-            .expression(expression)
-            .unwrap_or_else(|| missing_node(expression));
-
-        Ok(matches!(
-            expression,
-            BoundExpression::Name(name) if name.target().is_compile_time_qualifier()
-        ))
     }
 
     fn plan_operator(

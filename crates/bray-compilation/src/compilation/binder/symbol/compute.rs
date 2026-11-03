@@ -169,7 +169,8 @@ impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
                 type_binder(context, symbol)?
                     .bind_type_expression(&syntax.typed_identifier().type_expression())
             }
-            SymbolOrigin::Imported | SymbolOrigin::Synthesized => Err(query_contract(
+            SymbolOrigin::Synthesized => inferred_constant_parameter_type(context, parameter),
+            SymbolOrigin::Imported => Err(query_contract(
                 symbol,
                 GenericConstParameterDeclaredTypeQuery::KIND,
                 SemanticQueryViolation::Unsupported(SemanticDataKind::SymbolQuery(
@@ -178,6 +179,83 @@ impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
             )),
         }
     }
+}
+
+fn inferred_constant_parameter_type(
+    context: &CompilationBindingContext<'_>,
+    parameter: GenericConstParameterSymbolId,
+) -> BindingQueryResult<DiagnosticResult<bray_symbols::TypeExpressionTemplate>> {
+    let parameter = context
+        .symbols()
+        .generic_const_parameter(parameter)
+        .expect("inferred constant parameter retains its symbol");
+
+    let owner = ImplementationSymbolId::try_from_any(parameter.owner().symbol())
+        .expect("inferred constant parameter belongs to an implementation");
+
+    let subject = context
+        .resolve_symbol_query(SymbolQueryRequest::<ImplementationSubjectQuery>::new(owner))?;
+
+    let application = context.resolve_symbol_query(SymbolQueryRequest::<
+        ImplementedTraitApplicationQuery,
+    >::new(owner))?;
+
+    let mut diagnostics = subject.diagnostics().merged(application.diagnostics());
+
+    let occurrences = subject
+        .value()
+        .ty()
+        .constant_expressions()
+        .into_iter()
+        .chain(
+            application
+                .value()
+                .iter()
+                .flat_map(|application| application.constant_expressions()),
+        );
+
+    for occurrence in occurrences {
+        let syntax = occurrence.key().syntax();
+
+        if !parameter.inference_sources().iter().any(|source| {
+            source.source_id() == syntax.source_id()
+                && syntax.full_range().contains_range(source.full_range())
+        }) {
+            continue;
+        }
+
+        let ty = match occurrence.expected_type() {
+            bray_symbols::ConstantExpressionExpectedType::Resolved(ty) => {
+                bray_symbols::TypeExpressionTemplate::Resolved(ty)
+            }
+            bray_symbols::ConstantExpressionExpectedType::GenericParameter(expected) => {
+                let result = context.resolve_symbol_query(SymbolQueryRequest::<
+                    GenericConstParameterDeclaredTypeQuery,
+                >::new(expected))?;
+
+                diagnostics = diagnostics.merged(result.diagnostics());
+
+                result.value().clone()
+            }
+        };
+
+        return Ok(DiagnosticResult::new(ty, diagnostics));
+    }
+
+    assert!(
+        diagnostics.has_errors(),
+        "inferred constant parameter must retain a typed header occurrence"
+    );
+
+    let ty = context
+        .semantic_values()
+        .intern_type(bray_symbols::TypeData::Error)
+        .expect("error type is a valid semantic value");
+
+    Ok(DiagnosticResult::new(
+        bray_symbols::TypeExpressionTemplate::Resolved(ty),
+        diagnostics,
+    ))
 }
 
 fn compiler_known_generic_const_parameter(
@@ -459,11 +537,35 @@ impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for Compilati
             ImplementedTraitApplicationQuery,
         >::new(owner))?;
 
-        let diagnostics = subject
-            .diagnostics()
-            .merged(trait_application.diagnostics());
+        let checked = context
+            .compilation()
+            .checked_constant_terms_for_occurrences(
+                subject
+                    .value()
+                    .ty()
+                    .constant_expressions()
+                    .into_iter()
+                    .chain(
+                        trait_application
+                            .value()
+                            .iter()
+                            .flat_map(|application| application.constant_expressions()),
+                    ),
+                context.cancellation(),
+            )
+            .map_err(bray_binder::BindingQueryError::Upstream)?;
 
-        let subject = subject.value().ty().resolved_type().ok_or_else(|| {
+        let mut diagnostics = subject
+            .diagnostics()
+            .merged(trait_application.diagnostics())
+            .merged(checked.diagnostics());
+
+        let subject = bray_checker::resolve_type_expression_template(
+            context.semantic_values(),
+            subject.value().ty(),
+            checked.value(),
+        )
+        .ok_or_else(|| {
             query_contract(
                 owner.into_any(),
                 ImplementationCoherenceQuery::KIND,
@@ -472,16 +574,29 @@ impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for Compilati
         })?;
 
         let trait_application = match trait_application.value() {
-            Some(application) => type_binder(context, owner.into_any())?
-                .resolve_trait_application_template(application)?
-                .ok_or_else(|| {
-                    query_contract(
-                        owner.into_any(),
-                        ImplementationCoherenceQuery::KIND,
-                        SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
-                    )
-                })?
-                .into(),
+            Some(application) => {
+                let application = bray_checker::resolve_trait_application_template(
+                    context.semantic_values(),
+                    application,
+                    checked.value(),
+                )
+                .expect("checked implementation retains its trait application");
+
+                let checker = crate::compilation::checker::CompilationCheckerContext::new(*context);
+                let mut normalizer = bray_checker::TypeNormalizer::new(&checker, None);
+
+                let application = normalizer
+                    .normalize_trait_application(application)
+                    .map_err(|error| {
+                        bray_binder::BindingQueryError::Upstream(crate::fact::FactQueryError::from(
+                            error,
+                        ))
+                    })?;
+
+                diagnostics.extend(normalizer.take_diagnostics());
+
+                Some(application)
+            }
             None => None,
         };
 

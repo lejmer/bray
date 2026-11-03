@@ -23,6 +23,8 @@ where
     pub(in crate::constant::template_evaluation) substitution: Option<GenericSubstitutionId>,
     pub(in crate::constant::template_evaluation) selected_implementation:
         Option<bray_symbols::ImplementationInstanceId>,
+    pub(in crate::constant::template_evaluation) contextual_self:
+        Option<(bray_symbols::SelfTypeContext, TypeId)>,
     pub(in crate::constant::template_evaluation) arguments: &'evaluation [ConstantValueId],
     pub(in crate::constant::template_evaluation) resolver:
         &'evaluation dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
@@ -56,6 +58,7 @@ where
             template,
             substitution,
             selected_implementation: None,
+            contextual_self: None,
             arguments: &[],
             resolver,
             limits,
@@ -87,6 +90,13 @@ where
                 .semantic_values()
                 .substitute_type(ty, substitution)
                 .expect("checked evaluation retains a valid type substitution")
+        });
+
+        let ty = self.contextual_self.map_or(ty, |(context, subject)| {
+            self.context
+                .semantic_values()
+                .substitute_contextual_self(ty, context, subject)
+                .expect("selected constant retains its Self binding")
         });
 
         let normalized = self.types.normalize_type(ty);

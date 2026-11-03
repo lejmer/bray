@@ -264,7 +264,7 @@ pub fn implementation_configuration() -> crate::PackageImplementationConfigurati
     crate::PackageImplementationConfiguration::for_mir_target(&target, None, panic_abi)
 }
 
-fn identity_surface(
+pub(crate) fn identity_surface(
     package: PackageIdentity,
     product: InterfaceProductIdentity,
     symbols: impl IntoIterator<Item = ExternalSymbolKey>,
@@ -308,7 +308,9 @@ fn identity_surface(
             {
                 SymbolRelationshipKind::TypeMember
             }
-            (SymbolKind::Trait, SymbolKind::TraitPredicateMember) => {
+            (SymbolKind::Trait, member)
+                if SymbolRelationshipKind::TraitMember.supports(owner.kind(), member) =>
+            {
                 SymbolRelationshipKind::TraitMember
             }
             (SymbolKind::InherentImplementation, member)

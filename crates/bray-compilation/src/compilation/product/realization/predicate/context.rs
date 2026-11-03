@@ -90,8 +90,8 @@ impl PredicateLoweringContext for CompilationSyntheticLoweringContext<'_> {
     fn predicate_constant(&self, term: ConstantTermId) -> Result<ConstantValueId, Self::Error> {
         let term = self.compilation.substitute_codegen_constant_term(
             term,
-            self.realization
-                .and_then(|instance| instance.substitution()),
+            self.realization,
+            self.cancellation,
         )?;
 
         let data = self.values.constant_term_data(term);

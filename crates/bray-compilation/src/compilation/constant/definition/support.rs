@@ -84,6 +84,7 @@ pub(in crate::compilation) fn collect_constant_references(
     resolve: impl FnMut(
         BoundExpressionId,
         BoundReferenceTarget,
+        Option<bray_symbols::ConstantTermId>,
     ) -> Result<ConstantReferenceResolution, FactQueryError>,
 ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
     collect_constant_references_from(bound, selections, bound.root(), resolve)
@@ -96,6 +97,7 @@ pub(in crate::compilation) fn collect_constant_references_from(
     mut resolve: impl FnMut(
         BoundExpressionId,
         BoundReferenceTarget,
+        Option<bray_symbols::ConstantTermId>,
     ) -> Result<ConstantReferenceResolution, FactQueryError>,
 ) -> Result<Vec<(BoundExpressionId, ConstantReferenceResolution)>, FactQueryError> {
     let mut references = Vec::new();
@@ -152,17 +154,14 @@ pub(in crate::compilation) fn collect_constant_references_from(
                 }
                 BoundReferenceTarget::Surface(_) | BoundReferenceTarget::Local(_) => None,
             },
-            BoundExpression::MemberAccess(_) => match selections.expression(expression) {
-                Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => {
-                    match member.member() {
-                        AnySymbolId::Constant(constant) => {
-                            Some(BoundReferenceTarget::Surface(constant.into()))
-                        }
-                        _ => None,
-                    }
+            BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
+                match selections.expression(expression) {
+                    Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => member
+                        .constant_reference()
+                        .map(|_| BoundReferenceTarget::Surface(member.member())),
+                    _ => None,
                 }
-                _ => None,
-            },
+            }
             _ => None,
         };
 
@@ -170,7 +169,14 @@ pub(in crate::compilation) fn collect_constant_references_from(
             return BoundWalkControl::Continue;
         };
 
-        match resolve(expression, target) {
+        let instance = match selections.expression(expression) {
+            Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => {
+                member.constant_reference()
+            }
+            _ => None,
+        };
+
+        match resolve(expression, target, instance) {
             Ok(resolution) => references.push((expression, resolution)),
             Err(error) => {
                 failure = Some(error);
@@ -201,6 +207,7 @@ pub(in crate::compilation::constant) fn instantiate_expression_types(
     context: &crate::compilation::checker::CompilationCheckerContext<'_>,
     types: &CheckedExpressionTypes,
     substitution: GenericSubstitutionId,
+    contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
 ) -> Result<bray_diagnostics::DiagnosticResult<CheckedExpressionTypes>, FactQueryError> {
     let mut normalizer = bray_checker::TypeNormalizer::new(context, Some(substitution));
 
@@ -213,6 +220,15 @@ pub(in crate::compilation::constant) fn instantiate_expression_types(
             let ty = bray_checker::CheckerRequestContext::semantic_values(context)
                 .substitute_type(result.ty(), substitution)
                 .map_err(FactQueryError::SemanticValueStore)?;
+
+            let ty = match contextual_self {
+                Some((self_context, subject)) => {
+                    bray_checker::CheckerRequestContext::semantic_values(context)
+                        .substitute_contextual_self(ty, self_context, subject)
+                        .map_err(FactQueryError::SemanticValueStore)?
+                }
+                None => ty,
+            };
 
             let ty = normalizer.normalize_type(ty)?;
 

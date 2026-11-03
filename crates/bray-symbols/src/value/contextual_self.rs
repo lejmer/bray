@@ -37,6 +37,22 @@ impl SemanticValueStore {
         self.substitute_type_data(ty, &super::substitution_apply::Substitution::Types(&types))
     }
 
+    /// Replaces one declaration context's `Self` throughout a constant term and its types.
+    pub fn substitute_contextual_self_in_constant_term(
+        &self,
+        term: super::ConstantTermId,
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<super::ConstantTermId, SemanticValueStoreError> {
+        let contextual = self.intern_type(TypeData::ContextualSelf(context))?;
+        let types = std::collections::BTreeMap::from([(contextual, replacement)]);
+
+        self.substitute_constant_term_data(
+            term,
+            &super::substitution_apply::Substitution::Types(&types),
+        )
+    }
+
     /// Replaces one declaration context's `Self` throughout a trait application.
     pub fn substitute_contextual_self_in_application(
         &self,
