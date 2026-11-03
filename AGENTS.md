@@ -6,9 +6,9 @@ We're building a compiler for a brand-new programming language. It's an opiniona
 
 Bray is currently a greenfield project. Therefore, do not preserve backwards-compatibility unless explicitly requested. Always go for clean, coherent design changes instead of compatibility layers, migration shims, deprecated aliases, or legacy fallbacks.
 
-Treat discovered gaps as part of the active PR unless folding them in would turn it into a multi-thousand-line change or a genuinely independent subsystem. 
+Keep discovered gaps in the active PR when they are necessary to satisfy the issue contract or leave the changed design coherent. Cross-module work alone does not justify a split. Incidental improvements and hypothetical future needs do not expand the contract.
 
-Do not dismiss a discovered defect as unrelated. Fix bounded defects in the active work. Otherwise link an existing tracking issue or create one before proceeding. Treat failures in fail-fast workflows as blocking because later checks did not run.
+Follow-up issues are exceptional. Create one only for a verified problem with material impact that requires genuinely independent work and cannot reasonably be resolved in the active scope. Search for an active owner first and consolidate by outcome. Do not create issues for optional cleanup, speculative risks, extra test coverage, or every review observation. Mention minor residual limitations in the handoff when useful. Fix regressions introduced by the change. For pre-existing failures, report their effect on verification and link an existing issue when available. A new issue is not a prerequisite for continuing. A fail-fast failure leaves later checks unverified: never claim they passed, and block handoff only when the missing evidence is required for the changed behavior.
 
 ## Simplicity and scope
 
