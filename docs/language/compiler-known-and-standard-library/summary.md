@@ -6,25 +6,16 @@ This summary is informative. The detailed rules include:
 - [standard-library recognition](standard-library-recognition.md).
 - [conformance catalog](conformance-catalog.md).
 
-Compiler-known declarations have language-defined identity and contracts.
+Compiler-known declarations have language-defined identity and contracts. Compiler-provided declarations are
+compiler-known declarations with compiler-supplied implementations that preserve ordinary declaration contracts.
 
-Compiler-provided declarations are compiler-known declarations whose implementation is supplied by the compiler while
-preserving ordinary declaration surfaces.
+Ambient compiler-known names are available without `using` when target-available. References into named compiler-known
+modules require matching using declarations. The ambient `target` path exposes selected target properties without
+occupying `std`.
 
-Ambient compiler-known names are available without `using` when target-available. References into named
-compiler-known modules require a matching `using` under the ordinary cross-module dependency rules.
-
-The ambient `target` path exposes compiler-known target properties for the selected target profile without occupying
-`std`.
-
-Standard-library declarations are ordinary declarations supplied by standard-library packages.
-
-Recognized standard-library declarations are recognized by stable declaration identity, not spelling.
-
-Recognition does not make a standard-library declaration ambient and does not bypass ordinary import and path rules.
-
-Compiler-provided behavior, target properties, and recognized standard-library behavior are conforming only when their
-observable semantics match this specification.
+Standard-library declarations are ordinary package declarations. Recognition uses their stable identity rather than
+spelling and preserves ordinary import and path rules. Compiler-provided behavior, target properties, and recognized
+standard-library behavior must preserve the observable semantics specified by their rules.
 
 ## Navigation
 

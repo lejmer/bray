@@ -193,8 +193,8 @@ properties are independent, so availability never implies native lock freedom or
 `target.identity.NAME`, `target.identity.ARCH`, `target.identity.VENDOR`, `target.identity.SYSTEM`,
 `target.identity.ENVIRONMENT`, `target.identity.ABI`, and every `target.c` property have type `string`.
 
-`target.pointer.BITS`, `target.pointer.BYTES`, `target.alignment.MAX_STORAGE`, and `target.alignment.MAX_ALLOCATION`
-have type `usize`.
+`target.pointer.BITS`, `target.pointer.BYTES`, `target.alignment.MAX_STORAGE`, `target.alignment.MAX_ALLOCATION`, and
+each `target.atomic.<REPRESENTATION>_ALIGNMENT` property have type `usize`.
 
 The other properties listed above have type `bool`.
 

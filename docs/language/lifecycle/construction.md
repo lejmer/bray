@@ -4,16 +4,18 @@ Constructors create fully initialized values of `Self`.
 
 Constructor bodies have no `self` binding.
 
-A constructor body must produce a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized `Self`
-value.
+A constructor's successful result is a fully initialized `Self` value or a `Result.Ok` carrying a fully initialized
+`Self` value, according to its declared result type. The body returns that result under the ordinary
+[callable result rules](../callables/callable-results-and-bodies.md).
 
-A constructor body can produce that value with:
+The constructed `Self` value can come from:
 
 - a construction expression,
 - another constructor call,
 - another expression whose result type is `Self`.
 
-Constructor failure through `Result.Error`, panic, cancellation, or another non-success exit does not produce a value.
+Constructor failure produces no constructed `Self`. A recoverable failure returns `Result.Error(error)`, preserving
+the error payload. Panic, cancellation, and other non-returning exits produce no ordinary constructor result.
 
 Values, temporaries, and partially initialized storage created before such an exit are resolved by ordinary ownership,
 destruction, and finalization rules.

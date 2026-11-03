@@ -276,8 +276,9 @@ construction, or pattern matching.
 Fallible conversion calls do not create implicit conversions for calls, assignments, operators, overload selection,
 construction, or pattern matching.
 
-Conversion expressions participate in type checking, ownership checking, initialization checking, destruction checking,
-finalization tracking, effect checking, capability checking, trusted obligation checking, and condition refinement.
+After selection, the compiler checks that the source value or access path satisfies the conversion contract's type,
+ownership, initialization, effect, and capability requirements. Values created or consumed by the conversion retain their
+destruction and finalization obligations under [expression ownership](expression-ownership.md).
 
 A conversion expression can require conditions declared by the selected conversion contract.
 

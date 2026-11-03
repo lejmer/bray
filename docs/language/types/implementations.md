@@ -2,11 +2,10 @@
 
 Syntax follows the [implementation declarations grammar](../syntax-grammar.md#implementation-declarations).
 
-An **implementation** declares behavior for a type.
+An **implementation** declares behavior for a type. An inherent implementation adds behavior associated with the type,
+while a trait implementation fulfills a trait application. Both forms use `impl`.
 
-Implementations are declared with `impl`.
-
-An inherent implementation is written as `impl Type`.
+An inherent implementation is written as `impl Type`. It does not add fields to the type's primary representation.
 
 ```bray
 impl Point
@@ -23,13 +22,8 @@ impl Point
 }
 ```
 
-An inherent implementation adds behavior associated with the type.
-
-An inherent implementation does not add fields to the type’s primary representation.
-
-A trait implementation can be unnamed or named.
-
-An unnamed trait implementation is written as `impl ImplementingSubject(TraitApplication)`.
+A trait implementation can be unnamed or named. An unnamed trait implementation is written as
+`impl ImplementingSubject(TraitApplication)`.
 
 ```bray
 impl Point(Equatable<Point>)
@@ -53,14 +47,9 @@ impl PointEquatable = Point(Equatable<Point>)
 }
 ```
 
-`ImplementationName` is the implementation identity.
-
-It is not a type, a type alias, or a wrapper around the implementing subject.
-
-The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being implemented
-for.
-
-The trait application inside the parentheses determines the contract being fulfilled.
+`ImplementationName` is the implementation identity. It is not a type, a type alias, or a wrapper around the implementing
+subject. The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being
+implemented for. The trait application inside the parentheses determines the contract being fulfilled.
 
 For a generic trait application:
 
@@ -601,17 +590,9 @@ trait Iterator
 }
 ```
 
-`Element` is the type produced by each successful step.
-
-`next` advances the cursor.
-
-`next` returns an element value when the cursor produces an element.
-
-`next` returns `none` when the cursor reaches natural exhaustion.
-
-After a cursor returns `none`, later calls to `next` on the same cursor must return `none`.
-
-An iterator cursor can mutate its own state while advancing.
+`Element` is the type produced by each successful step. `next` advances the cursor, returning an element or `none` on
+natural exhaustion. Once a cursor returns `none`, every later call to `next` on that cursor must return `none`. The
+cursor can mutate its own state while advancing.
 
 An iterator that yields borrowed elements must preserve Bray aliasing and borrowing rules for every live yielded
 element.
@@ -643,23 +624,14 @@ Cursor: Iterator
 Cursor(Iterator).Element == Element
 ```
 
-This is a compiler-known validity rule for `Iterable` implementations.
+This compiler-known validity rule is checked with the trait implementation.
 
-It is checked as part of trait implementation checking.
+`iterate` consumes the implementation subject into the cursor. For an owned subject, it consumes the source value. For
+a borrow subject such as `&T` or `&mut T`, it consumes the borrow value rather than the borrowed storage. The cursor can
+carry that borrow's dependency contract, but cannot outlive or extend the source access it depends on.
 
-`iterate` consumes the implementation subject.
-
-For an owned subject, this consumes the source value into the cursor.
-
-For a borrow subject such as `&T` or `&mut T`, this consumes the borrow value into the cursor, not the borrowed storage.
-
-The cursor can carry the dependency contract of that borrow.
-
-The cursor cannot outlive or extend the source access it depends on.
-
-`Iterable` and `Iterator` define element production.
-
-They do not require separate cardinality, boundedness, or finiteness members.
+`Iterable` and `Iterator` define element production without requiring separate cardinality, boundedness, or finiteness
+members.
 
 Cardinality, boundedness, finiteness, iteration order, and element-borrowing conditions are established by the selected
 implementation contracts, source type conditions, cursor contracts, and compiler-known declarations.

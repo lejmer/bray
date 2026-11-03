@@ -110,17 +110,12 @@ Pair<string, i32> // different type
 The compiler does not coerce one generic instantiation to another by covariance, contravariance, or structural
 similarity.
 
-Callable parameter and result types do not use variance to select assignment or overload compatibility.
+Callable parameter and result types do not use variance to select assignment or overload compatibility. Callable
+assignment instead checks [callable-contract preservation](../callables/callable-types-and-values.md#callable-contract-conversion).
 
-Callable assignment is checked by callable-contract preservation rules.
-
-Borrow lifetimes and dependency contracts can be shortened when the compiler proves the shorter requirement is valid.
-
-This shortening is dependency-contract checking, not generic variance.
-
-Compiler-known type forms can define their own narrow weakening rules when required by their semantic contract.
-
-Those weakening rules do not create general variance for user-declared generic types.
+Borrow lifetimes and dependency contracts can be shortened when the compiler proves the shorter requirement valid.
+This is dependency-contract checking. Compiler-known type forms can also define narrow weakening rules required by
+their own contracts. Neither mechanism creates general variance for user-declared generic types.
 
 An unused generic parameter remains part of the declared type identity.
 

@@ -28,9 +28,8 @@ The pattern operation determines whether the binding receives an owned value, a 
 
 ## Pattern bindings
 
-A binding introduced by a pattern can bind a value or an access path.
-
-The pattern operation mode determines the binding kind.
+A pattern binding names a value or access path. The [pattern operation mode](pattern-operation-modes.md) determines
+which kind the binding receives.
 
 For example, a binding pattern can introduce:
 
@@ -42,9 +41,8 @@ a mutable borrowed access path,
 or an observed access path.
 ```
 
-Every pattern binding has a type, lifetime, capability set, initialization state, and ownership story.
-
-Pattern bindings are scoped to the region introduced by the construct that applied the pattern.
+Every pattern binding has a type, lifetime, capability set, initialization state, and ownership state. Its scope is the
+region introduced by the construct that applied the pattern.
 
 ## Navigation
 

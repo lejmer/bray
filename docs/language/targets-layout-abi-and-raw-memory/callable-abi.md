@@ -4,11 +4,8 @@ ABI directive syntax follows the [callable directives grammar](../syntax-grammar
 
 A callable ABI is the representation and call-entry contract used when a callable crosses an ABI boundary.
 
-Ordinary Bray calls use Bray's default callable ABI.
-
-The default callable ABI is compiler-defined and is not an external ABI contract.
-
-The `@abi(...)` directive selects an explicit callable ABI for a callable declaration or callable type form.
+Ordinary Bray calls use the compiler-defined default callable ABI, which is not an external ABI contract. The
+`@abi(...)` directive selects an explicit callable ABI for a callable declaration or callable type form.
 
 ```bray
 @abi(c)

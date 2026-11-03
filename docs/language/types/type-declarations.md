@@ -65,9 +65,8 @@ internal struct ParserState
 
 A public type is part of the public API surface of its module or package.
 
-An internal type is available within its intended scope.
-
-Use outside that scope requires explicit internal-use acknowledgement.
+An internal type is accessible within its defining package. Access from a consuming package requires explicit
+internal-use acknowledgement under [visibility and reachability](../declarations/visibility-and-reachability.md).
 
 ## Navigation
 

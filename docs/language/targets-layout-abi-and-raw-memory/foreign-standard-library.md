@@ -66,4 +66,3 @@ representations out of their public contracts.
 
 - [Target properties](target-profiles-and-properties.md)
 - [Foreign symbols](foreign-data-and-symbols.md)
-- [Interoperability design](../../design/foreign-and-platform-interoperability.md)

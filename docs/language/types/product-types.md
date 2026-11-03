@@ -4,9 +4,9 @@ Syntax follows the [struct bodies grammar](../syntax-grammar.md#struct-bodies).
 
 ## Product type
 
-A **product type** is a named type whose value is composed from named fields.
-
-A product type is declared with `struct`.
+A **product type** is a named type declared with `struct`. A struct body defines its representation through named
+fields. A bodyless struct instead declares incomplete storage or, with explicit size and alignment, complete opaque
+storage under the [product layout rules](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ```bray
 struct Point
@@ -16,9 +16,8 @@ struct Point
 }
 ```
 
-A product value contains one value for each field in the product representation.
-
-The fields together form the product value's primary representation.
+For a field-defined product, a value contains one value for each represented field. Together, the fields form its
+primary representation.
 
 Each field has a name, a type, a mutability contract, a visibility contract, and an initialization state.
 
@@ -29,7 +28,8 @@ initialized from their defaults during construction.
 
 A product type has one primary representation declaration.
 
-The primary representation is the field set declared by the `struct` body.
+For a struct with a body, the primary representation is the field set declared by that body. A bodyless struct's
+storage is governed by its layout contract.
 
 ```bray
 struct Rectangle
@@ -156,15 +156,10 @@ Renaming a public field is a public API change.
 ## Field order
 
 Field declaration order is semantically relevant for deterministic destruction and any rule that explicitly refers to
-declaration order.
+declaration order. It can also affect compiler-chosen layout, though default layout remains compiler-defined.
 
-Field declaration order can also affect compiler-chosen layout.
-
-Default layout remains compiler-defined.
-
-Construction expressions and product patterns match fields by name.
-
-Field order in construction expressions and product patterns does not determine field identity.
+Construction expressions and product patterns match fields by name. Their field order does not determine field
+identity.
 
 ## Field type
 
@@ -178,24 +173,14 @@ struct Point
 }
 ```
 
-The field type participates in:
+Field initialization, access, borrowing, mutation, movement, and copying follow the field type's rules. A field value
+also carries that type's destruction, finalization, capability, and effect requirements. These requirements determine
+how the field can be initialized during [construction](../expressions/struct-construction-expressions.md) or accessed
+through a [product pattern](../patterns/product-patterns.md).
 
-- field initialization,
-- field access,
-- field borrowing,
-- field mutation,
-- field movement,
-- field copying,
-- field destruction,
-- field finalization,
-- product copy behavior,
-- product lifecycle obligations,
-- product layout,
-- product construction,
-- product patterns.
-
-A field value follows the ownership, borrowing, initialization, destruction, finalization, capability, and effect rules
-of its field type.
+Field types also constrain the containing product's [copy behavior](copy-contracts.md),
+[lifecycle obligations](../lifecycle/lifecycle-ordering.md), and
+[layout](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ## Field visibility
 
@@ -221,7 +206,7 @@ struct Point
 }
 ```
 
-An `internal` field is available within its intended scope.
+An `internal` field is accessible within its defining package.
 
 ```bray
 struct CacheEntry
@@ -231,7 +216,8 @@ struct CacheEntry
 }
 ```
 
-Use of an internal field outside its intended scope requires explicit acknowledgement.
+Access to an internal field from a consuming package requires explicit acknowledgement under
+[visibility and reachability](../declarations/visibility-and-reachability.md).
 
 ```bray
 let h = internal entry.hash;
@@ -326,22 +312,15 @@ A field default is a
 [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is checked
 even when every current construction supplies that field explicitly.
 
-A field default cannot reference sibling fields.
+The compiler checks a field default for type, ownership, initialization, effects, capabilities, finalization, and
+flow-sensitive contracts. The default cannot reference sibling fields or `self`.
 
-A field default cannot reference `self`.
-
-A field default is evaluated when that field is omitted during construction.
-
-Effects of an evaluated field default become effects of the construction expression.
-
-Finalization obligations created by an evaluated field default become obligations of the constructed value, local
-temporaries, or surrounding context according to ownership and lifecycle rules.
+A field default is evaluated when that field is omitted during construction. Its effects become effects of the
+construction expression. Finalization obligations created by an evaluated default become obligations of the constructed
+value, local temporaries, or surrounding context according to ownership and lifecycle rules.
 
 Trusted capabilities used by a field default must be permitted by the declaration context and construction context
 according to the trusted capability rules.
-
-A field default participates in type checking, ownership checking, initialization checking, effect checking, capability
-checking, finalization tracking, and flow-sensitive contract checking.
 
 ## Product construction
 
@@ -420,8 +399,9 @@ point.y
 
 when `x` and `y` are distinct fields of the same product value.
 
-Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and
-condition refinement.
+The compiler uses disjointness to check whether borrowing, mutation, movement, initialization, or destruction of one
+field affects another. Conditions about a field are likewise subject to changes through overlapping access paths, as
+defined by [contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 ## Product initialization state
 
@@ -445,23 +425,12 @@ A destroyed product value is no longer usable as a value.
 
 ## Partial moves
 
-Moving a field out of a product is an ownership operation.
+Moving a field requires ownership of the containing product value and no conflicting active borrows of the product or
+reached field. The moved field becomes moved from, leaving the product partially initialized. Still-initialized fields
+retain their own ownership and destruction rules.
 
-A field move requires ownership of the containing product value.
-
-A field move requires no conflicting active borrows of the containing product value or the reached field.
-
-After a field move, the containing product value is partially initialized.
-
-The moved field becomes moved from within the product.
-
-Still-initialized fields remain governed by their own ownership and destruction rules.
-
-A partially moved product value can be reinitialized or consumed by a rule that accounts for its partial state.
-
-A partially moved product value can be destroyed as a partial value.
-
-Destruction of a partially moved product value destroys only the still-initialized fields.
+A partially moved product can be reinitialized or consumed by a rule accounting for its partial state. It can also be
+destroyed as a partial value, which destroys only the still-initialized fields.
 
 A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the
 storage and type contract permit reinitialization.
@@ -651,8 +620,10 @@ constant or variant.
 
 Product pattern rules are defined in [Product patterns](../patterns/product-patterns.md).
 
-Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization,
-capability checking, and condition refinement according to the pattern operation mode.
+The [pattern operation mode](../patterns/pattern-operation-modes.md) determines whether selected fields are observed,
+borrowed, copied, or moved. It also determines binding initialization and partial moves of the subject. The resulting
+bindings retain their capability and cleanup requirements, and successful matches establish
+[pattern refinements](../patterns/pattern-refinement.md).
 
 ## Product API compatibility
 

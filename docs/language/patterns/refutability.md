@@ -1,8 +1,8 @@
 # Refutability
 
-A pattern is **irrefutable** when it matches every value of its subject type.
-
-A pattern is **refutable** when it matches only some values of its subject type.
+A pattern is **irrefutable** when its structure establishes that matching cannot fail for its subject type under the
+rules below. A valid pattern that is not classified as irrefutable is **refutable**. This classification is separate
+from exhaustiveness and flow-sensitive facts about the particular subject value.
 
 Examples of irrefutable patterns:
 
@@ -14,7 +14,11 @@ mut value
 (x, y)
 ```
 
-A product or tuple pattern is irrefutable when its subpatterns are irrefutable.
+Binding and discard patterns are irrefutable. A remaining-fields or remaining-elements marker adds no failing test.
+A compatible product, tuple, or fixed-size array pattern is irrefutable when it accounts for the subject's complete
+shape and every selected subpattern is irrefutable. A compatible variant pattern is irrefutable only when its variant
+is the union's sole variant and every payload subpattern is irrefutable. Grouping and box patterns inherit their
+inner pattern's classification.
 
 Examples of refutable patterns:
 
@@ -28,11 +32,9 @@ none
 Error | Cancelled
 ```
 
-A variant pattern is refutable when the subject union has other variants.
-
-A literal pattern is refutable when the subject type has other possible values.
-
-The `none` pattern and `?inner` pattern are refutable because a nullable value can be absent or present.
+Literal patterns, constant path patterns, nullable patterns, and alternative patterns are always classified as
+refutable. A proof that a particular subject will match, or that alternatives collectively cover its type, does not
+make these forms irrefutable.
 
 A pattern context declares whether it accepts refutable patterns.
 

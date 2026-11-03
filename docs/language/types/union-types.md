@@ -329,24 +329,12 @@ A destroyed union value is no longer usable as a value.
 
 ## Partial moves
 
-Moving a payload field out of a union is an ownership operation.
+Moving a payload field requires ownership of the union value and no conflicting active borrows of the union, active
+payload, or reached field. The moved field becomes moved from, leaving the union partially initialized.
+Still-initialized active payload fields retain their own ownership and destruction rules.
 
-A payload field move requires ownership of the union value.
-
-A payload field move requires no conflicting active borrows of the union value, active payload, or reached payload
-field.
-
-After a payload field move, the union value is partially initialized.
-
-The moved payload field becomes moved from within the active payload.
-
-Still-initialized active payload fields remain governed by their own ownership and destruction rules.
-
-A partially moved union value can be reinitialized or consumed by a rule that accounts for its partial state.
-
-A partially moved union value can be destroyed as a partial value.
-
-Destruction of a partially moved union value destroys only the still-initialized fields of the active payload.
+A partially moved union can be reinitialized or consumed by a rule accounting for its partial state. It can also be
+destroyed as a partial value, which destroys only the still-initialized fields of the active payload.
 
 A partially moved union value can become fully initialized again when all moved-from active payload fields are
 reinitialized and the storage and type contract permit reinitialization.
@@ -567,8 +555,10 @@ Union variant pattern rules are defined in [Union variant patterns](../patterns/
 
 Match expressions over closed unions perform coverage checking against the union's closed variant set.
 
-Union patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization,
-capability checking, and condition refinement according to the pattern operation mode.
+The [pattern operation mode](../patterns/pattern-operation-modes.md) determines whether selected payload fields are
+observed, borrowed, copied, or moved. It also determines binding initialization and partial moves of the subject. The
+resulting bindings retain their capability and cleanup requirements, and successful matches establish
+[pattern refinements](../patterns/pattern-refinement.md).
 
 ## Compiler-known result unions
 

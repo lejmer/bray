@@ -31,9 +31,7 @@ func add(left: i32, right: i32) -> i32
 }
 ```
 
-The `:` syntax annotates the declared thing before it.
-
-The `->` syntax declares the result type of a callable.
+The `:` syntax annotates the declared thing before it, while `->` declares the result type of a callable.
 
 ```text
 :    type annotation for the declared thing before it
@@ -52,9 +50,8 @@ func f() -> i32
 ```
 
 Callable-body context creates a [callable execution scope](return-and-execution-scopes.md#callable-execution-scopes).
+Result values are supplied through explicit callable exits.
 [Return expressions](../expressions/return-expressions.md) define the target and transfer of a returned value.
-
-Callable result values are supplied through explicit callable exits.
 
 ```bray
 func add(left: i32, right: i32) -> i32
@@ -72,10 +69,9 @@ func log(pos message: string)
 }
 ```
 
-For a function with a declared result type other than `unit`, every reachable normal completion path supplies the
-callable result through `return` or ends in a `never` expression.
-
-A function declared to return `never` has no normal completion path.
+A function whose declared result type is not `unit` is rejected if a reachable path falls through the end of its body.
+A `return` or an expression with no normal continuation prevents fallthrough on that path. A function declared to return
+`never` has no normal completion path.
 
 ## Semicolons
 

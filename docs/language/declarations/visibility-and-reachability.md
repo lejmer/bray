@@ -9,9 +9,9 @@ The visibility modifiers are:
 
 `public` is optional because it is the default.
 
-An internal declaration is available within its intended scope.
-
-Use outside that scope requires explicit internal-use acknowledgement.
+An internal declaration is accessible within its defining package. Access from a consuming package requires explicit
+internal-use acknowledgement. The same rule applies to an internal module and declarations reached through it.
+Cross-module references still require a matching `using` declaration, including within the defining package.
 
 ```bray
 using internal parser.impl;
@@ -36,8 +36,8 @@ Trait visibility rules are defined in [Traits](../types/traits.md#trait-visibili
 Static visibility controls whether the declaration and its open instance template are reachable. Reaching one static
 declaration through more than one public or re-exported path does not create more than one closed instance.
 
-Declarations in an internal module require internal-use acknowledgement to reach from outside the module's intended
-scope even when the declaration itself is public.
+Declarations in an internal module require internal-use acknowledgement from consuming packages even when the
+declaration itself is public.
 
 The effective reachability of a type-associated member is capped by the owning type, the member's declaring module, and
 the member's own visibility. An inherent implementation does not create another visibility or activation boundary.

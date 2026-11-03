@@ -1,10 +1,8 @@
 # Lexical grammar
 
-This chapter explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings.
-
-The companion plain EBNF reference is `lexical-grammar.ebnf`.
-
-The source grammar is defined separately in `syntax-grammar.md` and `syntax-grammar.ebnf`.
+This chapter explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings,
+with a companion plain EBNF reference in `lexical-grammar.ebnf`. The source grammar is defined separately in
+[Syntax grammar](syntax-grammar.md) and `syntax-grammar.ebnf`.
 
 Lexical grammar defines token spelling. Literal typing, literal adaptation, scalar operations, and string value
 semantics belong to the scalar and literal rules.
@@ -13,15 +11,11 @@ semantics belong to the scalar and literal rules.
 
 ## Source text
 
-Bray source text is UTF-8.
+Bray source text is UTF-8. An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is
+ignored. Source text is not Unicode-normalized by the compiler.
 
-An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is ignored.
-
-Source text is not Unicode-normalized by the compiler.
-
-Line endings accepted by the lexer are LF and CRLF. The compiler treats both as line breaks for source locations.
-
-A lone CR is not a line ending. It is valid only as ordinary text inside block comments.
+Line endings accepted by the lexer are LF and CRLF. The compiler treats both as line breaks for source locations. A lone
+CR is not a line ending. It is valid only as ordinary text inside block comments.
 
 ```ebnf
 source-text =
@@ -56,12 +50,9 @@ When two token kinds have the same spelling length, the more specific token kind
 - documentation comments win over ordinary comments,
 - imaginary literals win over the numeric literal they contain.
 
-Whitespace and comments separate tokens and are otherwise trivia.
-
-Trivia is preserved by the syntax layer as leading and trailing trivia on syntax tokens so source text can be recreated
-from syntax trees.
-
-Trivia is not represented as ordinary syntax nodes.
+Whitespace and comments separate tokens and are otherwise trivia. The syntax layer preserves them as leading and
+trailing trivia on syntax tokens so source text can be recreated from syntax trees. Trivia is not represented as
+ordinary syntax nodes.
 
 Adjacent tokens are valid only when the resulting character sequence cannot be read as a longer token or invalid token.
 
@@ -101,9 +92,8 @@ line-break =
     | "\r\n" ;
 ```
 
-Only ASCII space, horizontal tab, LF, and CRLF are whitespace outside comments and literals.
-
-Other Unicode space characters are invalid outside comments and literals.
+Only ASCII space, horizontal tab, LF, and CRLF are whitespace outside comments and literals. Other Unicode space
+characters are invalid there.
 
 ---
 
@@ -141,12 +131,9 @@ Line comments and line documentation comments end before the line break or at en
 
 Block comments can nest.
 
-Documentation comments are retained as structured trivia for documentation tooling.
-
-A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and
-ordinary comments, documents that declaration.
-
-Documentation comments are valid before the first module declaration in a source unit.
+Documentation comments are retained as structured trivia for documentation tooling. A contiguous group immediately
+before a declaration, separated from it only by whitespace and ordinary comments, documents that declaration. They are
+valid before the first module declaration in a source unit.
 
 ---
 
@@ -304,19 +291,12 @@ exponent-part =
     ( "e" | "E" ) [ "+" | "-" ] decimal-digit-sequence ;
 ```
 
-Decimal integer literals use decimal digits.
+Decimal integer literals use decimal digits. Binary integer literals use `0b` or `0B`, and hexadecimal integer literals
+use `0x` or `0X`. Real literals are decimal, with digits on both sides of `.` or an exponent part. `.5` and `1.` are not
+real literals.
 
-Binary integer literals use `0b` or `0B`.
-
-Hexadecimal integer literals use `0x` or `0X`.
-
-Real literals are decimal. A real literal either has digits on both sides of `.` or has an exponent part.
-
-`.5` and `1.` are not real literals.
-
-Digit separators use `_` between digits.
-
-Separators cannot appear at the start or end of a digit sequence and cannot appear next to another separator.
+Digit separators use `_` between digits. They cannot appear at the start or end of a digit sequence or next to another
+separator.
 
 Numeric literal suffixes are not part of Bray syntax, except for the `i` suffix that forms an imaginary literal.
 
@@ -432,17 +412,11 @@ tuple-element-index =
     | nonzero-decimal-digit { decimal-digit } ;
 ```
 
-Tuple element indices do not use separators.
+Tuple element indices do not use separators. Leading zeroes are invalid except for the single index `0`.
 
-Leading zeroes are invalid except for the single index `0`.
-
-A decimal spelling is treated as a tuple element index only in the member-selector position after `.`.
-
-In ordinary expression positions, the same character shape is an integer literal.
-
-After a member-access `.`, the parser performs the tuple-index scan before ordinary numeric-literal scanning.
-
-This makes `entry.1.0` parse as `entry` followed by tuple element `1` and then tuple element `0`.
+A decimal spelling is treated as a tuple element index only in the member-selector position after `.`. The parser
+performs that scan before ordinary numeric-literal scanning, so `entry.1.0` parses as `entry` followed by tuple element
+`1` and then tuple element `0`. In ordinary expression positions, the same character shape is an integer literal.
 
 ---
 

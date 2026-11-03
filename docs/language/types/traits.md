@@ -58,9 +58,8 @@ internal trait ParserReports
 
 A public trait exposes its full contract surface as public API.
 
-An internal trait is available within its intended scope.
-
-Use of an internal trait outside its intended scope requires explicit internal-use acknowledgement.
+An internal trait is accessible within its defining package. Access from a consuming package requires explicit
+internal-use acknowledgement under [visibility and reachability](../declarations/visibility-and-reachability.md).
 
 Trait members inherit the visibility of the trait.
 
@@ -334,25 +333,15 @@ impl TokenCursor(Iterator)
 }
 ```
 
-The `type Element = Token;` implementation member is a trait-member binding.
+The `type Element = Token;` implementation member is a trait-member binding, not a general type alias declaration.
+Inside an implementation of the trait, the name refers to the selected type bound by that implementation. Members
+that refer to it are checked after substituting that selected type. A trait implementation satisfies the trait only
+when its callable members match the trait contract after all type-valued member bindings are applied.
 
-It is not a general type alias declaration.
-
-Inside an implementation of the trait, the type-valued member name refers to the selected type bound by that
-implementation.
-
-An implementation member that refers to a type-valued member is checked after substituting the implementation’s selected
-type.
-
-A trait implementation satisfies the trait only when its callable members match the trait contract after all type-valued
-member bindings are applied.
-
-Type-valued members participate in type checking, callable checking, method resolution, generic constraints, contract
-checking, flow-sensitive contract checking, documentation, and public API compatibility.
-
-Type-valued members do not create runtime type identity.
-
-Type-valued members do not permit downcasting, runtime type tests, or dynamic type mutation.
+The selected types determine type and callable checking, method resolution, generic constraints, and contract checking,
+including flow-sensitive contracts. These bindings affect documentation and, when exposed, public API compatibility.
+They do not create runtime type identity or permit downcasting, runtime type tests, or dynamic type
+mutation.
 
 Dynamic dispatch through a trait view is rejected when it would hide selected type-valued members that are visible
 through that dispatch surface.
@@ -494,8 +483,10 @@ Outside the declaring trait and an implementation of that trait, a predicate mem
 SubjectType(TraitApplication).predicate_name(...)
 ```
 
-Predicate members participate in contract checking, static constraints, flow-sensitive contract checking, generic
-satisfaction, documentation, and public API compatibility.
+The selected predicate supplies the relation used in contracts and static constraints, including flow-sensitive
+reasoning. Generic satisfaction checks the trait's predicate requirements against that relation under
+[contract reasoning](../contracts-and-trust/contract-reasoning.md). Predicate members also affect documentation and,
+when exposed, public API compatibility.
 
 Trusted predicate members follow the ordinary trusted predicate and trusted obligation rules from the contract and trust
 rules.
@@ -637,8 +628,11 @@ participating implementation lifecycle declaration can be visible in a coherence
 Trait implementation lifecycle declarations can fulfill only an `enter` or `exit` requirement of the implemented
 trait. A trait implementation cannot add lifecycle declarations that fulfill no such requirement.
 
-Lifecycle requirements participate in ownership checking, borrowing checking, finalization tracking, with-expression
-checking, generic satisfaction, documentation, and public API compatibility.
+Generic satisfaction checks that the selected lifecycle behavior fulfills the trait's requirements. Invocations follow
+the selected operation's ownership and borrowing rules. Its finalization obligations and scoped-capability behavior
+follow the [lifecycle rules](../lifecycle.md), including the applicable
+[`with` expression rules](../lifecycle/with-expressions.md). These requirements affect documentation and, when exposed,
+public API compatibility.
 
 ## Instance methods in traits
 

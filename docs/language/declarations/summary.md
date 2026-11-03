@@ -7,48 +7,25 @@ This summary is informative. The detailed rules include:
 - [declaration order and checking](declaration-order-and-checking.md).
 
 Declarations introduce program entities, members, module contributions, compile-time relations, and semantic
-relationships.
+relationships. Their declaration context determines which forms are accepted. Module bodies accept module-level,
+using, and export declarations. Types, traits, and implementations have their own member forms, while block expressions
+accept only local bindings and constant declarations.
 
-Every declaration is checked in a declaration context.
+Declaration identity is separate from source unit origin. All source names use one ordinary namespace in each lookup
+scope. Visibility is public by default where supported, and internal use requires explicit acknowledgement. Directives
+attach compile-time instructions to source elements. Modifiers alter declaration contracts and checking contexts.
 
-Module bodies contain module-level declarations, using declarations, and export declarations.
+Generic declarations can introduce type parameters, const parameters, or both. Declaration-owned defaults, constants,
+predicates, constraints, and contracts are checked with those declarations, separately from executable callable and
+lifecycle bodies.
 
-Type bodies, trait bodies, and implementation bodies have their own member declaration forms.
+Constants name compile-time values, predicates name contract-level relations, and overload declarations make overload
+families explicit. Static declarations instead introduce address-bearing product storage, with `@thread_local`
+selecting exact-thread storage. Both storage forms have constant materialization, deterministic closed instance
+identity, inferred dependency roots, and exactly-once cleanup ownership.
 
-Block expressions accept only local binding declarations and constant declarations.
-
-Declaration identity is separate from source unit origin.
-
-All source names occupy one ordinary lookup namespace within their respective lookup scopes.
-
-Visibility is public by default where visibility is supported.
-
-Internal use requires explicit acknowledgement.
-
-Directives attach compile-time instructions to source elements.
-
-Modifiers alter declaration surfaces and checking contexts.
-
-Generic declaration surfaces contain type parameters and const parameters.
-
-Declaration-owned defaults, constants, predicates, constraints, and contracts are checked with their declaration
-surfaces.
-
-Executable callable and lifecycle bodies remain separate from declaration-owned expression checking.
-
-Constant declarations introduce named compile-time values.
-
-Static declarations introduce address-bearing product storage. The `@thread_local` directive selects exact-thread
-storage. Both forms have constant materialization, deterministic closed instance identity, inferred dependency roots,
-and exactly-once cleanup ownership.
-
-`extern static` composes the static surface with provider-owned native storage and produces a provider-rooted raw
-pointer. A native-symbol `static mut` exposes externally mutable storage without granting ambient Bray mutation
-authority.
-
-Predicate declarations introduce contract-level relations.
-
-Overload declarations make overload families explicit.
+`extern static` binds provider-owned native storage and produces a provider-rooted raw pointer. A native-symbol
+`static mut` exposes externally mutable storage without granting ambient Bray mutation authority.
 
 ## Navigation
 

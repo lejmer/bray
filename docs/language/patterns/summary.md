@@ -6,37 +6,20 @@ This summary is informative. The detailed rules include:
 - [pattern operation modes](pattern-operation-modes.md).
 - [pattern evaluation](pattern-evaluation.md).
 
-Patterns are structural matching forms.
+Patterns are structural matching forms with a dedicated grammar. Pattern names resolve before they bind. Paths identify
+constants, variants, and other pattern-capable declarations, while field shorthand binds same-name fields without
+resolving those names as named patterns.
 
-Patterns have a dedicated grammar category.
+Variant patterns refine closed union values, and payload and product fields are matched by name. `..` explicitly
+accounts for remaining fields or elements. Nullable patterns distinguish absence with `none` and presence with
+`?pattern`.
 
-Pattern names resolve before they bind.
+The operation mode determines observation, borrowing, mutable borrowing, consumption, or copying. Pattern bindings
+retain type, ownership, lifetime, capability, and initialization state. Irrefutable-only contexts reject refutable
+patterns, and closed-union variant matching checks exhaustive coverage.
 
-Paths identify named constants, variants, and other pattern-capable declarations.
-
-Variant patterns refine closed union values.
-
-Payload and product fields are matched by name.
-
-Field shorthand binds same-name fields without resolving those names as named patterns.
-
-`..` explicitly accounts for remaining fields or elements.
-
-Nullable patterns match absent state with `none` and present state with `?pattern`.
-
-Pattern operation mode determines observe, borrow, mutable borrow, consume, or copy behavior.
-
-Pattern bindings carry type, ownership, lifetime, capability, and initialization state.
-
-Refutability is tracked.
-
-Irrefutable-only contexts reject refutable patterns.
-
-Union variant matching over closed unions performs exhaustive coverage checking.
-
-Successful patterns make their structural guarantees available in the region governed by the match.
-
-Pattern matching is structural, deterministic, and effect-free.
+Pattern matching is structural, deterministic, and effect-free. Successful matches make their structural guarantees
+available in the region governed by the match.
 
 ## Navigation
 

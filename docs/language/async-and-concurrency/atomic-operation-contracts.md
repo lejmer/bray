@@ -38,7 +38,7 @@ Load and wait accept relaxed, acquire, and sequentially consistent ordering. Sto
 sequentially consistent ordering. A fence cannot be relaxed. Exchange, fetch, and successful compare-exchange accept
 every ordering. The compare-exchange failure ordering must be no stronger than its success ordering and cannot be
 release or acquire-release. Every order is a closed compile-time `usize` argument. Values outside the five
-language-defined orders are diagnosed before MIR construction.
+language-defined orders are diagnosed before code generation.
 
 Strong compare-exchange fails only when the observed value differs from the expected value. Weak compare-exchange may
 also fail spuriously. Both return the observed value and a Boolean success flag. Fetch operations return the value that

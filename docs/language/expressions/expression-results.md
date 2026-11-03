@@ -16,10 +16,10 @@ An expression of type `unit` represents completion without meaningful data.
 An expression of type `never` has no normal continuation.
 
 An expression that produces an access path can be observed, borrowed, mutably borrowed, assigned through, moved from,
-copied from, consumed, or destroyed according to its type, ownership story, initialization state, and capability state.
+copied from, consumed, or destroyed according to its type, ownership state, initialization state, and capability state.
 
-An expression that produces a compile-time entity can participate in type checking, path resolution, contract checking,
-or other compile-time semantics according to the entity kind.
+An expression producing a compile-time entity supplies that entity to checking rather than producing a runtime value.
+The entity kind determines how type checking, path resolution, contracts, or other compile-time rules use it.
 
 ## Result type merge
 

@@ -1,6 +1,7 @@
 # Literal patterns
 
-A literal pattern matches a scalar literal value.
+A literal pattern matches a literal value accepted for the subject type, including scalar, string, and byte-string
+literals.
 
 ```bray
 0
@@ -10,7 +11,7 @@ false
 'a'
 ```
 
-Literal patterns are refutable unless the subject type has exactly one possible matching value.
+Literal patterns are always classified as [refutable](refutability.md).
 
 Literal pattern matching uses the language's literal typing and equality rules for pattern context.
 

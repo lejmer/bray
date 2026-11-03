@@ -44,20 +44,15 @@ imaginary suffix.
 127
 ```
 
-Integer literals are initially untyped.
-
-An integer literal receives its type from expression context when an expected integer type exists.
+Integer literals are initially untyped. An expected integer type supplies the type through expression context.
 
 ```bray
 let x: i32 = 1;
 let y: u64 = 1;
 ```
 
-When no context fixes the type of an integer literal, the default integer literal type is `i32`.
-
-The literal value must be representable in the selected integer type.
-
-The selected integer type determines the runtime value type of the literal expression.
+Without such context, an integer literal defaults to `i32`. Its value must be representable in the selected integer
+type, which determines its runtime value type.
 
 Integer literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal
 values.
@@ -81,20 +76,15 @@ A **real literal** is a numeric literal with real-literal syntax.
 0.5
 ```
 
-Real literals are initially untyped.
-
-A real literal receives its type from expression context when an expected real type exists.
+Real literals are initially untyped. An expected real type supplies the type through expression context.
 
 ```bray
 let x: r32 = 1.0;
 let y: r64 = 1.0;
 ```
 
-When no context fixes the type of a real literal, the default real literal type is `r64`.
-
-The literal value must be representable according to the selected real type’s literal conversion rules.
-
-The selected real type determines the runtime value type of the literal expression.
+Without such context, a real literal defaults to `r64`. Its value must be representable under the selected real type's
+literal conversion rules. That type determines its runtime value type.
 
 Real literal typing is literal adaptation. It does not create implicit conversion rules for already-typed non-literal
 values.
@@ -120,11 +110,8 @@ An **imaginary literal** is a numeric literal followed by the imaginary suffix `
 2.0i
 ```
 
-An imaginary literal represents an imaginary component.
-
-An imaginary literal is initially untyped.
-
-An imaginary literal receives its component type from expression context when an expected complex type exists.
+An imaginary literal represents an initially untyped imaginary component. An expected complex type supplies its
+component type through expression context.
 
 ```bray
 let z: c128 = 1.0 + 2.0i;
@@ -176,13 +163,8 @@ expecting a built-in complex type.
 let z: c128 = 1.0 + 2.0i;
 ```
 
-The expected complex type determines the component real type.
-
-The real component literal adapts to the complex component type.
-
-The imaginary component literal adapts to the complex component type.
-
-The expression produces a value of the expected complex type.
+The expected complex type determines the real type used for both components. Each component literal adapts to that
+type, and the expression produces a value of the expected complex type.
 
 The real literal may have a leading minus. Subtraction negates the imaginary component:
 
@@ -402,17 +384,9 @@ When no expected type controls a numeric literal, the default literal type appli
 
 ## Literal defaults
 
-When no expected type determines a numeric literal type, Bray uses default literal types.
-
-The default integer literal type is `i32`.
-
-The default real literal type is `r64`.
-
-The default complex literal type is `c128`.
-
-Defaults apply only to otherwise unconstrained literals.
-
-Defaults do not create implicit conversion between non-literal values.
+When no expected type constrains a numeric literal, it defaults to `i32` for integer literals, `r64` for real literals,
+or `c128` for complex literals. These defaults apply only to unconstrained literals and do not create implicit
+conversion between non-literal values.
 
 ```bray
 let x = 1;
@@ -430,19 +404,9 @@ Literal adaptation assigns a type to an initially untyped literal expression acc
 type. An integer literal admits integer types, a real literal admits real types, and an imaginary literal admits complex
 types. The literal must meet that type's representation rules. Adaptation does not widen an already-typed value.
 
-Literal adaptation applies to literal expressions.
-
-Literal adaptation can adapt integer literals to integer types.
-
-Literal adaptation can adapt real literals to real types.
-
-Literal adaptation can adapt real and imaginary literals to complex component types when forming a complex literal
-expression.
-
-Literal adaptation can happen recursively inside tuple expressions, array expressions, struct construction expressions,
-union variant construction expressions, and named argument expressions.
-
-Literal adaptation does not apply to already-typed non-literal values.
+When forming a complex literal expression, real and imaginary literals adapt to its component types. Adaptation can also
+apply recursively inside tuples, arrays, struct construction, union variant construction, and named arguments. It
+assigns types to literals and does not convert already-typed non-literal values.
 
 ```bray
 let x: i32 = 1;

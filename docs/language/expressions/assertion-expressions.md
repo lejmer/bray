@@ -50,8 +50,9 @@ Condition-context rules are defined in [Contract reasoning](../contracts-and-tru
 An assertion expression does not satisfy trusted caller obligations and does not grant trusted implementation
 capabilities.
 
-Assertion expressions participate in type checking, ownership checking, borrowing, mutation authority, effect checking,
-capability checking, trusted obligation checking, and condition refinement according to the expressions they evaluate.
+The assertion's condition and any evaluated message retain their ordinary type, ownership, borrowing, mutation-authority,
+effect, capability, and trusted-obligation requirements under [expression context](expression-context.md). Successful
+assertions refine conditions under the contract reasoning rules above.
 
 ## Navigation
 

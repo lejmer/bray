@@ -70,25 +70,17 @@ from the trust boundary.
 
 A witness value carries its trusted guarantees only while the value is fully initialized, live, and valid.
 
-Moving a witness value moves the trusted guarantees carried by that value.
-
-After the move, the old access path no longer carries those conditions.
+Moving a witness value transfers its trusted guarantees. The old access path no longer carries those conditions.
 
 Returning a witness value returns its trusted guarantees as part of the result value's dependency contract.
 
 Storing a witness value stores its trusted guarantees only when the destination can preserve every dependency required
-by the value.
-
-Storing a witness value does not extend any allocation, borrow, scoped capability, resource, or lifetime that the
-witness depends on.
+by the value. Storage does not extend any allocation, borrow, scoped capability, resource, or lifetime that the witness
+depends on.
 
 Copying a witness value is rejected unless the value's copy contract explicitly states how the copied value preserves or
-splits the trusted guarantees.
-
-Observing or copying ordinary fields from a witness value does not copy the trusted guarantees carried by the witness
-value.
-
-The trusted guarantees remain tied to the witness value and to the dependencies named by its contract.
+splits the trusted guarantees. Observing or copying its ordinary fields does not copy those guarantees, which remain
+tied to the whole witness value and the dependencies named by its contract.
 
 Partially moving a witness value is rejected when the move would separate trusted guarantees from the value or
 dependency that carries them.
@@ -121,8 +113,12 @@ the required trusted predicate after ordinary path, field, equality, and depende
 Guarantees carried by a witness value can satisfy matching trusted requirements at program points where the witness and
 its dependencies remain valid.
 
-They do not bypass ownership checking, borrowing rules, mutation authority, initialization checking, destruction
-checking, finalization checking, capability checking, visibility, internal-access acknowledgement, or effect checking.
+Witness evidence discharges a matching trusted requirement. Discharging that requirement does not waive the storage
+access and mutation-authority checks in [borrow rules](../ownership-and-borrowing/borrow-rules.md). The witness value's
+ownership, initialization, destruction, and finalization remain governed by
+[ownership states](../ownership-and-borrowing/ownership-states.md) and [lifecycle rules](../lifecycle.md). Uses must still
+satisfy capability and effect requirements and the ordinary
+[visibility and internal-access rules](../declarations/visibility-and-reachability.md).
 
 A callable or lifecycle declaration that receives, returns, stores, or captures a witness value must preserve the
 witness value's dependency contract.

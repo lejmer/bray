@@ -1,19 +1,13 @@
 # Pattern contexts
 
-A pattern context is a language construct that applies a pattern to a subject.
+A **pattern context** is a language construct that applies a pattern to a subject. The construct supplies the subject
+type, matching mode, and refutability rules.
 
-Different pattern contexts use different matching modes and refutability rules.
+Local destructuring and iteration require irrefutable patterns, with iteration checked against its element type. These
+contexts reject refutable patterns during checking.
 
-Local destructuring requires an irrefutable pattern.
-
-Iteration patterns require an irrefutable pattern for the iteration element type.
-
-Union variant matching and match expressions accept refutable patterns and perform coverage checking according to the
-subject type.
-
-A context that accepts refutable patterns defines what happens when a pattern does not match.
-
-A context that requires irrefutable patterns rejects refutable patterns during checking.
+Union variant matching and match expressions accept refutable patterns and check coverage according to the subject
+type. A context accepting refutable patterns defines what happens when a pattern does not match.
 
 The syntax grammar names this split with `irrefutable-pattern` for irrefutable-only contexts and `case-pattern` for
 match arms, `matches`, and conditional `let`.

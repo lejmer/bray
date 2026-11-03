@@ -17,7 +17,7 @@ The caller-visible effect surface is:
 - `ensures(...)`,
 - `executes(...)` and guarded `when(...)` guarantees,
 - `with(...)`,
-- trusted `uses(...)`,
+- the `trusted` modifier,
 - lifecycle contracts,
 - task and async-computation contracts,
 - parameter and result type contracts.
@@ -60,6 +60,9 @@ carried by the resulting computation until execution.
 `uses(...)` declares trusted implementation capabilities used by a trusted callable body.
 
 A trusted callable's `uses(...)` clause must exactly describe the trusted implementation capabilities used by its body.
+These are implementation permissions. They do not impose the same capabilities on callers or have to match during
+[callable conversion](callable-types-and-values.md#callable-contract-conversion). Conversion does preserve the
+`trusted` modifier and the callable's caller obligations.
 
 Trusted implementation capabilities cover low-level operations named by the trust rules.
 
@@ -86,8 +89,11 @@ callable and is not reachable by the caller except through the callable's return
 
 Internal mutation is still a runtime effect.
 
-Constant-evaluation context, predicate-expression context, static constraint context, and other effect-free contexts
-require callables without internal mutation.
+Mutation confined to the current computation's exclusively owned storage can be pure under
+[pure execution](../contracts-and-trust/execution-guarantees.md#pure-execution). Const functions can use such local
+mutation when they meet the remaining constant-evaluation requirements. Predicate expressions and static constraints
+still forbid assignment and mutation as source operations. A selected const call can use confined local state under
+the [predicate-expression rules](../contracts-and-trust/predicates-and-predicate-expressions.md).
 
 Internal mutation is represented in callable types only when it creates a caller-visible requirement through the
 ordinary callable surface.
@@ -111,7 +117,8 @@ result obligations require the caller to preserve, destroy, finalize, join, canc
 produced by the call.
 
 I/O is any interaction with external state outside the Bray abstract machine, including files, terminals, network
-connections, devices, clocks, environment state, randomness, and foreign callbacks with externally visible behavior.
+connections, devices, clocks, environment state, fresh entropy, and foreign callbacks with externally visible behavior.
+Deterministic computation from an explicitly supplied timestamp or seed is not itself I/O.
 
 I/O enters Bray through compiler-known, standard-library, foreign, or user declarations whose contracts describe the
 resource, capability, ownership, borrowing, finalization, and panic behavior involved.
@@ -188,7 +195,7 @@ Callable types represent caller-visible effects through the ordinary callable ty
 - `async` for suspendable execution and cancellation participation,
 - `@abi(...)` for explicit callable ABI contracts,
 - receiver and parameter modes for ownership, borrowing, movement, and mutation requirements,
-- trusted `uses(...)` for trusted implementation capability envelopes that must be preserved,
+- the `trusted` modifier for implementation trust,
 - contract clauses for preconditions, postconditions, static constraints, trusted caller obligations, conditions, and
   resource obligations,
 - parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and

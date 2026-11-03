@@ -6,9 +6,8 @@ This summary is informative. The detailed rules include:
 - [structured task scope exit](structured-task-scope-exit.md).
 - [cross-run memory model](cross-run-memory-model.md).
 
-Calling an async callable produces an owned inactive `Future<T>` and does not execute its body.
-
-`await` consumes and directly composes that computation into the current task. `Future<T>.start()` consumes it into
+Calling an async callable produces an owned inactive `Future<T>` and does not execute its body. `await` consumes and
+directly composes that computation into the current task. `Future<T>.start()` consumes it into
 independently running work and returns the sole source-level `Task<T>` owner.
 
 `Task<T>.join()` and `Task<T>.cancel()` are consuming async methods that produce `RunResult<T>`. `try` on a run result
@@ -26,14 +25,15 @@ Async invocation defers them into the computation, direct await checks the curre
 lane.
 
 Async frames are opaque compiler-managed values. Direct await does not semantically require task allocation or scheduler
-mediation. task-owned storage begins at `start()`. Recursive suspended depth can require dynamic storage without source
+mediation. Task-owned storage begins at `start()`. Recursive suspended depth can require dynamic storage without source
 boxing or pinning.
 
 The executable host owns the root process, main thread, and root run. A synchronous main is the root run directly. An
 async main is driven as a host-owned root task on the distinguished main-thread lane. The generated root frame resolves
-source-owned tasks, threads, processes, budgets, and cleanup incidents before terminal publication. Host shutdown then
-maps the terminal record, drains reports and closes entry. Cleanup eligibility follows in-flight entries and external
-dependencies. A blocked explicit attempt returns with the caller's unresolved shutdown owner and preserves admitted
+source-owned tasks, threads, processes, budgets, and cleanup incidents before terminal publication.
+
+Host shutdown then maps the terminal record, drains reports and closes entry. Cleanup eligibility follows in-flight
+entries and external dependencies. A blocked explicit attempt returns with the caller's unresolved shutdown owner and preserves admitted
 resident fallback. Eligible cleanup follows dependency order and structural ties on the required exact thread, then
 ends runtime infrastructure and process-scoped resources. Every provider dependency retains code and statics together.
 

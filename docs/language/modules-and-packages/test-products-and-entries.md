@@ -98,7 +98,7 @@ An `@test` function:
 - is a module-level function declaration,
 - has no receiver,
 - has no generic parameters,
-- has no caller-supplied parameters,
+- has no parameters, including defaulted parameters,
 - returns `unit` or `Result<unit, E>`,
 - does not expose trusted caller obligations,
 - is not `const`.

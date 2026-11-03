@@ -2,17 +2,13 @@
 
 Syntax follows the [type expressions grammar](../syntax-grammar.md#type-expressions).
 
-A **type form** is a syntactic and semantic form that produces a type.
+A **type form** is a compiler-recognized construct in the core type grammar that produces a type from subject types,
+compile-time arguments, or structural components.
 
-Type forms are compiler-recognized type-level constructs.
-
-A type form defines how a type is built from one or more subject types, compile-time arguments, or structural
-components.
-
-A type form can affect ownership, storage, borrowing, layout, lifetime behavior, callable behavior, initialization,
-destruction, finalization, access-path behavior, or value representation.
-
-Type forms are part of the core type grammar.
+The form determines how the produced type relates to its subjects. Borrow forms define access and lifetime
+requirements. Owned indirection defines storage ownership and access to a subject value. Structural forms determine
+how component values are represented, initialized, destroyed, and finalized. Callable forms preserve the contract needed
+to invoke a callable value. Each form's rules below define its layout, capabilities, and operations.
 
 Examples:
 
@@ -394,13 +390,9 @@ count = none;
 
 A value of type `T` can initialize or assign the present state of an expected `T?`.
 
-Assigning `none` to a nullable access path changes its nullable storage state to absent.
-
-If the access path owns a present value, that value is destroyed before the access path becomes absent.
-
-If the access path holds a borrow, assigning `none` ends the borrow before the access path becomes absent.
-
-The binding, field, parameter, or other declaration remains declared. Only the nullable storage state changes.
+Assigning `none` changes the nullable storage state to absent. If the access path owns a present value, that value is
+destroyed first. If it holds a borrow, the borrow ends first. The binding, field, parameter, or other declaration remains
+declared. Only its nullable storage state changes.
 
 Nullable-to-nullable conversion follows the recursive explicit convertibility rule when the contained source type is
 explicitly convertible to the contained target type.
@@ -693,20 +685,10 @@ The fixed-size array type form is:
 [T; N]
 ```
 
-`T` is the element type.
-
-`N` is the array length.
-
-`N` is a compile-time constant expression of type `usize`.
-
-`N` is part of the type.
-
-`N` must be nonnegative.
-
-When `N` remains symbolic, the nonnegative requirement is checked for each concrete instantiation before the array
-type is used as a materializable type.
-
-A fixed-size array contains exactly `N` elements of type `T`.
+`T` is the element type, and `N` is the length. The array contains exactly `N` elements of type `T`, with `N` forming part
+of its type identity. The length is a nonnegative compile-time constant expression of type `usize`. When it remains
+symbolic, the compiler checks nonnegativity for each concrete instantiation before using the array type as a
+materializable type.
 
 `bytes<N>` spells the same type as `[u8; N]`. The two spellings have identical type identity, layout, ABI,
 copy and move rules, and operations. A local `let` annotation may use bare `bytes` when its initializer supplies
@@ -740,15 +722,9 @@ Copying an array requires the element type to satisfy the required copy contract
 Borrowing an array borrows the array storage. Element access and slice projection can derive narrower borrows from that
 borrow when ordinary borrowing rules permit it.
 
-Moving an element out of an owned array access path is a partial move of the array.
-
-After an element has been moved out, the array is partially initialized.
-
-Destruction of a partially initialized array destroys only initialized elements.
-
-Array destruction processes initialized elements in reverse index order.
-
-Finalization obligations retained by array elements are retained by the array.
+Moving an element out of an owned array access path is a partial move that leaves the array partially initialized.
+Array destruction processes only initialized elements, in reverse index order. The array retains its elements'
+finalization obligations.
 
 Array expression rules are defined in [Array expressions](../expressions/array-expressions.md) and
 [Array generator expressions](../expressions/array-generator-expressions.md).
@@ -839,11 +815,8 @@ A tuple type form is:
 (T1, T2)
 ```
 
-A tuple type is a fixed-size ordered product type.
-
-The arity of a tuple is the number of element types.
-
-The element types are part of the tuple type in order.
+A tuple type is a fixed-size ordered product type. Its arity is the number of element types, which are part of the tuple
+type in order.
 
 A one-element tuple type uses a trailing comma.
 
@@ -853,9 +826,8 @@ A one-element tuple type uses a trailing comma.
 
 The trailing comma distinguishes a one-element tuple type from grouping parentheses.
 
-Each tuple element has its own type and initialization state.
-
-A tuple value is fully initialized when every element is initialized.
+Each tuple element has its own type and initialization state. The tuple is fully initialized when every element is
+initialized.
 
 Tuple construction is handled by tuple expressions.
 
@@ -866,15 +838,9 @@ Copying a tuple requires every element type to satisfy the required copy contrac
 Borrowing a tuple borrows the tuple storage. Tuple element projection can derive narrower borrows from that borrow when
 ordinary borrowing rules permit it.
 
-Moving an element out of an owned tuple access path is a partial move of the tuple.
-
-After an element has been moved out, the tuple is partially initialized.
-
-Destruction of a partially initialized tuple destroys only initialized elements.
-
-Tuple destruction processes initialized elements in reverse element order.
-
-Finalization obligations retained by tuple elements are retained by the tuple.
+Moving an element out of an owned tuple access path is a partial move that leaves the tuple partially initialized.
+Tuple destruction processes only initialized elements, in reverse element order. The tuple retains its elements'
+finalization obligations.
 
 Tuple expression rules are defined in [Tuple expressions](../expressions/tuple-expressions.md).
 
@@ -901,12 +867,13 @@ The callable type form is:
 func(parameter: Type, ...) -> Result
 ```
 
-A callable type describes a callable value's parameter names, parameter call-position permissions, parameter types,
-result type, execution mode, callable ABI, ownership behavior, borrowing behavior, mutation requirements, lifetime
-requirements, capability requirements, caller-visible effects, trusted caller obligations, and finalization behavior.
+A callable type describes the contract required to invoke a callable value. Its parameter names and `pos` permissions
+determine argument binding, while parameter and result types constrain the supplied and returned values. Execution mode
+and ABI determine how the call executes and crosses an ABI boundary.
 
-Callable parameter names and `pos` permissions are part of the callable contract because they define how call arguments
-bind to parameters.
+The type also preserves the call's ownership and borrowing behavior, mutation authority, lifetime dependencies,
+capability requirements, effects, trusted caller obligations, and finalization behavior. These are caller-visible
+requirements under the [callable contract rules](../callables/callable-types-and-values.md).
 
 ```bray
 func(left: i32, right: i32) -> i32

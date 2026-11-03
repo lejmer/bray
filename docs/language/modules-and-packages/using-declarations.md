@@ -10,20 +10,15 @@ using geometry.shapes;
 using std.convert;
 ```
 
-`using` participates in dependency checking, visibility checking, internal-use acknowledgement, and tooling.
+The compiler checks references against the dependencies declared by `using` and the referenced declaration's visibility.
+An internal path also requires acknowledgement under [accessibility and ambient names](#accessibility-and-ambient-names).
+Tooling can use the same explicit dependency information.
 
-`using` does not introduce unqualified names.
+A `using` declaration creates neither unqualified names nor aliases. It does not silently extend overload sets,
+implementation overload families, operators, conversions, behavioral contracts, or other polymorphic behavior.
+Declaring the dependency executes no code and initializes no module.
 
-`using` does not execute code.
-
-`using` does not initialize modules.
-
-`using` does not create aliases.
-
-`using` does not silently extend overload sets, implementation overload families, operators, conversions, behavioral
-contracts, or other polymorphic behavior.
-
-Use of an internal module or declaration path outside its intended scope requires `using internal` or a local `internal`
+Use of an internal module or declaration path from a consuming package requires `using internal` or a local `internal`
 access acknowledgement.
 
 ```bray

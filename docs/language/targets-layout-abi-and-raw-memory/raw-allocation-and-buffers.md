@@ -137,18 +137,11 @@ When the constructor returns `Result.Ok(buffer)`, `buffer.capacity == capacity` 
 
 `RawBuffer<T>` owns its allocation and deallocates it when destroyed.
 
-`RawBuffer<T>` tracks an initialized prefix.
+`RawBuffer<T>` tracks an initialized prefix of `initialized` contiguous `T` values starting at `pointer`, with
+`initialized <= capacity`. Slots from `initialized` up to `capacity` are spare raw storage.
 
-The `RawBuffer<T>` type contract requires `initialized <= capacity`.
-
-The initialized prefix contains `initialized` contiguous `T` values starting at `pointer`.
-
-Slots from `initialized` up to `capacity` are spare raw storage.
-
-Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to the
-initialized-prefix contract.
-
-The safe slice-producing helpers expose only the initialized prefix.
+Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to that prefix
+contract. Safe slice-producing helpers expose only the initialized prefix.
 
 `spare_pointer` exposes the beginning of the spare storage and preserves the trusted caller obligations needed to write
 into that storage.
@@ -193,8 +186,8 @@ does not allocate. A nonzero-capacity buffer uses the selected standard-library 
 
 The recognized internal `raw_buffer_push<T>(&mut buffer, value)` and `raw_buffer_pop<T>(&mut buffer)` operations transfer
 one value and update the initialized-prefix count as one ownership operation. Push requires
-`buffer.initialized < buffer.capacity`; pop requires `buffer.initialized > 0`. The standard-library wrappers check these
-bounds before invoking the internal operations. Push initializes the first spare slot; pop transfers the last
+`buffer.initialized < buffer.capacity`. Pop requires `buffer.initialized > 0`. The standard-library wrappers check these
+bounds before invoking the internal operations. Push initializes the first spare slot. Pop transfers the last
 initialized value out. Neither operation copies the value or invokes its destruction or finalization behavior.
 
 `RawBuffer<T>` is a low-level storage owner, not a growable collection contract.

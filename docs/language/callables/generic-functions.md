@@ -22,7 +22,7 @@ Bare generic parameter names declare type parameters.
 
 Const parameters are declared with `const NAME: Type`.
 
-Generic function parameter lists contain type parameters and const parameters.
+Generic function parameter lists can contain type parameters, const parameters, or both.
 
 Capability requirements and caller-visible effects are represented by the ordinary callable surface and contract
 clauses.

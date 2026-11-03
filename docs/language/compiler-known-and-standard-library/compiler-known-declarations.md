@@ -10,17 +10,10 @@ and the ambient `target` properties.
 References into named compiler-known modules, such as `core.memory`, `core.atomic` and `core.target`, require a matching
 `using` under the ordinary cross-module dependency rules. The ambient `target` path is distinct from `core.target`.
 
-They participate in ordinary:
-
-- type checking,
-- path resolution,
-- overload selection,
-- implementation coherence,
-- ownership checking,
-- borrowing,
-- effect checking,
-- contract checking,
-- code generation.
+Language-defined identity identifies these declarations, while ordinary path resolution and overload selection
+determine which declaration a source use selects. Their contracts govern type, ownership, borrowing, effect, and
+contract checking. Implementations remain subject to [coherence](../types/implementations.md#trait-coherence), and code
+generation must preserve the [specified observable behavior](conformance-catalog.md).
 
 Compiler-known declarations occupy their specified declaration scopes before source declarations are checked.
 Ambient names enter each module's ordinary lookup directly.

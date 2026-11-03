@@ -1,6 +1,8 @@
 # Declaration names, lookup, and identity
 
-A declaration name is the identifier introduced by a declaration.
+An ordinary declaration name is the identifier introduced by a declaration. Module declarations use paths, lifecycle
+declarations use their dedicated keywords, and an unnamed implementation is identified by its subject and optional
+trait application rather than an ordinary name.
 
 For declarations with ordinary names, the declaration name follows the declaration keyword:
 

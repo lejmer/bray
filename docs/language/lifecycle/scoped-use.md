@@ -1,10 +1,7 @@
 # Scoped use
 
-Scoped use is lifecycle behavior entered by a `with` expression.
-
-Scope enter declarations define how a value enters scoped use.
-
-Scope exit declarations define how scoped use is left.
+Scoped use is lifecycle behavior entered by a `with` expression. Scope enter declarations define how a value enters
+that use, and scope exit declarations define how it leaves.
 
 Scope enter bodies have a compiler-introduced `self` binding for the access path used as the `with` initializer.
 
@@ -26,23 +23,16 @@ The scoped capability can:
 
 The scoped capability type determines which of those behaviors applies.
 
-Scope exit bodies receive the scoped capability produced by the matching enter declaration.
-
-Exit has no `self` receiver. Its scoped capability parameter is its only value input.
-
-Exit operates on the scoped capability.
-
-Exit can reach the original value only through access carried by that scoped capability.
+Scope exit bodies operate on the scoped capability produced by the matching enter declaration. Exit has no `self`
+receiver, and its capability parameter is its only value input. It can reach the original value only through access
+carried by that capability.
 
 An active scoped capability can restrict observation, mutation, borrowing, movement, finalization, destruction,
 replacement, active-variant replacement, and partial moves of the value for the lifetime of the `with` body.
 
-Fallible `enter` or `exit` behavior contributes its failure contract to the `with` expression.
-
-Asynchronous `enter` or `exit` behavior contributes its execution contract to the `with` expression.
-
-The surrounding context must be able to satisfy the `with` expression's type, failure, execution, effect, capability,
-task-obligation, and lifecycle contract.
+Fallible `enter` or `exit` behavior contributes its failure contract to the `with` expression, and asynchronous behavior
+contributes its execution contract. The surrounding context must satisfy the resulting type, failure, execution,
+effect, capability, task-obligation, and lifecycle contract under the [`with` expression rules](with-expressions.md).
 
 ## Navigation
 

@@ -16,12 +16,9 @@ A synchronization contract must identify:
 - the synchronization edges established by those operations,
 - the cancellation, panic, destruction, and finalization behavior while the synchronization is held.
 
-Scoped synchronization fits the ordinary `enter` and `exit` lifecycle rules.
-
-The `enter` declaration produces a scoped capability that grants access to the protected storage.
-
-The matching `exit` declaration releases that scoped capability and establishes the release behavior declared by the
-type.
+Scoped synchronization uses the ordinary `enter` and `exit` lifecycle rules. Enter produces a scoped capability granting
+access to the protected storage. The matching exit releases that capability and establishes the type's declared release
+behavior.
 
 The scoped capability cannot escape its valid scope unless its type contract explicitly preserves the protected storage,
 synchronization state, and dependency contract.

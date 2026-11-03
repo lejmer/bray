@@ -44,7 +44,7 @@ its first NUL byte. It describes storage, without granting ownership or extendin
 native string measurement can expose the exact readable and initialized prefix through ordinary range conditions.
 
 `wide_nul_terminated_read` describes the corresponding finite, live sequence of aligned, initialized `u16` code units
-through its first zero code unit. Its extent is measured in code units; a native UTF-16 byte view includes two bytes
+through its first zero code unit. Its extent is measured in code units. A native UTF-16 byte view includes two bytes
 per code unit, including the terminator. It does not grant ownership or extend the storage's lifetime.
 
 `aligned_for` means the pointer satisfies the alignment requirements of `T`.

@@ -4,8 +4,9 @@ Bray exposes portable external I/O, process, time, and entropy facilities throug
 package. These declarations obey normal visibility, ownership, checking, target-availability, and package-interface
 rules.
 
-No I/O declaration is ambient. Source names it through an ordinary qualified path or makes it available through an
-explicit `using` declaration.
+No I/O declaration is ambient. A reference into another logical module requires a matching `using` declaration and
+follows ordinary qualified-path lookup. `using` does not introduce unqualified names. References within the same logical
+module need no self-import.
 
 ## Service Modules
 
@@ -27,10 +28,8 @@ belongs to [the standard-library memory surface](targets-layout-abi-and-raw-memo
 [targets, layout, ABI, and raw memory](targets-layout-abi-and-raw-memory.md). Core data and testing modules are ordinary
 standard-library surfaces rather than platform services specified here.
 
-`std.platform` is an internal implementation module, not part of the public package surface.
-
 These modules can use internal trusted declarations to reach the selected target. Internal declarations are not public
-`std` surface, require explicit internal-use acknowledgement outside their intended scope, and do not change the
+`std` surface, require explicit internal-use acknowledgement from consuming packages, and do not change the
 semantics specified here.
 
 The compiler does not recognize these modules by spelling. Their declarations remain ordinary standard-library
@@ -377,7 +376,8 @@ parsing visible at call sites.
 
 Durations and timestamps have nanosecond precision. Timestamp identity is relative to the Unix epoch and independent of
 its calendar or timezone interpretation. Named zones expose their name and database version, not a process-local handle.
-Leap-second interpretation follows the pinned toolchain policy rather than host libraries.
+Civil time-of-day seconds fields range from 0 through 59. Civil time constructors and text parsers reject leap-second
+spellings such as `23:59:60` rather than normalizing them.
 
 Parsing consumes the complete input unless an explicitly named prefix parser is used. `TimeError.InvalidFormat` reports
 the first invalid byte offset. Formatting patterns are validated Bray values, and localized names belong to separate
@@ -404,7 +404,9 @@ reproducible results accept an explicit generator or seed rather than consulting
 
 `std.random.Generator` uses xoshiro256**. Its 32-byte seed is decoded as four little-endian `u64` words. An all-zero
 seed uses `[11400714819323198485, 0, 0, 0]` instead. `fill` writes successive `next_u64` results in little-endian byte
-order, so equal seeds produce equal sequences on every target.
+order. Each call consumes enough complete words to fill its destination and discards unused bytes of the last word.
+An empty destination consumes no words. Equal seeds and the same sequence of operations produce equal output on every
+target.
 
 ## Effects And Execution Requirements
 
@@ -464,9 +466,9 @@ target-gating rules.
 A true condition promises the complete service semantics required by this specification. It does not reveal a native
 symbol, artifact path, operating-system handle representation, or implementation language.
 
-`target.platform.dynamic_loading` promises the complete closed dynamic-library role family defined by the
-platform-service design contract. It does not permit ambient path search or make dynamically loaded code part of the
-package graph.
+`target.platform.dynamic_loading` promises the dynamic-library operations defined by the
+[foreign standard library](targets-layout-abi-and-raw-memory/foreign-standard-library.md#dynamic-libraries).
+It does not permit ambient path search or make dynamically loaded code part of the package graph.
 
 ## Navigation
 

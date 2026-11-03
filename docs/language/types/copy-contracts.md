@@ -2,25 +2,16 @@
 
 A **copy contract** is a type contract that permits copying a value of that type.
 
-Copying creates a separate value with its own ownership story.
+Copying creates a separate value with the same abstract value as the source and its own ownership obligations. It does
+not move from the source access path, which remains initialized and usable under its previous ownership and capability
+state.
 
-Copying preserves the copied value's abstract value.
-
-Copying does not move from the source access path.
-
-After a successful copy, the source access path remains initialized and usable according to its previous ownership and
-capability state.
-
-A copy operation cannot fail.
-
-A copy operation cannot call user-defined code, perform I/O, allocate source-visible resources, access raw memory, or
-require trusted caller obligations.
+A copy cannot fail, call user-defined code, perform I/O, allocate source-visible resources, access raw memory, or require
+trusted caller obligations.
 
 Any operation that can fail, allocate source-visible resources, perform domain-specific duplication, preserve identity,
 duplicate external resources, or run user-defined behavior is an explicit named operation such as `clone`, `duplicate`,
-or a domain-specific function.
-
-It is not copy behavior.
+or a domain-specific function. It is not copy behavior.
 
 Copyability participates in static constraints through the compiler-known contract `Copyable`.
 

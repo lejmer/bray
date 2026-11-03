@@ -1,25 +1,14 @@
 # Overview
 
-A **declaration** is a source form that introduces a named program entity, a member, a module contribution, a
-compile-time relation, or a semantic relationship.
+A **declaration** introduces a program entity, a member, or a semantic relationship. This includes module contributions
+and compile-time relations.
 
-Declarations are checked in a declaration context.
+The [declaration context](declaration-contexts.md) determines which declaration forms are accepted and which names they
+introduce. It also determines whether visibility modifiers or directives are valid, whether a body is required or
+forbidden, and which contracts and constraints belong to the declaration.
 
-The declaration context determines:
-
-- which declaration forms are accepted,
-- which names are introduced,
-- whether visibility modifiers are valid,
-- whether directives can attach,
-- whether a body is required or forbidden,
-- which contracts and constraints are part of the declaration surface.
-
-Declarations are not runtime statements.
-
-A declaration can contain a body that is evaluated later, such as a function body, method body, constructor body,
-finalizer body, or defaulted trait member body.
-
-Declaring such a body does not evaluate the body.
+Declarations are not runtime statements. A declaration can contain a body evaluated later, such as a function, method,
+constructor, finalizer, or defaulted trait member body. Declaring the body does not evaluate it.
 
 ## Navigation
 

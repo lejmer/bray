@@ -58,8 +58,9 @@ capabilities and termination obligations remain independent. Checked summaries r
 Compiled interfaces expose established summaries and proofs so consumers do not analyse implementation bodies again.
 Compiler-known operations supply their established semantics directly.
 
-Computing with a supplied timestamp or seed can be pure. Obtaining fresh entropy or advancing mutable generator
-state is impure.
+Computing with a supplied timestamp or seed can be pure. Obtaining fresh entropy or advancing generator state
+observable outside the current computation is impure. A generator confined to the computation follows the local
+mutation rules above.
 
 Purity is determined by the selected operations and their observation dependencies. Selected construction, local
 cleanup, and owned-input cleanup contribute to execution effects. Ownership transfer follows the ordinary ownership

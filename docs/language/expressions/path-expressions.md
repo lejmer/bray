@@ -107,7 +107,8 @@ referenced paths.
 
 ## Internal path access
 
-A path that reaches an internal declaration outside its intended scope requires acknowledgement.
+A path that reaches an internal declaration from a consuming package requires acknowledgement under
+[visibility and reachability](../declarations/visibility-and-reachability.md).
 
 Call-site acknowledgement uses `internal`.
 

@@ -10,27 +10,17 @@ Expression-level trust boundary syntax is defined in
 trusted expression
 ```
 
-A trust boundary expression is a trust boundary for its operand expression.
+A trust boundary visibly accepts its operand's trusted caller obligations. The compiler records the exact trusted
+predicate requirements accepted. Its scope is exactly the operand expression, including the whole block when the
+operand is a block.
 
-It visibly accepts the trusted caller obligations required by that operand.
+A caller must acknowledge a trusted obligation unless language-defined contract reasoning already establishes it at
+that program point. A safe wrapper around trusted implementation code requires no acknowledgement. A declaration
+exposing trusted caller obligations requires acknowledgement or proof.
 
-The compiler records the exact trusted predicate requirements accepted at the boundary.
-
-The caller must visibly accept the trusted obligation unless language-defined contract reasoning already establishes it
-at that program point.
-
-A call to a safe wrapper around trusted implementation code does not require caller acknowledgement.
-
-A call to a declaration with trusted caller obligations does require caller acknowledgement or proof.
-
-The boundary scope is exactly the operand expression.
-
-For a block operand, the scope is the block.
-
-Trusted guarantees introduced solely by the boundary do not become conditions after the operand completes.
-
-Conditions independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out
-according to ordinary guarantee-context rules.
+Guarantees introduced solely by acknowledgement do not become conditions after the operand completes. Conditions
+independently established by the operand's ordinary result, pattern, or `ensures(...)` behavior flow out under ordinary
+guarantee-context rules.
 
 A trust boundary expression must acknowledge at least one trusted caller obligation required by its operand.
 

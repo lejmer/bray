@@ -16,35 +16,21 @@ Arguments are named by default in callable calls.
 
 Callable parameter surfaces and `pos` parameter rules are defined in [Parameters](../callables/parameters.md).
 
-A named argument identifies the parameter being supplied by name.
-
-A positional argument identifies the parameter being supplied by position and is valid only for a parameter marked
-`pos`.
-
-The argument expression supplies the value or access path checked against that parameter.
+A named argument identifies the parameter being supplied by name. A positional argument identifies it by position and
+is valid only for a parameter marked `pos`. The argument expression supplies the value or access path checked against
+that parameter.
 
 ```bray
 add(left = 1, right = 2)
 print("hello")
 ```
 
-An argument supplied in named form writes the parameter name explicitly.
+Named form writes the parameter name explicitly, so source order does not change which parameter receives a named
+argument. Positional arguments bind in order to the positional parameter prefix and must appear before named arguments.
+Both forms evaluate their argument expressions in source order.
 
-Named argument order does not determine parameter binding.
-
-Positional argument order determines binding to the positional parameter prefix.
-
-Positional arguments must appear before named arguments.
-
-Argument order is source order for evaluation.
-
-Named argument order does not change which parameter receives which named argument.
-
-Duplicate arguments for the same parameter are errors.
-
-Arguments for parameters that do not exist are errors.
-
-A required parameter without a supplied argument and without a default is an error.
+Duplicate arguments for one parameter and arguments for nonexistent parameters are errors. A required parameter without
+a supplied argument or default is also an error.
 
 An argument expression is checked in the expected context of the corresponding parameter.
 
@@ -81,8 +67,12 @@ Arguments can supply values constructed inline.
 draw(Point { x = 1.0, y = 2.0 })
 ```
 
-Argument expressions participate in ownership, borrowing, mutation authority, initialization, destruction, finalization,
-capability checking, effect checking, and condition refinement.
+The supplied value or access path must satisfy the parameter's ownership, borrowing, mutation-authority, and
+initialization requirements. Its destruction and finalization obligations follow the call's ownership transfers.
+The argument's effects and required capabilities must be permitted by the surrounding
+[expression context](expression-context.md). Conditions used to check an argument must be available at that program
+point. Argument evaluation and the call can invalidate conditions according to
+[contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 A function call, method call, or static function call cannot use positional syntax to satisfy parameters that are not
 marked `pos`.

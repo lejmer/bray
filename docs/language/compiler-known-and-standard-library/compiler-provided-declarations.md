@@ -72,8 +72,8 @@ static analysis, or another lowering strategy when the specified observable Bray
 
 Lowering strategy is not observable Bray semantics.
 
-The [specification conventions](../conventions.md#target-and-implementation-choices) distinguish permitted
-implementation choices from [ambiguous specification wording](../conventions.md#implementation-authority).
+Permitted choices follow the
+[specification conventions](../conventions.md#target-and-implementation-choices).
 
 Implementation-specific lowering must not introduce extra user-visible preconditions, postconditions, panics, trusted
 guarantees, invalidations, overloads, conversions, imports, visibility changes, or evaluation-order changes.

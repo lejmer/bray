@@ -16,16 +16,10 @@ box[S] T
 box[S](value, ...)
 ```
 
-The type form determines the produced type.
-
-The type form determines the subject type or subject types.
-
-The type form determines any compile-time arguments.
-
-The type form determines the relationship between the constructed value and the subject value.
-
-The type form can affect ownership, storage, borrowing, layout, lifetime behavior, initialization, destruction,
-finalization, access-path projection, effect checking, and capability checking.
+The type form determines the produced type, subject types, compile-time arguments, and relationship between the
+constructed value and its subject. For `box`, that relationship includes storage ownership and access to the contained
+value. The selected form's [type rules](../types/type-forms.md) govern layout, borrowing, lifetime dependencies,
+initialization, destruction, and finalization.
 
 The square-bracket part of a type-form construction expression contains compile-time arguments for the type form.
 
@@ -65,9 +59,9 @@ If evaluation exits before construction completes, already-initialized values, p
 temporaries, and acquired capabilities are handled by the corresponding control-flow, ownership, destruction,
 finalization, and capability rules.
 
-A type-form construction expression participates in type checking, ownership checking, initialization checking,
-destruction checking, finalization tracking, effect checking, capability checking, trusted capability checking, and
-condition refinement.
+The compiler checks each required construction operation for type, ownership, initialization, effects, and capabilities,
+including trusted capabilities. Values and storage created by those operations retain their destruction and
+finalization obligations under the selected construction contract.
 
 A type-form construction expression can establish conditions at that program point according to the construction
 behavior of the type form.

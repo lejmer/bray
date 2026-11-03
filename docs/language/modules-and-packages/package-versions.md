@@ -1,6 +1,23 @@
 # Package versions
 
-Every package has a version following [Semantic Versioning](https://semver.org/).
+Every package has a semantic version with three decimal components, `major.minor.patch`. Each component is a nonnegative
+integer with no leading zero unless the component is zero.
+
+An optional prerelease suffix begins with `-` and contains one or more nonempty dot-separated identifiers. Each
+identifier contains only ASCII letters, decimal digits, and hyphens. A wholly numeric prerelease identifier has no
+leading zero unless it is zero. An optional build suffix begins with `+` and uses the same identifier characters, but
+permits leading zeros in numeric identifiers. Build metadata follows the prerelease suffix when both are present.
+
+Version precedence compares major, minor, and patch numerically, then prerelease identifiers from left to right. A
+release has higher precedence than a prerelease with the same three components. Numeric prerelease identifiers compare
+numerically and precede nonnumeric identifiers. Nonnumeric identifiers compare in ASCII order. If all compared
+identifiers are equal, the longer prerelease sequence has higher precedence. Build metadata does not affect precedence.
+
+A release identifies a public API. After release, its contents do not change under the same version. Major version zero
+denotes initial development with no stable API. Version `1.0.0` establishes the public API. For a stable API, a
+backward-compatible bug fix increments patch, backward-compatible functionality or deprecation increments minor, and an
+incompatible API change increments major. Incrementing minor resets patch to zero. Incrementing major resets minor and
+patch to zero. A prerelease may be unstable and need not preserve the compatibility of its corresponding release.
 
 The package and build layer supplies the version outside Bray source. Package versions do not participate in module
 paths or source-level names.

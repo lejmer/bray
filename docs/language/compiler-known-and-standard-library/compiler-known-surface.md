@@ -7,6 +7,8 @@ The compiler-known surface consists of:
 - the compiler-known text type `string`,
 - the compiler-known half-open integer range type `Range<T>`,
 - the compiler-known raw pointer type `DataPointer<T>` and `FunctionPointer<F>`,
+- the compiler-known device pointer type `DevicePointer<T>` and protected storage type `Uninit<T>`,
+- the compiler-known ordering policy type `MemoryOrder`,
 - the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view,
   owned-indirection, and callable type forms,
 - the compiler-provided `length()` and `is_empty()` members on fixed-size arrays and slices,
@@ -17,6 +19,8 @@ The compiler-known surface consists of:
 - compiler-known execution-context predicates `blocking_execution()`, `compute_execution()`, and
   `main_thread_execution()`,
 - compiler-known raw memory declarations and trusted predicates under `core.memory`,
+- target-conditional atomic storage and operations under `core.atomic`,
+- target-control operations and trusted predicates under `core.target`,
 - compiler-known target properties under the ambient `target` path,
 - the compiler-known type-form support trait `Storage<T>`,
 - the compiler-known iteration traits `Iterable` and `Iterator`,

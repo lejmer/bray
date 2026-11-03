@@ -4,19 +4,14 @@ A module body contains declarations.
 
 Declaration contexts and module-level declaration forms are defined in [Declarations](../declarations.md).
 
-Module bodies do not evaluate at runtime.
-
-Using, referencing, or contributing to a module does not execute code.
-
-A module has no runtime initialization phase.
+Module bodies do not evaluate at runtime and have no runtime initialization phase. Using, referencing, or contributing
+to a module therefore executes no code.
 
 A static declaration's required constant initializer is materialized by its owning product. It does not execute module
 code. Explicit runtime initialization remains an ordinary source operation performed after product entry.
 
-Top-level executable statements are not module declarations.
-
-Runtime work belongs in functions, constructors, lifecycle declarations, async tasks, tests, or other explicit
-executable constructs.
+Top-level executable statements are not module declarations. Runtime work belongs in functions, constructors, lifecycle
+declarations, async tasks, tests, or other explicit executable constructs.
 
 ## Navigation
 

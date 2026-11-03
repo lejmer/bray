@@ -79,7 +79,7 @@ An entry point function:
 - is a module-level function declaration,
 - has no receiver,
 - has no generic parameters,
-- has no caller-supplied parameters,
+- has no parameters, including defaulted parameters,
 - returns `unit`, `Result<unit, E>`, or `i32`,
 - does not expose trusted caller obligations,
 - is not `const`.
