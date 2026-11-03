@@ -69,23 +69,16 @@ The selected `Iterable` and `Iterator` contracts define:
 For pattern-bearing iteration expressions, the pattern operation mode follows the iteration binding rule in
 [Pattern contexts](../patterns/pattern-contexts.md).
 
-An iteration expression calls `iterate` exactly once after evaluating the source expression and creating the selected
-iteration subject.
+After evaluating the source and creating the selected subject, an iteration expression calls `iterate` exactly once
+and owns the resulting cursor. It repeatedly calls `next`, producing one element for each non-`none` result. The first
+`none` is natural exhaustion.
 
-The produced cursor is owned by the iteration expression.
+The selected `iterate` and `next` calls follow ordinary [method-call checking](method-call-expressions.md). Their
+contracts constrain the types, ownership transfers, borrows, capabilities, effects, and permitted panic behavior of the
+iteration.
 
-The iteration expression repeatedly advances the cursor with `next`.
-
-Each non-`none` result from `next` produces one iteration element.
-
-The first `none` result from `next` is natural exhaustion.
-
-The selected `iterate` call and each selected `next` call participate in type checking, ownership checking, borrowing
-checking, capability checking, effect checking, panic checking, and contract checking like ordinary method calls.
-
-The hidden cursor is destroyed or finalized when the iteration expression exits.
-
-For shared and mutable iteration, the source borrow ends when the cursor is destroyed or finalized.
+On exit, the hidden cursor is destroyed or finalized. For shared and mutable iteration, this also ends the source
+borrow.
 
 Iteration order, cardinality conditions, finiteness conditions, element borrowing behavior, and element ownership
 behavior come from the selected `Iterable` implementation, the selected `Iterator` implementation, and conditions

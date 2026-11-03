@@ -197,16 +197,16 @@ thread-local static instances on that exact thread after all nested entries, pin
 exact-thread dependencies have resolved. Product unload closes new entry and attachment first, then drains external
 roots. Static-owned edges in the teardown set are released by consumer-before-provider cleanup before code release.
 
+A Bray source export does not publish a static as an ABI data symbol. `@symbol(...)` explicitly exports one ordinary
+non-generic static, while `extern static` explicitly imports provider-owned storage. Both preserve the distinction
+between Bray-owned and provider-owned storage and never create an automatic safe borrow from a native symbol address.
+
 Bray callable values remain capture-free. The standard `std.ffi.CallbackContext<State>` owner supplies stable-address
 storage when a foreign API needs an explicit state pointer. Construction consumes the state value. A capture-free
 exported ABI callable receives the opaque context as its first parameter and uses the trusted recognized
 `std.ffi.callback_state<State>(context)` operation to borrow the live state.
 
-A Bray source export does not publish a static as an ABI data symbol. `@symbol(...)` explicitly exports one ordinary
-non-generic static, while `extern static` explicitly imports provider-owned storage. Both preserve the distinction
-between Bray-owned and provider-owned storage and never create an automatic safe borrow from a native symbol address.
-
-The compiler accepts that operation only when the context expression is the matching live parameter of the exported
+The compiler accepts `callback_state` only when the context expression is the matching live parameter of the exported
 entry and the state type is the one owned by the registered context. The resulting borrow cannot escape the invocation
 or outlive the context owner. This operation does not capture enclosing state or create a bound callable.
 

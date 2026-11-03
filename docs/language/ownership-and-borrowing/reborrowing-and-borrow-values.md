@@ -1,26 +1,13 @@
 # Reborrowing and borrow values
 
-A borrow value does not own the reached storage.
+A borrow value does not own the reached storage. It is valid only while that storage remains valid and its capability
+contract remains satisfied. Its lifetime can be shortened to its last required use.
 
-A borrow value has a lifetime.
-
-A borrow is valid only while the reached storage remains valid and the borrow's capability contract remains satisfied.
-
-A shared borrow value is copyable.
-
-Copying a shared borrow copies the borrow value and preserves the same reached storage, lifetime, and capability
-requirements.
-
+A shared borrow value is copyable. Copying it preserves the same reached storage, lifetime, and capability requirements.
 A mutable borrow value is not copyable.
 
-A borrow lifetime can be shortened to the last required use of the borrow.
-
-A reborrow can be created from an existing borrow.
-
-A reborrow has authority no greater than the borrow it comes from.
-
-A reborrow suspends use of the original borrow that would conflict under [borrow rules](borrow-rules.md) for the reached
-storage while the reborrow is active.
+A reborrow is created from an existing borrow and has no greater authority. While it is active, it suspends use of the
+original borrow that would conflict under [borrow rules](borrow-rules.md) for the reached storage.
 
 Nested borrow types are allowed.
 
@@ -31,18 +18,12 @@ Nested borrow types are allowed.
 &mut &mut T
 ```
 
-Each borrow layer has its own capability.
-
-An outer shared borrow provides shared access to the next layer.
-
-An outer mutable borrow provides mutation authority over the next layer.
-
-The reachable operation depends on the whole access path, including every borrow layer.
+Each borrow layer has its own capability. An outer shared borrow provides shared access to the next layer, while an
+outer mutable borrow provides mutation authority over that layer. The reachable operation depends on the whole access
+path, including every borrow layer.
 
 A borrow value can be stored only when the containing value's type and contract carry the borrow's lifetime and
-capability requirements.
-
-Storing a borrow does not extend the lifetime of the reached storage.
+capability requirements. Storing it does not extend the lifetime of the reached storage.
 
 A callable can return a borrow only when the callable result contract preserves the lifetime and capability dependency
 on a parameter, receiver, or other input storage that can outlive the returned borrow.

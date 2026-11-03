@@ -36,32 +36,16 @@ else
 
 For expression source resolution follows [Iteration source resolution](iteration-source-resolution.md).
 
-The pattern is checked against the source element type.
+The pattern is checked against the source element type and must be irrefutable for that type.
+Each iteration creates fresh bindings scoped to the for body, which are not visible in the source expression or else body.
+The bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and
+finalization rules.
 
-The pattern must be irrefutable for the source element type.
+For each produced element, the pattern is applied and the body is evaluated once. Reaching the end of the body starts
+the next iteration step.
 
-Each iteration creates fresh bindings from the pattern.
-
-Iteration bindings are scoped to the for body.
-
-Iteration bindings are not visible in the source expression or else body.
-
-Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction,
-and finalization rules.
-
-For each produced element, the pattern is applied and the body is evaluated once.
-
-Reaching the end of the body starts the next iteration step.
-
-The syntactic body block of a for expression belongs to the for expression's break-capable region.
-
-The else body belongs to the same break-capable region.
-
-A for body does not capture `yield`. A `yield` inside a for body targets the nearest enclosing yield-capable region
-unless a nested yield-capable region captures it.
-
-An else body does not capture `yield`. A `yield` inside an else body targets the nearest enclosing yield-capable region
-unless a nested yield-capable region captures it.
+The for body and else body belong to the for expression's break-capable region. Neither body captures `yield`. A yield
+inside either body targets the nearest enclosing yield-capable region unless a nested yield-capable region captures it.
 
 `break value` exits the for expression and supplies the for result.
 
@@ -71,14 +55,11 @@ unless a nested yield-capable region captures it.
 
 `continue` is not valid in the else body.
 
-If iteration reaches natural exhaustion, the else body is selected when one is present.
-
-If iteration reaches natural exhaustion and no else body is present, the for expression completes as `unit`.
+On natural exhaustion, the else body is selected when present. Without an else body, the for expression completes as
+`unit`. An else body that completes naturally also contributes `unit`.
 
 Natural exhaustion does not occur on a path that exits through `break`, `return`, `yield`, panic, nullable propagation,
 result propagation, run-result propagation, or another outer-boundary exit.
-
-An else body that completes naturally contributes `unit`.
 
 If a for expression has result type `unit`, natural exhaustion without an else body is valid.
 

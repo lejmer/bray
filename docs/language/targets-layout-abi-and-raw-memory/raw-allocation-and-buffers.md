@@ -137,18 +137,11 @@ When the constructor returns `Result.Ok(buffer)`, `buffer.capacity == capacity` 
 
 `RawBuffer<T>` owns its allocation and deallocates it when destroyed.
 
-`RawBuffer<T>` tracks an initialized prefix.
+`RawBuffer<T>` tracks an initialized prefix of `initialized` contiguous `T` values starting at `pointer`, with
+`initialized <= capacity`. Slots from `initialized` up to `capacity` are spare raw storage.
 
-The `RawBuffer<T>` type contract requires `initialized <= capacity`.
-
-The initialized prefix contains `initialized` contiguous `T` values starting at `pointer`.
-
-Slots from `initialized` up to `capacity` are spare raw storage.
-
-Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to the
-initialized-prefix contract.
-
-The safe slice-producing helpers expose only the initialized prefix.
+Safe buffer operations can observe, borrow, mutate, move, destroy, and initialize only according to that prefix
+contract. Safe slice-producing helpers expose only the initialized prefix.
 
 `spare_pointer` exposes the beginning of the spare storage and preserves the trusted caller obligations needed to write
 into that storage.

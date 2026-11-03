@@ -32,19 +32,11 @@ trusted func call_os_read(
 }
 ```
 
-The `uses(...)` clause is implementation-side.
+The `uses(...)` clause declares implementation authority for the body. It does not by itself impose a trusted obligation
+on callers.
 
-It says what trusted capabilities the declaration body uses.
-
-It does not by itself impose a trusted obligation on callers.
-
-A trusted declaration must use exactly the trusted implementation capabilities it declares.
-
-Declaring an unused trusted capability is rejected.
-
-Using a trusted implementation capability that is not declared by the surrounding trusted declaration is rejected.
-
-If a trusted declaration uses no trusted implementation capabilities, it has no `uses(...)` clause.
+A trusted declaration must use exactly the capabilities it declares. Declaring an unused capability or using an
+undeclared one is rejected. A declaration using no trusted implementation capabilities has no `uses(...)` clause.
 
 A non-`trusted` declaration cannot have a `uses(...)` clause with trusted capabilities.
 

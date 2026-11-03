@@ -4,9 +4,9 @@ Syntax follows the [struct bodies grammar](../syntax-grammar.md#struct-bodies).
 
 ## Product type
 
-A **product type** is a named type whose value is composed from named fields.
-
-A product type is declared with `struct`.
+A **product type** is a named type declared with `struct`. A struct body defines its representation through named
+fields. A bodyless struct instead declares incomplete storage or, with explicit size and alignment, complete opaque
+storage under the [product layout rules](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ```bray
 struct Point
@@ -16,9 +16,8 @@ struct Point
 }
 ```
 
-A product value contains one value for each field in the product representation.
-
-The fields together form the product value's primary representation.
+For a field-defined product, a value contains one value for each represented field. Together, the fields form its
+primary representation.
 
 Each field has a name, a type, a mutability contract, a visibility contract, and an initialization state.
 
@@ -29,7 +28,8 @@ initialized from their defaults during construction.
 
 A product type has one primary representation declaration.
 
-The primary representation is the field set declared by the `struct` body.
+For a struct with a body, the primary representation is the field set declared by that body. A bodyless struct's
+storage is governed by its layout contract.
 
 ```bray
 struct Rectangle
@@ -398,8 +398,9 @@ point.y
 
 when `x` and `y` are distinct fields of the same product value.
 
-Disjointness analysis participates in borrow checking, mutation authority, movement, initialization, destruction, and
-condition refinement.
+The compiler uses disjointness to check whether borrowing, mutation, movement, initialization, or destruction of one
+field affects another. Conditions about a field are likewise subject to changes through overlapping access paths, as
+defined by [contract reasoning](../contracts-and-trust/contract-reasoning.md).
 
 ## Product initialization state
 
@@ -423,23 +424,12 @@ A destroyed product value is no longer usable as a value.
 
 ## Partial moves
 
-Moving a field out of a product is an ownership operation.
+Moving a field requires ownership of the containing product value and no conflicting active borrows of the product or
+reached field. The moved field becomes moved from, leaving the product partially initialized. Still-initialized fields
+retain their own ownership and destruction rules.
 
-A field move requires ownership of the containing product value.
-
-A field move requires no conflicting active borrows of the containing product value or the reached field.
-
-After a field move, the containing product value is partially initialized.
-
-The moved field becomes moved from within the product.
-
-Still-initialized fields remain governed by their own ownership and destruction rules.
-
-A partially moved product value can be reinitialized or consumed by a rule that accounts for its partial state.
-
-A partially moved product value can be destroyed as a partial value.
-
-Destruction of a partially moved product value destroys only the still-initialized fields.
+A partially moved product can be reinitialized or consumed by a rule accounting for its partial state. It can also be
+destroyed as a partial value, which destroys only the still-initialized fields.
 
 A partially moved product value can become fully initialized again when all moved-from fields are reinitialized and the
 storage and type contract permit reinitialization.
@@ -629,8 +619,10 @@ constant or variant.
 
 Product pattern rules are defined in [Product patterns](../patterns/product-patterns.md).
 
-Product patterns participate in ownership, borrowing, copying, partial moves, initialization, destruction, finalization,
-capability checking, and condition refinement according to the pattern operation mode.
+The [pattern operation mode](../patterns/pattern-operation-modes.md) determines whether selected fields are observed,
+borrowed, copied, or moved. It also determines binding initialization and partial moves of the subject. The resulting
+bindings retain their capability and cleanup requirements, and successful matches establish
+[pattern refinements](../patterns/pattern-refinement.md).
 
 ## Product API compatibility
 

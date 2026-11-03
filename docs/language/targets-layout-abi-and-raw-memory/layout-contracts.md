@@ -1,17 +1,10 @@
 # Layout contracts
 
-A type can have a physical layout contract.
-
-Default layout is compiler-defined.
-
-Without `@layout(...)`, a product type's field declaration order and a union type's variant declaration order remain
-semantic, but physical field offsets, physical tag representation, padding, size, alignment, and representation
-optimizations are selected by the compiler.
-
-Default layout is not public ABI.
-
-The compiler can select different default layouts across targets, compiler versions, optimization profiles, and code
-generation strategies when Bray semantics are preserved.
+A **layout contract** specifies a type's physical representation. Default layout is compiler-defined and is not public
+ABI. Without `@layout(...)`, field and variant declaration order remain semantic, while the compiler selects physical
+field offsets, tag representation, padding, size, alignment, and representation optimizations. It can change those
+choices across targets, compiler versions, optimization profiles, and code generation strategies while preserving Bray
+semantics.
 
 Source code can depend on physical layout only when an explicit layout contract is declared.
 

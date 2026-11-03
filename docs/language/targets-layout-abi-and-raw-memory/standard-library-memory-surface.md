@@ -12,21 +12,12 @@ The raw-memory-facing standard-library surface consists of:
 - device memory helpers,
 - ABI and layout helpers.
 
-All `std.memory` declarations are ordinary standard-library declarations.
+All `std.memory` declarations use ordinary import and path visibility rules. An unavailable name is rejected by ordinary
+name resolution. Recognition does not make a declaration ambient.
 
-They use ordinary import and path visibility rules.
-
-The compiler can recognize selected `std.memory` declarations by stable declaration identity.
-
-Recognition is used for checking, optimization, const evaluation, target availability, and trusted guarantee
-propagation.
-
-Recognition does not make a declaration ambient.
-
-If the relevant `std.memory` declaration is not visible, the call is rejected by ordinary name resolution.
-
-If a visible declaration has the same name but not the recognized standard-library identity, it is checked as an
-ordinary declaration.
+Once a declaration is visible, the compiler can recognize its stable standard-library identity for checking,
+optimization, const evaluation, target availability, and trusted guarantee propagation. A declaration with the same
+name and a different identity is checked as an ordinary declaration.
 
 A `std.memory` declaration that directly wraps a `core.memory` declaration must preserve that declaration's trusted
 capability, trusted predicate, ownership, borrowing, initialization, destruction, finalization, aliasing, panic,

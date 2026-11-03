@@ -21,14 +21,9 @@ A visibility modifier can appear before `const` in declaration contexts that sup
 internal const PAGE_SIZE: usize = 4096;
 ```
 
-The type annotation is required.
-
-The initializer is checked in constant-initializer context.
-
-The initializer must be a compile-time constant expression that satisfies
+The required type annotation supplies the expected type for literal adaptation. The initializer is checked in
+constant-initializer context and must be a compile-time constant expression satisfying
 [value type acceptance](../expressions/expression-context.md#value-type-acceptance) for the declared type.
-
-Literal adaptation uses the declared constant type as its expected type.
 
 A module-level constant declaration introduces a declaration in the current logical module.
 
@@ -62,28 +57,18 @@ type path according to path-expression rules.
 A constant declared in a trait body or trait implementation is a constant-valued member governed by
 [Traits](../types/traits.md#constant-valued-members-in-traits).
 
-A constant declaration is evaluated in compile-time constant context.
-
 The initializer is checked as a
 [declaration-owned constant definition template](declaration-owned-expressions.md#constant-definition-templates-and-instances).
-
-The value of a constant declaration is fixed for the declaration instance.
-
-For a generic declaration, a constant declaration that depends on generic parameters is fixed for each concrete generic
-instantiation.
+It is evaluated in compile-time constant context, with a value fixed for each declaration instance. A constant depending
+on generic parameters is fixed separately for each concrete generic instantiation.
 
 A closed non-generic constant has one instance with an empty generic substitution. A generic, trait-selected, or
 target-dependent constant is evaluated separately for each exact substitution, selected implementation, and target
-profile required by a use.
+profile required by a use. Checking the generic definition template does not eagerly enumerate or evaluate every
+possible concrete instance.
 
-Checking the generic definition template does not eagerly enumerate or evaluate every possible concrete constant
-instance.
-
-A constant has no runtime storage identity.
-
-Using a constant in runtime expression context materializes the constant value for that use.
-
-The initializer is not evaluated at runtime.
+A constant has no runtime storage identity. Runtime use materializes its value for that use without evaluating the
+initializer at runtime.
 
 A constant cannot be assigned, mutably borrowed, moved from as storage, consumed as a unique storage identity, or
 destroyed as a declaration.

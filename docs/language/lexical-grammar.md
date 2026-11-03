@@ -92,9 +92,8 @@ line-break =
     | "\r\n" ;
 ```
 
-Only ASCII space, horizontal tab, LF, and CRLF are whitespace outside comments and literals.
-
-Other Unicode space characters are invalid outside comments and literals.
+Only ASCII space, horizontal tab, LF, and CRLF are whitespace outside comments and literals. Other Unicode space
+characters are invalid there.
 
 ---
 
@@ -132,12 +131,9 @@ Line comments and line documentation comments end before the line break or at en
 
 Block comments can nest.
 
-Documentation comments are retained as structured trivia for documentation tooling.
-
-A contiguous documentation-comment group immediately before a declaration, separated from it only by whitespace and
-ordinary comments, documents that declaration.
-
-Documentation comments are valid before the first module declaration in a source unit.
+Documentation comments are retained as structured trivia for documentation tooling. A contiguous group immediately
+before a declaration, separated from it only by whitespace and ordinary comments, documents that declaration. They are
+valid before the first module declaration in a source unit.
 
 ---
 
@@ -295,19 +291,12 @@ exponent-part =
     ( "e" | "E" ) [ "+" | "-" ] decimal-digit-sequence ;
 ```
 
-Decimal integer literals use decimal digits.
+Decimal integer literals use decimal digits. Binary integer literals use `0b` or `0B`, and hexadecimal integer literals
+use `0x` or `0X`. Real literals are decimal, with digits on both sides of `.` or an exponent part. `.5` and `1.` are not
+real literals.
 
-Binary integer literals use `0b` or `0B`.
-
-Hexadecimal integer literals use `0x` or `0X`.
-
-Real literals are decimal. A real literal either has digits on both sides of `.` or has an exponent part.
-
-`.5` and `1.` are not real literals.
-
-Digit separators use `_` between digits.
-
-Separators cannot appear at the start or end of a digit sequence and cannot appear next to another separator.
+Digit separators use `_` between digits. They cannot appear at the start or end of a digit sequence or next to another
+separator.
 
 Numeric literal suffixes are not part of Bray syntax, except for the `i` suffix that forms an imaginary literal.
 
@@ -423,17 +412,11 @@ tuple-element-index =
     | nonzero-decimal-digit { decimal-digit } ;
 ```
 
-Tuple element indices do not use separators.
+Tuple element indices do not use separators. Leading zeroes are invalid except for the single index `0`.
 
-Leading zeroes are invalid except for the single index `0`.
-
-A decimal spelling is treated as a tuple element index only in the member-selector position after `.`.
-
-In ordinary expression positions, the same character shape is an integer literal.
-
-After a member-access `.`, the parser performs the tuple-index scan before ordinary numeric-literal scanning.
-
-This makes `entry.1.0` parse as `entry` followed by tuple element `1` and then tuple element `0`.
+A decimal spelling is treated as a tuple element index only in the member-selector position after `.`. The parser
+performs that scan before ordinary numeric-literal scanning, so `entry.1.0` parses as `entry` followed by tuple element
+`1` and then tuple element `0`. In ordinary expression positions, the same character shape is an integer literal.
 
 ---
 

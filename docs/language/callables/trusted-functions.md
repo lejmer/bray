@@ -15,17 +15,11 @@ trusted func copy_bytes(
 }
 ```
 
-`uses(...)` declares trusted implementation capabilities used by the body.
+`uses(...)` declares trusted implementation capabilities available only inside the trusted declaration body. A trusted
+function that uses none has no `uses(...)` clause.
 
-A trusted function that uses no trusted implementation capabilities has no `uses(...)` clause.
-
-A trusted implementation can expose an ordinary safe API.
-
-A trusted caller obligation appears in the public function contract.
-
-Trusted implementation capabilities are available only inside the trusted declaration body.
-
-Trusted caller obligations must be visible in the callable contract and satisfied by the caller.
+A trusted implementation can expose an ordinary safe API. Any trusted caller obligations must instead appear in the
+public callable contract and be satisfied by the caller.
 
 Trusted implementation capabilities are defined in
 [Trusted implementation capabilities](../contracts-and-trust/trusted-implementation-capabilities.md).

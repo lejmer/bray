@@ -10,22 +10,15 @@ array generator expressions, general generator iteration expressions, and local 
 [Pattern operation modes](../patterns/pattern-operation-modes.md) defines observation, borrowing, and consumption.
 [Pattern refinement](../patterns/pattern-refinement.md) defines guarantees established by a successful match.
 
-A pattern-bearing expression supplies a subject type to the pattern.
+A pattern-bearing expression supplies the subject type and operation mode and determines whether the pattern must be
+irrefutable. [Pattern contexts](../patterns/pattern-contexts.md) defines which constructs require irrefutable patterns
+and which accept refutable patterns. Each expression's rules specify its coverage checks and failure path.
 
-A pattern-bearing expression supplies a pattern operation mode.
-
-A pattern-bearing expression defines whether the pattern must be irrefutable or can be refutable.
-
-[Pattern contexts](../patterns/pattern-contexts.md) defines which constructs require irrefutable patterns and which
-accept refutable patterns. Each expression's rules define its subject, operation mode, coverage checks, and failure path.
-
-Pattern-introduced bindings are scoped to the region defined by the pattern-bearing expression.
-
-Pattern-introduced bindings are initialized when the pattern has successfully matched and the operation mode has
-produced the corresponding bound values or access paths.
-
-Pattern-introduced bindings participate in ownership, borrowing, mutation authority, initialization, destruction,
-finalization, capability checking, effect checking, and condition refinement.
+Bindings are initialized after a successful match produces their values or access paths under the selected operation
+mode. Their scope is the region defined by the surrounding expression. The resulting values and paths retain their
+ownership, borrowing, mutation-authority, capability, and cleanup requirements under
+[pattern operation modes](../patterns/pattern-operation-modes.md). The compiler checks the operation's effects and
+[refinements](../patterns/pattern-refinement.md) in that region.
 
 Additional boolean filtering is handled by guards when the surrounding expression form defines guards.
 

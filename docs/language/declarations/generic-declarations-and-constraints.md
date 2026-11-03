@@ -28,28 +28,18 @@ Bare generic parameter names declare type parameters.
 
 Const parameters use `const NAME: Type`.
 
-Declaration generics do not include capability parameters.
+Declaration generics do not include capability parameters. Capability requirements and caller-visible effects belong
+to the ordinary declaration contract and its clauses.
 
-Capability requirements and caller-visible effects are represented by the ordinary declaration surface and contract
-clauses.
+Generic constraints use `with(...)` clauses containing static predicate expressions. They form part of the
+declaration's semantic contract, so changing them changes which uses and implementations are accepted.
 
-Generic constraints are written with `with(...)` clauses.
+Generic arguments for callable calls are explicit. They are not inferred from ordinary arguments, result type,
+assignment target type, return type, or constraints.
 
-`with(...)` clauses contain static predicate expressions.
-
-Constraints are part of the declaration's semantic contract.
-
-Changing constraints changes which uses and implementations are accepted.
-
-Generic arguments for generic callable calls are explicit.
-
-Generic arguments are not inferred from ordinary arguments, result type, assignment target type, return type, or
-constraints.
-
-Implementation declarations do not have explicit generic parameter lists.
-
-Generic implementation parameters are inferred from otherwise unresolved generic names in the implementing subject and
-trait application, then constrained by the implementation's `with(...)` clauses.
+Implementation declarations instead infer generic parameters from otherwise unresolved generic names in the implementing
+subject and, for a trait implementation, the trait application. They have no explicit generic parameter list. Their
+`with(...)` clauses constrain those inferred parameters.
 
 Generic type rules are defined in [Generic types](../types/generic-types.md).
 

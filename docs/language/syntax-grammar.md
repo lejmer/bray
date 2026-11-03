@@ -1395,9 +1395,7 @@ constant-modifiers =
     [ visibility-modifier ] ;
 ```
 
-The type annotation is required.
-
-The initializer is checked as a constant expression.
+The type annotation is required, and the initializer is checked as a constant expression.
 
 Visibility modifiers are valid only in declaration contexts that support declaration visibility.
 
@@ -1484,18 +1482,15 @@ generic-const-parameter =
     "const" typed-identifier ;
 ```
 
-A generic parameter list contains at least one parameter and can include a trailing comma.
-
-Bare generic parameter names declare type parameters.
-
-Const parameters use `const NAME: Type`.
+A generic parameter list contains at least one parameter and can include a trailing comma. Bare names declare type
+parameters, while const parameters use `const NAME: Type`.
 
 ---
 
 ## Predicate declarations
 
 [Predicate declarations](declarations/predicate-declarations.md) defines names and declaration contexts.
-[Predicate expressions](contracts-and-trust/predicates-and-predicate-expressions.md) defines predicate evaluation.
+[Predicate expressions](contracts-and-trust/predicates-and-predicate-expressions.md) defines predicate-expression checking.
 
 Predicate declarations introduce contract-level relations.
 
@@ -1525,17 +1520,11 @@ predicate-parameter =
     typed-identifier ;
 ```
 
-The declaration name follows `predicate`.
+The declaration name follows `predicate`. Generic parameters, when present, are written after the name and before the
+parameter list. Visibility is a declaration header modifier. `public` is optional because it is the default.
 
-Generic parameters, when present, are written after the predicate name and before the parameter list.
-
-Visibility is a declaration header modifier. `public` is optional because it is the default.
-
-The `trusted` modifier declares an opaque trusted predicate.
-
-An ordinary predicate declaration uses an `=` tail with a single predicate expression body.
-
-A trusted predicate declaration uses a semicolon tail and has no ordinary body.
+An ordinary predicate declaration uses an `=` tail with a single predicate expression body. The `trusted` modifier
+instead declares an opaque trusted predicate, with a semicolon tail and no ordinary body.
 
 Predicate parameters use names and type annotations. Predicate parameters do not use callable parameter modifiers or
 defaults.
@@ -1620,11 +1609,8 @@ type-constraints =
     { with-clause } ;
 ```
 
-The declaration name follows `struct` or `union`.
-
-Generic parameters, when present, are written after the type name.
-
-Header `with(...)` clauses establish static constraints for the type declaration.
+The declaration name follows `struct` or `union`, with any generic parameters after the type name. Header `with(...)`
+clauses establish static constraints for the type declaration.
 
 Type directives apply to the primary representation declaration. Directive-specific validity is checked semantically.
 
@@ -1896,11 +1882,8 @@ trait-body =
     "{" { trait-member-declaration } "}" ;
 ```
 
-The declaration name follows `trait`.
-
-Generic parameters, when present, are written after the trait name.
-
-Header `with(...)` clauses establish static constraints for the trait declaration.
+The declaration name follows `trait`, with any generic parameters after the name. Header `with(...)` clauses establish
+static constraints for the trait declaration.
 
 Visibility is the declaration header modifier. `public` is optional because it is the default.
 
@@ -2051,11 +2034,8 @@ implementation-constraints =
     { with-clause } ;
 ```
 
-An inherent implementation has only a subject.
-
-An unnamed trait implementation has a subject followed by a trait application in parentheses.
-
-A named trait implementation introduces the implementation identity before `=`.
+An inherent implementation has only a subject. A trait implementation follows its subject with a trait application in
+parentheses. A named trait implementation also introduces the implementation identity before `=`.
 
 Implementation declarations do not have explicit generic parameter lists. Generic implementation parameters are inferred
 from otherwise unresolved generic names in the implementing subject and, for trait implementations, the trait

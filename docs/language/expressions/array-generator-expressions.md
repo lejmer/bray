@@ -30,37 +30,17 @@ The expression has the form:
 
 Array generator source resolution follows [Iteration source resolution](iteration-source-resolution.md).
 
-The `pattern` is checked against the source element type.
+The pattern is checked against the source element type and must be irrefutable for that type. It can introduce one or
+more bindings. Each iteration creates fresh bindings scoped to the iteration body, which are not visible in the source expression.
+The bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction, and
+finalization rules.
 
-The pattern must be irrefutable for the source element type.
+The iteration body is a block expression in yield-capable array-generator context. A `yield` supplies an element to the
+nearest enclosing array generator region.
 
-The pattern can introduce one or more iteration bindings.
-
-Each iteration creates fresh bindings from the pattern.
-
-Iteration bindings are scoped to the iteration body.
-
-Iteration bindings are not visible in the source expression.
-
-Iteration bindings are destroyed or ended at the end of each iteration according to ownership, borrowing, destruction,
-and finalization rules.
-
-The iteration body is a block expression in array-generator context.
-
-Array-generator context is yield-capable.
-
-`yield` inside the iteration body supplies an element to the nearest enclosing array generator region.
-
-A fixed-size array generator must yield exactly one array element per iteration.
-
-A fixed-size array generator must yield exactly `N` total elements, where `N` is the length of the resulting array type.
-
-The resulting array length may be zero when the source has zero iterations.
-
-The compiler must be able to prove the required cardinality.
-
-When the compiler cannot prove that the array generator yields exactly the required number of elements, the array
-generator expression is rejected.
+A fixed-size array generator must yield exactly one element per iteration and exactly `N` total elements, where `N` is
+the resulting array length. That length may be zero when the source has zero iterations. The compiler must prove the
+required cardinality or reject the expression.
 
 The yielded value is checked against the array element type.
 
@@ -76,12 +56,8 @@ If iteration exits before the array is fully initialized through `return`, `yiel
 cancellation, panic, or another control-flow exit, initialized elements and live temporaries are handled by the
 corresponding ownership, destruction, and finalization rules.
 
-`continue` targets the nearest iteration region.
-
-`break` targets the nearest iteration region and exits that iteration expression.
-
-Because the generator iteration expression inside an array generator completes as `unit`, a break that targets the
-iteration expression must supply `unit`.
+`continue` targets the nearest iteration region. `break` exits that region and must supply `unit`, because the generator
+iteration expression inside an array generator completes as `unit`.
 
 In a fixed-size array generator, any control-flow path that continues an iteration before yielding that iteration’s
 required element is rejected unless the compiler can prove the required yield still occurs.
@@ -106,21 +82,16 @@ let matrix: [[i32; 2]; 2] =
 ];
 ```
 
-In the nested example, the inner `yield row + col;` supplies the inner array generator.
-
-The outer `yield [...]` supplies the outer array generator.
-
-The source expression of each generator is evaluated once for that generator.
+In the nested example, the inner `yield row + col;` supplies the inner array generator, while the outer `yield [...]`
+supplies the outer array generator.
 
 Nested array generator expressions are checked recursively.
 
-Array generator expressions participate in effect checking and capability checking through the source expression,
-selected `Iterable` implementation, selected `Iterator` implementation, pattern operation, iteration body, and yielded
-expressions.
+The compiler checks the effects and capabilities required by the source expression, selected `Iterable` and `Iterator`
+operations, pattern operation, iteration body, and yielded expressions against the surrounding context.
 
-Effects of the source expression occur once before iteration.
-
-Effects of the iteration body occur once per executed iteration.
+The source expression is evaluated once before iteration, including its effects. The iteration body's effects occur
+once per executed iteration.
 
 Finalization obligations created in an iteration body must be completed, transferred, or moved into yielded values
 before the iteration body exits.
