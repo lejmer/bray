@@ -144,6 +144,7 @@ impl Compilation {
         // Independently cached results retain the same Arc-backed unit identity.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;
 
         let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
@@ -161,6 +162,7 @@ impl Compilation {
             semantics.result().value().types(),
             semantics.result().value().selections(),
         )
+        .with_patterns(patterns.result().value())
         .with_references(references)
         .with_call_resolver(&resolver);
 
@@ -171,6 +173,7 @@ impl Compilation {
 
         let diagnostics = DiagnosticBag::merged_all([
             semantics.result().diagnostics(),
+            patterns.result().diagnostics(),
             &dependency_diagnostics,
             evaluated.diagnostics(),
         ]);

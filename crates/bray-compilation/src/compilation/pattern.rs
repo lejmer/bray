@@ -3,12 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundExpressionId, BoundPatternId,
     BoundPatternTarget, BoundReferenceTarget, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
-    CheckedExpressionTypes, CheckedSemanticSelections, walk_bound_unit_view,
+    CheckedExpressionTypes, CheckedPatterns, CheckedSemanticSelections, walk_bound_unit_view,
 };
 use bray_checker::{
     CheckerOutcome, CheckerUnitView, ConstantEvaluationInput, ConstantEvaluator,
-    ConstantReferenceResolution, DefaultConstantEvaluator, GuardConstantEvidence,
-    PatternCheckInput, PatternConstantEvidence,
+    ConstantReferenceResolution, DefaultConstantEvaluator, DefaultPatternChecker, GuardConstantEvidence,
+    PatternCheckInput, PatternChecker, PatternConstantEvidence,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -34,9 +34,8 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<(PatternCheckInput, DiagnosticBag), FactQueryError> {
         let sites = collect_constant_sites(request)?;
-        let mut patterns = Vec::new();
         let mut guards = Vec::new();
-        let mut local_constants = LocalPatternConstants::new(sites.local_constants);
+        let mut local_constants = LocalPatternConstants::new(sites.local_constants, input);
         let mut diagnostics = DiagnosticBag::new();
 
         for (pattern, target) in sites.patterns {
@@ -59,7 +58,10 @@ impl Compilation {
             };
 
             if let Some((ty, term)) = constant {
-                patterns.push(PatternConstantEvidence::new(pattern, ty, term));
+                local_constants.patterns = std::mem::take(&mut local_constants.patterns)
+                    .with_constant_patterns([PatternConstantEvidence::new(pattern, ty, term)]);
+
+                local_constants.checked_patterns = None;
             }
         }
 
@@ -81,7 +83,7 @@ impl Compilation {
                 types,
                 selections,
                 guard,
-                &local_constants.values,
+                &mut local_constants,
                 cancellation,
             )? {
                 guards.push(GuardConstantEvidence::new(guard, value));
@@ -89,8 +91,7 @@ impl Compilation {
         }
 
         Ok((
-            input
-                .with_constant_patterns(patterns)
+            local_constants.patterns
                 .with_constant_guards(guards),
             diagnostics,
         ))
@@ -191,7 +192,7 @@ impl Compilation {
                 types,
                 selections,
                 initializer,
-                &constants.values,
+                constants,
                 cancellation,
             )?
             else {
@@ -223,7 +224,7 @@ impl Compilation {
         types: &CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
         expression: BoundExpressionId,
-        local_constants: &BTreeMap<LocalConstantSymbolId, (TypeId, ConstantTermId)>,
+        local_constants: &mut LocalPatternConstants,
         cancellation: &CancellationToken,
     ) -> Result<Option<ConstantValueId>, FactQueryError> {
         let mut dependency_diagnostics = DiagnosticBag::new();
@@ -276,11 +277,22 @@ impl Compilation {
 
         let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
+        if local_constants.checked_patterns.is_none() {
+            let patterns = super::checker::checker_result(DefaultPatternChecker.check_patterns(
+                request, types, &local_constants.patterns,
+            ))?;
+
+            local_constants.checked_patterns = Some(patterns.into_parts().0);
+        }
+
         let input = ConstantEvaluationInput::new(types, selections)
             .with_root(expression)
+            .with_patterns(local_constants.checked_patterns.as_ref()
+                .expect("constant pattern inputs were checked for the current evidence"))
             .with_references(references)
             .with_local_terms(
                 local_constants
+                    .values
                     .iter()
                     .map(|(local, (_, term))| (AnyLocalSymbolId::from(*local), *term)),
             )
@@ -313,13 +325,21 @@ struct ConstantPatternSites {
 struct LocalPatternConstants {
     initializers: BTreeMap<LocalConstantSymbolId, BoundExpressionId>,
     values: BTreeMap<LocalConstantSymbolId, (TypeId, ConstantTermId)>,
+    patterns: PatternCheckInput,
+    // Guards and local constants share checks until another path-pattern value is established.
+    checked_patterns: Option<CheckedPatterns>,
 }
 
 impl LocalPatternConstants {
-    fn new(initializers: BTreeMap<LocalConstantSymbolId, BoundExpressionId>) -> Self {
+    fn new(
+        initializers: BTreeMap<LocalConstantSymbolId, BoundExpressionId>,
+        patterns: PatternCheckInput,
+    ) -> Self {
         Self {
             initializers,
             values: BTreeMap::new(),
+            patterns,
+            checked_patterns: None,
         }
     }
 }

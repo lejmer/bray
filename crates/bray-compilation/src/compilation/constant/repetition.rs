@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     CheckerRequestContext, CheckerUnitView, ConstantChecker, ConstantEvaluationInput,
-    DefaultConstantChecker,
+    DefaultConstantChecker, DefaultPatternChecker, PatternCheckInput, PatternChecker,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId};
@@ -26,6 +26,7 @@ impl Compilation {
         key: &BoundUnitKey,
         bound: &BoundUnit,
         semantics: &CheckedExpressionSemantics,
+        pattern_input: &PatternCheckInput,
         cancellation: &CancellationToken,
     ) -> Result<Option<(RepeatedArrayLengths, DiagnosticBag)>, FactQueryError> {
         let repetitions = bound
@@ -76,11 +77,14 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         let mut required = BTreeSet::new();
+        let mut has_patterns = false;
 
         while let Some(root) = pending.pop() {
             cancellation.check()?;
 
             let outcome = walk_bound_unit_view(bound.view(), root, |event| {
+                has_patterns |= matches!(event, BoundWalkEvent::Enter(AnyBoundNodeId::Pattern(_)));
+
                 if let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(id)) = event
                     && let Some(BoundExpression::Name(name)) = bound.view().expression(id)
                     && let BoundReferenceTarget::Local(local @ AnyLocalSymbolId::Constant(_)) =
@@ -104,10 +108,36 @@ impl Compilation {
             );
         }
 
+        let mut diagnostics = DiagnosticBag::new();
+
+        let patterns = if has_patterns {
+            let declared = self.declared_value_type_templates_with_cancellation(
+                key.clone(), cancellation,
+            )?;
+
+            let pattern_input = pattern_input.clone()
+                .with_declared_pattern_types(declared.result().value());
+
+            let (pattern_input, pattern_diagnostics) = self.add_constant_pattern_evidence(
+                request, semantics.types(), semantics.selections(), pattern_input, cancellation,
+            )?;
+
+            let result = checker_result(DefaultPatternChecker.check_patterns(
+                request, semantics.types(), &pattern_input,
+            ))?;
+
+            diagnostics.extend(pattern_diagnostics.iter().cloned());
+            diagnostics.extend(result.diagnostics().iter().cloned());
+
+            Some(result.into_parts().0)
+        } else { None };
+
         let mut input = ConstantEvaluationInput::new(semantics.types(), semantics.selections())
             .with_call_resolver(&resolver);
 
-        let mut diagnostics = DiagnosticBag::new();
+        if let Some(patterns) = &patterns {
+            input = input.with_patterns(patterns);
+        }
 
         // Local identities follow declaration order. Binding excludes forward local references.
         for local in required {

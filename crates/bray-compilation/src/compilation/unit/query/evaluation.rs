@@ -314,7 +314,8 @@ impl Compilation {
                     operation_expressions(&binding_context, bound.result().value(), cancellation)?;
 
                 let repetitions = self.repeated_array_lengths(
-                    &key, bound.result().value(), provisional.result().value(), cancellation,
+                    &key, bound.result().value(), provisional.result().value(), &pattern_input,
+                    cancellation,
                 )?;
 
                 let has_repetitions = repetitions.is_some();
@@ -388,7 +389,8 @@ impl Compilation {
                         )?;
 
                     let (next_lengths, count_diagnostics) = self.repeated_array_lengths(
-                        &key, bound.result().value(), result.0.value(), cancellation,
+                        &key, bound.result().value(), result.0.value(), &selected_pattern_input,
+                        cancellation,
                     )?.unwrap_or_default();
 
                     if next == operation_resolutions && next_iteration_sources == iteration_sources

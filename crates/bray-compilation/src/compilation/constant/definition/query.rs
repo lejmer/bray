@@ -350,6 +350,8 @@ impl Compilation {
                 let semantics =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
+                let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
+
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
@@ -367,6 +369,7 @@ impl Compilation {
                     semantics.result().value().types(),
                     semantics.result().value().selections(),
                 )
+                .with_patterns(patterns.result().value())
                 .with_references(references)
                 .with_call_resolver(&resolver)
                 .for_definition();
@@ -382,6 +385,7 @@ impl Compilation {
 
                 let diagnostics = DiagnosticBag::merged_all([
                     semantics.result().diagnostics(),
+                    patterns.result().diagnostics(),
                     checked.diagnostics(),
                 ]);
 
@@ -496,7 +500,10 @@ impl Compilation {
         let resolver = CompilationConstantCallResolver::new(self, cancellation)
             .with_substitution(instance.substitution());
 
+        let patterns = self.patterns_with_cancellation(key, cancellation)?;
+
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
+            .with_patterns(patterns.result().value())
             .with_references(references)
             .with_call_resolver(&resolver)
             .with_limits(limits)
@@ -511,6 +518,7 @@ impl Compilation {
 
         let diagnostics = DiagnosticBag::merged_all([
             &type_diagnostics,
+            patterns.result().diagnostics(),
             &dependency_diagnostics,
             evaluated.diagnostics(),
         ]);

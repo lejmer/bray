@@ -207,10 +207,12 @@ impl Compilation {
         let key = self.constraint_unit_key(expression.owner(), unit)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+        let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
 
         let diagnostics = DiagnosticBag::merged_all([
             bound.result().diagnostics(),
             semantics.result().diagnostics(),
+            patterns.result().diagnostics(),
         ]);
 
         if diagnostics.has_errors() {
@@ -261,7 +263,7 @@ impl Compilation {
             root,
             references,
             &resolver,
-        );
+        ).with_patterns(patterns.result().value());
 
         let values = self.semantic_value_store()?;
 

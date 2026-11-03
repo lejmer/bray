@@ -412,3 +412,146 @@ fn repeated_arrays_reject_counts_that_return_from_the_enclosing_function() {
         compilation.check_diagnostics(), DiagnosticKind::CheckingInvalidConstantExpression,
     );
 }
+
+#[test]
+fn repeated_arrays_check_inline_pattern_counts() {
+    for count in [
+        r#"
+        match true
+        {
+            case true { yield 3; }
+            case false { yield 1; }
+        }
+        "#,
+        r#"
+        if true matches true
+        {
+            yield 3;
+        }
+        else
+        {
+            yield 1;
+        }
+        "#,
+        r#"
+        if let true = true
+        {
+            yield 3;
+        }
+        else
+        {
+            yield 1;
+        }
+        "#,
+        r#"
+        match true
+        {
+            case FLAG { yield 3; }
+            case _ { yield 1; }
+        }
+        "#,
+        r#"
+        match true
+        {
+            case LOCAL_FLAG { yield 3; }
+            case _ { yield 1; }
+        }
+        "#,
+        r#"
+        match true
+        {
+            case true when true matches true { yield 3; }
+            case _ { yield 1; }
+        }
+        "#,
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            const FLAG: bool = true;
+
+            func main()
+            {{
+                const LOCAL_FLAG: bool = true;
+                let values: [i32; 3] = [7; {count}];
+            }}
+            "#,
+        );
+
+        let compilation = compilation(&source);
+
+        assert!(compilation.check_diagnostics().is_empty(), "{count}: {:#?}", compilation.check_diagnostics());
+
+        let lowered = compilation.lowered_unit(source_function_body_key(&compilation, "main"))
+            .expect("pattern count retains its checked unit");
+
+        assert!(lowered.diagnostics().is_empty(), "{count}: {:#?}", lowered.diagnostics());
+    }
+}
+
+#[test]
+fn repeated_arrays_check_patterns_in_local_constant_dependencies() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const FLAG: bool = true;
+
+        func main()
+        {
+            const COUNT: usize = match true
+            {
+                case FLAG { yield 3; }
+                case _ { yield 1; }
+            };
+
+            const SIZE: usize = COUNT + 1;
+
+            let values: [i32; 4] = [7; SIZE];
+            let selected: [i32; 3] =
+            [
+                7;
+                match true
+                {
+                    case true when true matches true { yield COUNT; }
+                    case _ { yield 1; }
+                }
+            ];
+        }
+        "#,
+    );
+
+    assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+}
+
+#[test]
+fn repeated_arrays_check_patterns_in_named_counts_and_type_extents() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        const COUNT: usize = match true
+        {
+            case true { yield 3; }
+            case false { yield 1; }
+        };
+
+        const VALUES: [i32; COUNT] = [7; COUNT];
+
+        func main()
+        {
+            let named: [i32; 3] = [7; COUNT];
+            let typed: [i32; match true
+            {
+                case true { yield 3; }
+                case false { yield 1; }
+            }] = [7; 3];
+
+            assert(VALUES[2] == 7);
+        }
+        "#,
+    );
+
+    assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+}

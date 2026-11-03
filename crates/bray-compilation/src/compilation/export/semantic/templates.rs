@@ -132,9 +132,14 @@ pub(super) fn checked_constraint_expression(
         .expression_semantics_with_cancellation(key.clone(), cancellation)
         .map_err(super::super::fact_query_export_error)?;
 
+    let patterns = compilation
+        .patterns_with_cancellation(key, cancellation)
+        .map_err(super::super::fact_query_export_error)?;
+
     let diagnostics = DiagnosticBag::merged_all([
         bound.result().diagnostics(),
         semantics.result().diagnostics(),
+        patterns.result().diagnostics(),
     ]);
 
     if diagnostics.has_errors() {
@@ -194,7 +199,7 @@ pub(super) fn checked_constraint_expression(
         root,
         references,
         &resolver,
-    );
+    ).with_patterns(patterns.result().value());
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
         .map_err(super::super::fact_query_export_error)?;
