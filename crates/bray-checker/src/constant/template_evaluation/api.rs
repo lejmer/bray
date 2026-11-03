@@ -35,9 +35,26 @@ where
     );
 
     evaluator.selected_implementation = request.selected_implementation();
+    evaluator.implementation_witnesses = request.implementation_witnesses();
     evaluator.arguments = request.arguments();
 
     let evaluated = (|| {
+        if let Some(witness) = request.selected_implementation() {
+            let symbol = match request.target() {
+                crate::ConstantCallTarget::Declaration(callable) => callable.definition().symbol(),
+                crate::ConstantCallTarget::Default(provider, _) => provider.symbol(),
+                crate::ConstantCallTarget::Predicate(predicate) => {
+                    predicate.definition().into_any()
+                }
+                crate::ConstantCallTarget::Anonymous(unit, _) => context
+                    .symbols()
+                    .symbol_for_key(unit.declared_owner())
+                    .expect("anonymous invocation retains its lexical owner"),
+            };
+
+            evaluator.bind_implementation_self(symbol, Some(witness))?;
+        }
+
         if template.is_some() {
             evaluator.evaluate_generic_inputs()?;
         }
@@ -304,34 +321,18 @@ where
         &mut budget,
     );
 
-    evaluator.selected_implementation =
+    let selected_implementation =
         constant_instance.and_then(|instance| instance.selected_implementation());
 
+    evaluator.selected_implementation = selected_implementation;
+    evaluator.implementation_witnesses = selected_implementation.as_slice();
+
     let evaluated = (|| {
-        if let Some(instance) = constant_instance
-            && let Some(witness) = instance.selected_implementation()
-            && let Some(self_context) = context
-                .enclosing_self_type_context(instance.definition().into_any())
-                .map_err(|error| evaluator.record_query_failure(error))?
-        {
-            let implementation = context
-                .semantic_values()
-                .implementation_instance_data(witness);
-
-            let subject = context
-                .implementation_subject_type(implementation.definition())
-                .map_err(|error| evaluator.record_query_failure(error))?;
-
-            evaluator
-                .diagnostics
-                .extend(subject.diagnostics().iter().cloned());
-
-            let subject = context
-                .semantic_values()
-                .substitute_type(*subject.value(), implementation.substitution())
-                .expect("selected implementation retains its subject substitution");
-
-            evaluator.contextual_self = Some((self_context, subject));
+        if let Some(instance) = constant_instance {
+            evaluator.bind_implementation_self(
+                instance.definition().into_any(),
+                instance.selected_implementation(),
+            )?;
         }
 
         evaluator.evaluate_generic_inputs()?;
@@ -885,7 +886,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("callable instance must intern: {error:?}"));
 
         let call = values
-            .intern_constant_term(ConstantTermData::call(callable_id, None, []))
+            .intern_constant_term(ConstantTermData::call(callable_id, None, [], []))
             .unwrap_or_else(|error| panic!("call term must intern: {error:?}"));
 
         let call = values
@@ -1370,6 +1371,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {
@@ -1462,6 +1465,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {
@@ -1548,6 +1553,8 @@ mod tests {
         fn contract(
             &self,
             _target: &crate::ConstantCallTarget,
+            _selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+            _implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         ) -> CheckerQueryResult<
             bray_diagnostics::DiagnosticResult<Option<crate::ConstantCallContract>>,
         > {

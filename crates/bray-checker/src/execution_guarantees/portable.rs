@@ -190,7 +190,7 @@ fn encode(
                 _ => return Ok(None),
             }
         }
-        ExecutionCondition::Call(callable, arguments) => {
+        ExecutionCondition::Call(callable, implementation, witnesses, arguments) => {
             let Some(arguments) = arguments
                 .iter()
                 .map(|argument| encode(values, argument, inputs, boolean_type, budget))
@@ -199,7 +199,17 @@ fn encode(
                 return Ok(None);
             };
 
-            ConstantTermData::call(values.intern_callable_instance(*callable)?, None, arguments)
+            ConstantTermData::call(
+                values.intern_callable_instance(*callable)?,
+                implementation
+                    .map(|witness| values.intern_implementation_instance(witness))
+                    .transpose()?,
+                witnesses
+                    .iter()
+                    .map(|witness| values.intern_implementation_instance(*witness))
+                    .collect::<Result<Vec<_>, _>>()?,
+                arguments,
+            )
         }
         ExecutionCondition::Predicate(predicate, substitution, arguments) => {
             let terms = arguments
@@ -359,9 +369,14 @@ pub(crate) fn decode(
         ConstantTermData::Call {
             callable,
             arguments,
-            ..
+            selected_implementation,
+            implementation_witnesses,
         } => ExecutionCondition::call(
             *values.callable_instance_data(*callable),
+            selected_implementation.map(|witness| *values.implementation_instance_data(witness)),
+            implementation_witnesses
+                .iter()
+                .map(|witness| *values.implementation_instance_data(*witness)),
             arguments
                 .iter()
                 .map(|argument| decode(values, *argument, inputs, budget))
@@ -383,4 +398,84 @@ pub(crate) fn decode(
         }
         _ => ExecutionCondition::Unknown,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execution_condition_from_term, execution_condition_term};
+    use crate::execution_guarantees::ExecutionCondition;
+    use crate::test_support::{
+        TestCheckerContext, callable_instance, empty_substitution, semantic_values,
+    };
+    use bray_bound_tree::BoundReferenceTarget;
+    use bray_symbols::{
+        CallableParameterSymbolId, FunctionSymbolId, ImplementationInstanceData,
+        ImplementationSymbolId, SymbolId, UnnamedTraitImplementationSymbolId,
+    };
+
+    #[test]
+    fn portable_calls_preserve_witness_choices_and_argument_substitution() {
+        let values = semantic_values();
+        let context = TestCheckerContext::new(false);
+
+        let boolean_type = crate::representation::representation_type_for_context(
+            &context,
+            bray_compiler_known::RepresentationRole::ScalarBool,
+        );
+
+        let callable =
+            callable_instance(FunctionSymbolId::from_symbol_id(SymbolId::new(900)).into());
+
+        let witnesses = [901, 902].map(|ordinal| {
+            let definition = ImplementationSymbolId::UnnamedTrait(
+                UnnamedTraitImplementationSymbolId::from_symbol_id(SymbolId::new(ordinal)),
+            );
+
+            ImplementationInstanceData::new(definition, empty_substitution(definition.into_any()))
+        });
+
+        let parameter = BoundReferenceTarget::Surface(
+            CallableParameterSymbolId::from_symbol_id(SymbolId::new(903)).into(),
+        );
+
+        let argument = ExecutionCondition::Input(parameter.into());
+
+        let condition = ExecutionCondition::call(
+            callable,
+            Some(witnesses[0]),
+            [witnesses[1]],
+            vec![argument.clone()],
+        );
+
+        let other =
+            ExecutionCondition::call(callable, Some(witnesses[0]), [witnesses[0]], vec![argument]);
+
+        assert_ne!(condition, other);
+
+        let term = execution_condition_term(values, &condition, &[parameter], boolean_type)
+            .expect("portable call encodes")
+            .expect("checked call is portable");
+
+        let decoded = execution_condition_from_term(values, term, &[parameter])
+            .expect("portable call decodes");
+
+        assert_eq!(decoded, condition);
+
+        let mut budget = ExecutionCondition::WORK_LIMIT;
+
+        let substituted = decoded.substitute(
+            &|_| ExecutionCondition::Boolean(true),
+            &ExecutionCondition::Unknown,
+            &mut budget,
+        );
+
+        let expected = ExecutionCondition::call(
+            callable,
+            Some(witnesses[0]),
+            [witnesses[1]],
+            vec![ExecutionCondition::Boolean(true)],
+        );
+
+        assert_eq!(substituted, expected);
+    }
 }

@@ -566,7 +566,7 @@ mod tests {
                 .expect("fixture callable instance must be interned");
 
             store
-                .intern_constant_term(ConstantTermData::call(callable, None, [argument]))
+                .intern_constant_term(ConstantTermData::call(callable, None, [], [argument]))
                 .expect("fixture constant term must be interned")
         };
 

@@ -83,6 +83,25 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         self
     }
 
+    pub(super) fn with_contextual_self(
+        mut self,
+        binding: Option<(bray_symbols::SelfTypeContext, TypeId)>,
+    ) -> Result<Self, FactQueryError> {
+        if let Some((context, subject)) = binding {
+            let contextual = self
+                .binding_context
+                .semantic_values()
+                .intern_type(bray_symbols::TypeData::ContextualSelf(context))?;
+
+            let (mut equalities, diagnostics) = self.type_equalities.into_parts();
+
+            equalities.push((contextual, subject));
+            self.type_equalities = DiagnosticResult::new(equalities, diagnostics);
+        }
+
+        Ok(self)
+    }
+
     pub(super) fn symbols(&self) -> &bray_symbols::SymbolGraph {
         self.binding_context.symbols()
     }

@@ -131,6 +131,7 @@ impl ConstantCallContract {
 pub struct ConstantCallRequest {
     target: ConstantCallTarget,
     selected_implementation: Option<ImplementationInstanceId>,
+    implementation_witnesses: Arc<[ImplementationInstanceId]>,
     arguments: Arc<[ConstantValueId]>,
     result_type: TypeId,
     limits: ConstantEvaluationLimits,
@@ -149,6 +150,7 @@ impl ConstantCallRequest {
         Self {
             target,
             selected_implementation,
+            implementation_witnesses: shared_slice(selected_implementation),
             arguments: shared_slice(arguments),
             result_type,
             limits,
@@ -161,6 +163,28 @@ impl ConstantCallRequest {
         self.observation = observation;
 
         self
+    }
+
+    /// Retains implementation choices before inherited choices for the same requirement.
+    pub fn with_implementation_witnesses(
+        mut self,
+        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+    ) -> Self {
+        let mut seen = std::collections::BTreeSet::new();
+
+        self.implementation_witnesses = shared_slice(
+            witnesses
+                .into_iter()
+                .chain(self.selected_implementation)
+                .filter(|witness| seen.insert(*witness)),
+        );
+
+        self
+    }
+
+    /// Returns saved implementation choices in lookup priority order.
+    pub fn implementation_witnesses(&self) -> &[ImplementationInstanceId] {
+        &self.implementation_witnesses
     }
 
     /// Whether this request consumes an internally established observation proof.
@@ -228,6 +252,8 @@ pub trait ConstantCallResolver: Sync {
     fn contract(
         &self,
         target: &ConstantCallTarget,
+        selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+        implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> CheckerQueryResult<DiagnosticResult<Option<ConstantCallContract>>, Self::UpstreamError>;
 
     /// Retrieves source context only after a particular requirement has failed.

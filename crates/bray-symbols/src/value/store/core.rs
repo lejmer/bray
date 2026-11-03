@@ -859,6 +859,7 @@ mod tests {
                 .intern_constant_term(ConstantTermData::Call {
                     callable,
                     selected_implementation: None,
+                    implementation_witnesses: [].into(),
                     arguments: [].into(),
                 })
                 .expect("fixture constant term must be interned");

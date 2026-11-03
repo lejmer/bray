@@ -60,12 +60,19 @@ where
         &mut self,
         target: crate::ConstantCallTarget,
         implementation: Option<ImplementationInstanceId>,
+        witnesses: &[ImplementationInstanceId],
         arguments: &[ConstantTermId],
         recovery_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let witnesses = witnesses
+            .iter()
+            .chain(self.implementation_witnesses)
+            .copied()
+            .collect::<Vec<_>>();
+
         let contract = self
             .resolver
-            .contract(&target)
+            .contract(&target, implementation, &witnesses)
             .map_err(|error| self.record_query_failure(error))?;
 
         self.diagnostics
@@ -120,6 +127,8 @@ where
             }
         };
 
+        let request = request.with_implementation_witnesses(witnesses);
+
         self.resolve_call(&request, contract.result())
     }
 
@@ -170,6 +179,8 @@ where
                 );
 
                 evaluator.selected_implementation = self.selected_implementation;
+                evaluator.implementation_witnesses = self.implementation_witnesses;
+                evaluator.contextual_self = self.contextual_self;
                 evaluator.arguments = self.arguments;
 
                 let result = evaluator.evaluate_generic_inputs().and_then(|()| {
@@ -427,6 +438,7 @@ where
             callable,
             selected_implementation,
             arguments,
+            implementation_witnesses,
         } => {
             let callable = *evaluator
                 .context
@@ -436,6 +448,7 @@ where
             evaluator.evaluate_invocation(
                 crate::ConstantCallTarget::Declaration(callable),
                 *selected_implementation,
+                implementation_witnesses,
                 arguments,
                 ty,
             )
@@ -446,6 +459,7 @@ where
         } => evaluator.evaluate_invocation(
             crate::ConstantCallTarget::Predicate(*predicate),
             None,
+            &[],
             arguments,
             ty,
         ),
@@ -609,12 +623,9 @@ fn evaluate_constant_reference<C: CheckerRequestContext + ?Sized>(
         ConstantTermData::TraitConstant {
             requirement,
             member,
-        } => evaluator.resolver.resolve_trait_constant(
-            *requirement,
-            *member,
-            evaluator.selected_implementation,
-            limits,
-        ),
+        } => evaluator
+            .resolver
+            .resolve_trait_constant(*requirement, *member, None, limits),
         ConstantTermData::DefinitionApplication {
             definition,
             substitution,

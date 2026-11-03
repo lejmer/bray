@@ -302,7 +302,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 // normal completion is certified independently at the input site.
                 matches!(
                     value,
-                    ExecutionCondition::Call(_, _) | ExecutionCondition::PostState(_, _)
+                    ExecutionCondition::Call(..) | ExecutionCondition::PostState(_, _)
                 )
                 .then(|| self.integer_type_range(target))
                 .flatten()

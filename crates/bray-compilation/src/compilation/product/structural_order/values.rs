@@ -237,6 +237,7 @@ impl OrderEncoder<'_, '_> {
                 callable,
                 selected_implementation,
                 arguments,
+                implementation_witnesses,
             } => {
                 let callable = values.callable_instance_data(*callable);
 
@@ -249,6 +250,12 @@ impl OrderEncoder<'_, '_> {
                             selected_implementation
                                 .map(|id| self.implementation(id))
                                 .transpose()?,
+                        ),
+                        sequence(
+                            implementation_witnesses
+                                .iter()
+                                .map(|id| self.implementation(*id))
+                                .collect::<Result<Vec<_>, _>>()?,
                         ),
                         sequence(
                             arguments

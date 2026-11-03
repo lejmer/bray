@@ -13,13 +13,14 @@ impl Compilation {
     pub(in crate::compilation) fn constant_callable_signature(
         &self,
         callable: bray_symbols::CallableInstanceData,
+        context: &crate::compilation::checker::CompilationCheckerContext<'_>,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<bray_symbols::CallableSignature>>, FactQueryError> {
         let binding = self.binding_context(cancellation)?;
         let mut diagnostics = DiagnosticBag::new();
 
         let signature =
-            self.resolve_callable_signature_types(&binding, callable, &mut diagnostics)?;
+            self.resolve_callable_signature_types(&binding, callable, context, &mut diagnostics)?;
 
         let signature = if diagnostics.has_errors() {
             None
@@ -33,19 +34,33 @@ impl Compilation {
     pub(in crate::compilation) fn constant_call_contract(
         &self,
         target: &ConstantCallTarget,
+        selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+        implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<ConstantCallContract>>, FactQueryError> {
         let values = self.semantic_value_store()?;
         let binding = self.binding_context(cancellation)?;
         let mut diagnostics = DiagnosticBag::new();
-        let context = crate::compilation::checker::CompilationCheckerContext::new(binding);
+
+        let contextual_self =
+            self.constant_invocation_self_context(target, selected_implementation, cancellation)?;
+
+        let context = crate::compilation::checker::CompilationCheckerContext::new(binding)
+            .with_implementation_witnesses(
+                implementation_witnesses
+                    .iter()
+                    .copied()
+                    .chain(selected_implementation),
+            )
+            .with_contextual_self(contextual_self)?;
 
         let mut normalizer =
             bray_checker::TypeNormalizer::new(&context, Some(target.substitution()));
 
         let contract = match target {
             ConstantCallTarget::Declaration(callable) => {
-                let checked = self.constant_callable_signature(*callable, cancellation)?;
+                let checked =
+                    self.constant_callable_signature(*callable, &context, cancellation)?;
 
                 let predicates = binding
                     .resolve_symbol_query(
@@ -164,7 +179,8 @@ impl Compilation {
                             *substitution,
                         );
 
-                        let signature = self.constant_callable_signature(callable, cancellation)?;
+                        let signature =
+                            self.constant_callable_signature(callable, &context, cancellation)?;
 
                         diagnostics.add_range(signature.diagnostics().iter().cloned());
 
@@ -242,6 +258,43 @@ impl Compilation {
         };
 
         Ok(DiagnosticResult::new(contract, diagnostics))
+    }
+
+    pub(in crate::compilation) fn constant_invocation_self_context(
+        &self,
+        target: &ConstantCallTarget,
+        witness: Option<bray_symbols::ImplementationInstanceId>,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>, FactQueryError> {
+        let Some(witness) = witness else {
+            return Ok(None);
+        };
+
+        let context = self.checker_context(cancellation)?;
+
+        let symbol = match target {
+            ConstantCallTarget::Declaration(callable) => callable.definition().symbol(),
+            ConstantCallTarget::Default(provider, _) => provider.symbol(),
+            ConstantCallTarget::Predicate(predicate) => predicate.definition().into_any(),
+            ConstantCallTarget::Anonymous(unit, _) => context
+                .symbols()
+                .symbol_for_key(unit.declared_owner())
+                .expect("anonymous invocation retains its lexical owner"),
+        };
+
+        let Some(self_context) =
+            bray_checker::CheckerRequestContext::enclosing_self_type_context(&context, symbol)?
+        else {
+            return Ok(None);
+        };
+
+        let binding = self.binding_context(cancellation)?;
+
+        let requirement = crate::compilation::implementation::implementation_instance_requirement(
+            &binding, witness,
+        )?;
+
+        Ok(Some((self_context, requirement.subject())))
     }
 
     pub(in crate::compilation) fn constant_requirement_origin(

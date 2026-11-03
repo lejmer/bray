@@ -53,6 +53,8 @@ pub enum ExecutionCondition {
     /// A checked deterministic callable application with stable declaration and argument identity.
     Call(
         bray_symbols::CallableInstanceData,
+        Option<bray_symbols::ImplementationInstanceData>,
+        Arc<[bray_symbols::ImplementationInstanceData]>,
         Arc<[ExecutionCondition]>,
     ),
     /// One component of an observed immutable value.
@@ -100,7 +102,7 @@ impl ExecutionCondition {
             Self::Trusted(_) => true,
             Self::Operation(_, operands)
             | Self::Predicate(_, _, operands)
-            | Self::Call(_, operands) => operands.iter().any(Self::contains_trusted),
+            | Self::Call(_, _, _, operands) => operands.iter().any(Self::contains_trusted),
             Self::Tagged(_, value)
             | Self::VariantTest(_, value)
             | Self::Present(value)

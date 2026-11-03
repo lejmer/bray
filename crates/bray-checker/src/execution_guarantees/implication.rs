@@ -357,16 +357,35 @@ pub fn map_execution_condition_references<E>(
                 .map(|operand| map_execution_condition_references(operand, map, input, literal))
                 .collect::<Result<_, _>>()?,
         ),
-        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(
-            bray_symbols::CallableInstanceData::new(
-                callable.definition(),
-                map(callable.substitution())?,
-            ),
-            operands
-                .iter()
-                .map(|operand| map_execution_condition_references(operand, map, input, literal))
-                .collect::<Result<_, _>>()?,
-        ),
+        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+            ExecutionCondition::call(
+                bray_symbols::CallableInstanceData::new(
+                    callable.definition(),
+                    map(callable.substitution())?,
+                ),
+                implementation
+                    .map(|witness| {
+                        Ok::<_, E>(bray_symbols::ImplementationInstanceData::new(
+                            witness.definition(),
+                            map(witness.substitution())?,
+                        ))
+                    })
+                    .transpose()?,
+                witnesses
+                    .iter()
+                    .map(|witness| {
+                        Ok(bray_symbols::ImplementationInstanceData::new(
+                            witness.definition(),
+                            map(witness.substitution())?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, E>>()?,
+                operands
+                    .iter()
+                    .map(|operand| map_execution_condition_references(operand, map, input, literal))
+                    .collect::<Result<_, _>>()?,
+            )
+        }
         ExecutionCondition::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal)?.component(*field)
         }

@@ -191,7 +191,8 @@ impl SemanticUnifier<'_> {
             ConstantTermData::Call {
                 callable,
                 arguments,
-                ..
+                selected_implementation,
+                implementation_witnesses,
             } => {
                 let callable = self.values.callable_instance_data(*callable);
 
@@ -201,6 +202,22 @@ impl SemanticUnifier<'_> {
                     visited,
                 ) {
                     return true;
+                }
+
+                for witness in implementation_witnesses
+                    .iter()
+                    .copied()
+                    .chain(*selected_implementation)
+                {
+                    let instance = self.values.implementation_instance_data(witness);
+
+                    if self.substitution_contains_const_parameter(
+                        instance.substitution(),
+                        parameter,
+                        visited,
+                    ) {
+                        return true;
+                    }
                 }
 
                 for argument in &**arguments {

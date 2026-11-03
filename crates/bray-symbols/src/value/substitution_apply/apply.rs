@@ -423,6 +423,7 @@ impl SemanticValueStore {
                 callable,
                 selected_implementation,
                 arguments,
+                implementation_witnesses,
             } => {
                 let selected_implementation = selected_implementation
                     .map(|implementation| {
@@ -433,6 +434,12 @@ impl SemanticValueStore {
                 ConstantTermData::call(
                     self.substitute_callable_instance_data(*callable, substitution)?,
                     selected_implementation,
+                    implementation_witnesses
+                        .iter()
+                        .map(|witness| {
+                            self.substitute_implementation_instance_data(*witness, substitution)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
                     arguments
                         .iter()
                         .map(|argument| self.substitute_constant_term_data(*argument, substitution))

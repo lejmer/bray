@@ -554,8 +554,8 @@ impl InterfaceSemantics {
                 }
                 InterfaceConstantTerm::Call {
                     callable,
-                    selected_implementation: None,
                     arguments,
+                    ..
                 } => {
                     let instance = callable
                         .to_index()

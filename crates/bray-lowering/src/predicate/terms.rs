@@ -166,6 +166,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 callable,
                 arguments,
                 selected_implementation,
+                implementation_witnesses,
             } => {
                 let (block, values) = self.term_arguments(block, arguments, ty)?;
 
@@ -177,6 +178,7 @@ impl<C: PredicateLoweringContext + ?Sized> PredicateLowerer<'_, C> {
                 let call = self.context.predicate_instance_call(
                     *callable,
                     *selected_implementation,
+                    implementation_witnesses,
                     values,
                 )?;
 

@@ -18,8 +18,10 @@ impl ExecutionCondition {
 
         // Substitution retains immutable terms independently in the caller or exit environment.
         match self {
-            Self::Call(callable, operands) => Self::call(
+            Self::Call(callable, implementation, witnesses, operands) => Self::call(
                 *callable,
+                *implementation,
+                witnesses.iter().copied(),
                 operands
                     .iter()
                     .map(|operand| operand.substitute(input, result, budget))
@@ -308,13 +310,17 @@ fn rewrite_equalities(
                     .collect(),
             )
         }
-        ExecutionCondition::Call(callable, operands) => ExecutionCondition::call(
-            callable,
-            operands
-                .iter()
-                .map(|operand| rewrite_equalities(operand, replacements, identities, budget))
-                .collect(),
-        ),
+        ExecutionCondition::Call(callable, implementation, witnesses, operands) => {
+            ExecutionCondition::call(
+                callable,
+                implementation,
+                witnesses.iter().copied(),
+                operands
+                    .iter()
+                    .map(|operand| rewrite_equalities(operand, replacements, identities, budget))
+                    .collect(),
+            )
+        }
         value => value,
     };
 

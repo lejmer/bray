@@ -527,14 +527,16 @@ fn large_repeated_bytes_use_one_bulk_initialization_before_optimization() {
                 type Target = Buffer<4096>;
             }}
 
-            func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
+            const func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
             {{
                 return T(Project).Target(Capacity).VALUE;
             }}
 
+            const PROJECTED: usize = projected<Subjects>();
+
             public func deferred_capacity() -> usize
             {{
-                return projected<Subjects>();
+                return PROJECTED;
             }}
 
             public func alias_capacity() -> usize

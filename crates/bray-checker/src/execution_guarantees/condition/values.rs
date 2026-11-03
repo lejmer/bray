@@ -89,11 +89,21 @@ impl ExecutionCondition {
         Some((carrier, ty))
     }
 
-    pub(crate) fn call(callable: bray_symbols::CallableInstanceData, arguments: Vec<Self>) -> Self {
+    pub(crate) fn call(
+        callable: bray_symbols::CallableInstanceData,
+        implementation: Option<bray_symbols::ImplementationInstanceData>,
+        witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceData>,
+        arguments: Vec<Self>,
+    ) -> Self {
         if arguments.iter().any(Self::contains_unknown) {
             Self::Unknown
         } else {
-            Self::Call(callable, arguments.into())
+            Self::Call(
+                callable,
+                implementation,
+                bray_base::shared_slice(witnesses),
+                arguments.into(),
+            )
         }
     }
 

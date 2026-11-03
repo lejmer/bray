@@ -158,11 +158,17 @@ impl<'a> SemanticExporter<'a> {
                         callable,
                         selected_implementation,
                         arguments,
+                        implementation_witnesses,
                     } => InterfaceConstantTerm::Call {
                         callable: self.callable_instance_id(*callable)?,
                         selected_implementation: selected_implementation
                             .map(|instance| self.implementation_instance_id(instance))
                             .transpose()?,
+                        implementation_witnesses: implementation_witnesses
+                            .iter()
+                            .map(|witness| self.implementation_instance_id(*witness))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .into(),
                         arguments: arguments
                             .iter()
                             .copied()

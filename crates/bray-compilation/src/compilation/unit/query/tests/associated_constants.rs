@@ -512,7 +512,7 @@ fn associated_constants_follow_type_valued_qualifiers() {
             return Subjects<N>.Target(Capacity).VALUE;
         }
 
-        func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
+        const func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
         {
             return T(Project).Target(Capacity).VALUE;
         }
@@ -523,6 +523,8 @@ fn associated_constants_follow_type_valued_qualifiers() {
         const PROJECTED: usize = Subjects<3>(Project).Target(Capacity).VALUE;
         const GENERIC: usize = capacity<5>();
         const CALLED: usize = Subjects<5>.Target.read();
+
+        const DEFERRED_PROJECTED: usize = projected<Subjects<3>>();
 
         func main()
         {
@@ -557,6 +559,12 @@ fn associated_constants_follow_type_valued_qualifiers() {
             "{name}"
         );
     }
+
+    let projected = source_constant_value(&compilation, "DEFERRED_PROJECTED");
+
+    assert!(
+        matches!(projected.kind(), ConstantValueKind::Integer(value) if value.to_u64() == Some(3))
+    );
 
     let lowered = compilation
         .lowered_unit(source_function_body_key(&compilation, "main"))
@@ -640,4 +648,98 @@ fn associated_constants_preserve_syntax_recovery_diagnostics() {
     );
 
     assert!(compilation.check_diagnostics().has_errors());
+}
+
+#[test]
+fn constant_invocations_preserve_generic_proofs_and_default_dispatch() {
+    let compilation = compilation(
+        r#"
+        module app;
+
+        trait First
+        {
+            const VALUE: usize;
+        }
+
+        trait Second
+        {
+            const VALUE: usize;
+        }
+
+        struct Wrapper<T>
+        {
+            const VALUE: usize = 5;
+        }
+
+        trait Dispatch
+        {
+            const VALUE: usize = 10;
+
+            static const func read<T>(extra: usize = Wrapper<Self>.VALUE) -> usize
+                with(T: First, T: Second)
+            {
+                return VALUE + extra + T(First).VALUE + T(Second).VALUE;
+            }
+        }
+
+        struct Item
+        {
+        }
+
+        impl Item(First)
+        {
+            const VALUE: usize = 2;
+        }
+
+        impl Item(Second)
+        {
+            const VALUE: usize = 3;
+        }
+
+        impl Item(Dispatch)
+        {
+        }
+
+        const func literal<T>() -> usize with(T: First, T: Second)
+        {
+            return 7;
+        }
+
+        const func nested<T>() -> usize with(T: First, T: Second)
+        {
+            return literal<T>();
+        }
+
+        const func supplied<T>(value: usize = literal<T>()) -> usize
+            with(T: First, T: Second)
+        {
+            return value;
+        }
+
+        const LITERAL: usize = literal<Item>();
+        const NESTED: usize = nested<Item>();
+        const DEFAULT: usize = supplied<Item>();
+        const DISPATCHED: usize = Item(Dispatch).read<Item>();
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:#?}",
+        compilation.check_diagnostics()
+    );
+
+    for (name, expected) in [
+        ("LITERAL", 7),
+        ("NESTED", 7),
+        ("DEFAULT", 7),
+        ("DISPATCHED", 20),
+    ] {
+        let value = source_constant_value(&compilation, name);
+
+        assert!(
+            matches!(value.kind(), ConstantValueKind::Integer(value) if value.to_u64() == Some(expected)),
+            "{name}: {value:?}"
+        );
+    }
 }

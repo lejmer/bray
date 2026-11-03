@@ -25,6 +25,8 @@ pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> 
     compilation: &'compilation Compilation,
     cancellation: &'compilation CancellationToken,
     substitution: Option<bray_symbols::GenericSubstitutionId>,
+    implementation_witnesses: &'compilation [bray_symbols::ImplementationInstanceId],
+    contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
 }
 
 impl<'compilation> CompilationConstantCallResolver<'compilation> {
@@ -36,8 +38,58 @@ impl<'compilation> CompilationConstantCallResolver<'compilation> {
             compilation,
             cancellation,
             substitution: None,
+            implementation_witnesses: &[],
+            contextual_self: None,
         }
     }
+    pub(in crate::compilation) const fn with_implementation_witnesses(
+        mut self,
+        witnesses: &'compilation [bray_symbols::ImplementationInstanceId],
+    ) -> Self {
+        self.implementation_witnesses = witnesses;
+
+        self
+    }
+
+    pub(in crate::compilation) const fn with_contextual_self(
+        mut self,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
+    ) -> Self {
+        self.contextual_self = contextual_self;
+
+        self
+    }
+
+    fn substitute_implementation(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+        witness: bray_symbols::ImplementationInstanceId,
+    ) -> CheckerQueryResult<bray_symbols::ImplementationInstanceId> {
+        let witness = self
+            .substitution
+            .map(|parent| values.substitute_implementation_instance(witness, parent))
+            .transpose()
+            .map_err(|error| checker_call_query_error(error.into()))?
+            .unwrap_or(witness);
+
+        let Some((context, subject)) = self.contextual_self else {
+            return Ok(witness);
+        };
+
+        let data = values.implementation_instance_data(witness);
+
+        let substitution = values
+            .substitute_contextual_self_in_substitution(data.substitution(), context, subject)
+            .map_err(|error| checker_call_query_error(error.into()))?;
+
+        values
+            .intern_implementation_instance(bray_symbols::ImplementationInstanceData::new(
+                data.definition(),
+                substitution,
+            ))
+            .map_err(|error| checker_call_query_error(error.into()))
+    }
+
     pub(in crate::compilation) const fn with_substitution(
         mut self,
         substitution: bray_symbols::GenericSubstitutionId,
@@ -63,9 +115,20 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
     fn contract(
         &self,
         target: &bray_checker::ConstantCallTarget,
+        selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+        implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> CheckerQueryResult<DiagnosticResult<Option<bray_checker::ConstantCallContract>>> {
         self.compilation
-            .constant_call_contract(target, self.cancellation)
+            .constant_call_contract(
+                target,
+                selected_implementation,
+                &implementation_witnesses
+                    .iter()
+                    .chain(self.implementation_witnesses)
+                    .copied()
+                    .collect::<Vec<_>>(),
+                self.cancellation,
+            )
             .map_err(checker_call_query_error)
     }
 
@@ -117,6 +180,13 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
             .map_err(|error| checker_call_query_error(error.into()))?
             .unwrap_or(selected);
 
+        let selected = match self.contextual_self {
+            Some((context, subject)) => values
+                .substitute_contextual_self_in_substitution(selected, context, subject)
+                .map_err(|error| checker_call_query_error(error.into()))?,
+            None => selected,
+        };
+
         let target = match request.target() {
             bray_checker::ConstantCallTarget::Declaration(callable) => {
                 let callable =
@@ -149,14 +219,18 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
             }
         };
 
-        let witness = match self.substitution {
-            Some(parent) => request
-                .selected_implementation()
-                .map(|witness| values.substitute_implementation_instance(witness, parent))
-                .transpose()
-                .map_err(|error| checker_call_query_error(error.into()))?,
-            None => request.selected_implementation(),
-        };
+        let witness = request
+            .selected_implementation()
+            .map(|witness| self.substitute_implementation(values, witness))
+            .transpose()?;
+
+        let witnesses = request
+            .implementation_witnesses()
+            .iter()
+            .chain(self.implementation_witnesses)
+            .copied()
+            .map(|witness| self.substitute_implementation(values, witness))
+            .collect::<Result<Vec<_>, _>>()?;
 
         let request = ConstantCallRequest::new(
             target,
@@ -165,6 +239,7 @@ impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
             request.result_type(),
             request.limits(),
         )
+        .with_implementation_witnesses(witnesses)
         .with_observation(request.is_observation());
 
         match self
@@ -210,6 +285,7 @@ impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
         witnesses: &'compilation [bray_symbols::ImplementationInstanceId],
     ) -> Self {
         self.implementation_witnesses = witnesses;
+        self.calls = self.calls.with_implementation_witnesses(witnesses);
 
         self
     }
@@ -228,8 +304,11 @@ impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
     fn contract(
         &self,
         target: &bray_checker::ConstantCallTarget,
+        selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+        implementation_witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> CheckerQueryResult<DiagnosticResult<Option<bray_checker::ConstantCallContract>>> {
-        self.calls.contract(target)
+        self.calls
+            .contract(target, selected_implementation, implementation_witnesses)
     }
 
     fn requirement_origin(
@@ -303,6 +382,29 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
         selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
         limits: bray_checker::ConstantEvaluationLimits,
     ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>> {
+        let context = self
+            .calls
+            .compilation
+            .checker_context(self.calls.cancellation)
+            .map_err(checker_call_query_error)?
+            .with_implementation_witnesses(self.implementation_witnesses.iter().copied());
+
+        let mut normalizer = bray_checker::TypeNormalizer::new(&context, None);
+        let subject = normalizer.normalize_type(requirement.subject())?;
+
+        let application =
+            normalizer.normalize_trait_application(requirement.trait_application())?;
+
+        let requirement = bray_symbols::ImplementationRequirementKey::new(subject, application);
+        let mut diagnostics = normalizer.take_diagnostics();
+
+        if diagnostics.has_errors() {
+            return Ok(DiagnosticResult::new(
+                ConstantReferenceResolution::Invalid,
+                diagnostics,
+            ));
+        }
+
         let selected_implementation =
             if selected_implementation.is_some() || self.implementation_witnesses.is_empty() {
                 selected_implementation
@@ -331,8 +433,6 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
                 member,
             })
             .map_err(|error| checker_call_query_error(FactQueryError::SemanticValueStore(error)))?;
-
-        let mut diagnostics = DiagnosticBag::new();
 
         let result = self
             .calls
@@ -440,6 +540,7 @@ impl Compilation {
             self.requested_target().profile().clone(),
             request.limits(),
         )
+        .with_implementation_witnesses(request.implementation_witnesses())
         .with_observation(request.is_observation());
 
         let cell = self.state.constant_calls.cell(key.clone())?;
@@ -461,7 +562,13 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<EvaluatedConstantCall>>, FactQueryError> {
         let target = key.invocation();
-        let checked_contract = self.constant_call_contract(target, cancellation)?;
+
+        let checked_contract = self.constant_call_contract(
+            target,
+            key.selected_implementation(),
+            key.implementation_witnesses(),
+            cancellation,
+        )?;
 
         let Some(contract) = checked_contract.value() else {
             return Ok(DiagnosticResult::new(
@@ -487,13 +594,24 @@ impl Compilation {
         }
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-        let context = self.checker_context(cancellation)?;
+
+        let contextual_self = self.constant_invocation_self_context(
+            target,
+            key.selected_implementation(),
+            cancellation,
+        )?;
+
+        let context = self
+            .checker_context(cancellation)?
+            .with_implementation_witnesses(key.implementation_witnesses().iter().copied())
+            .with_contextual_self(contextual_self)?;
 
         let resolver = CompilationConstantTemplateResolver::new(
             self,
             cancellation,
             imported.value().as_deref(),
-        );
+        )
+        .with_implementation_witnesses(key.implementation_witnesses());
 
         let request = ConstantCallRequest::new(
             target.clone(),
@@ -502,6 +620,7 @@ impl Compilation {
             key.result_type(),
             key.limits(),
         )
+        .with_implementation_witnesses(key.implementation_witnesses().iter().copied())
         .with_observation(key.is_observation());
 
         let evaluated = checker_result(evaluate_constant_call(

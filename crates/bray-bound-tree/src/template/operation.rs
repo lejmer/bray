@@ -200,6 +200,8 @@ pub enum CheckedTemplateOperation<
         /// Mutable receiver-first inputs for an internal observational invocation.
         /// An empty list still distinguishes an ordinary provider from a source const call.
         state_inputs: Option<Arc<[u32]>>,
+        /// Saved implementation declarations and generic applications in lookup priority order.
+        implementation_witnesses: Arc<[(Implementation, Substitution)]>,
         /// The exact selected witness source when dispatch requires one.
         dispatch: Option<CheckedTemplateDispatch<Declaration, Substitution, Implementation, Type>>,
     },
@@ -383,6 +385,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             arguments,
             ordinals: shared_slice(ordinals),
             state_inputs: None,
+            implementation_witnesses: Arc::from([]),
             dispatch,
         }
     }
@@ -401,8 +404,27 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             arguments: shared_slice(arguments),
             ordinals: shared_slice(ordinals),
             state_inputs: None,
+            implementation_witnesses: Arc::from([]),
             dispatch,
         }
+    }
+
+    /// Retains concrete implementation choices independently of the callable's dispatch route.
+    pub fn with_implementation_witnesses(
+        mut self,
+        witnesses: impl IntoIterator<Item = (Implementation, Substitution)>,
+    ) -> Self {
+        let Self::Call {
+            implementation_witnesses,
+            ..
+        } = &mut self
+        else {
+            panic!("only invocation operations retain implementation witnesses");
+        };
+
+        *implementation_witnesses = shared_slice(witnesses);
+
+        self
     }
 
     /// Returns the value snapshot supplying one declared mutable call input.
@@ -591,6 +613,7 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 arguments,
                 ordinals,
                 dispatch: witness,
+                implementation_witnesses,
                 state_inputs,
             } => CheckedTemplateOperation::Call {
                 callable: declaration(callable)?,
@@ -598,6 +621,13 @@ impl<Term, Type, Declaration, Substitution, Implementation>
                 arguments: Arc::clone(arguments),
                 ordinals: Arc::clone(ordinals),
                 state_inputs: state_inputs.clone(),
+                implementation_witnesses: implementation_witnesses
+                    .iter()
+                    .map(|(witness, application)| {
+                        Ok((implementation(witness)?, substitution(application)?))
+                    })
+                    .collect::<Result<Vec<_>, E>>()?
+                    .into(),
                 dispatch: witness
                     .as_ref()
                     .map(|witness| {
@@ -616,7 +646,9 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             },
             Self::Tuple(elements) => CheckedTemplateOperation::Tuple(Arc::clone(elements)),
             Self::Array(elements) => CheckedTemplateOperation::Array(Arc::clone(elements)),
-            Self::RepeatedArray { value } => CheckedTemplateOperation::RepeatedArray { value: *value },
+            Self::RepeatedArray { value } => {
+                CheckedTemplateOperation::RepeatedArray { value: *value }
+            }
             Self::Construct { variant, fields } => CheckedTemplateOperation::construct(
                 variant.as_ref().map(&mut declaration).transpose()?,
                 fields

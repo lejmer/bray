@@ -34,6 +34,8 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
+        let witnesses = call.resolution().implementation_witnesses();
+        let selected_implementation = call.dispatch_implementation();
         let offset = usize::from(call.receiver().is_some());
         let mut supplied = vec![None; call.arguments().len() + offset];
 
@@ -132,6 +134,8 @@ where
                     bray_symbols::DefaultValueProvider::CallableParameter(*provider),
                     callable.substitution(),
                 ),
+                selected_implementation,
+                witnesses,
                 earlier,
                 *ty,
             )?;
@@ -166,6 +170,8 @@ where
             let value = self.evaluate_template_call_values(
                 expression,
                 crate::ConstantCallTarget::Anonymous(body.clone(), None),
+                None,
+                witnesses,
                 values,
                 ty,
             )?;
@@ -177,17 +183,14 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let witnesses = call.resolution().implementation_witnesses();
-
-        let selected_implementation = match witnesses {
-            [] => None,
-            [witness] => Some(*witness),
-            _ => {
-                return Err(EvaluationFailure::invalid_expression(expression));
-            }
-        };
-
-        self.evaluate_call_terms(expression, callable, selected_implementation, arguments, ty)
+        self.evaluate_call_terms(
+            expression,
+            callable,
+            selected_implementation,
+            witnesses,
+            arguments,
+            ty,
+        )
     }
 
     fn evaluate_selected_conversion(
@@ -292,6 +295,7 @@ where
             expression,
             callable,
             selected_implementation,
+            selected_implementation.as_slice(),
             arguments,
             result_type,
         )
@@ -302,6 +306,7 @@ where
         expression: BoundExpressionId,
         callable: CallableInstanceData,
         selected_implementation: Option<ImplementationInstanceId>,
+        implementation_witnesses: &[ImplementationInstanceId],
         arguments: impl IntoIterator<Item = (ConstantTermId, TypeId)>,
         result_type: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
@@ -339,7 +344,12 @@ where
 
             return self.intern_typed_term(
                 result_type,
-                ConstantTermData::call(callable, selected_implementation, arguments),
+                ConstantTermData::call(
+                    callable,
+                    selected_implementation,
+                    implementation_witnesses.iter().copied(),
+                    arguments,
+                ),
             );
         }
 
@@ -353,6 +363,7 @@ where
             expression,
             callable,
             selected_implementation,
+            implementation_witnesses,
             values,
             result_type,
         )?;
@@ -382,6 +393,7 @@ where
         expression: BoundExpressionId,
         callable: CallableInstanceData,
         selected_implementation: Option<ImplementationInstanceId>,
+        implementation_witnesses: &[ImplementationInstanceId],
         arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
         result_type: TypeId,
     ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
@@ -400,7 +412,8 @@ where
             arguments,
             result_type,
             limits,
-        );
+        )
+        .with_implementation_witnesses(implementation_witnesses.iter().copied());
 
         self.resolve_constant_request(expression, &request)
     }
@@ -409,6 +422,8 @@ where
         &mut self,
         expression: BoundExpressionId,
         target: crate::ConstantCallTarget,
+        selected_implementation: Option<ImplementationInstanceId>,
+        implementation_witnesses: &[ImplementationInstanceId],
         arguments: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
         result_type: TypeId,
     ) -> Result<bray_symbols::ConstantValueId, EvaluationFailure> {
@@ -421,7 +436,14 @@ where
                 diagnostic: ConstantDiagnostic::limit(ConstantLimitKind::EvaluationSteps, 1, 0),
             })?;
 
-        let request = ConstantCallRequest::new(target, None, arguments, result_type, limits);
+        let request = ConstantCallRequest::new(
+            target,
+            selected_implementation,
+            arguments,
+            result_type,
+            limits,
+        )
+        .with_implementation_witnesses(implementation_witnesses.iter().copied());
 
         self.resolve_constant_request(expression, &request)
     }
