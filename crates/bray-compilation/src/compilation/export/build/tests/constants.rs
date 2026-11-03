@@ -770,6 +770,13 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
         trait First
         {
             const VALUE: usize;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total);
+
+            static const func read_default(pos extra: usize = VALUE) -> usize executes(pure, total)
+            {
+                return VALUE + extra;
+            }
         }
 
         trait Second
@@ -784,6 +791,11 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
         impl ProviderFirst = Small(First)
         {
             const VALUE: usize = 2;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total)
+            {
+                return VALUE + extra;
+            }
         }
 
         impl ProviderSecond = Small(Second)
@@ -807,6 +819,23 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
             return [T(Second).VALUE; T(First).VALUE];
         }
 
+        const func method<T>(pos defaulted: bool) -> usize with(T: First, T: Second)
+        {
+            if defaulted
+            {
+                return T(First).read_default();
+            }
+
+            return T(First).read(1);
+        }
+
+        const func selected_method(pos defaulted: bool) -> usize
+        {
+            return method<Small>(defaulted);
+        }
+
+        const PROVIDER_METHOD: usize = selected_method(false);
+        const PROVIDER_DEFAULT: usize = selected_method(true);
         const CAPTURED: usize = sum<Small>();
 
         const func selected() -> usize
@@ -827,6 +856,38 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
         provider.check_diagnostics()
     );
 
+    let provider_only = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        const PROVIDER_METHOD: usize = example.package.api.selected_method(false);
+        const PROVIDER_DEFAULT: usize = example.package.api.selected_method(true);
+        "#,
+        [super::fixtures::implementation_dependency(export(
+            &provider,
+        ))],
+    );
+
+    assert!(
+        provider_only.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider_only.check_diagnostics()
+    );
+
+    for checked in [&provider, &provider_only] {
+        for (name, expected) in [("PROVIDER_METHOD", 3), ("PROVIDER_DEFAULT", 4)] {
+            let value = super::fixtures::source_constant_value(checked, name);
+
+            assert!(
+                matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+                if value.to_u64() == Some(expected)),
+                "{name}: {value:?}"
+            );
+        }
+    }
+
     let dependency = super::fixtures::implementation_dependency(export(&provider));
 
     let consumer = crate::test_support::compilation_with_dependencies(
@@ -838,6 +899,11 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
         impl ConsumerFirst = example.package.api.Small(example.package.api.First)
         {
             const VALUE: usize = 4;
+
+            static const func read(pos extra: usize) -> usize executes(pure, total)
+            {
+                return 5 + extra;
+            }
         }
 
         impl ConsumerSecond = example.package.api.Small(example.package.api.Second)
@@ -850,6 +916,15 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
             return example.package.api.sum<example.package.api.Small>();
         }
 
+        const func selected_consumer_method(pos defaulted: bool) -> usize
+        {
+            return example.package.api.method<example.package.api.Small>(defaulted);
+        }
+
+        const PROVIDER_METHOD: usize = example.package.api.selected_method(false);
+        const PROVIDER_DEFAULT: usize = example.package.api.selected_method(true);
+        const CONSUMER_METHOD: usize = selected_consumer_method(false);
+        const CONSUMER_DEFAULT: usize = selected_consumer_method(true);
         const LITERAL: usize = example.package.api.literal<example.package.api.Small>();
         const SYMBOLIC: usize = example.package.api.CAPTURED;
         const PROVIDER: usize = example.package.api.selected();
@@ -869,6 +944,10 @@ fn constant_invocations_keep_saved_provider_proofs_after_import() {
     );
 
     for (name, expected) in [
+        ("PROVIDER_METHOD", 3),
+        ("PROVIDER_DEFAULT", 4),
+        ("CONSUMER_METHOD", 6),
+        ("CONSUMER_DEFAULT", 8),
         ("LITERAL", 7),
         ("SYMBOLIC", 5),
         ("PROVIDER", 5),

@@ -1058,12 +1058,6 @@ fn validate_call_references(
         ));
     }
 
-    if declaration_kind == SymbolKind::CallableParameterDefaultProvider && dispatch.is_some() {
-        return Err(crate::semantic::codec::invalid_value(
-            crate::InterfaceValidationField::Template,
-        ));
-    }
-
     validate_index(
         substitution.to_index(),
         context.semantics.substitutions.len(),

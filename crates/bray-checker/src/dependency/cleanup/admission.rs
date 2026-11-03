@@ -323,7 +323,9 @@ pub(super) fn selected_key<C: CheckerRequestContext + ?Sized>(
     let (callable, contextual_self) = match requirement {
         Some(requirement) => {
             let Some((selected, context, _)) =
-                request.context().witness_callable(callable, requirement)?
+                request
+                    .context()
+                    .witness_callable(callable, requirement, &[])?
             else {
                 return Ok(None);
             };

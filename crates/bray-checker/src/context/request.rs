@@ -177,11 +177,12 @@ pub trait CheckerRequestContext: Sync {
         dispatch: bray_symbols::TraitConstraintDispatch,
     ) -> CheckerQueryResult<ImplementationRequirementKey, Self::UpstreamError>;
 
-    /// Resolves an abstract method when its implementation witness is available.
+    /// Resolves an abstract method using captured witnesses before the active context.
     fn witness_callable(
         &self,
         callable: bray_symbols::CallableInstanceId,
         requirement: ImplementationRequirementKey,
+        witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> CheckerQueryResult<
         Option<(
             bray_symbols::CallableInstanceData,
@@ -337,10 +338,11 @@ pub trait CheckerRequestContext: Sync {
         obligation: GenericConstraintObligationKey,
     ) -> CheckerQueryResult<DiagnosticResult<ProofOutcome>, Self::UpstreamError>;
 
-    /// Selects the implementation satisfying one exact subject and trait application.
+    /// Selects an implementation using captured witnesses before the active context.
     fn implementation_selection(
         &self,
         _requirement: ImplementationRequirementKey,
+        _witnesses: &[bray_symbols::ImplementationInstanceId],
     ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>, Self::UpstreamError> {
         Ok(DiagnosticResult::without_diagnostics(
             ImplementationSelection::Unavailable,
@@ -353,7 +355,7 @@ pub trait CheckerRequestContext: Sync {
         requirement: ImplementationRequirementKey,
         _evidence: &[(TypeId, TraitApplicationId)],
     ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>, Self::UpstreamError> {
-        self.implementation_selection(requirement)
+        self.implementation_selection(requirement, &[])
     }
 
     /// Resolves one selected type-valued member projection when its witness is available.

@@ -165,7 +165,7 @@ where
                 (None, Some(requirement)) => {
                     let selection = self
                         .context
-                        .implementation_selection(requirement)
+                        .implementation_selection(requirement, &witnesses)
                         .map_err(|error| self.record_query_failure(error))?;
 
                     self.diagnostics
@@ -213,7 +213,7 @@ where
 
             let selected = self
                 .context
-                .witness_callable(abstract_callable, requirement)
+                .witness_callable(abstract_callable, requirement, &witnesses)
                 .map_err(|error| self.record_query_failure(error))?
                 .expect("admitted concrete call retains its selected implementation");
 
