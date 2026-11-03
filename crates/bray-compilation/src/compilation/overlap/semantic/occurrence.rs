@@ -135,7 +135,10 @@ impl SemanticUnifier<'_> {
             | ConstantTermData::NullablePresent(operand) => {
                 self.constant_contains_parameter(*operand, parameter, visited)
             }
-            ConstantTermData::RepeatedArray { value: left, count: right }
+            ConstantTermData::RepeatedArray {
+                value: left,
+                count: right,
+            }
             | ConstantTermData::Binary { left, right, .. } => {
                 if self.constant_contains_parameter(*left, parameter, visited) {
                     return true;
@@ -169,6 +172,18 @@ impl SemanticUnifier<'_> {
                 }
 
                 false
+            }
+            ConstantTermData::TraitConstant { requirement, .. } => {
+                let application = self
+                    .values
+                    .trait_application_data(requirement.trait_application());
+
+                self.type_contains_const_parameter(requirement.subject(), parameter, visited)
+                    || self.substitution_contains_const_parameter(
+                        application.substitution(),
+                        parameter,
+                        visited,
+                    )
             }
             ConstantTermData::DefinitionApplication { substitution, .. } => {
                 self.substitution_contains_const_parameter(*substitution, parameter, visited)
@@ -236,6 +251,103 @@ impl SemanticUnifier<'_> {
         }
     }
 
+    fn type_contains_const_parameter(
+        &self,
+        ty: TypeId,
+        parameter: GenericConstParameterSymbolId,
+        terms: &mut BTreeSet<ConstantTermId>,
+    ) -> bool {
+        let mut pending = vec![ty];
+        let mut visited = BTreeSet::new();
+
+        while let Some(ty) = pending.pop() {
+            if !visited.insert(ty) {
+                continue;
+            }
+
+            let ty = self.values.type_data(ty);
+
+            let substitution = match ty.as_ref() {
+                TypeData::Named { substitution, .. } => Some(*substitution),
+                TypeData::TypeValuedMemberProjection {
+                    subject,
+                    application,
+                    ..
+                } => {
+                    pending.push(*subject);
+
+                    Some(
+                        self.values
+                            .trait_application_data(*application)
+                            .substitution(),
+                    )
+                }
+                TypeData::TraitView(application) => Some(
+                    self.values
+                        .trait_application_data(*application)
+                        .substitution(),
+                ),
+                TypeData::Array { element, length } => {
+                    if self.constant_contains_parameter(*length, parameter, terms) {
+                        return true;
+                    }
+
+                    pending.push(*element);
+
+                    None
+                }
+                TypeData::Tuple(elements) => {
+                    pending.extend(elements.iter().copied());
+
+                    None
+                }
+                TypeData::FlexibleArray(element)
+                | TypeData::Slice(element)
+                | TypeData::Generator(element)
+                | TypeData::Nullable(element)
+                | TypeData::Borrow {
+                    target: element, ..
+                } => {
+                    pending.push(*element);
+
+                    None
+                }
+                TypeData::OwnedIndirection { storage, target } => {
+                    pending.extend([*storage, *target]);
+
+                    None
+                }
+                TypeData::Callable(callable) => {
+                    pending.extend(callable.parameters().iter().map(|parameter| parameter.ty()));
+                    pending.push(callable.result());
+
+                    None
+                }
+                TypeData::ExactInteger { .. }
+                | TypeData::Error
+                | TypeData::TypeParameter(_)
+                | TypeData::ContextualSelf(_) => None,
+            };
+
+            if let Some(substitution) = substitution {
+                let substitution = self.values.generic_substitution_data(substitution);
+
+                for binding in substitution.bindings() {
+                    match binding.argument() {
+                        GenericArgument::Type(ty) => pending.push(ty),
+                        GenericArgument::Constant(term) => {
+                            if self.constant_contains_parameter(term, parameter, terms) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
     fn substitution_contains_const_parameter(
         &self,
         substitution: GenericSubstitutionId,
@@ -245,9 +357,16 @@ impl SemanticUnifier<'_> {
         let substitution = self.values.generic_substitution_data(substitution);
 
         for binding in substitution.bindings() {
-            if let GenericArgument::Constant(term) = binding.argument()
-                && self.constant_contains_parameter(term, parameter, visited)
-            {
+            let contains = match binding.argument() {
+                GenericArgument::Constant(term) => {
+                    self.constant_contains_parameter(term, parameter, visited)
+                }
+                GenericArgument::Type(ty) => {
+                    self.type_contains_const_parameter(ty, parameter, visited)
+                }
+            };
+
+            if contains {
                 return true;
             }
         }

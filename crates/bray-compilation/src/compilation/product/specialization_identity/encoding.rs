@@ -322,6 +322,15 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                     self.constant_term(*field.value())?;
                 }
             }
+            ConstantTermData::TraitConstant {
+                requirement,
+                member,
+            } => {
+                self.tag(21);
+                self.ty(requirement.subject())?;
+                self.trait_application(requirement.trait_application())?;
+                self.symbol((*member).into())?;
+            }
             ConstantTermData::DefinitionApplication {
                 definition,
                 substitution,

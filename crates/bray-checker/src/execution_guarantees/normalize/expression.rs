@@ -54,6 +54,18 @@ pub(crate) fn expression_condition(
         return literal.clone();
     }
 
+    if let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
+        semantics.selections().expression(expression)
+        && let Some(term) = target.constant_reference()
+    {
+        let place = crate::ExecutionPlace::constant_reference(term);
+
+        return current
+            .get(&place)
+            .cloned()
+            .unwrap_or(ExecutionCondition::Input(place));
+    }
+
     if let Some(condition) = selected_condition(
         unit, semantics, values, literals, patterns, current, evaluated, expression, budget,
         predicates,
@@ -241,6 +253,19 @@ pub(crate) fn expression_place(
     let mut projections = Vec::new();
 
     for _ in 0..ExecutionCondition::WORK_LIMIT {
+        if let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
+            semantics.selections().expression(expression)
+            && let Some(term) = target.constant_reference()
+        {
+            let mut place = crate::ExecutionPlace::constant_reference(term);
+
+            for projection in projections.into_iter().rev() {
+                place = place.component(projection);
+            }
+
+            return Some(place);
+        }
+
         match unit.view().expression(expression)? {
             BoundExpression::Name(name) => {
                 let mut place = match semantics.selections().expression(expression) {

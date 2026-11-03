@@ -23,6 +23,8 @@ where
     pub(in crate::constant::template_evaluation) substitution: Option<GenericSubstitutionId>,
     pub(in crate::constant::template_evaluation) selected_implementation:
         Option<bray_symbols::ImplementationInstanceId>,
+    pub(in crate::constant::template_evaluation) contextual_self:
+        Option<(bray_symbols::SelfTypeContext, TypeId)>,
     pub(in crate::constant::template_evaluation) arguments: &'evaluation [ConstantValueId],
     pub(in crate::constant::template_evaluation) resolver:
         &'evaluation dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
@@ -56,6 +58,7 @@ where
             template,
             substitution,
             selected_implementation: None,
+            contextual_self: None,
             arguments: &[],
             resolver,
             limits,
@@ -89,6 +92,13 @@ where
                 .expect("checked evaluation retains a valid type substitution")
         });
 
+        let ty = self.contextual_self.map_or(ty, |(context, subject)| {
+            self.context
+                .semantic_values()
+                .substitute_contextual_self(ty, context, subject)
+                .expect("selected constant retains its Self binding")
+        });
+
         let normalized = self.types.normalize_type(ty);
 
         self.diagnostics.extend(self.types.take_diagnostics());
@@ -106,11 +116,18 @@ where
         &self,
         term: bray_symbols::ConstantTermId,
     ) -> bray_symbols::ConstantTermId {
-        self.substitution.map_or(term, |substitution| {
+        let term = self.substitution.map_or(term, |substitution| {
             self.context
                 .semantic_values()
                 .substitute_constant_term(term, substitution)
                 .expect("checked evaluation retains a valid constant substitution")
+        });
+
+        self.contextual_self.map_or(term, |(context, subject)| {
+            self.context
+                .semantic_values()
+                .substitute_contextual_self_in_constant_term(term, context, subject)
+                .expect("selected constant term retains its Self binding")
         })
     }
 

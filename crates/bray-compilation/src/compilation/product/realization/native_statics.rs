@@ -56,8 +56,8 @@ impl Compilation {
         let helpers_without_comdat =
             instance.key().target().machine().object_format() == bray_target::ObjectFormat::MachO;
 
-        let mut independent =
-            helpers_without_comdat && self.codegen_has_string_constants(instance, realization)?;
+        let mut independent = helpers_without_comdat
+            && self.codegen_has_string_constants(instance, realization, cancellation)?;
 
         let mut dependencies = BTreeSet::new();
 

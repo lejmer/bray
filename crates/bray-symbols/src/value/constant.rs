@@ -534,6 +534,13 @@ pub enum ConstantTermData {
         /// Ordered payload fields.
         fields: Arc<[ConstantField<UnionPayloadFieldSymbolId, ConstantTermId>]>,
     },
+    /// A trait constant whose implementation is selected after its subject is instantiated.
+    TraitConstant {
+        /// Exact subject and applied trait requirement.
+        requirement: crate::ImplementationRequirementKey,
+        /// Constant declared by the trait.
+        member: TraitConstantMemberSymbolId,
+    },
     /// An applied constant definition that can remain open.
     DefinitionApplication {
         /// Exact constant definition category.
@@ -561,6 +568,16 @@ pub enum ConstantTermData {
     },
     /// A checked projection from another term.
     Projection(ConstantProjection),
+}
+
+impl From<crate::ConstantInstanceKey> for ConstantTermData {
+    fn from(instance: crate::ConstantInstanceKey) -> Self {
+        Self::DefinitionApplication {
+            definition: instance.definition(),
+            substitution: instance.substitution(),
+            selected_implementation: instance.selected_implementation(),
+        }
+    }
 }
 
 impl ConstantTermData {

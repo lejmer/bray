@@ -343,7 +343,8 @@ impl Compilation {
             cancellation,
         )?;
 
-        let (constant_terms, terminators) = self.codegen_constant_terms(unit, reachability)?;
+        let (constant_terms, terminators) =
+            self.codegen_constant_terms(unit, reachability, cancellation)?;
 
         let constants = self.codegen_constants(
             unit,

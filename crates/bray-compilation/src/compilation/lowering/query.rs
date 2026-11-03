@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use bray_bound_tree::{
-    BoundExpression, BoundReferenceTarget, BoundUnit, BoundUnitKey, CheckedExpressionTypes,
-};
+use bray_bound_tree::{BoundReferenceTarget, BoundUnit, BoundUnitKey, CheckedExpressionTypes};
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::{MirOperand, MirTargetContract};
@@ -135,6 +133,7 @@ impl Compilation {
             .constant_reference_operands(
                 unit.result().value(),
                 expressions.result().value().types(),
+                expressions.result().value().selections(),
                 cancellation,
             )?;
 
@@ -373,6 +372,7 @@ impl Compilation {
         &self,
         unit: &BoundUnit,
         types: &CheckedExpressionTypes,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
         cancellation: &CancellationToken,
     ) -> Result<
         (
@@ -384,34 +384,54 @@ impl Compilation {
         let mut operands = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        for (expression, node) in unit.tree().expressions() {
-            let BoundExpression::Name(name) = node else {
-                continue;
-            };
+        let references = crate::compilation::constant::collect_constant_references(
+            unit,
+            selections,
+            |_, target, instance| {
+                if let Some(instance) = instance {
+                    return self.resolve_constant_term_reference(
+                        instance,
+                        None,
+                        Default::default(),
+                        cancellation,
+                        &mut diagnostics,
+                    );
+                }
 
-            let BoundReferenceTarget::Surface(symbol) = name.target() else {
-                continue;
-            };
-
-            if let AnySymbolId::GenericConstParameter(parameter) = symbol {
-                let Some(ty) = types.expression(expression).map(|result| result.ty()) else {
-                    continue;
+                let BoundReferenceTarget::Surface(symbol) = target else {
+                    return Ok(ConstantReferenceResolution::Invalid);
                 };
 
-                let term = self
-                    .semantic_value_store()?
-                    .intern_constant_term(ConstantTermData::Parameter(parameter))
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                if let AnySymbolId::GenericConstParameter(parameter) = symbol {
+                    let term = self
+                        .semantic_value_store()?
+                        .intern_constant_term(ConstantTermData::Parameter(parameter))
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
-                operands.push((expression, MirOperand::ConstantTerm { term, ty }));
-                continue;
-            }
+                    return Ok(ConstantReferenceResolution::Term(term));
+                }
 
-            let resolved = self.resolve_surface_constant(symbol, cancellation, &mut diagnostics);
+                if crate::compilation::constant::constant_definition_id(symbol).is_none() {
+                    return Ok(ConstantReferenceResolution::Invalid);
+                }
 
-            let Some((ty, resolution)) = resolved? else {
-                continue;
-            };
+                let term = self.constant_reference_term(symbol)?;
+
+                self.resolve_constant_term_reference(
+                    term,
+                    None,
+                    Default::default(),
+                    cancellation,
+                    &mut diagnostics,
+                )
+            },
+        )?;
+
+        for (expression, resolution) in references {
+            let ty = types
+                .expression(expression)
+                .expect("checked constant reference retains its result type")
+                .ty();
 
             let operand = match resolution {
                 ConstantReferenceResolution::Value(value) => MirOperand::Constant { value, ty },

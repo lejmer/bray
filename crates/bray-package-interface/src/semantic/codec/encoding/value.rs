@@ -329,6 +329,16 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             write_symbol_reference(encoder, variant);
             write_constant_fields(encoder, fields, |id| id.raw());
         }
+        InterfaceConstantTerm::TraitConstant {
+            subject,
+            application,
+            member,
+        } => {
+            encoder.write_u32(21);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(application.raw());
+            write_symbol_reference(encoder, member);
+        }
         InterfaceConstantTerm::DefinitionApplication {
             definition,
             substitution,

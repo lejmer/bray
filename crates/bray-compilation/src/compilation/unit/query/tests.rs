@@ -1,5 +1,6 @@
 mod array_generators;
 mod array_repetition;
+mod associated_constants;
 mod asynchronous;
 mod atomic_operations;
 mod box_storage;

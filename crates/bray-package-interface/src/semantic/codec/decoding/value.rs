@@ -471,6 +471,11 @@ pub(super) fn decode_constant_term(
             context,
             InterfaceConstantTermId::new,
         )?)),
+        21 => Ok(InterfaceConstantTerm::TraitConstant {
+            subject: InterfaceTypeId::new(read_u32(reader)?),
+            application: InterfaceTraitApplicationId::new(read_u32(reader)?),
+            member: read_symbol_reference(reader, context)?,
+        }),
         20 => Ok(InterfaceConstantTerm::RepeatedArray {
             value: InterfaceConstantTermId::new(read_u32(reader)?),
             count: InterfaceConstantTermId::new(read_u32(reader)?),

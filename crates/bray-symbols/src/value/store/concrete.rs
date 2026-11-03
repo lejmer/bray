@@ -67,7 +67,10 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                         pending.push(ConcreteWork::Type(*target));
                         pending.push(ConcreteWork::Term(*operand));
                     }
-                    ConstantTermData::RepeatedArray { value: left, count: right }
+                    ConstantTermData::RepeatedArray {
+                        value: left,
+                        count: right,
+                    }
                     | ConstantTermData::Binary { left, right, .. } => {
                         pending.push(ConcreteWork::Term(*left));
                         pending.push(ConcreteWork::Term(*right));
@@ -88,6 +91,13 @@ fn is_concrete(tables: &SemanticTables, store: SemanticValueStoreId, root: Concr
                                 .iter()
                                 .map(|field| ConcreteWork::Term(*field.value())),
                         );
+                    }
+                    ConstantTermData::TraitConstant { requirement, .. } => {
+                        pending.push(ConcreteWork::Type(requirement.subject()));
+
+                        pending.push(ConcreteWork::TraitApplication(
+                            requirement.trait_application(),
+                        ));
                     }
                     ConstantTermData::DefinitionApplication {
                         substitution,

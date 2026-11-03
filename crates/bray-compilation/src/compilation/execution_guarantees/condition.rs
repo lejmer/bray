@@ -95,29 +95,64 @@ impl Compilation {
         std::collections::BTreeMap<bray_checker::ExecutionPlace, ExecutionCondition>,
         FactQueryError,
     > {
+        let values = self.semantic_value_store()?;
         let mut constants = std::collections::BTreeMap::new();
         let mut visited = std::collections::BTreeSet::new();
 
         for (expression, node) in bound.tree().expressions() {
+            if let Some(bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Member(member),
+            )) = semantics.selections().expression(expression)
+                && let Some(term) = member.constant_reference()
+            {
+                let resolution = self.resolve_constant_term_reference(
+                    term,
+                    None,
+                    bray_checker::ConstantEvaluationLimits::default(),
+                    cancellation,
+                    diagnostics,
+                )?;
+
+                let value = match resolution {
+                    bray_checker::ConstantReferenceResolution::Value(value) => Some(value),
+                    bray_checker::ConstantReferenceResolution::Evaluated(value) => {
+                        Some(value.value())
+                    }
+                    _ => None,
+                };
+
+                let place = bray_checker::ExecutionPlace::constant_reference(term);
+
+                let condition = value
+                    .map(|value| ExecutionCondition::from_constant(values, value))
+                    .unwrap_or_else(|| ExecutionCondition::Input(place.clone()));
+
+                constants.insert(place, condition);
+                continue;
+            }
+
             let symbol = match node {
                 bray_bound_tree::BoundExpression::Name(name) => match name.target() {
                     bray_bound_tree::BoundReferenceTarget::Surface(symbol) => symbol,
                     _ => continue,
                 },
-                bray_bound_tree::BoundExpression::MemberAccess(_) => {
-                    let Some(bray_bound_tree::SemanticSelection::Operation(
-                        bray_bound_tree::SelectedOperation::Member(member),
-                    )) = semantics.selections().expression(expression)
-                    else {
-                        continue;
-                    };
-
-                    member.member()
-                }
                 _ => continue,
             };
 
             if !visited.insert(symbol) {
+                continue;
+            }
+
+            if matches!(symbol, bray_symbols::AnySymbolId::TraitConstantMember(_)) {
+                let term = self.constant_reference_term(symbol)?;
+
+                constants.insert(
+                    bray_bound_tree::BoundReferenceTarget::Surface(symbol).into(),
+                    ExecutionCondition::Input(bray_checker::ExecutionPlace::constant_reference(
+                        term,
+                    )),
+                );
+
                 continue;
             }
 

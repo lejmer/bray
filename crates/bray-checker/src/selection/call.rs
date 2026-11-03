@@ -66,7 +66,12 @@ where
         .any(|pair| pair[0].key() >= pair[1].key())
     {
         panic!(
-            "Semantic-selection inputs do not describe the requested bound unit or operation category. in select_candidates"
+            "Semantic-selection inputs do not describe the requested bound unit or operation category. in select_candidates: expression {:?}, candidate keys {:?}",
+            input.expression(),
+            candidates
+                .iter()
+                .map(CallableCandidate::key)
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1105,12 +1110,15 @@ fn member_selection_is_overload(
         return false;
     };
 
-    assert_eq!(
-        input.receiver().map(super::ReceiverSelection::expression),
-        member.is_callable_declaration().then_some(receiver),
-        "member call {:?} must preserve its declaration receiver or stored callable value",
-        input.expression()
-    );
+    // A type qualifier supplies no runtime receiver. Applicability checks whether one is required.
+    if let Some(actual) = input.receiver() {
+        assert_eq!(
+            Some(actual.expression()),
+            member.is_callable_declaration().then_some(receiver),
+            "member call {:?} must preserve its declaration receiver or stored callable value",
+            input.expression()
+        );
+    }
 
     member.member().kind() == bray_symbols::SymbolKind::CallableOverload
 }

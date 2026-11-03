@@ -399,6 +399,17 @@ pub fn substitute_execution_condition(
         condition,
         &|nested| values.substitute_generic_substitution(nested, substitution),
         &|place| {
+            if let Some(term) = place.constant_term() {
+                let term = values.substitute_constant_term(term, substitution)?;
+                let mut value = crate::execution_condition_from_type_term(values, term, 0)?;
+
+                for projection in &*place.projections {
+                    value = value.component(*projection);
+                }
+
+                return Ok(value);
+            }
+
             let Some(bray_bound_tree::BoundReferenceTarget::Surface(
                 bray_symbols::AnySymbolId::GenericConstParameter(parameter),
             )) = place.reference()

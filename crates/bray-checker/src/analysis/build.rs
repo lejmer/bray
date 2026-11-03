@@ -439,7 +439,15 @@ where
         expression: &BoundExpression,
         mut current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
-        current = self.build_expressions(expression.child_expressions(), current)?;
+        let view = self.view;
+        let selections = self.selections();
+
+        current = self.build_expressions(
+            expression.child_expressions().filter(|operand| {
+                !(selections.is_some() && view.is_compile_time_qualifier(*operand, selections))
+            }),
+            current,
+        )?;
 
         for pattern in expression.child_patterns() {
             current = self
@@ -1266,13 +1274,20 @@ mod tests {
 
         let graph = graph(&tree, &key, root);
 
-        let operations = graph.operations().iter().filter_map(|operation| match operation.kind() {
-            AnalysisOperationKind::Call {
-                invocation: bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(expression)),
-                phase: super::AnalysisCallPhase::Completion,
-            } if [start, join, cancel].contains(&expression) => Some(expression),
-            _ => None,
-        }).collect::<Vec<_>>();
+        let operations = graph
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                AnalysisOperationKind::Call {
+                    invocation:
+                        bray_bound_tree::BoundExecutionSite::Node(AnyBoundNodeId::Expression(
+                            expression,
+                        )),
+                    phase: super::AnalysisCallPhase::Completion,
+                } if [start, join, cancel].contains(&expression) => Some(expression),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(operations, [start, join, cancel]);
     }

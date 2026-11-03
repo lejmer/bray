@@ -502,10 +502,6 @@ where
                 _ => return Err(EvaluationFailure::invalid_expression(expression)),
             };
 
-            if matches!(selected_member, AnySymbolId::Constant(_)) {
-                return self.evaluate_reference(expression, None, ty);
-            }
-
             match selected_member {
                 AnySymbolId::StructField(field) => ConstantProjectionKind::ProductField(field),
                 AnySymbolId::UnionPayloadField(field) => {

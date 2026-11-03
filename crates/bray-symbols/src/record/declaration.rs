@@ -271,7 +271,7 @@ impl DeclarationSymbolIdentity {
         }
     }
 
-    const fn inferred_name(&self) -> Option<&SymbolName> {
+    pub(crate) const fn inferred_name(&self) -> Option<&SymbolName> {
         match self {
             Self::InferredImplementationParameter { name, .. } => Some(name),
             Self::CompilerKnown { parameter_name, .. } => parameter_name.as_ref(),

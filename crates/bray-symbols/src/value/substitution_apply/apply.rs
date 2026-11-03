@@ -299,7 +299,7 @@ impl SemanticValueStore {
         self.intern_generic_substitution(substituted)
     }
 
-    pub(super) fn substitute_constant_term_data(
+    pub(in crate::value) fn substitute_constant_term_data(
         &self,
         term: ConstantTermId,
         substitution: &Substitution<'_>,
@@ -388,6 +388,19 @@ impl SemanticValueStore {
                     })
                     .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
             ),
+            ConstantTermData::TraitConstant {
+                requirement,
+                member,
+            } => ConstantTermData::TraitConstant {
+                requirement: crate::ImplementationRequirementKey::new(
+                    self.substitute_type_data(requirement.subject(), substitution)?,
+                    self.substitute_trait_application_data(
+                        requirement.trait_application(),
+                        substitution,
+                    )?,
+                ),
+                member: *member,
+            },
             ConstantTermData::DefinitionApplication {
                 definition,
                 substitution: nested,

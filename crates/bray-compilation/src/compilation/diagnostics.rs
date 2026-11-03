@@ -28,7 +28,6 @@ use bray_symbols::{
     diagnostic_external_symbol_identity, diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 
-use super::binder::has_visible_generic_parameters;
 use super::constant::constant_definition_id;
 use super::state::Compilation;
 use super::{SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
@@ -631,7 +630,7 @@ impl Compilation {
 
             sources.push(template.diagnostics().clone());
 
-            if !has_visible_generic_parameters(symbols, owner) {
+            if self.constant_can_evaluate_without_context(definition)? {
                 let substitution = crate::compilation::substitution::empty_substitution(
                     self.semantic_value_store()?,
                     definition.into_any(),
@@ -1082,7 +1081,10 @@ func main() {}
 
         let diagnostics = compilation.check_diagnostics();
 
-        assert_eq!(diagnostic_kinds(diagnostics), [DiagnosticKind::BindingUnresolvedName]);
+        assert_eq!(
+            diagnostic_kinds(diagnostics),
+            [DiagnosticKind::BindingUnresolvedName]
+        );
     }
 
     #[test]

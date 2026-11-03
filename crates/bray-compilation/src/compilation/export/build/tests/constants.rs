@@ -404,7 +404,8 @@ fn construction_inputs_preserve_nullable_constant_values_across_imports() {
 
 #[test]
 fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
-    let provider = compilation(r#"
+    let provider = compilation(
+        r#"
         module api;
 
         const COUNT: usize = 3;
@@ -425,13 +426,19 @@ fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
         {
             const VALUES: [i32; N] = [7; N];
         }
-    "#);
+    "#,
+    );
 
-    assert!(provider.check_diagnostics().is_empty(), "{:#?}", provider.check_diagnostics());
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
 
     let dependency = super::fixtures::implementation_dependency(export(&provider));
 
-    let consumer = crate::test_support::compilation_with_dependencies(r#"
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
         module app;
 
         using example.package.api;
@@ -452,19 +459,302 @@ fn repeated_array_constant_templates_round_trip_and_instantiate_in_consumers() {
 
             assert(buffer.values[2] == 5);
         }
-    "#, [dependency]);
+    "#,
+        [dependency],
+    );
 
-    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 
     for (name, expected) in [("FIRST", 9), ("STATIC_LAST", 7)] {
         let value = super::fixtures::source_constant_value(&consumer, name);
 
-        assert!(matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
-            if value == &bray_symbols::IntegerConstant::from_u64(expected)));
+        assert!(
+            matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+            if value == &bray_symbols::IntegerConstant::from_u64(expected))
+        );
     }
 
-    let lowered = consumer.lowered_unit(crate::test_support::source_function_body_key(&consumer, "main"))
+    let lowered = consumer
+        .lowered_unit(crate::test_support::source_function_body_key(
+            &consumer, "main",
+        ))
         .expect("imported repeated-array defaults lower");
 
-    assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+}
+
+#[test]
+fn associated_constants_round_trip_with_arguments_and_trait_requirements() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        struct Buffer<const N: usize>
+        {
+            const VALUE: usize = N;
+            const VALUES: [i32; N] = [7; N];
+
+            static const func read() -> usize
+            {
+                return N;
+            }
+        }
+
+        impl Buffer<M>
+        {
+            const EXTRA: usize = M + 1;
+            type Target = Buffer<M>;
+            type Subject = Large;
+        }
+
+        const func indirect<const N: usize>() -> usize
+        {
+            return Buffer<N>.Target.read();
+        }
+
+        struct Wrapper<T>
+        {
+            const VALUE: usize = 3;
+        }
+
+        trait Capacity
+        {
+            const VALUE: usize;
+            const DOUBLE: usize = VALUE + VALUE;
+            const WRAPPED: usize = Wrapper<Self>.VALUE;
+            const BORROWED: usize = Wrapper<(&Self)>.VALUE;
+            const VALUES: [i32; VALUE] = [8; VALUE];
+        }
+
+        struct Small
+        {
+        }
+
+        struct Large
+        {
+        }
+
+        impl SmallCapacity = Small(Capacity)
+        {
+            const VALUE: usize = 2;
+        }
+
+        impl LargeCapacity = Large(Capacity)
+        {
+            const VALUE: usize = 5;
+        }
+
+        trait Project
+        {
+            type Target;
+        }
+
+        impl BufferProject = Buffer<M>(Project)
+        {
+            type Target = Small;
+        }
+
+        func projected<T>() -> usize with(T: Project, T(Project).Target: Capacity)
+        {
+            return T(Project).Target(Capacity).VALUE;
+        }
+
+        trait Scale<const K: usize>
+        {
+            const VALUE: usize = K;
+        }
+
+        impl BufferScale = Buffer<M>(Scale<M>)
+        {
+        }
+
+        const func scaled<T, const K: usize>() -> usize with(T: Scale<K>)
+        {
+            return T(Scale<K>).VALUE;
+        }
+
+        const func capacity<T>() -> usize with(T: Capacity)
+        {
+            return T(Capacity).VALUE;
+        }
+
+        const func fill<const N: usize>() -> [i32; N]
+        {
+            return Buffer<N>.VALUES;
+        }
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let dependency = super::fixtures::implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+        using example.package.api.SmallCapacity;
+        using example.package.api.LargeCapacity;
+        using example.package.api.BufferScale;
+        using example.package.api.BufferProject;
+
+        const ALIAS: usize = example.package.api.Buffer<3>.Target.VALUE;
+        const ALIAS_CALL: usize = example.package.api.Buffer<3>.Target.read();
+        const ALIAS_TRAIT: usize = example.package.api.Buffer<3>.Subject(example.package.api.Capacity).VALUE;
+        const ALIAS_GENERIC: usize = example.package.api.indirect<5>();
+        const FIRST: usize = example.package.api.Buffer<3>.VALUE;
+        const SECOND: usize = example.package.api.Buffer<5>.VALUE;
+        const EXTRA: usize = example.package.api.Buffer<5>.EXTRA;
+        const ELEMENT: i32 = example.package.api.Buffer<3>.VALUES[2];
+        const GENERATED: [i32; 5] = example.package.api.fill<5>();
+        const LAST: i32 = GENERATED[4];
+        const SMALL: usize = example.package.api.capacity<example.package.api.Small>();
+        const LARGE: usize = example.package.api.capacity<example.package.api.Large>();
+        const DEFAULT_ELEMENT: i32 = example.package.api.Small(example.package.api.Capacity).VALUES[1];
+        const SCALED_FIRST: usize = example.package.api.scaled<example.package.api.Buffer<3>, 3>();
+        const SCALED_SECOND: usize = example.package.api.scaled<example.package.api.Buffer<5>, 5>();
+        const SELF_WRAPPED: usize = example.package.api.Small(example.package.api.Capacity).WRAPPED;
+        const SELF_BORROWED: usize = example.package.api.Small(example.package.api.Capacity).BORROWED;
+        const DOUBLED: usize = example.package.api.Large(example.package.api.Capacity).DOUBLE;
+
+        func main()
+        {
+            let values: [i32; example.package.api.Buffer<3>.VALUE] = [7; example.package.api.Buffer<3>.VALUE];
+            let copied: [i32; 3] = example.package.api.Buffer<3>.VALUES;
+            let deferred: usize = example.package.api.projected<example.package.api.Buffer<3>>();
+
+            assert(values[2] == copied[2]);
+        }
+    "#,
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    for (name, expected) in [
+        ("ALIAS", 3),
+        ("ALIAS_CALL", 3),
+        ("ALIAS_TRAIT", 5),
+        ("ALIAS_GENERIC", 5),
+        ("FIRST", 3),
+        ("SECOND", 5),
+        ("EXTRA", 6),
+        ("ELEMENT", 7),
+        ("LAST", 7),
+        ("SMALL", 2),
+        ("LARGE", 5),
+        ("SCALED_FIRST", 3),
+        ("SCALED_SECOND", 5),
+        ("DOUBLED", 10),
+        ("SELF_WRAPPED", 3),
+        ("SELF_BORROWED", 3),
+        ("DEFAULT_ELEMENT", 8),
+    ] {
+        let value = super::fixtures::source_constant_value(&consumer, name);
+
+        assert!(
+            matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value)
+            if value == &bray_symbols::IntegerConstant::from_u64(expected)),
+            "{name}: {value:?}"
+        );
+    }
+
+    let lowered = consumer
+        .lowered_unit(crate::test_support::source_function_body_key(
+            &consumer, "main",
+        ))
+        .expect("imported associated constant references lower");
+
+    assert!(
+        lowered.diagnostics().is_empty(),
+        "{:#?}",
+        lowered.diagnostics()
+    );
+}
+
+#[test]
+fn associated_constants_keep_provider_witnesses_for_imported_default_extents() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        trait Capacity
+        {
+            const VALUE: usize;
+            const VALUES: [i32; VALUE] = [8; VALUE];
+        }
+
+        struct Small
+        {
+        }
+
+        impl ProviderCapacity = Small(Capacity)
+        {
+            const VALUE: usize = 2;
+        }
+
+        const func values() -> [i32; 2]
+        {
+            return Small(Capacity).VALUES;
+        }
+        "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let dependency = super::fixtures::implementation_dependency(export(&provider));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.api;
+
+        impl ConsumerCapacity = example.package.api.Small(example.package.api.Capacity)
+        {
+            const VALUE: usize = 5;
+        }
+
+        const GENERATED: [i32; 2] = example.package.api.values();
+        const ELEMENT: i32 = GENERATED[1];
+        const CAPACITY: usize = example.package.api.Small(example.package.api.Capacity).VALUE;
+        "#,
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    for (name, expected) in [("ELEMENT", 8), ("CAPACITY", 5)] {
+        let value = super::fixtures::source_constant_value(&consumer, name);
+
+        assert!(
+            matches!(value.kind(), bray_symbols::ConstantValueKind::Integer(value) if value.to_u64() == Some(expected)),
+            "{name}"
+        );
+    }
 }

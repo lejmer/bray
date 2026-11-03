@@ -5,7 +5,8 @@ use bray_bound_tree::{
 };
 use bray_symbols::{AnySymbolId, MemberLookupResult, NameAccess};
 use bray_syntax::{
-    LeadingDotVariantExpressionSyntax, MemberAccessOperationSyntax, SourceSyntaxNode,
+    CallOperationSyntax, LeadingDotVariantExpressionSyntax, MemberAccessOperationSyntax,
+    SourceSyntaxNode,
 };
 
 use super::super::name::symbol_name;
@@ -55,7 +56,10 @@ impl ExpressionBinder {
         };
 
         if let BoundExpression::Call(call) = &call
-            && call.generic_arguments().is_empty()
+            && (call.generic_arguments().is_empty()
+                || binder
+                    .unit_view()
+                    .is_compile_time_qualifier(call.callee(), None))
             && let [argument] = call.arguments()
             && argument.name().is_none()
             && let Some(BoundExpression::Name(name)) =
@@ -65,6 +69,21 @@ impl ExpressionBinder {
                 BoundReferenceTarget::Surface(AnySymbolId::Trait(_))
             )
         {
+            let mut receiver = call.callee();
+
+            if !call.generic_arguments().is_empty() {
+                let syntax = call
+                    .origin()
+                    .source_anchor()
+                    .syntax()
+                    .find_descendant::<CallOperationSyntax>(binder.binding_context().syntax())
+                    .expect("trait qualifier retains its call syntax");
+
+                for arguments in syntax.generic_argument_lists() {
+                    receiver = self.bind_generic_application(binder, &arguments, receiver)?;
+                }
+            }
+
             let access = if binder.unit_view().name_access(argument.expression())
                 == Some(NameAccess::Internal)
             {
@@ -75,7 +94,7 @@ impl ExpressionBinder {
 
             let expression = BoundTraitQualifiedMemberExpression::new(
                 binder.source_origin(syntax),
-                call.callee(),
+                receiver,
                 argument.expression(),
                 member_selector(syntax),
                 None,

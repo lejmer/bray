@@ -261,7 +261,7 @@ impl Compilation {
         let references = collect_constant_references(
             bound.result().value(),
             semantics.result().value().selections(),
-            |expression, target| {
+            |expression, target, _| {
                 let (resolution, dependency) = self.target_gate_reference(target)?;
 
                 if let Some(dependency) = dependency {
@@ -287,7 +287,8 @@ impl Compilation {
         )?;
 
         let diagnostics = DiagnosticBag::merged_all([
-            semantics.result().diagnostics(), patterns.result().diagnostics(),
+            semantics.result().diagnostics(),
+            patterns.result().diagnostics(),
             evaluated.diagnostics(),
         ]);
 

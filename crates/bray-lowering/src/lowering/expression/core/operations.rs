@@ -96,165 +96,174 @@ impl Lowerer<'_> {
             ));
         }
 
-        let lowered = match expression {
-            BoundExpression::Block(expression) => {
-                self.lower_block_expression(id, expression, current)
-            }
-            BoundExpression::Literal(expression) => {
-                let source = self.source(expression.origin());
+        let constant = match expression {
+            BoundExpression::Name(_)
+            | BoundExpression::MemberAccess(_)
+            | BoundExpression::TraitQualifiedMember(_) => self.input.constant_reference_operand(id),
+            _ => None,
+        };
 
-                let value = self
-                    .input
-                    .literal_values()
-                    .expression(id)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "lowering contract violation: MissingLiteralValue {value:?}",
-                            value = id
-                        )
-                    });
-
-                let ty = self.expression_type(id);
-
-                Ok(LoweredExpression::continuing(
-                    current,
-                    Some(MirOperand::Constant { value, ty }),
-                    source,
-                ))
-            }
-            BoundExpression::Name(name) => {
-                if let Some(operand) = self.input.constant_reference_operand(id) {
+        let lowered = if let Some(operand) = constant {
+            Ok(LoweredExpression::continuing(
+                current,
+                Some(operand.clone()),
+                self.source(expression.origin()),
+            ))
+        } else {
+            match expression {
+                BoundExpression::Block(expression) => {
+                    self.lower_block_expression(id, expression, current)
+                }
+                BoundExpression::Literal(expression) => {
                     let source = self.source(expression.origin());
+
+                    let value = self
+                        .input
+                        .literal_values()
+                        .expression(id)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "lowering contract violation: MissingLiteralValue {value:?}",
+                                value = id
+                            )
+                        });
+
+                    let ty = self.expression_type(id);
 
                     Ok(LoweredExpression::continuing(
                         current,
-                        Some(operand.clone()),
+                        Some(MirOperand::Constant { value, ty }),
                         source,
                     ))
-                } else if let Some(callable) = self.declared_callable_reference(id, *name)? {
+                }
+                BoundExpression::Name(name) => {
+                    if let Some(callable) = self.declared_callable_reference(id, *name)? {
+                        let source = self.source(expression.origin());
+
+                        let value = self.push_value_operation(
+                            id,
+                            current,
+                            Self::retained_source(&source),
+                            MirOperationKind::DeclaredCallable(callable),
+                        )?;
+
+                        Ok(LoweredExpression::continuing(current, Some(value), source))
+                    } else {
+                        self.lower_storage_operand(id, current)
+                    }
+                }
+                BoundExpression::PatternReference(_) => self.lower_storage_operand(id, current),
+                BoundExpression::Unary(expression) => {
+                    self.lower_unary(id, expression.operator(), expression.operands(), current)
+                }
+                BoundExpression::Binary(expression) => {
+                    if let Some(components) =
+                        self.input.unit().view().complex_literal_components(id)
+                    {
+                        self.lower_complex_literal(id, expression.operator(), components, current)
+                    } else {
+                        self.lower_binary(id, expression.operator(), expression.operands(), current)
+                    }
+                }
+                BoundExpression::Assignment(expression) => {
+                    self.lower_assignment(id, expression.operator(), expression.operands(), current)
+                }
+                BoundExpression::Call(_) => {
+                    if matches!(
+                        self.input.semantic_selections().expression(id),
+                        Some(SemanticSelection::Operation(
+                            SelectedOperation::Construction(_)
+                        ))
+                    ) {
+                        self.lower_construction(id, current)
+                    } else {
+                        self.lower_call(id, current)
+                    }
+                }
+                BoundExpression::Conversion(expression) => {
+                    let lowered = self.lower_expression(expression.operand(), current)?;
+
+                    let Some(current) = lowered.block else {
+                        return Ok(lowered);
+                    };
+
+                    let Some(operand) = lowered.value else {
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = expression.operand()
+                        );
+                    };
+
+                    // Retain the checked selection before recursively mutating lowering state.
+                    let selection = self.selected_operation(id).clone();
+
+                    let SelectedOperation::Conversion(conversion) = selection else {
+                        panic!(
+                            "lowering contract violation: MissingSemanticSelection {value:?}",
+                            value = id
+                        );
+                    };
+
+                    let source = self.source(expression.origin());
+
+                    let (current, operand) = self.convert_operand(
+                        id,
+                        current,
+                        Self::retained_source(&source),
+                        operand,
+                        &conversion,
+                    )?;
+
+                    Ok(LoweredExpression::continuing(
+                        current,
+                        Some(operand),
+                        source,
+                    ))
+                }
+                BoundExpression::Structured(expression) => {
+                    self.lower_structured(id, expression, current)
+                }
+                BoundExpression::ControlTransfer(expression) => {
+                    self.lower_control_transfer(id, expression, current)
+                }
+                BoundExpression::StructConstruction(_)
+                | BoundExpression::BoxConstruction(_)
+                | BoundExpression::LeadingDotVariant(_)
+                | BoundExpression::UnqualifiedVariant(_) => self.lower_construction(id, current),
+                BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
+                    self.lower_member_access(id, current)
+                }
+                BoundExpression::For(expression) => self.lower_for(id, expression, current),
+                BoundExpression::Match(expression) => self.lower_match(id, expression, current),
+                BoundExpression::Generator(expression) => {
+                    self.lower_generator_iteration(id, expression, current)
+                }
+                BoundExpression::AnonymousCallable(expression) => {
                     let source = self.source(expression.origin());
 
                     let value = self.push_value_operation(
                         id,
                         current,
                         Self::retained_source(&source),
-                        MirOperationKind::DeclaredCallable(callable),
+                        MirOperationKind::AnonymousCallable(
+                            bray_ir::MirAnonymousCallableReference::bound(
+                                // MIR owns the same immutable nested-unit identity independently of HIR.
+                                expression.unit().clone(),
+                            ),
+                        ),
                     )?;
 
                     Ok(LoweredExpression::continuing(current, Some(value), source))
-                } else {
-                    self.lower_storage_operand(id, current)
                 }
+                BoundExpression::Await(expression) => self.lower_await(id, *expression, current),
+                BoundExpression::UnresolvedReference(_)
+                | BoundExpression::ErrorCall(_)
+                | BoundExpression::ErrorConversion(_)
+                | BoundExpression::Error(_) => panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                ),
             }
-            BoundExpression::PatternReference(_) => self.lower_storage_operand(id, current),
-            BoundExpression::Unary(expression) => {
-                self.lower_unary(id, expression.operator(), expression.operands(), current)
-            }
-            BoundExpression::Binary(expression) => {
-                if let Some(components) = self.input.unit().view().complex_literal_components(id) {
-                    self.lower_complex_literal(id, expression.operator(), components, current)
-                } else {
-                    self.lower_binary(id, expression.operator(), expression.operands(), current)
-                }
-            }
-            BoundExpression::Assignment(expression) => {
-                self.lower_assignment(id, expression.operator(), expression.operands(), current)
-            }
-            BoundExpression::Call(_) => {
-                if matches!(
-                    self.input.semantic_selections().expression(id),
-                    Some(SemanticSelection::Operation(
-                        SelectedOperation::Construction(_)
-                    ))
-                ) {
-                    self.lower_construction(id, current)
-                } else {
-                    self.lower_call(id, current)
-                }
-            }
-            BoundExpression::Conversion(expression) => {
-                let lowered = self.lower_expression(expression.operand(), current)?;
-
-                let Some(current) = lowered.block else {
-                    return Ok(lowered);
-                };
-
-                let Some(operand) = lowered.value else {
-                    panic!(
-                        "lowering contract violation: MissingOperationResult {value:?}",
-                        value = expression.operand()
-                    );
-                };
-
-                // Retain the checked selection before recursively mutating lowering state.
-                let selection = self.selected_operation(id).clone();
-
-                let SelectedOperation::Conversion(conversion) = selection else {
-                    panic!(
-                        "lowering contract violation: MissingSemanticSelection {value:?}",
-                        value = id
-                    );
-                };
-
-                let source = self.source(expression.origin());
-
-                let (current, operand) = self.convert_operand(
-                    id,
-                    current,
-                    Self::retained_source(&source),
-                    operand,
-                    &conversion,
-                )?;
-
-                Ok(LoweredExpression::continuing(
-                    current,
-                    Some(operand),
-                    source,
-                ))
-            }
-            BoundExpression::Structured(expression) => {
-                self.lower_structured(id, expression, current)
-            }
-            BoundExpression::ControlTransfer(expression) => {
-                self.lower_control_transfer(id, expression, current)
-            }
-            BoundExpression::StructConstruction(_)
-            | BoundExpression::BoxConstruction(_)
-            | BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_) => self.lower_construction(id, current),
-            BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {
-                self.lower_member_access(id, current)
-            }
-            BoundExpression::For(expression) => self.lower_for(id, expression, current),
-            BoundExpression::Match(expression) => self.lower_match(id, expression, current),
-            BoundExpression::Generator(expression) => {
-                self.lower_generator_iteration(id, expression, current)
-            }
-            BoundExpression::AnonymousCallable(expression) => {
-                let source = self.source(expression.origin());
-
-                let value = self.push_value_operation(
-                    id,
-                    current,
-                    Self::retained_source(&source),
-                    MirOperationKind::AnonymousCallable(
-                        bray_ir::MirAnonymousCallableReference::bound(
-                            // MIR owns the same immutable nested-unit identity independently of HIR.
-                            expression.unit().clone(),
-                        ),
-                    ),
-                )?;
-
-                Ok(LoweredExpression::continuing(current, Some(value), source))
-            }
-            BoundExpression::Await(expression) => self.lower_await(id, *expression, current),
-            BoundExpression::UnresolvedReference(_)
-            | BoundExpression::ErrorCall(_)
-            | BoundExpression::ErrorConversion(_)
-            | BoundExpression::Error(_) => panic!(
-                "lowering contract violation: UnsupportedExpression {value:?}",
-                value = id
-            ),
         }?;
 
         if let Some(current) = lowered.block
@@ -1560,17 +1569,21 @@ impl Lowerer<'_> {
             .expression()
             .expect("checked value operation has its source owner");
 
-        let preserved = operation.input_preserved_on_rejection().and_then(|operand| match operand {
-            MirOperand::Move(place) => Some(Self::retained_place(place)),
-            _ => None,
-        });
+        let preserved =
+            operation
+                .input_preserved_on_rejection()
+                .and_then(|operand| match operand {
+                    MirOperand::Move(place) => Some(Self::retained_place(place)),
+                    _ => None,
+                });
 
         let admission = operation.input_preserved_on_rejection().is_some();
 
-        let may_propagate_panic = admission || matches!(
-            &operation,
-            MirOperationKind::Call(call) if call.may_propagate_panic()
-        );
+        let may_propagate_panic = admission
+            || matches!(
+                &operation,
+                MirOperationKind::Call(call) if call.may_propagate_panic()
+            );
 
         let value = self.push_typed_value_operation(
             expression,

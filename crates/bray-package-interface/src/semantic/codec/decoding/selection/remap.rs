@@ -537,7 +537,10 @@ fn remap_constant_term(
         InterfaceConstantTerm::Unary { operand, .. } => {
             *operand = maps.constant_term_id(*operand)?;
         }
-        InterfaceConstantTerm::RepeatedArray { value: left, count: right }
+        InterfaceConstantTerm::RepeatedArray {
+            value: left,
+            count: right,
+        }
         | InterfaceConstantTerm::Binary { left, right, .. } => {
             *left = maps.constant_term_id(*left)?;
             *right = maps.constant_term_id(*right)?;
@@ -558,6 +561,14 @@ fn remap_constant_term(
         }
         InterfaceConstantTerm::Union { fields, .. } => {
             remap_constant_term_fields(Arc::make_mut(fields), maps)?;
+        }
+        InterfaceConstantTerm::TraitConstant {
+            subject,
+            application,
+            ..
+        } => {
+            *subject = maps.type_id(*subject)?;
+            *application = maps.trait_application_id(*application)?;
         }
         InterfaceConstantTerm::DefinitionApplication {
             substitution,

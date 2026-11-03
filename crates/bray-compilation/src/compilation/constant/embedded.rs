@@ -199,17 +199,27 @@ impl Compilation {
         templates: impl IntoIterator<Item = &'template TypeExpressionTemplate>,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<CheckedConstantTerms>, FactQueryError> {
+        self.checked_constant_terms_for_occurrences(
+            templates
+                .into_iter()
+                .flat_map(TypeExpressionTemplate::constant_expressions),
+            cancellation,
+        )
+    }
+
+    pub(in crate::compilation) fn checked_constant_terms_for_occurrences(
+        &self,
+        occurrences: impl IntoIterator<Item = ConstantExpressionOccurrence>,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<CheckedConstantTerms>, FactQueryError> {
         let mut terms = BTreeMap::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        for template in templates {
-            for occurrence in template.constant_expressions() {
-                let result =
-                    self.embedded_constant_term_with_cancellation(occurrence, cancellation)?;
+        for occurrence in occurrences {
+            let result = self.embedded_constant_term_with_cancellation(occurrence, cancellation)?;
 
-                diagnostics.extend(result.diagnostics().iter().cloned());
-                terms.insert(occurrence.key(), *result.value());
-            }
+            diagnostics.extend(result.diagnostics().iter().cloned());
+            terms.insert(occurrence.key(), *result.value());
         }
 
         let checked = CheckedConstantTerms::try_from_terms(terms).unwrap_or_else(|cause| {

@@ -115,6 +115,35 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let resolved = self.bind_type_path(path)?;
 
+        self.bind_resolved_type_reference(resolved, path, arguments)
+    }
+
+    /// Binds an already resolved type qualifier and checks its explicit generic arguments.
+    pub fn bind_type_reference(
+        mut self,
+        symbol: bray_symbols::AnySymbolId,
+        syntax: &impl SourceSyntaxNode,
+        arguments: Option<&GenericArgumentListSyntax>,
+    ) -> BindingQueryResult<bray_diagnostics::DiagnosticResult<TypeExpressionTemplate>, Upstream>
+    {
+        let resolved = crate::lookup::classify_type(crate::lookup::ResolvedName::Surface(symbol))
+            .map(MemberLookupResult::Found)
+            .unwrap_or(MemberLookupResult::NotFound);
+
+        let ty = self.bind_resolved_type_reference(resolved, syntax, arguments)?;
+
+        Ok(bray_diagnostics::DiagnosticResult::new(
+            ty,
+            self.diagnostics,
+        ))
+    }
+
+    fn bind_resolved_type_reference(
+        &mut self,
+        resolved: MemberLookupResult<crate::lookup::ResolvedTypeName, crate::lookup::ResolvedName>,
+        syntax: &impl SourceSyntaxNode,
+        arguments: Option<&GenericArgumentListSyntax>,
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let expected = match &resolved {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
                 self.named_type_parameters(*definition)?.len()
@@ -131,7 +160,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             _ => return self.error_type_template(),
         };
 
-        if !self.validate_generic_argument_count(path, arguments, expected)? {
+        if !self.validate_generic_argument_count(syntax, arguments, expected)? {
             return self.error_type_template();
         }
 

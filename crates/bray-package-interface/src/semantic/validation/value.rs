@@ -370,7 +370,10 @@ impl InterfaceSemantics {
             InterfaceConstantTerm::Unary { operand, .. } => {
                 validate_index(operand.to_index(), self.constant_terms.len())?;
             }
-            InterfaceConstantTerm::RepeatedArray { value: left, count: right }
+            InterfaceConstantTerm::RepeatedArray {
+                value: left,
+                count: right,
+            }
             | InterfaceConstantTerm::Binary { left, right, .. } => {
                 validate_index(left.to_index(), self.constant_terms.len())?;
                 validate_index(right.to_index(), self.constant_terms.len())?;
@@ -404,6 +407,15 @@ impl InterfaceSemantics {
                     validate_symbol(field.field(), symbol_count, dependency_count)?;
                     validate_index(field.value().to_index(), self.constant_terms.len())?;
                 }
+            }
+            InterfaceConstantTerm::TraitConstant {
+                subject,
+                application,
+                member,
+            } => {
+                validate_index(subject.to_index(), self.types.len())?;
+                validate_index(application.to_index(), self.trait_applications.len())?;
+                validate_symbol(member, symbol_count, dependency_count)?;
             }
             InterfaceConstantTerm::DefinitionApplication {
                 definition,

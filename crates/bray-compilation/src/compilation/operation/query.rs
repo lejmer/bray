@@ -10,7 +10,10 @@ use bray_checker::{
     CandidateSelection, DefaultSemanticSelector, ExpressionTypeEvidence, ExpressionTypeExpectation,
     ExpressionTypeInput, OperationCandidate, OperationSelectionRequest, SemanticSelector,
 };
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, SeverityKind,
+};
 use bray_symbols::{AnySymbolId, TypeId};
 
 use super::super::Compilation;
@@ -60,7 +63,7 @@ impl Compilation {
                 &operation_key,
                 &binding_context,
                 bound,
-                semantics.types(),
+                semantics,
                 cancellation,
                 &mut diagnostics,
             )? {
@@ -76,10 +79,12 @@ impl Compilation {
         key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
-        types: &bray_bound_tree::CheckedExpressionTypes,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<SemanticResolution>, FactQueryError> {
+        let types = semantics.types();
+
         let expression = unit.view().expression(key.expression()).ok_or_else(|| {
             operation_contract_failure(
                 key,
@@ -119,6 +124,14 @@ impl Compilation {
 
         if selection_kind != bray_bound_tree::SelectionKind::Construction {
             for operand in expression.child_expressions() {
+                if selection_kind == bray_bound_tree::SelectionKind::Member
+                    && unit
+                        .view()
+                        .is_compile_time_qualifier(operand, Some(semantics.selections()))
+                {
+                    continue;
+                }
+
                 let result = types.expression(operand).ok_or_else(|| {
                     expression_contract_failure(
                         key.unit(),
@@ -137,7 +150,7 @@ impl Compilation {
             bray_bound_tree::SelectionKind::Member => self.resolve_member_operation(
                 binding_context,
                 unit,
-                types,
+                semantics,
                 key.expression(),
                 diagnostics,
             )?,
@@ -182,7 +195,7 @@ impl Compilation {
                 key,
                 binding_context,
                 unit,
-                types,
+                semantics,
                 cancellation,
                 diagnostics,
             )?,
@@ -513,6 +526,44 @@ pub(in crate::compilation) fn selection_type_input(
                 .iter()
                 .filter_map(SemanticResolution::selection_entry),
         )
+}
+
+pub(super) fn member_selection_diagnostic(
+    unit: &BoundUnit,
+    expression: BoundExpressionId,
+    kind: DiagnosticKind,
+) -> Diagnostic {
+    let (origin, selector) = match unit
+        .view()
+        .expression(expression)
+        .expect("member selection retains its expression")
+    {
+        BoundExpression::MemberAccess(member) => (member.origin(), member.selector()),
+        BoundExpression::TraitQualifiedMember(member) => (member.origin(), member.selector()),
+        _ => unreachable!("member diagnostic receives a member expression"),
+    };
+
+    let Some(bray_bound_tree::BoundMemberSelector::Name(name)) = selector else {
+        unreachable!("named member diagnostic retains its selector");
+    };
+
+    let anchor = origin.source_anchor().syntax();
+    let span = bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+    Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        kind,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::SelectionFailure,
+        span,
+    ))
+    .with_arg(DiagnosticArg::referenced_name(name.as_str()))
+    .with_arg(DiagnosticArg::selection_kind(
+        bray_diagnostics::DiagnosticSelectionKind::Member,
+    ))
 }
 
 pub(super) fn expression_type(

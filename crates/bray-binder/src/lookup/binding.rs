@@ -90,13 +90,13 @@ pub(crate) fn lookup_unqualified_name(
         current = unit.scope_parent(scope);
     }
 
-    let generic_lookup = symbols
+    let enclosing_lookup = symbols
         .symbol_for_key(unit.key().declared_owner())
-        .map(|owner| lookup_visible_generic_parameter(symbols, owner, name))
+        .map(|owner| lookup_enclosing_declaration(symbols, owner, name))
         .unwrap_or(MemberLookupResult::NotFound);
 
-    if !matches!(generic_lookup, MemberLookupResult::NotFound) {
-        return generic_lookup;
+    if !matches!(enclosing_lookup, MemberLookupResult::NotFound) {
+        return enclosing_lookup;
     }
 
     let module_lookup = module
@@ -113,7 +113,7 @@ pub(crate) fn lookup_unqualified_name(
     combine_name_lookups(module_lookup, ambient_lookup)
 }
 
-fn lookup_visible_generic_parameter(
+fn lookup_enclosing_declaration(
     symbols: &SymbolGraph,
     owner: AnySymbolId,
     name: &str,
@@ -121,6 +121,16 @@ fn lookup_visible_generic_parameter(
     let mut current = Some(owner);
 
     while let Some(owner) = current {
+        let associated_scope = matches!(
+            owner,
+            AnySymbolId::Struct(_)
+                | AnySymbolId::Union(_)
+                | AnySymbolId::Trait(_)
+                | AnySymbolId::InherentImplementation(_)
+                | AnySymbolId::NamedTraitImplementation(_)
+                | AnySymbolId::UnnamedTraitImplementation(_)
+        );
+
         let lookup =
             lookup_surface_name(symbols, owner, name, NameAccess::Internal).classify(|candidate| {
                 match candidate {
@@ -128,6 +138,11 @@ fn lookup_visible_generic_parameter(
                         AnySymbolId::GenericTypeParameter(_)
                         | AnySymbolId::GenericConstParameter(_),
                     ) => Some(candidate),
+                    ResolvedName::Surface(
+                        AnySymbolId::Constant(_)
+                        | AnySymbolId::TraitConstantMember(_)
+                        | AnySymbolId::TraitConstantFulfillment(_),
+                    ) if associated_scope => Some(candidate),
                     ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
                 }
             });

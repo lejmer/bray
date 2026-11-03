@@ -138,7 +138,10 @@ pub(super) fn validate_constant_term_data(
         ConstantTermData::Unary { operand, .. } => {
             tables.constant_terms.get(store, *operand);
         }
-        ConstantTermData::RepeatedArray { value: left, count: right }
+        ConstantTermData::RepeatedArray {
+            value: left,
+            count: right,
+        }
         | ConstantTermData::Binary { left, right, .. } => {
             tables.constant_terms.get(store, *left);
             tables.constant_terms.get(store, *right);
@@ -161,6 +164,13 @@ pub(super) fn validate_constant_term_data(
         }
         ConstantTermData::Union { fields, .. } => {
             validate_field_terms(tables, store, fields);
+        }
+        ConstantTermData::TraitConstant { requirement, .. } => {
+            tables.types.get(store, requirement.subject());
+
+            tables
+                .trait_applications
+                .get(store, requirement.trait_application());
         }
         ConstantTermData::DefinitionApplication {
             definition,

@@ -968,6 +968,19 @@ fn dependency_progress<T, Upstream>(
     }
 }
 
+fn member_candidate_template(
+    member: &bray_bound_tree::MemberTarget,
+) -> Option<CallableCandidateTemplate> {
+    member.callable_template().cloned().map(|template| {
+        CallableCandidateTemplate::Declaration(
+            crate::CallableDeclarationCandidateTemplate::from_declaration(
+                template,
+                crate::CallableCandidateTemplateState::Visible,
+            ),
+        )
+    })
+}
+
 fn materialize_call_candidates<'prepared, C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
@@ -988,17 +1001,7 @@ where
 
     let member = member_targets.get(&call.callee());
 
-    let member_template = member
-        .and_then(bray_bound_tree::MemberTarget::callable_template)
-        .cloned()
-        .map(|template| {
-            CallableCandidateTemplate::Declaration(
-                crate::CallableDeclarationCandidateTemplate::from_declaration(
-                    template,
-                    crate::CallableCandidateTemplateState::Visible,
-                ),
-            )
-        });
+    let member_template = member.and_then(member_candidate_template);
 
     if prepared.generic_candidates.is_empty()
         && prepared.values.is_empty()
@@ -1012,12 +1015,18 @@ where
         )));
     }
 
-    let mut candidates = prepared.candidates.clone();
+    let mut candidates = if member_template.is_some() {
+        Vec::new()
+    } else {
+        prepared.candidates.clone()
+    };
+
     let mut diagnostics = DiagnosticBag::new();
 
     for template in prepared
         .generic_candidates
         .iter()
+        .filter(|_| member_template.is_none())
         .chain(member_template.iter())
     {
         let explicit = match template {
@@ -1550,6 +1559,12 @@ where
         });
 
     let receiver = receiver
+        .filter(|receiver| {
+            !request.view().is_compile_time_qualifier(*receiver, None)
+                && !member_targets
+                    .get(receiver)
+                    .is_some_and(bray_bound_tree::MemberTarget::is_type_qualifier)
+        })
         .map(|receiver| {
             receiver_capability(request, types, member_targets, receiver)
                 .map(|capability| crate::ReceiverSelection::new(receiver, capability))

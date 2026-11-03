@@ -24,8 +24,19 @@ impl BoundReferenceTarget {
             return false;
         };
 
-        matches!(symbol, AnySymbolId::Package(_) | AnySymbolId::Module(_))
-            || NamedTypeSymbolId::try_from_any(symbol).is_some()
+        matches!(
+            symbol,
+            AnySymbolId::Package(_)
+                | AnySymbolId::Module(_)
+                | AnySymbolId::Trait(_)
+                | AnySymbolId::GenericTypeParameter(_)
+                | AnySymbolId::InherentTypeMember(_)
+                | AnySymbolId::TraitTypeMember(_)
+                | AnySymbolId::TraitTypeFulfillment(_)
+                | AnySymbolId::InherentImplementation(_)
+                | AnySymbolId::UnnamedTraitImplementation(_)
+                | AnySymbolId::NamedTraitImplementation(_)
+        ) || NamedTypeSymbolId::try_from_any(symbol).is_some()
     }
 }
 

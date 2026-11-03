@@ -454,6 +454,14 @@ where
 
         let ty = self.expression_type(expression);
 
+        if let Some(bray_bound_tree::SemanticSelection::Operation(
+            bray_bound_tree::SelectedOperation::Member(target),
+        )) = self.input.semantic_selections().expression(expression)
+            && target.constant_reference().is_some()
+        {
+            return self.evaluate_reference(expression, None, ty?);
+        }
+
         match bound {
             BoundExpression::Literal(literal) => self.evaluate_literal(expression, *literal, ty?),
             BoundExpression::Name(name) => {
@@ -813,7 +821,9 @@ where
         let value = self.evaluate(*value)?;
         let count = self.evaluate(*count)?;
 
-        let (Some(closed_value), Some(closed_count)) = (self.term_value(value), self.term_value(count)) else {
+        let (Some(closed_value), Some(closed_count)) =
+            (self.term_value(value), self.term_value(count))
+        else {
             return self.intern_typed_term(ty, ConstantTermData::RepeatedArray { value, count });
         };
 

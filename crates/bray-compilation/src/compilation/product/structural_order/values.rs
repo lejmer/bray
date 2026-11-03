@@ -159,7 +159,8 @@ impl OrderEncoder<'_, '_> {
                 Ok(term("nullable_present", [self.constant(*value)?]))
             }
             ConstantTermData::RepeatedArray { value, count } => Ok(term(
-                "repeated-array", [self.constant(*value)?, self.constant(*count)?],
+                "repeated-array",
+                [self.constant(*value)?, self.constant(*count)?],
             )),
             ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => Ok(term(
                 if matches!(data.as_ref(), ConstantTermData::Tuple(_)) {
@@ -203,6 +204,17 @@ impl OrderEncoder<'_, '_> {
                             })
                             .collect::<Result<Vec<_>, CodegenPreparationError>>()?,
                     ),
+                ],
+            )),
+            ConstantTermData::TraitConstant {
+                requirement,
+                member,
+            } => Ok(term(
+                "trait_constant",
+                [
+                    self.ty(requirement.subject())?,
+                    self.trait_application(requirement.trait_application())?,
+                    self.symbol((*member).into())?,
                 ],
             )),
             ConstantTermData::DefinitionApplication {

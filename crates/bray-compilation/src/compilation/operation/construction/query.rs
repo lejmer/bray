@@ -17,10 +17,12 @@ impl Compilation {
         key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
-        types: &bray_bound_tree::CheckedExpressionTypes,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<SemanticResolution>, FactQueryError> {
+        let types = semantics.types();
+
         let expression = unit.view().expression(key.expression()).ok_or_else(|| {
             operation_contract_failure(
                 key,
@@ -29,7 +31,7 @@ impl Compilation {
         })?;
 
         let Some(result_type) =
-            self.construction_result_type(binding_context, unit, types, key.expression())?
+            self.construction_result_type(binding_context, unit, semantics, key.expression())?
         else {
             if let Some(variant) = self.unqualified_variant_reference(unit, key.expression()) {
                 diagnostics.add(super::union::unqualified_variant_diagnostic(
@@ -128,9 +130,22 @@ impl Compilation {
         &self,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
-        types: &bray_bound_tree::CheckedExpressionTypes,
+        semantics: &bray_bound_tree::CheckedExpressionSemantics,
         expression: BoundExpressionId,
     ) -> Result<Option<TypeId>, FactQueryError> {
+        let types = semantics.types();
+
+        if let Some(BoundExpression::StructConstruction(construction)) =
+            unit.view().expression(expression)
+            && let Some(head) = construction.head()
+            && let Some(bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Member(target),
+            )) = semantics.selections().expression(head)
+            && target.is_type_qualifier()
+        {
+            return Ok(Some(target.result_type()));
+        }
+
         if let Some(result) =
             self.qualified_union_result_type(binding_context, unit, types, expression)?
         {
@@ -170,6 +185,16 @@ impl Compilation {
         let Some(head) = construction.head() else {
             return Ok(None);
         };
+
+        if unit
+            .view()
+            .is_compile_time_qualifier(head, Some(semantics.selections()))
+            && let Some(result) = types
+                .expression(head)
+                .filter(|result| !result.is_recovered())
+        {
+            return Ok(Some(result.ty()));
+        }
 
         let Some(BoundExpression::Name(name)) = unit.view().expression(head) else {
             return Ok(None);

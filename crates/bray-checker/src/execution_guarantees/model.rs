@@ -467,6 +467,11 @@ impl ExecutionCallEvidence {
 
                             argument.value_in(&self.arguments)
                         })
+                        .or_else(|| {
+                            input
+                                .constant_term()
+                                .map(|_| super::ExecutionCondition::Input(input.clone()))
+                        })
                         .or_else(|| match input.reference() {
                             Some(bray_bound_tree::BoundReferenceTarget::Surface(
                                 bray_symbols::AnySymbolId::GenericConstParameter(_),
