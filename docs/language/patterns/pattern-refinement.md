@@ -8,15 +8,13 @@ General flow-sensitive contract reasoning rules are defined in
 
 Pattern guarantees include:
 
-```text
-active union variant,
-literal equality,
-field availability,
-payload initialization,
-tuple or array shape,
-nullable present or absent state,
-narrowed control-flow state.
-```
+- active union variant,
+- literal equality,
+- field availability,
+- payload initialization,
+- tuple or array shape,
+- nullable present or absent state,
+- narrowed control-flow state.
 
 These guarantees are available only within the region governed by the successful match and only while the matched state
 remains valid. Mutation, movement, consumption, destruction, reinitialization, finalization, or capability loss makes a
