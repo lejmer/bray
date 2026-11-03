@@ -5,8 +5,8 @@ Syntax follows the [using and export declarations grammar](../syntax-grammar.md#
 An export declaration re-exports a visible declaration path from the current module.
 
 ```bray
-export impl.Buffer;
-export impl.parse_header;
+export details.Buffer;
+export details.parse_header;
 ```
 
 Grammar shape:

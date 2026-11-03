@@ -1,5 +1,8 @@
 # Patterns
 
+The [refutable binding contrast](https://github.com/lejmer/bray/blob/develop/docs/language/patterns/refutability.md#refutable-binding-example)
+shows a literal pattern rejected in a local `let` but accepted in `if let`, which defines a failed-match path.
+
 **Specification:** [Patterns](https://github.com/lejmer/bray/blob/develop/docs/language/patterns.md)
 
 ## Contents

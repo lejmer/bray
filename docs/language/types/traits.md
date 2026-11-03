@@ -390,7 +390,7 @@ TokenCursor(Iterator).Element
 A generic type parameter can be the subject when the surrounding constraints require the trait application:
 
 ```bray
-func first<I>(iter: I) -> I(Iterator).Element?
+func first<I>(mut iter: I) -> I(Iterator).Element?
     with(I: Iterator)
 {
     return iter.next();

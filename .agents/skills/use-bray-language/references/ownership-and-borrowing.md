@@ -336,6 +336,11 @@ Values cross return, yield, call, storage, async, task, trait-view, package, and
 
 ## Choose the ownership operation by intent
 
+The specification contrasts [borrowing with moving](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/moves-copies-and-consumption.md#borrowing-and-moving-example),
+[disjoint with overlapping borrows](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/borrow-rules.md#disjoint-and-overlapping-borrows-example),
+and [copied values with invalidated source conditions](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/contract-and-borrow-validity.md#invalidation-and-copied-values-example).
+Each contrast states the required context and the resulting ownership or guarantee state.
+
 | Intent                              | Bray surface                                                                                                                                                                                                         | Decisive rule                                                                                                |
 |-------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
 | Transfer an owned value             | [Use it in an owned destination or parameter](https://github.com/lejmer/bray/blob/develop/docs/language/ownership-and-borrowing/moves-copies-and-consumption.md)                                                     | The context moves a non-copyable value and every obligation it carries.                                      |

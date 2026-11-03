@@ -55,6 +55,11 @@ See [contract clauses](https://github.com/lejmer/bray/blob/develop/docs/language
 
 ## Conditional execution guarantees
 
+The [constant eligibility contrast](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/execution-guarantees.md#constant-eligibility-example)
+shows a pure, total function whose predicate call is rejected until it exposes `const`. The
+[ordinary requirement contrast](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/preconditions-and-postconditions.md#ordinary-requirement-example)
+shows that a trust boundary preserves ordinary runtime requirement checks.
+
 `executes(pure, total)` declares independent execution properties. `when(...)` guards guarantees by conditions at execution
 entry. The ordinary body still produces the result.
 
@@ -285,7 +290,7 @@ trusted func read_wrapper(pos pointer: DataPointer<u8>) -> u8
 }
 ```
 
-The named callable contract can hold only callable values with compatible trust, capability, and caller-obligation surfaces. `read_wrapper` exposes every trusted condition needed by the operation in its body, so callers see the obligation instead of losing it behind the wrapper.
+The named callable contract preserves the `trusted` modifier and caller obligations. Body capabilities do not have to match during callable conversion. `read_wrapper` exposes every trusted condition needed by the operation in its body, so callers see the obligation instead of losing it behind the wrapper.
 
 Constructors, finalizers, destructors, `enter`, and `exit` declarations use the same `requires(...)`, `ensures(...)`, and `uses(...)` split. Foreign declarations state every pointer, initialization, ownership, aliasing, threading, synchronization, callback, resource, error, and panic condition visible to Bray callers.
 

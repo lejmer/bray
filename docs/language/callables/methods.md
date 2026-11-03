@@ -71,6 +71,32 @@ A static function has no receiver.
 
 `self` is unavailable inside a static function body.
 
+## Receiver authority example
+
+Example: assume `Counter` provides an ordinary `mut func clear()` method and has no pending lifecycle obligations.
+These functions are independent alternatives.
+
+This function is accepted because its parameter grants mutable access to the receiver:
+
+```bray
+func clear_counter(pos counter: &mut Counter)
+{
+    counter.clear();
+}
+```
+
+Changing the parameter to a shared borrow rejects the method call:
+
+```bray
+func clear_shared(pos counter: &Counter)
+{
+    counter.clear();
+}
+```
+
+The rejection concerns receiver authority, not the method's name or result.
+[Receiver matching](../expressions/method-call-expressions.md#receiver-matching) defines the required capability.
+
 ## Navigation
 
 - [Language index](../index.md)

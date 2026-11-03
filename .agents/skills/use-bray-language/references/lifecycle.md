@@ -84,6 +84,10 @@ Defaults and represented parts are initialized before the value becomes observab
 
 ## Finalization and destruction
 
+The [completion and ownership-end contrast](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/finalization.md#completion-and-ownership-end-example)
+shows an unresolved fallible finalizer rejected at normal scope exit and an ordinary operation that establishes
+completion before that exit.
+
 ```bray
 struct BufferedLog
 {

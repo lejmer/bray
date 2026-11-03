@@ -77,6 +77,16 @@ let mut p: Point = { x = 1.0, y = 2.0, };
 The binding `p` has mutable local access authority. The fields `x` and `y` remain immutable after initialization because
 their field declarations do not declare mutation.
 
+Example: after the preceding initialization, this body fragment is rejected:
+
+```bray
+p.x = 2.0;
+```
+
+The mutable binding does not make `x` mutable. In contrast, the earlier assignment to `counter.value` is accepted
+because both the binding and field permit mutation under
+[storage and access paths](../ownership-and-borrowing/storage-and-access-paths.md).
+
 Assignment to a union value replaces the active variant when the union access path has mutation authority.
 
 ```bray

@@ -142,6 +142,28 @@ ordinary async rules.
 The [finalization rules](../lifecycle/finalization.md) use verified `pure` and `total` execution with a known `unit`
 or `Ok(unit)` outcome to discharge an already-completed whole-value graceful step before optimization.
 
+## Constant eligibility example
+
+Example: this ordinary function is pure and total:
+
+```bray
+func runtime_identity(pos value: bool) -> bool
+    executes(pure, total)
+{
+    return value;
+}
+```
+
+This predicate declaration is rejected because its call selects a function without a `const` contract:
+
+```bray
+predicate unchanged(value: bool) = runtime_identity(value);
+```
+
+Adding `const` before `func` in the function declaration makes the same predicate call valid. The body is eligible
+for constant and predicate evaluation, but `pure` and `total` alone do not expose that eligibility.
+[Predicate-expression callable calls](predicate-expression-callable-calls.md) require the explicit `const` contract.
+
 ## Navigation
 
 - [Language index](../index.md)

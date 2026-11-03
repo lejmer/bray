@@ -46,7 +46,7 @@ Here the `pos shape` parameter type can provide the expected union type for `Cir
 Arguments can supply owned values.
 
 ```bray
-consume(buffer)
+take(buffer)
 ```
 
 Arguments can supply shared borrows.

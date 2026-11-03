@@ -47,6 +47,33 @@ After a successful assertion, its asserted condition is available for subsequent
 
 Assertion expressions are defined in [Assertion expressions](../expressions/assertion-expressions.md).
 
+## Ordinary requirement example
+
+Example: this ordinary function has a checkable requirement:
+
+```bray
+func positive(pos value: i32) -> i32
+    requires(value > 0)
+{
+    return value;
+}
+```
+
+In a runtime body whose `input: i32` parameter has no established sign, these alternative calls have the same
+ordinary requirement:
+
+```bray
+let checked = positive(input);
+```
+
+```bray
+let checked = trusted positive(input);
+```
+
+Both fragments are accepted with the permitted runtime requirement check. A positive input returns its value.
+A nonpositive input fails that check and panics. The trust boundary does not waive an ordinary requirement.
+[Trust boundaries](trust-boundaries.md) acknowledge trusted caller obligations, which are separate from this check.
+
 ## Navigation
 
 - [Language index](../index.md)

@@ -133,6 +133,10 @@ the program-root panic behavior for that run instead of returning normally throu
 A callable that wants to report failure to a foreign caller catches panics explicitly and returns an ABI-representable
 error value.
 
+Example: on a target supporting this C ABI export, `classify_entry` returns status zero for a nonnegative input and
+status one for a negative input. The negative case panics inside the catch boundary, which converts it to a value
+before the function returns through the ABI:
+
 ```bray
 @layout(c)
 struct Status
@@ -140,23 +144,40 @@ struct Status
     code: i32;
 }
 
-@symbol(name = "bray_parse")
+@symbol(name = "bray_classify")
 @abi(c)
-func parse_entry(pos text: DataPointer<u8>) -> Status
+func classify_entry(pos value: i32) -> Status
 {
     let result = catch
     {
-        parse_foreign_text(text);
-        yield Status(code = 0);
+        if value < 0
+        {
+            panic("negative input");
+        }
+
+        yield Status
+        {
+            code = 0,
+        };
     };
 
-    match result
+    return match consume result
     {
-        case Result.Ok(status) => yield status;
-        case Result.Error(_) => yield Status(code = 1);
-    }
+        case Ok(status) { yield status; }
+        case Error(_)
+        {
+            yield Status
+            {
+                code = 1,
+            };
+        }
+    };
 }
 ```
+
+Removing the catch boundary would make the negative path an uncaught panic at the exported boundary. It would follow
+the program-root panic behavior instead of returning status one. [Catch expressions](../expressions/catch-expressions.md)
+define the conversion of a caught panic into `Result.Error`.
 
 ## Foreign callbacks
 

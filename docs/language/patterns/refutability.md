@@ -42,6 +42,28 @@ A pattern context declares whether it accepts refutable patterns.
 `matches` test returns `false`. A failed conditional binding selects the false branch or natural loop exhaustion.
 Irrefutable patterns are also valid in these contexts, subject to the prohibition on bindings in `matches`.
 
+## Refutable binding example
+
+Example: these are alternative body fragments with a `value: bool` parameter.
+
+A local binding with a literal pattern is rejected:
+
+```bray
+let true = value;
+```
+
+A conditional binding accepts the same pattern:
+
+```bray
+if let true = value
+{
+}
+```
+
+The second fragment executes its body only for `true`. A false value follows the ordinary false path.
+[Local bindings](../expressions/local-binding-declarations-inside-block-expressions.md) require an irrefutable pattern,
+while [conditional bindings](../expressions/conditional-expressions.md) define a failed-match path.
+
 ## Navigation
 
 - [Language index](../index.md)

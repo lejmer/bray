@@ -22,8 +22,8 @@ Use of an internal module or declaration path from a consuming package requires 
 access acknowledgement.
 
 ```bray
-using internal impl;
-using internal impl.ParserState;
+using internal details;
+using internal details.ParserState;
 ```
 
 `using internal` applies to specific modules, declarations, or declaration paths.
@@ -77,6 +77,36 @@ Compiler-known names provided directly in the ambient scope remain available wit
 specified scalar, type-form, predicate and capability names. Compiler-known `target` properties are ambient,
 including in contribution gates. Named modules such as `core.memory` require `using`. Standard-library and runtime
 source follow the same dependency rules as other source.
+
+## Qualified dependency example
+
+Example: these source units belong to the same package. The first contributes the provider module:
+
+```bray
+module geometry.shapes;
+
+func answer() -> i32
+{
+    return 42;
+}
+```
+
+The second unit is accepted:
+
+```bray
+module application;
+
+using geometry.shapes;
+
+func value() -> i32
+{
+    return geometry.shapes.answer();
+}
+```
+
+Removing only `using geometry.shapes;` rejects the reference in `value`, even though it is fully qualified.
+Sharing a package does not declare a cross-module dependency. [Dependency coverage](#dependency-coverage) applies to
+the path written at the reference.
 
 ## Navigation
 

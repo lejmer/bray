@@ -103,21 +103,19 @@ struct Cursor
 
 A `Cursor` value cannot outlive the storage reached by `data`.
 
-A lambda cannot capture a borrow from an enclosing local binding:
+Example: these alternative fragments assume a mutable owned `file: File`, where `File.write(pos text: string)` is an
+ordinary mutable method. A lambda cannot capture a borrow from an enclosing local binding:
 
 ```bray
-let writer =
-{
-    let output = &mut file;
+let output = &mut file;
 
-    lambda (pos text: string)
-    {
-        output.write(text); // invalid
-    }
+let writer = lambda (pos text: string)
+{
+    output.write(text);
 };
 ```
 
-Pass the state explicitly when a callable value needs caller-provided context:
+This fragment is rejected because `output` is an enclosing local binding. Passing the state explicitly is accepted:
 
 ```bray
 let write_line = lambda (pos output: &mut File, pos text: string)

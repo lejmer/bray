@@ -28,18 +28,21 @@ struct ReadableByte
 
 trusted func assume_readable_byte(pos pointer: DataPointer<u8>) -> ReadableByte
     requires(
-        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),
         trusted core.memory.initialized_as<u8>(pointer = pointer),
     )
     ensures(
         result.pointer == pointer,
-        trusted core.memory.valid_read(pointer = result.pointer, count = 1),
+        trusted core.memory.valid_read<u8>(pointer = result.pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = result.pointer),
         trusted core.memory.initialized_as<u8>(pointer = result.pointer),
     )
 {
-    return ReadableByte(pointer = pointer);
+    return ReadableByte
+    {
+        pointer = pointer,
+    };
 }
 ```
 
@@ -49,9 +52,10 @@ While the witness value is live and valid, its carried trusted guarantees are av
 
 Those conditions can satisfy matching trusted requirements.
 
-```bray
-using core.memory;
+Example: this body fragment occurs in a trusted declaration with `uses(raw_memory)`, in a module with
+`using core.memory`. Its contract exposes the three trusted input requirements of `assume_readable_byte`.
 
+```bray
 let readable = trusted assume_readable_byte(pointer);
 
 let byte = core.memory.read<u8>(readable.pointer);

@@ -32,6 +32,25 @@ A borrow becomes invalid when:
 Observation through a shared borrow preserves guarantees when the observation cannot mutate, move, destroy,
 reinitialize, finalize, or otherwise change their dependencies.
 
+## Invalidation and copied values example
+
+Example: this fragment occurs in a function with a mutable owned `ready: bool` parameter:
+
+```bray
+assert(ready);
+let saved = ready;
+
+ready = false;
+```
+
+The fragment is accepted. The assertion can panic when the supplied value is false. On its normal continuation,
+`ready` is known to be true, and the copy gives `saved` that value. After assignment, `saved` remains true while
+`ready` is false. A later operation cannot use the assertion as evidence that the current `ready` is true.
+
+Copying preserves the scalar value, not a dependency on later writes to its source.
+[Observation dependencies](../contracts-and-trust/contract-reasoning.md#observation-dependencies) determine which
+conditions an assignment invalidates.
+
 ## Navigation
 
 - [Language index](../index.md)

@@ -3,12 +3,14 @@
 Any trusted obligation used inside a callable or lifecycle declaration must be discharged before the declaration exits
 or appear in that declaration's public contract.
 
-This prevents trusted obligations from being hidden by wrappers.
+This prevents trusted obligations from being hidden by wrappers. The following examples are independent declarations
+in a trusted module. Both bodies have the capability needed for their raw read.
 
 ```bray
 using core.memory;
 
-func bad(pos pointer: DataPointer<u8>) -> u8
+trusted func bad(pos pointer: DataPointer<u8>) -> u8
+    uses(raw_memory)
 {
     return trusted core.memory.read<u8>(pointer);
 }
@@ -22,12 +24,13 @@ This is valid because the obligation is exposed:
 ```bray
 using core.memory;
 
-func read_wrapper(pos pointer: DataPointer<u8>) -> u8
+trusted func read_wrapper(pos pointer: DataPointer<u8>) -> u8
     requires(
-        trusted core.memory.valid_read(pointer = pointer, count = 1),
+        trusted core.memory.valid_read<u8>(pointer = pointer, count = 1),
         trusted core.memory.aligned_for<u8>(pointer = pointer),
         trusted core.memory.initialized_as<u8>(pointer = pointer),
     )
+    uses(raw_memory)
 {
     return trusted core.memory.read<u8>(pointer);
 }

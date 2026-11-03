@@ -382,6 +382,11 @@ Lambdas are capture-free callable values with their own execution scope, so thei
 
 ## Choose the callable by intent
 
+Use the [receiver authority contrast](https://github.com/lejmer/bray/blob/develop/docs/language/callables/methods.md#receiver-authority-example)
+when distinguishing a shared receiver from a mutable one. The
+[reachable fallthrough contrast](https://github.com/lejmer/bray/blob/develop/docs/language/callables/callable-results-and-bodies.md#reachable-fallthrough-example)
+separates returning a value, yielding to a nested block, and ending a path without normal continuation.
+
 | Intent                                  | Bray form                                                                                                                                        | Decisive rule                                                                                             |
 |-----------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
 | Define module behavior                  | [A function declaration](https://github.com/lejmer/bray/blob/develop/docs/language/callables/function-declarations.md)                           | Omitted result type means `unit`. Every normal non-`unit` path returns explicitly.                        |

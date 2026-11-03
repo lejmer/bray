@@ -8,7 +8,7 @@ A module declaration can be public or internal.
 public module api;
 module api;
 
-internal module impl;
+internal module details;
 ```
 
 Since `public` is the default, `public module api;` and `module api;` declare the same public module visibility.
@@ -20,7 +20,7 @@ internal-use acknowledgement under [visibility and reachability](../declarations
 References into another logical module still require a matching `using` declaration.
 
 ```bray
-using internal impl;
+using internal details;
 ```
 
 Internal module visibility applies to the module path.

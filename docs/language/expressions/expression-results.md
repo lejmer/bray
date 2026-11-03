@@ -74,6 +74,41 @@ Different incoming states do not by themselves reject a merge. A later use or ex
 proof, or obligation cannot be established for every relevant alternative. A merge cannot hide an invalid operation
 already reached on an incoming path.
 
+## Branch result example
+
+Example: the following are alternative body fragments in a function with parameters `choose: bool`, `left: i32`,
+and `right: u32`.
+
+This fragment is accepted with result type `i32`:
+
+```bray
+let selected: i32 = if choose
+{
+    yield left;
+}
+else
+{
+    panic("no value");
+};
+```
+
+The panic branch has no normal result. Replacing it with a `u32` value rejects the merge:
+
+```bray
+let selected: i32 = if choose
+{
+    yield left;
+}
+else
+{
+    yield right;
+};
+```
+
+The expected `i32` does not convert the already-typed `right`. An explicit conversion must produce an accepted result
+before the merge. The [result type merge rule](#result-type-merge) excludes `never` paths and requires compatible
+contributing values.
+
 ## Navigation
 
 - [Language index](../index.md)
