@@ -6,35 +6,21 @@ This summary is informative. The detailed rules include:
 - [dependency contracts](dependency-contracts.md).
 - [scope exits and ownership boundaries](scope-exits-and-ownership-boundaries.md).
 
-Ownership tracks which owner is responsible for a value's obligations.
+Ownership tracks responsibility for a value's obligations. Access paths identify storage that operations can observe,
+mutate, move, borrow, or destroy. Moves transfer ownership obligations, while copies follow copy contracts and leave the
+source unmoved. Partial moves require accounting for the remaining partial state.
 
-Access paths describe storage and substorage that operations can observe, mutate, move, borrow, or destroy.
+Borrows provide temporary non-owning access to reached storage. Mutable borrows require exclusive mutation authority,
+and shared borrows coexist when their capabilities are compatible. Dependency contracts record inferred lifetime and
+capability relationships without source-level lifetime annotations.
 
-Moves transfer ownership obligations.
+Product-static borrows carry product roots, and thread-local static borrows also carry exact native-thread attachment
+roots. Extern static and dynamic-symbol pointers carry provider roots, with an additional exact-thread attachment root
+for thread-local foreign storage.
 
-Copies are allowed only by copy contracts and do not move from the source.
-
-Borrows create temporary non-owning access to reached storage.
-
-Mutable borrows require temporary exclusive mutation authority.
-
-Shared borrows can coexist when their capabilities are compatible.
-
-Dependency contracts replace source-level lifetime annotations.
-
-Product-static borrows carry product roots. Thread-local static borrows additionally carry exact native-thread
-attachment roots.
-
-Extern static and dynamic-symbol pointers carry provider roots. Thread-local foreign storage additionally carries its
-exact native-thread attachment root.
-
-Partial moves are allowed only when the remaining partial state is accounted for.
-
-Values can cross ownership boundaries only when the destination preserves every dependency contract carried by the
-value.
-
-Conditions and borrows are invalidated when their storage, capability, ownership, initialization, or dependency
-requirements stop holding.
+A value can cross an ownership boundary only when the destination preserves all its dependency contracts. Conditions
+and borrows become invalid when their required storage, capability, ownership, initialization, or dependencies cease to
+hold.
 
 ## Navigation
 

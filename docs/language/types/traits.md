@@ -334,25 +334,15 @@ impl TokenCursor(Iterator)
 }
 ```
 
-The `type Element = Token;` implementation member is a trait-member binding.
+The `type Element = Token;` implementation member is a trait-member binding, not a general type alias declaration.
+Inside an implementation of the trait, the name refers to the selected type bound by that implementation. Members
+that refer to it are checked after substituting that selected type. A trait implementation satisfies the trait only
+when its callable members match the trait contract after all type-valued member bindings are applied.
 
-It is not a general type alias declaration.
-
-Inside an implementation of the trait, the type-valued member name refers to the selected type bound by that
-implementation.
-
-An implementation member that refers to a type-valued member is checked after substituting the implementation’s selected
-type.
-
-A trait implementation satisfies the trait only when its callable members match the trait contract after all type-valued
-member bindings are applied.
-
-Type-valued members participate in type checking, callable checking, method resolution, generic constraints, contract
-checking, flow-sensitive contract checking, documentation, and public API compatibility.
-
-Type-valued members do not create runtime type identity.
-
-Type-valued members do not permit downcasting, runtime type tests, or dynamic type mutation.
+The selected types determine type and callable checking, method resolution, generic constraints, and contract checking,
+including flow-sensitive contracts. These bindings are part of the documented public API and its compatibility
+requirements. They do not create runtime type identity or permit downcasting, runtime type tests, or dynamic type
+mutation.
 
 Dynamic dispatch through a trait view is rejected when it would hide selected type-valued members that are visible
 through that dispatch surface.

@@ -1,10 +1,8 @@
 # Lexical grammar
 
-This chapter explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings.
-
-The companion plain EBNF reference is `lexical-grammar.ebnf`.
-
-The source grammar is defined separately in `syntax-grammar.md` and `syntax-grammar.ebnf`.
+This chapter explains Bray source text, lexical tokens, trivia, comments, identifiers, keywords, and literal spellings,
+with a companion plain EBNF reference in `lexical-grammar.ebnf`. The source grammar is defined separately in
+[Syntax grammar](syntax-grammar.md) and `syntax-grammar.ebnf`.
 
 Lexical grammar defines token spelling. Literal typing, literal adaptation, scalar operations, and string value
 semantics belong to the scalar and literal rules.
@@ -13,15 +11,11 @@ semantics belong to the scalar and literal rules.
 
 ## Source text
 
-Bray source text is UTF-8.
+Bray source text is UTF-8. An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is
+ignored. Source text is not Unicode-normalized by the compiler.
 
-An optional UTF-8 byte order mark is accepted only at the beginning of a source unit and is ignored.
-
-Source text is not Unicode-normalized by the compiler.
-
-Line endings accepted by the lexer are LF and CRLF. The compiler treats both as line breaks for source locations.
-
-A lone CR is not a line ending. It is valid only as ordinary text inside block comments.
+Line endings accepted by the lexer are LF and CRLF. The compiler treats both as line breaks for source locations. A lone
+CR is not a line ending. It is valid only as ordinary text inside block comments.
 
 ```ebnf
 source-text =
@@ -56,12 +50,9 @@ When two token kinds have the same spelling length, the more specific token kind
 - documentation comments win over ordinary comments,
 - imaginary literals win over the numeric literal they contain.
 
-Whitespace and comments separate tokens and are otherwise trivia.
-
-Trivia is preserved by the syntax layer as leading and trailing trivia on syntax tokens so source text can be recreated
-from syntax trees.
-
-Trivia is not represented as ordinary syntax nodes.
+Whitespace and comments separate tokens and are otherwise trivia. The syntax layer preserves them as leading and
+trailing trivia on syntax tokens so source text can be recreated from syntax trees. Trivia is not represented as
+ordinary syntax nodes.
 
 Adjacent tokens are valid only when the resulting character sequence cannot be read as a longer token or invalid token.
 

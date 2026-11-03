@@ -1,10 +1,7 @@
 # Syntax grammar
 
-This chapter explains the Bray EBNF source grammar.
-
-The companion plain EBNF reference is `syntax-grammar.ebnf`.
-
-The lexical grammar is defined separately in `lexical-grammar.md` and `lexical-grammar.ebnf`.
+This chapter explains the Bray EBNF source grammar, with a companion plain EBNF reference in `syntax-grammar.ebnf`.
+The lexical grammar is defined separately in [Lexical grammar](lexical-grammar.md) and `lexical-grammar.ebnf`.
 
 The package product, selected source graph, selected dependency graph, package identity, and target profile are semantic
 inputs. They are not source syntax.
@@ -13,9 +10,7 @@ inputs. They are not source syntax.
 
 ## EBNF notation
 
-Terminals are written in double quotes.
-
-Non-terminals are written in lowercase words separated by hyphens.
+Terminals are written in double quotes. Non-terminals are written in lowercase words separated by hyphens.
 
 Grammar productions use:
 

@@ -1,33 +1,23 @@
 # Overview
 
-Bray separates five related concepts:
+Bray distinguishes the authority to implement an operation from the obligations of its callers. Its contract concepts
+have the following roles:
 
-- trusted implementation capability,
-- ordinary contract requirement,
-- static constraint,
-- trusted caller obligation,
-- predicate.
+| Concept | Role |
+| --- | --- |
+| Trusted implementation capability | Authority used inside a trusted declaration body. |
+| Ordinary contract requirement | A checkable condition expressed in predicate-expression context. |
+| Static constraint | A compile-time condition expressed in static predicate context. |
+| Trusted caller obligation | A condition the ordinary checker cannot prove, which must be supplied, preserved, or acknowledged. |
+| Predicate | A named contract-level relation used in requirements, guarantees, constraints, and trusted obligations. |
 
-A trusted implementation capability is authority used inside a trusted declaration body.
+Trusted implementation power and trusted caller obligations are independent. A declaration can use trusted
+capabilities internally while exposing an ordinary safe API. Callers have trusted obligations only when the
+contract exposes them.
 
-An ordinary contract requirement is a checkable condition expressed in predicate-expression context.
-
-A static constraint is a compile-time condition expressed in static predicate context.
-
-A trusted caller obligation is a condition the ordinary checker cannot prove and that must be supplied, preserved, or
-acknowledged.
-
-A predicate is a named contract-level relation used in requirements, guarantees, constraints, and trusted obligations.
-
-Trusted implementation power and trusted caller obligations are independent.
-
-A declaration can use trusted implementation capabilities internally while exposing an ordinary safe API.
-
-A declaration exposes trusted caller obligations only when its contract says so.
-
-Trusted declarations are permitted only in trusted modules.
-
-Trusted module rules are defined in [Trusted modules](../modules-and-packages/trusted-modules.md).
+Trusted declarations are permitted only in [trusted modules](../modules-and-packages/trusted-modules.md).
+The [contract clauses](contract-clauses.md) specify how requirements, constraints, guarantees, and implementation
+capabilities are declared.
 
 ## Navigation
 

@@ -6,30 +6,17 @@ This summary is informative. The detailed rules include:
 - [contract reasoning](contract-reasoning.md).
 - [trusted caller obligations](trusted-caller-obligations.md).
 
-Contracts describe caller obligations, static constraints, and normal-completion guarantees.
+Contracts describe caller obligations, static constraints, and normal-completion guarantees. Predicate expressions are
+restricted contract-level expressions. Ordinary requirements are checkable conditions, while trusted requirements must
+be established, preserved, or acknowledged through the trust rules.
 
-Predicate expressions are restricted contract-level expressions.
+Trusted implementation capabilities are declared with `uses(...)` and do not automatically create caller obligations.
+Trusted caller obligations appear in the declaration contract, and trust boundaries visibly acknowledge them for a
+specific operand. Trusted witness values carry guarantees as part of ordinary value contracts.
 
-Ordinary requirements are checkable predicate conditions.
-
-Trusted requirements are trusted predicate conditions that must be established, preserved, or acknowledged.
-
-Trusted implementation capabilities are implementation authority declared with `uses(...)`.
-
-Trusted implementation capabilities do not automatically create trusted caller obligations.
-
-Trusted caller obligations appear in the declaration contract.
-
-Trust boundaries visibly acknowledge trusted caller obligations for a specific operand expression.
-
-Trusted witness values carry trusted guarantees as part of ordinary value contracts.
-
-Contract reasonings are flow-sensitive and are invalidated by ownership, mutation, lifetime, capability, and
-storage-state changes.
-
-Trusted obligations used inside wrappers must be discharged or exposed.
-
-Lifecycle and foreign boundaries follow the same contract and trust rules as ordinary callables.
+Contract reasoning follows control flow. Ownership, mutation, lifetime, capability, and storage-state changes can
+invalidate its evidence. Wrappers must discharge or expose the trusted obligations they use, and lifecycle and foreign
+boundaries follow the same contract and trust rules as ordinary callables.
 
 ## Navigation
 

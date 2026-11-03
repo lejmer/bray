@@ -1,20 +1,11 @@
 # Overview
 
-Packages are build, versioning, distribution, and dependency units.
+A **package** is a build, versioning, distribution, and dependency unit that owns a set of modules. A **module** is a
+named declaration container and source-organization unit inside that package. Modules own declarations.
 
-Modules are named declaration containers and source-organization units inside a package.
-
-A package owns a set of modules.
-
-A module owns declarations.
-
-Module declarations are source declarations.
-
-Package identity is not declared in source.
-
-The current package is supplied by the package and build layer.
-
-Source code declares modules inside the current package.
+The package and build layer supplies the current package and its identity. Source code declares modules within that
+package, rather than declaring the package identity. Module declarations are source declarations, and their ownership
+and paths follow the [module declaration rules](module-declarations.md).
 
 ## Navigation
 

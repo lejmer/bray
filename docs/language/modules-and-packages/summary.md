@@ -6,22 +6,13 @@ This summary is informative. The detailed rules include:
 - [module declarations](module-declarations.md).
 - [using declarations](using-declarations.md).
 
-Module identity is explicit in source.
+Source declarations give modules their identity, while the package and build layer supplies package identity and
+selects each product's source and dependency graphs. Modules are declaration containers rather than runtime objects,
+and using declarations and exports do not execute code. Re-exports preserve declaration identity, and internal access
+requires explicit lexical acknowledgement.
 
-Package identity belongs to the package and build layer.
-
-Package products select explicit source and dependency graphs.
-
-Each runtime product instance owns its realized product statics. Exact native-thread attachments within that product own
-their thread-local statics until deterministic detach cleanup completes.
-
-Modules are named declaration containers, not runtime objects.
-
-Using declarations and exports do not execute code.
-
-Internal access is explicit and lexical.
-
-Re-exports preserve declaration identity.
+Each runtime product instance owns its realized product statics. Exact native-thread attachments within that product
+own their thread-local statics until deterministic detach cleanup completes.
 
 ## Navigation
 

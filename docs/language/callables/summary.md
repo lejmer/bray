@@ -6,50 +6,23 @@ This summary is informative. The detailed rules include:
 - [return and execution scopes](return-and-execution-scopes.md).
 - [parameters](parameters.md).
 
-Functions use `func`.
+Functions use `func`, with a result type introduced by `->` or an omitted result type of `unit`. Their bodies are block
+expressions in callable-body context. `return` supplies a result and exits the nearest callable execution scope, while
+`yield` supplies a value to a yield-capable region.
 
-Callable result types use `->`.
-
-An omitted callable result type means `unit`.
-
-Function bodies are block expressions in callable-body context.
-
-Callable result values are supplied explicitly through `return`.
-
-`return` exits the nearest callable execution scope.
-
-`yield` supplies values to yield-capable regions.
-
-Parameters are bindings declared by function signatures.
+Parameters are bindings declared by signatures. Owned parameters are immutable by default, and arguments are named by
+default. `pos` permits positional arguments and must form an initial run in the parameter list. `mut` before a parameter
+name applies to the owned binding, while `mut` after `&` applies to storage reached through that borrow layer.
 
 An ellipsis after fixed parameters declares a target-supported variadic foreign callable contract. Trailing arguments
 are positional and use the selected ABI's exact default promotions.
 
-Owned parameters are immutable by default.
+Callable types use `func(...) -> ...`, and callable values carry their full contracts, including ABI and caller
+obligations. Higher-order functions preserve those obligations. Async functions declared to return `T` produce owned,
+inactive `Future<T>` values when called.
 
-Parameters are named by default.
-
-The `pos` parameter modifier permits positional arguments for that parameter.
-
-`pos` parameters form an initial run in the parameter list.
-
-`mut` before a parameter name applies to an owned local parameter binding.
-
-`mut` after `&` applies to the storage reached by that borrow layer.
-
-Function types use `func(...) -> ...`.
-
-Function values carry their full callable contract.
-
-Callable ABI is part of a callable's contract.
-
-Higher-order functions preserve caller obligations.
-
-Async functions declared to return `T` produce owned inactive `Future<T>` values when called.
-
-Trusted implementation power and trusted caller obligations are distinct.
-
-Function contracts integrate with the contract and trust rules.
+Trusted implementation power and trusted caller obligations are distinct. Function contracts use the ordinary contract
+and trust rules.
 
 ## Navigation
 

@@ -1,7 +1,8 @@
 # Overview
 
-Bray treats asynchronous execution and task observation as part of ownership, control flow, lifecycle, dependency,
-capability, effect, and product checking.
+Async execution follows ownership and control-flow rules. Captured state retains its dependency contracts across
+suspension, and task owners retain lifecycle obligations until their tasks are resolved. Execution capabilities,
+effects, and the selected product determine which operations are permitted.
 
 The core async surface is:
 

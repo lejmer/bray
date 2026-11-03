@@ -156,15 +156,10 @@ Renaming a public field is a public API change.
 ## Field order
 
 Field declaration order is semantically relevant for deterministic destruction and any rule that explicitly refers to
-declaration order.
+declaration order. It can also affect compiler-chosen layout, though default layout remains compiler-defined.
 
-Field declaration order can also affect compiler-chosen layout.
-
-Default layout remains compiler-defined.
-
-Construction expressions and product patterns match fields by name.
-
-Field order in construction expressions and product patterns does not determine field identity.
+Construction expressions and product patterns match fields by name. Their field order does not determine field
+identity.
 
 ## Field type
 
@@ -178,24 +173,14 @@ struct Point
 }
 ```
 
-The field type participates in:
+Field initialization, access, borrowing, mutation, movement, and copying follow the field type's rules. A field value
+also carries that type's destruction, finalization, capability, and effect requirements. These requirements determine
+how the field can be initialized during [construction](../expressions/struct-construction-expressions.md) or accessed
+through a [product pattern](../patterns/product-patterns.md).
 
-- field initialization,
-- field access,
-- field borrowing,
-- field mutation,
-- field movement,
-- field copying,
-- field destruction,
-- field finalization,
-- product copy behavior,
-- product lifecycle obligations,
-- product layout,
-- product construction,
-- product patterns.
-
-A field value follows the ownership, borrowing, initialization, destruction, finalization, capability, and effect rules
-of its field type.
+Field types also constrain the containing product's [copy behavior](copy-contracts.md),
+[lifecycle obligations](../lifecycle/lifecycle-ordering.md), and
+[layout](../targets-layout-abi-and-raw-memory/product-layout.md).
 
 ## Field visibility
 
@@ -326,22 +311,15 @@ A field default is a
 [declaration-owned runtime default](../declarations/declaration-owned-expressions.md#runtime-defaults). It is checked
 even when every current construction supplies that field explicitly.
 
-A field default cannot reference sibling fields.
+The compiler checks a field default for type, ownership, initialization, effects, capabilities, finalization, and
+flow-sensitive contracts. The default cannot reference sibling fields or `self`.
 
-A field default cannot reference `self`.
-
-A field default is evaluated when that field is omitted during construction.
-
-Effects of an evaluated field default become effects of the construction expression.
-
-Finalization obligations created by an evaluated field default become obligations of the constructed value, local
-temporaries, or surrounding context according to ownership and lifecycle rules.
+A field default is evaluated when that field is omitted during construction. Its effects become effects of the
+construction expression. Finalization obligations created by an evaluated default become obligations of the constructed
+value, local temporaries, or surrounding context according to ownership and lifecycle rules.
 
 Trusted capabilities used by a field default must be permitted by the declaration context and construction context
 according to the trusted capability rules.
-
-A field default participates in type checking, ownership checking, initialization checking, effect checking, capability
-checking, finalization tracking, and flow-sensitive contract checking.
 
 ## Product construction
 

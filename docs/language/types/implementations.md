@@ -2,11 +2,10 @@
 
 Syntax follows the [implementation declarations grammar](../syntax-grammar.md#implementation-declarations).
 
-An **implementation** declares behavior for a type.
+An **implementation** declares behavior for a type. An inherent implementation adds behavior associated with the type,
+while a trait implementation fulfills a trait application. Both forms use `impl`.
 
-Implementations are declared with `impl`.
-
-An inherent implementation is written as `impl Type`.
+An inherent implementation is written as `impl Type`. It does not add fields to the type's primary representation.
 
 ```bray
 impl Point
@@ -23,13 +22,8 @@ impl Point
 }
 ```
 
-An inherent implementation adds behavior associated with the type.
-
-An inherent implementation does not add fields to the type’s primary representation.
-
-A trait implementation can be unnamed or named.
-
-An unnamed trait implementation is written as `impl ImplementingSubject(TraitApplication)`.
+A trait implementation can be unnamed or named. An unnamed trait implementation is written as
+`impl ImplementingSubject(TraitApplication)`.
 
 ```bray
 impl Point(Equatable<Point>)
@@ -53,14 +47,9 @@ impl PointEquatable = Point(Equatable<Point>)
 }
 ```
 
-`ImplementationName` is the implementation identity.
-
-It is not a type, a type alias, or a wrapper around the implementing subject.
-
-The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being implemented
-for.
-
-The trait application inside the parentheses determines the contract being fulfilled.
+`ImplementationName` is the implementation identity. It is not a type, a type alias, or a wrapper around the implementing
+subject. The implementing subject before the parentheses determines `Self`, the receiver type, and the storage being
+implemented for. The trait application inside the parentheses determines the contract being fulfilled.
 
 For a generic trait application:
 

@@ -1,7 +1,7 @@
 # Concepts
 
-This chapter defines terms used throughout the Bray language specification. These terms describe the basics for the
-language semantics.
+This chapter defines shared terms used throughout the Bray language specification. The linked chapters define their
+validity and execution rules.
 
 ---
 
@@ -18,10 +18,11 @@ A **syntax tree** is the parsed representation of a source unit.
 
 A **module** is a named source-level unit of declaration ownership and path resolution.
 
-A **package** is a collection of source units and package metadata compiled as one product or library surface.
+A **package** is a build, versioning, distribution, and dependency unit that owns modules. A package can define one or
+more [products](modules-and-packages/package-products-and-source-graphs.md).
 
-A **declaration** introduces a named program entity or language-defined member. Declaration rules are defined in
-[Declarations](declarations.md).
+A **declaration** introduces a program entity, a member, or a semantic relationship. Declaration contexts and accepted
+forms are defined in the [declarations overview](declarations/overview.md).
 
 A **scope** is a region where names can be introduced and resolved.
 
@@ -40,7 +41,9 @@ relationship.
 
 A **receiver** is the value or storage access that a method call operates on.
 
-An **implementation** binds behavior for a subject type and a trait application.
+An **implementation** declares behavior for a type. An inherent implementation adds behavior associated with that type,
+while a trait implementation fulfills a trait application. The forms are defined in
+[implementations](types/implementations.md).
 
 A **trait application** is a trait declaration together with any generic arguments required by that trait.
 
@@ -84,7 +87,8 @@ An **uninitialized** storage location does not contain a valid value and cannot 
 
 ## Types
 
-A **type** describes the set of values and operations accepted for a value or storage location.
+A **type** defines a set of values and the operations permitted on those values and their storage. The
+[types overview](types/overview.md) explains the obligations those operations can create.
 
 A **type expression** is source syntax that denotes a type.
 
@@ -110,8 +114,8 @@ structure.
 
 ## Evaluation
 
-An **expression** computes a value, performs an effect, controls evaluation, or combines those behaviors according to
-its expression kind.
+An **expression** is a program element that produces a value, an access path, a control-flow outcome, or a compile-time
+entity. Its [expression kind](expressions/overview.md) determines its result, effects, and completion behavior.
 
 A **statement-like expression** is an expression commonly used for its effect or control behavior even though Bray
 treats it as an expression form.
@@ -135,7 +139,9 @@ A **non-local completion** exits the current expression region through a control
 
 A **condition** is a proposition guaranteed by the language rules at a particular program point.
 
-A **predicate** is a named or inline boolean rule valid in predicate context.
+A **predicate** is a named contract-level relation. A **predicate expression** is an expression checked in the restricted
+context used for predicate bodies and contract conditions. The distinction and permitted operations are defined in
+[predicates and predicate expressions](contracts-and-trust/predicates-and-predicate-expressions.md).
 
 A **contract** is a caller-visible semantic obligation or guarantee attached to a declaration, type, trait,
 implementation, or lifecycle operation.

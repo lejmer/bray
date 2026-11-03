@@ -7,54 +7,24 @@ This summary is informative. The detailed rules include:
 - [traits](traits.md).
 - [implementations](implementations.md).
 
-Types are semantic contracts.
+Types define values and permitted operations, together with their ownership and lifecycle obligations. Every value has
+a type, and every access path has a type and capability state. Types govern initialization, movement, copying,
+borrowing, mutation authority, destruction, finalization, contracts, and layout.
 
-Every value has a type.
+Named types have identity, while structural forms produce types under their type-form rules. Product types define
+named-field structure. Bodyless structs are structurally opaque and are incomplete unless an explicit size and
+alignment provide complete opaque storage. A final `[T; ..]` field gives a `@layout(c)` product flexible trailing storage.
 
-Every access path has a type and a capability state.
+Union types define closed alternatives with one semantic active variant. `@layout(c, tag = none)` provides overlapping
+C storage without a represented tag while retaining that semantic active variant.
 
-Types govern initialization, ownership, borrowing, mutation authority, movement, copying, destruction, finalization,
-layout, contracts, and valid operations.
+Traits define explicit behavioral contracts, fulfilled through explicit implementations. A named type's direct members
+and owner-provided inherent members form one type-associated surface. Trait fulfillments remain separate. Type forms
+exist only where compiler-known semantics cannot be expressed by ordinary named types.
 
-Named types have identity.
-
-Structural type forms produce types according to their type-form rules.
-
-Product types define named-field structure.
-
-A bodyless struct is structurally opaque. Without an explicit size and alignment it is incomplete. With both it provides
-complete opaque storage.
-
-A final `[T; ..]` field gives a `@layout(c)` product flexible trailing storage.
-
-Union types define closed alternatives with one semantic active variant.
-
-`@layout(c, tag = none)` gives a union overlapping C storage without a represented tag while retaining its semantic
-active variant.
-
-Traits define explicit behavioral contracts.
-
-An implementing subject satisfies a trait through an explicit implementation.
-
-A named type's direct members and owner-provided inherent implementation members form one type-associated surface.
-
-Trait implementation fulfillments remain separate from that inherent surface.
-
-Type forms exist only when the language needs compiler-known semantics that ordinary named types cannot express.
-
-Default layout is compiler-defined.
-
-Stable layout and C-compatible layout require explicit layout contracts.
-
-Public type surfaces are API surfaces.
-
-Internal type surfaces require explicit acknowledgement outside their intended scope.
-
-Type behavior is explicit.
-
-Polymorphism is explicit.
-
-No type gains behavior by accidental structural matching.
+Default layout is compiler-defined. Stable and C-compatible layout require explicit contracts. Public type contracts
+constrain APIs, and internal type surfaces require explicit acknowledgement outside their intended scope. Type
+behavior and polymorphism are explicit, and matching structure alone does not confer behavior.
 
 ## Navigation
 

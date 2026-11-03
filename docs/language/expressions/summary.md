@@ -6,46 +6,22 @@ This summary is informative. The detailed rules include:
 - [expression evaluation order](expression-evaluation-order.md).
 - [callable-body block expressions](callable-body-block-expressions.md).
 
-Expressions are typed.
+Expressions are typed and can produce values, access paths, control-flow outcomes, or compile-time entities. Block
+expressions always have a type. Sequenced expressions use semicolons, with an exception for self-delimiting block items.
+`return`, `yield`, and `break` supply values to callable execution scopes, yield-capable regions, and break-capable
+regions respectively.
 
-Expressions can produce values, access paths, control-flow outcomes, or compile-time entities.
+Construction uses named fields where field identity matters. Struct construction can omit the type when the expected
+type is known. Union construction can use leading-dot or contextually resolved unqualified shorthand when the expected
+union type is known. No-payload variants construct without parentheses. `box(...)` constructs owned indirection.
 
-Block expressions always have a type.
+Calls follow [callable contracts](../callables.md). `start..end` constructs a finite ascending half-open `Range<T>` over
+one integer scalar type. Assignment produces `unit` on normal completion, and a match produces its selected arm's
+result. Patterns have their own grammar category, defined in [Patterns](../patterns.md).
 
-Sequenced expressions use semicolons. Self-delimiting block-shaped expressions can instead appear directly as block
-items.
-
-Callable results are supplied with `return`.
-
-Yield-capable regions receive values through `yield`.
-
-Break-capable regions receive values through `break`.
-
-Construction expressions use named fields where field identity matters.
-
-Struct construction can omit the type when the expected type is known.
-
-Union variant construction can use leading-dot or contextually resolved unqualified shorthand when the expected union
-type is known.
-
-No-payload union variants construct without parentheses.
-
-`box(...)` is the owned-indirection construction expression.
-
-Function calls and method calls are governed by [callable contracts](../callables.md).
-
-`start..end` constructs a finite ascending half-open `Range<T>` over one integer scalar type.
-
-Assignment returns `unit` on normal completion.
-
-Patterns are their own grammar category and are defined in [Patterns](../patterns.md).
-
-Match expressions are expressions and produce the selected arm result.
-
-Predicate expressions use a restricted contract-expression context.
-
-Expressions participate in ownership, borrowing, initialization, destruction, finalization, effects, capabilities, and
-condition refinement.
+Predicate expressions use a restricted contract-expression context. All expression forms remain subject to the
+ownership, borrowing, initialization, lifecycle, effect, capability, and condition-refinement rules that govern their
+operations.
 
 ## Navigation
 

@@ -1,34 +1,25 @@
 # Overview
 
 Lifecycle behavior controls how values are constructed, used, finalized, destroyed, and entered for scoped use.
+The declaration kinds define distinct operations:
 
-The lifecycle declaration kinds are:
+| Declaration | Role |
+| --- | --- |
+| `construct` | Create a fully initialized value. |
+| `finalize` | Complete required lifecycle obligations before ownership ends. |
+| `destruct` | Perform synchronous cleanup when ownership ends. |
+| `enter` | Define scope entry and scoped capability behavior for a `with` expression. |
+| `exit` | Define scope exit and scoped capability behavior for a `with` expression. |
 
-- `construct`,
-- `finalize`,
-- `destruct`,
-- `enter`,
-- `exit`.
+The language invokes these declarations through construction, ownership, and scoped-use operations. Source code
+cannot call them directly as ordinary functions or methods. A lifecycle invocation contributes the selected
+operation's effects, trusted capability requirements, and contract obligations. Its access to storage follows
+ownership, borrowing, and mutation-authority rules, including outstanding finalization obligations.
 
-Lifecycle declarations are invoked through the language's construction, ownership, and scoped-use operations. Source
-code cannot call lifecycle functions directly as ordinary functions or methods.
-
-Constructors create fully initialized values.
-
-Finalizers complete required lifecycle obligations before ownership ends.
-
-Destructors perform synchronous cleanup when ownership ends.
-
-Scope enter and scope exit declarations define scoped capability behavior for `with` expressions.
-
-Lifecycle declarations participate in ownership, borrowing, mutation authority, finalization obligations, effects,
-trusted capability checking, and contract checking.
-
-Lifecycle rules apply to product types, union types, implementation-eligible type forms with lifecycle behavior, and
-compiler-known types whose language-defined contract includes lifecycle behavior.
-
-They also apply when a product host or exact native-thread attachment resolves a static owner. Every materialized static
-instance has one cleanup owner and one deterministic position in its instantiated lifecycle dependency graph.
+These rules apply to product types, union types, implementation-eligible type forms with lifecycle behavior, and
+compiler-known types whose language-defined contracts include it. They also apply when a product host or exact
+native-thread attachment resolves a static owner. Each materialized static instance has one cleanup owner and one
+deterministic position in its instantiated lifecycle dependency graph.
 
 ## Navigation
 
