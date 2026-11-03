@@ -58,7 +58,7 @@ See [contract clauses](https://github.com/lejmer/bray/blob/develop/docs/language
 The [constant eligibility contrast](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/execution-guarantees.md#constant-eligibility-example)
 shows a pure, total function whose predicate call is rejected until it exposes `const`. The
 [ordinary requirement contrast](https://github.com/lejmer/bray/blob/develop/docs/language/contracts-and-trust/preconditions-and-postconditions.md#ordinary-requirement-example)
-shows that a trust boundary preserves ordinary runtime requirement checks.
+separates an ordinary call's runtime check from rejection of a redundant trust boundary.
 
 `executes(pure, total)` declares independent execution properties. `when(...)` guards guarantees by conditions at execution
 entry. The ordinary body still produces the result.

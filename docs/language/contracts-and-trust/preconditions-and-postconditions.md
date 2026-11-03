@@ -59,20 +59,23 @@ func positive(pos value: i32) -> i32
 }
 ```
 
-In a runtime body whose `input: i32` parameter has no established sign, these alternative calls have the same
-ordinary requirement:
+In a runtime body whose `input: i32` parameter has no established sign, this call is accepted with a runtime requirement
+check:
 
 ```bray
 let checked = positive(input);
 ```
 
+A positive input returns its value. A nonpositive input fails the requirement check and panics.
+
+Adding a trust boundary rejects the fragment because `positive` has no trusted caller obligation to acknowledge:
+
 ```bray
 let checked = trusted positive(input);
 ```
 
-Both fragments are accepted with the permitted runtime requirement check. A positive input returns its value.
-A nonpositive input fails that check and panics. The trust boundary does not waive an ordinary requirement.
-[Trust boundaries](trust-boundaries.md) acknowledge trusted caller obligations, which are separate from this check.
+[Trust boundaries](trust-boundaries.md) acknowledge trusted caller obligations and reject a redundant boundary.
+They do not replace ordinary requirement checks.
 
 ## Navigation
 
