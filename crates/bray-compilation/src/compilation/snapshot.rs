@@ -903,7 +903,7 @@ mod tests {
 
         assert_eq!(
             previous.selected_target().target().runtime_abi(),
-            RuntimeAbiVersion::new(1, 0)
+            bray_runtime_interface::EXECUTION_ABI_VERSION
         );
 
         assert_eq!(

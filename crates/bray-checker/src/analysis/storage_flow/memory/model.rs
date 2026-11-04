@@ -16,9 +16,45 @@ pub(in crate::analysis::storage_flow) enum Effect {
     Atomic,
     Mutation(Target, bray_symbols::DependencyMutationKind),
     Cleanup(TypeId),
+    // A callee can affect a static absent from this unit's storage plan. Keep its
+    // checked subject for forwarding without inventing a local invocation input.
+    Static(bray_symbols::DependencyStorageEffect),
 }
 
 impl Effect {
+    pub(in crate::analysis::storage_flow) fn static_kind(
+        &self,
+    ) -> Option<bray_symbols::DependencyMutationKind> {
+        match self {
+            Self::Static(
+                bray_symbols::DependencyStorageEffect::Direct { kind, .. }
+                | bray_symbols::DependencyStorageEffect::Indirect { kind, .. },
+            ) => Some(*kind),
+            Self::Static(effect) => {
+                panic!("unresolved static effect has no rooted transition: {effect:?}")
+            }
+            _ => None,
+        }
+    }
+
+    pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
+        matches!(self, Self::Ambient)
+            || self.static_kind().is_some_and(|kind| {
+                !matches!(
+                    kind,
+                    bray_symbols::DependencyMutationKind::Atomic
+                        | bray_symbols::DependencyMutationKind::Escape
+                )
+            })
+    }
+
+    pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
+        matches!(
+            self,
+            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
+        ) || self.static_kind() == Some(bray_symbols::DependencyMutationKind::Atomic)
+    }
+
     pub(super) fn retire(&mut self, current: &Target) {
         if let Self::Mutation(target, _) = self
             && current.contains(target)
@@ -46,7 +82,7 @@ impl Effect {
                     })
             }
             Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
-            Self::Ambient | Self::Atomic => false,
+            Self::Ambient | Self::Atomic | Self::Static(_) => false,
         }
     }
 
@@ -56,7 +92,12 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
+            Self::Unknown
+            | Self::Ambient
+            | Self::Escape
+            | Self::Atomic
+            | Self::Cleanup(_)
+            | Self::Static(_) => None,
         }
     }
 }
@@ -299,6 +340,8 @@ impl Transfer {
 /// Reference values are copied between slots. Contents and obligations belong to targets once.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::analysis::storage_flow) struct State {
+    // Complete reference shapes, with whether the type contains no reference slots.
+    pub(super) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
     pub(super) entry_borrows:
         std::sync::Arc<BTreeMap<bray_bound_tree::StorageIdentityId, bray_symbols::BorrowKind>>,
     pub(super) owned_storage: std::sync::Arc<[bray_bound_tree::StorageIdentityId]>,
@@ -459,6 +502,8 @@ fn merge_references<K: Clone + Ord>(
 pub(in crate::analysis::storage_flow) enum ReferenceBounds {
     Known,
     Displaced,
+    /// Possible call-input regions, without established borrow provenance.
+    InputRegions,
     Unknown,
 }
 
@@ -467,6 +512,7 @@ pub(in crate::analysis::storage_flow) enum ReferenceBounds {
 pub(in crate::analysis::storage_flow) struct ReferenceExit {
     pub(super) slots: BTreeMap<Place, References>,
     pub(super) absent: BTreeSet<Place>,
+    pub(super) input_regions: BTreeSet<Place>,
 }
 
 impl ReferenceExit {
@@ -477,6 +523,9 @@ impl ReferenceExit {
             |slot| self.absent.iter().any(|path| path.contains(slot)),
             |slot| incoming.absent.iter().any(|path| path.contains(slot)),
         );
+
+        self.input_regions
+            .extend(incoming.input_regions.iter().cloned());
 
         // Retain only absence established by both predecessors, including enclosing payloads.
         self.absent = self
@@ -494,7 +543,7 @@ impl ReferenceExit {
     pub(in crate::analysis::storage_flow) fn targets(
         &self,
     ) -> impl Iterator<Item = (&Place, &Origin, bool, ReferenceBounds)> {
-        self.slots.iter().flat_map(|(slot, references)| {
+        self.slots.iter().flat_map(move |(slot, references)| {
             references.targets.iter().map(move |target| {
                 (
                     slot,
@@ -502,6 +551,8 @@ impl ReferenceExit {
                     references.is_exact(),
                     if references.unknown {
                         ReferenceBounds::Unknown
+                    } else if self.input_regions.contains(slot) {
+                        ReferenceBounds::InputRegions
                     } else if references.displaced {
                         ReferenceBounds::Displaced
                     } else {

@@ -154,9 +154,7 @@ struct Sender<T>
 
                 if channel.send_waiters.is_head(registration.ticket) && channel.send_can_commit()
                 {
-                    let message: T = trusted pending.take();
-
-                    trusted channel.store_message(message);
+                    trusted channel.store_message(&mut pending);
 
                     if channel.capacity == 0
                     {
@@ -208,6 +206,7 @@ struct Sender<T>
 
         authorize(&self.owner.instance);
 
+        let mut pending: PendingValue<T> = trusted PendingValue<T>(value);
         let shared: &ChannelCore<T> = trusted internal channel_core<T>(&self.owner);
         let mut state = shared.state.lock();
         let channel: &mut ChannelState<T> = state.get();
@@ -220,19 +219,19 @@ struct Sender<T>
 
         if !channel.receiver_open
         {
-            let closed_failure: TrySendError<T> = .Closed(value);
+            let closed_failure: TrySendError<T> = .Closed(trusted pending.take());
 
             return Error(closed_failure);
         }
 
         if !channel.send_waiters.is_empty() || !channel.send_can_commit()
         {
-            let full_failure: TrySendError<T> = .Full(value);
+            let full_failure: TrySendError<T> = .Full(trusted pending.take());
 
             return Error(full_failure);
         }
 
-        trusted channel.store_message(value);
+        trusted channel.store_message(&mut pending);
         trusted internal notify_channel<T>(shared);
 
         return Ok(unit);
@@ -320,17 +319,12 @@ struct Receiver<T>
 
                 if channel.receive_waiters.is_head(registration.ticket) && channel.length > 0
                 {
-                    let message: T = trusted channel.take_received_message();
-
-                    channel.receive_waiters.pop_head();
-
                     trusted registration.complete();
-
-                    let result: ReceiveResult<T> = .Received(message);
+                    channel.receive_waiters.pop_head();
 
                     trusted internal notify_channel<T>(shared);
 
-                    return result;
+                    return ReceiveResult.Received(trusted channel.take_received_message());
                 }
 
                 if channel.receive_waiters.is_head(registration.ticket) && trusted internal all_senders_closed<T>(
@@ -387,12 +381,9 @@ struct Receiver<T>
 
         if channel.receive_waiters.is_empty() && channel.length > 0
         {
-            let message: T = trusted channel.take_received_message();
-            let result: TryReceiveResult<T> = .Received(message);
-
             trusted internal notify_channel<T>(shared);
 
-            return result;
+            return TryReceiveResult.Received(trusted channel.take_received_message());
         }
 
         if trusted internal all_senders_closed<T>(shared)

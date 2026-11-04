@@ -18,6 +18,7 @@ const ALLOCATION_PROBE_SMOKE_SOURCE: &str = concat!(
 const BOOTSTRAP_SMOKE_SOURCE: &str = concat!(
     include_str!("../../fixtures/runtime-allocation-probe.c"),
     include_str!("../../fixtures/runtime-bootstrap-smoke.c"),
+    include_str!("../../fixtures/runtime-worker-smoke.c"),
     include_str!("../../fixtures/runtime-product-smoke.c"),
     include_str!("../../fixtures/runtime-event-smoke.c"),
     include_str!("../../fixtures/runtime-deadline-smoke.c"),
@@ -29,13 +30,13 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let executable = compile_c_smoke(
+    let (executable, _) = compile_c_smoke(
         ALLOCATION_PROBE_SMOKE_SOURCE,
         "allocation-probe-smoke",
         &[],
         target,
         directory,
-        &directory.join("allocation-probe-smoke.map"),
+        &[],
         &[],
     )?;
 
@@ -194,17 +195,20 @@ fn smoke_test_bootstrap(
 
     archives.push(&resident);
 
-    let map = directory.join("runtime-bootstrap-smoke.map");
     let numeric_vectors = super::numeric::vectors(directory)?;
 
-    let executable = compile_c_smoke(
+    let (executable, map) = compile_c_smoke(
         BOOTSTRAP_SMOKE_SOURCE,
         "runtime-bootstrap-smoke",
         &archives,
         target,
         directory,
-        &map,
         &package.native_links,
+        if target.object_format() == bray_target::ObjectFormat::Elf {
+            &["-Wl,--wrap=pthread_create", "-Wl,--wrap=pthread_join"]
+        } else {
+            &[]
+        },
     )?;
 
     let output = crate::validation_process::success(
@@ -273,10 +277,11 @@ pub(super) fn compile_c_smoke(
     archives: &[&Path],
     target: NativeTarget,
     directory: &Path,
-    map: &Path,
     native_links: &[NativeLinkRequirement],
-) -> Result<PathBuf, CommandError> {
+    linker_arguments: &[&str],
+) -> Result<(PathBuf, PathBuf), CommandError> {
     let source = directory.join(format!("{name}.c"));
+    let map = directory.join(format!("{name}.map"));
 
     let executable = directory.join(if cfg!(windows) {
         format!("{name}.exe")
@@ -296,7 +301,8 @@ pub(super) fn compile_c_smoke(
         .arg(format!("--target={}", target.as_str()))
         .args(["-std=c11", "-O2", "-fuse-ld=lld"])
         .arg(&source)
-        .args(archives);
+        .args(archives)
+        .args(linker_arguments);
 
     if target.object_format() == bray_target::ObjectFormat::Elf {
         command.arg("-static-libgcc");
@@ -339,12 +345,12 @@ pub(super) fn compile_c_smoke(
         bray_target::ObjectFormat::Coff => {
             command
                 .arg("-Xlinker")
-                .arg(linker_map_argument(target, map)?);
+                .arg(linker_map_argument(target, &map)?);
         }
         bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::MachO => {
             command
                 .arg("-pthread")
-                .arg(linker_map_argument(target, map)?);
+                .arg(linker_map_argument(target, &map)?);
         }
         bray_target::ObjectFormat::WebAssembly | bray_target::ObjectFormat::Xcoff => {
             return Err(CommandError::HostTarget);
@@ -361,7 +367,7 @@ pub(super) fn compile_c_smoke(
         return Err(CommandError::NativeSmokeLinkFailed(name.to_owned()));
     }
 
-    Ok(executable)
+    Ok((executable, map))
 }
 
 fn compile_smoke(

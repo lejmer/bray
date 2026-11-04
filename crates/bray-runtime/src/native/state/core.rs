@@ -120,7 +120,6 @@ fn replace_runtime(runtime: Option<NativeRuntimeBinding>) -> Option<NativeRuntim
 
 fn retire_runtime(runtime: Option<NativeRuntimeBinding>) {
     if let Some(NativeRuntimeBinding::Owned(runtime)) = runtime {
-        runtime.scheduler.close_timers();
         runtime.core.release_owner();
     }
 }
@@ -251,7 +250,7 @@ pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) thread: RuntimeThreadEntry,
     pub(in crate::native) main_thread_lane: bool,
     pub(in crate::native) cleanup_workloads: Cell<bool>,
-    pub(in crate::native) worker: Option<Arc<super::super::workers::WorkerControl>>,
+    pub(in crate::native) worker: Option<super::super::workers::Context>,
     pub(crate) core: Arc<NativeRuntimeCore>,
     #[cfg(test)]
     pub(in crate::native) _test_isolation: Option<TestRuntimeIsolation>,
@@ -293,8 +292,8 @@ pub(crate) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
 }
 
 pub(crate) struct NativeRuntimeCore {
-    pub(in crate::native) scheduler: Scheduler,
     pub(in crate::native) workers: super::super::workers::WorkerPool,
+    pub(in crate::native) scheduler: Scheduler,
     pub(in crate::native) owners: AtomicUsize,
     pub(in crate::native) identity: u64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
@@ -351,7 +350,7 @@ mod tests {
 
             for core in cores {
                 assert_eq!(core.owners.load(Ordering::Acquire), 0);
-                assert!(core.workers.is_stopping());
+                assert!(core.workers.is_stopping(&core.scheduler));
 
                 assert_eq!(
                     core.scheduler
@@ -561,7 +560,7 @@ mod tests {
             });
 
             assert_eq!(inner.owners.load(Ordering::Acquire), 0);
-            assert!(inner.workers.is_stopping());
+            assert!(inner.workers.is_stopping(&inner.scheduler));
 
             assert!(Rc::ptr_eq(
                 &super::current_runtime().expect("fixture runtime must be active"),
@@ -589,7 +588,7 @@ mod tests {
         let unwound = unwound.expect("fixture `unwound` call must succeed");
 
         assert_eq!(unwound.owners.load(Ordering::Acquire), 0);
-        assert!(unwound.workers.is_stopping());
+        assert!(unwound.workers.is_stopping(&unwound.scheduler));
 
         assert!(Rc::ptr_eq(
             &super::current_runtime().expect("fixture runtime must be active"),
@@ -605,10 +604,10 @@ mod tests {
         });
 
         assert_eq!(retained.core.owners.load(Ordering::Acquire), 1);
-        assert!(!retained.core.workers.is_stopping());
+        assert!(!retained.core.workers.is_stopping(&retained.core.scheduler));
         retained.release();
         assert_eq!(retained.core.owners.load(Ordering::Acquire), 0);
-        assert!(retained.core.workers.is_stopping());
+        assert!(retained.core.workers.is_stopping(&retained.core.scheduler));
         assert!(super::shutdown().is_success());
         assert_eq!(outer.core.owners.load(Ordering::Acquire), 0);
     }
@@ -677,12 +676,13 @@ impl NativeRuntimeCore {
             return;
         }
 
-        let current = current_runtime()
-            .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
-            .and_then(|runtime| runtime.worker.clone());
+        if !self.workers.stop(&self.scheduler) {
+            self.finish_services();
+        }
+    }
 
+    pub(in crate::native) fn finish_services(&self) {
         self.scheduler.close_timers();
-        self.workers.stop(&self.scheduler, current.as_ref());
         self.clear_tasks();
 
         super::super::event::clear(self);
@@ -696,14 +696,8 @@ impl RetainedRuntime {
         })
     }
 
-    pub(crate) fn detach_product_workers(&self, product: usize) {
-        let current = current_runtime()
-            .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
-            .and_then(|runtime| runtime.worker.clone());
-
-        self.core
-            .workers
-            .detach_product(product, current.as_ref(), &self.core.scheduler);
+    pub(crate) fn detach_product_workers(&self, _product: usize) {
+        self.core.workers.detach_product();
     }
 
     pub(crate) fn release(&self) {
@@ -788,10 +782,6 @@ fn initialize_with_capabilities(
         identity,
         cleanup_reports: CleanupReportSink::new(),
     });
-
-    if !core.workers.start(&core) {
-        return NativeRuntimeStatus::RUNTIME_FAILURE;
-    }
 
     let previous = replace_runtime(Some(NativeRuntimeBinding::Owned(Rc::new(NativeRuntime {
         thread,
@@ -887,100 +877,83 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     Ok(retained)
 }
 
-pub(crate) fn retain_timeout_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
+pub(crate) fn retain_timeout_runtime() -> Result<RetainedRuntime, crate::RunTimeoutError> {
     if current_runtime().is_none() {
         let status = initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
 
         if !status.is_success() {
-            return Err(status);
+            return Err(crate::RunTimeoutError::Runtime(status));
         }
     }
 
-    retain_current_runtime().map(|runtime| runtime.expect("timeout demand establishes the current runtime"))
+    let retained = retain_current_runtime()
+        .map_err(crate::RunTimeoutError::Runtime)?
+        .expect("timeout demand establishes the current runtime");
+
+    if let Err(failure) = retained
+        .core
+        .workers
+        .demand_workload(&retained.core, ExecutionWorkload::Cooperative)
+    {
+        retained.release();
+
+        return Err(crate::RunTimeoutError::Worker(failure));
+    }
+
+    Ok(retained)
 }
 
-pub(in crate::native) fn run_worker(
+pub(in crate::native) fn bind_worker(
     core: Arc<NativeRuntimeCore>,
-    thread: RuntimeThreadEntry,
+    scope: bray_runtime_abi::NativeWorkerScope,
     workload: ExecutionWorkload,
-    control: Arc<super::super::workers::WorkerControl>,
 ) {
-    let runtime = Rc::new(NativeRuntime {
-        thread,
-        main_thread_lane: false,
-        cleanup_workloads: Cell::new(false),
-        worker: Some(Arc::clone(&control)),
-        core,
-        #[cfg(test)]
-        _test_isolation: None,
-    });
+    let thread = crate::bootstrap::current_runtime_thread()
+        .expect("Source establishes primitive attachment before native context binding");
 
-    let previous = replace_runtime(Some(NativeRuntimeBinding::Borrowed(Rc::clone(&runtime))));
+    let previous = replace_runtime(Some(NativeRuntimeBinding::Borrowed(Rc::new(
+        NativeRuntime {
+            thread: RuntimeThreadEntry::Current(thread),
+            main_thread_lane: false,
+            cleanup_workloads: Cell::new(false),
+            worker: Some(super::super::workers::Context {
+                scope,
+                workload,
+                ready: RefCell::new(None),
+                failure: RefCell::new(None),
+            }),
+            core,
+            #[cfg(test)]
+            _test_isolation: None,
+        },
+    ))));
 
-    debug_assert!(
+    assert!(
         previous.is_none(),
-        "worker starts without a runtime context"
+        "a new OS worker starts without a native runtime context"
     );
+}
 
-    let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
+pub(in crate::native) fn unbind_worker() {
+    let previous = replace_runtime(None);
 
-    while !runtime.workers.is_stopping() {
-        control.drain();
+    assert!(
+        matches!(previous, Some(NativeRuntimeBinding::Borrowed(_))),
+        "Source retires one borrowed worker context after exact-thread cleanup"
+    );
+}
 
-        let deadline =
-            bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
-
-        let lanes =
-            super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, false)
-                .chain(
-                    [
-                        Some(workload),
-                        (workload == ExecutionWorkload::Blocking)
-                            .then_some(ExecutionWorkload::BlockingCompute),
-                    ]
-                    .into_iter()
-                    .flatten()
-                    .map(|workload| {
-                        ExecutionLane::new(ExecutionLanePlacement::Migratable, workload)
-                    }),
-                );
-
-        let ready = runtime
-            .scheduler
-            .wait_ready(runtime.thread.runtime(), lanes, deadline);
-
-        match ready {
-            Ok(Some(ready)) => {
-                if workload == ExecutionWorkload::Blocking && accounted_as_idle {
-                    runtime.workers.begin_blocking_work(&runtime.core);
-                    accounted_as_idle = false;
-                }
-
-                let _ = runtime.drive_ready(ready);
-            }
-            Ok(None) if workload != ExecutionWorkload::Blocking || accounted_as_idle => continue,
-            Ok(None) => {}
-            Err(_) => break,
-        }
-
-        if workload == ExecutionWorkload::Blocking {
-            accounted_as_idle = runtime.workers.finish_blocking_work();
-
-            if !accounted_as_idle
-                && !runtime
-                    .scheduler
-                    .has_attachment_users(runtime.thread.runtime())
-            {
-                break;
-            }
-        }
-    }
-
-    control.drain();
-
-    runtime
-        .workers
-        .retire(workload, &control, accounted_as_idle);
-
-    replace_runtime(None);
+pub(in crate::native) fn worker_lanes(
+    runtime: &NativeRuntime,
+    workload: ExecutionWorkload,
+) -> impl Iterator<Item = ExecutionLane> {
+    super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, false).chain(
+        [
+            Some(workload),
+            (workload == ExecutionWorkload::Blocking).then_some(ExecutionWorkload::BlockingCompute),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|workload| ExecutionLane::new(ExecutionLanePlacement::Migratable, workload)),
+    )
 }

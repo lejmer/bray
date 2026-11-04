@@ -1,0 +1,276 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.atomic;
+using core.memory;
+using internal bray.runtime.bootstrap;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.host.product;
+using internal bray.runtime.bootstrap.pool;
+using internal std.thread;
+
+@abi(c)
+trusted internal func acquisition(
+    pos pointer: DataPointer<DataPointer<Scope>>,
+    pos lanes: u32,
+    pos output: DataPointer<bray.runtime.bootstrap.scheduler.Observation>
+) -> u32
+    requires(trusted scope_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
+    uses(intrinsic)
+{
+    let reference = trusted read_scope(pointer);
+    let scope = trusted scope_value(&reference);
+    let row = trusted worker(&reference);
+    let mut guard = trusted lock(&row.pool);
+    let state = trusted locked_state(&row.pool, &mut guard);
+
+    if state.stopping
+    {
+        return 0;
+    }
+
+    let scheduler = trusted scheduler_pointer(&row.pool);
+
+    let authorize_scheduler = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
+    )
+        requires(trusted retained(owner = &owner.marker))
+        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted authorize_scheduler(&row.pool, scheduler);
+
+    let selected = trusted bray.runtime.bootstrap.scheduler.acquisition(scheduler, scope.attachment, lanes, output);
+
+    if selected == 1 && row.workload == 1
+    {
+        if state.idle_blocking == 0
+        {
+            trusted core.target.abort();
+        }
+
+        state.idle_blocking -= 1;
+    }
+
+    return selected;
+}
+
+@abi(c)
+trusted internal func notification(pos pointer: DataPointer<DataPointer<Domain>>)
+    requires(trusted reference_slot(pointer = pointer))
+    uses(raw_memory)
+{
+    let reference = trusted read_reference(pointer);
+
+    {
+        let mut guard = trusted lock(&reference);
+        let state = trusted locked_state(&reference, &mut guard);
+
+        if let ?entries = state.entries
+        {
+            let rows = trusted std.memory.initialized_slice<std.memory.RawBuffer<Worker>>(&entries);
+            let mut index: usize = 0;
+
+            while index < rows.length()
+            {
+                let workers = trusted std.memory.initialized_slice<Worker>(&rows[index]);
+
+                core.atomic.store<u32, 2>(&workers[0].detach, 1);
+                index += 1;
+            }
+        }
+    }
+
+    trusted notify_scheduler(&reference);
+}
+
+trusted internal func notify_scheduler(pos reference: &Reference)
+    requires(trusted retained(owner = &reference.marker))
+{
+    let pointer = trusted scheduler_pointer(reference);
+
+    let authorize = trusted lambda(
+        pos reference: &Reference,
+        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
+    )
+        requires(trusted retained(owner = &reference.marker))
+        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted authorize(reference, pointer);
+    trusted bray.runtime.bootstrap.scheduler.notification(pointer);
+}
+
+@abi(c)
+trusted internal func stop(pos pointer: DataPointer<DataPointer<Domain>>)
+    requires(trusted stop_entry(), blocking_execution())
+    uses(intrinsic, raw_memory)
+{
+    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Domain>>)
+        requires(trusted stop_entry())
+        ensures(trusted reference_slot(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    let reference = trusted read_reference(pointer);
+    let native = internal std.thread.current_platform_identity();
+    let mut from_worker: bool = false;
+    let mut count: usize = 0;
+    let mut retire: bool = false;
+
+    {
+        let mut guard = trusted lock(&reference);
+        let state = trusted locked_state(&reference, &mut guard);
+
+        state.stopping = true;
+
+        if state.live == 0 && !state.completed
+        {
+            state.completed = true;
+            retire = true;
+        }
+
+        if let ?entries = state.entries
+        {
+            let rows = trusted std.memory.initialized_slice<std.memory.RawBuffer<Worker>>(&entries);
+
+            count = rows.length();
+
+            let mut index: usize = 0;
+
+            while index < count
+            {
+                let workers = trusted std.memory.initialized_slice<Worker>(&rows[index]);
+
+                if core.atomic.load<u64, 1>(&workers[0].identity) == native && core.atomic.load<u32, 1>(
+                    &workers[0].terminal
+                ) == 0
+                {
+                    from_worker = true;
+                }
+
+                index += 1;
+            }
+        }
+    }
+
+    if retire
+    {
+        let wire = std.memory.null<Scope>();
+        let mut argument: u64 = 0;
+
+        let mut outcome: bray.runtime.bootstrap.ReportOutcome =
+        {
+            state = bray.runtime.bootstrap.RUN_COMPLETED,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        };
+
+        let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+        let argument_pointer = std.memory.address_of_mut<u64>(&mut argument);
+        let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+        let value = trusted domain(&reference);
+        let context = value.callback.context;
+
+        let authorize_completion = trusted lambda(
+            pos context: usize,
+            pos scope: DataPointer<DataPointer<Scope>>,
+            pos argument: DataPointer<u64>,
+            pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+        )
+            requires(trusted stop_entry())
+            ensures(
+                trusted callback_authorized(
+                    context = context,
+                    operation = 8,
+                    scope = scope,
+                    argument = argument,
+                    outcome = outcome
+                )
+            )
+            executes(pure, total) {};
+
+        trusted authorize_completion(context, scope_pointer, argument_pointer, output);
+
+        if trusted perform(value.callback.call, context, 8, scope_pointer, argument_pointer, output) != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    trusted notify_scheduler(&reference);
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let selected = trusted lambda(pos reference: &Reference, pos index: usize) -> WorkerReference
+            requires(trusted retained(owner = &reference.marker))
+            ensures(trusted retained_worker(owner = &result.marker))
+            uses(intrinsic)
+        {
+            let mut guard = trusted lock(reference);
+            let state = trusted locked_state(reference, &mut guard);
+
+            if let ?entries = state.entries
+            {
+                let rows = trusted std.memory.initialized_slice<std.memory.RawBuffer<Worker>>(&entries);
+
+                return
+                {
+                    marker = Marker
+                    {
+                    },
+                    pointer = std.memory.pointer<Worker>(&rows[index])
+                };
+            }
+
+            return trusted core.target.abort();
+        };
+
+        let loan = trusted reference_loan(&reference);
+        let selected_worker = trusted selected(&loan, index);
+        let row = trusted retained_worker_value(&selected_worker);
+
+        while core.atomic.load<u32, 1>(&row.formation) == 0
+        {
+            core.atomic.wait<u32, 1>(&row.formation, 0);
+        }
+
+        if !from_worker
+        {
+            while core.atomic.load<u32, 1>(&row.terminal) == 0
+            {
+                core.atomic.wait<u32, 1>(&row.terminal, 0);
+            }
+        }
+
+        let handle = core.atomic.exchange<u64, 3>(&row.handle, 0);
+
+        if handle != 0
+        {
+            // A worker cannot wait for peers that may depend on its callback.
+            // Descriptor ownership keeps every detached worker and provider live
+            // until its exact-thread cleanup and terminal acknowledgement.
+            let status = if from_worker
+            {
+                yield trusted internal std.thread.platform_thread_detach(handle);
+            }
+            else
+            {
+                yield trusted internal std.thread.platform_thread_join(handle);
+            };
+
+            if status.category != 0
+            {
+                trusted core.target.abort();
+            }
+        }
+
+        index += 1;
+    }
+}

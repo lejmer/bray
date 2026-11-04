@@ -80,6 +80,7 @@ trusted internal func initialize(
             state = trusted std.sync.SpinLock<State>(
                 {
                     deadline_closed = false,
+                    worker_closed = false,
                     entries = none,
                     queues = none,
                     free_queue = 0,
@@ -203,4 +204,38 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
         std.memory.stride_of<Domain>(),
         align = std.memory.align_of<Domain>()
     );
+}
+
+@abi(c)
+trusted internal func worker_admission_state(pos pointer: DataPointer<Reference>, pos close: u32) -> u32
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+    let value = trusted domain(&owner);
+    let mut guard = trusted lock(value);
+    let state = trusted guard.get();
+
+    if close != 0
+    {
+        state.worker_closed = true;
+    }
+
+    return if state.worker_closed
+    {
+        yield 1;
+    }
+    else
+    {
+        yield 0;
+    };
+}
+
+trusted internal func worker_admission(pos owner: &Reference) -> bool
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let value = trusted domain(owner);
+    let mut guard = trusted lock(value);
+
+    return !trusted guard.get().worker_closed;
 }

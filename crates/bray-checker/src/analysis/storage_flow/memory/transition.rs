@@ -6,6 +6,18 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 impl State {
+    pub(in crate::analysis::storage_flow) fn observe_effect_types(&mut self, effects: &[super::Effect]) {
+        for effect in effects {
+            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty)) = effect
+                && target.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+            {
+                // A checked owning-region write retains its backing element type,
+                // without establishing initialized contents or retyping known storage.
+                self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(*ty);
+            }
+        }
+    }
+
     pub(in crate::analysis::storage_flow) fn consume_target(&mut self, target: Target, ty: TypeId) {
         if target
             .storage_path()
@@ -22,6 +34,7 @@ impl State {
         target: Target,
         ty: TypeId,
         origin: BoundExpressionId,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
         if target
             .storage_path()
@@ -30,7 +43,7 @@ impl State {
             return;
         }
 
-        self.write_targets(&References::one(target), ty, origin);
+        self.write_targets(&References::one(target), ty, origin, invalidation);
     }
 
     #[cfg(test)]
@@ -60,7 +73,7 @@ impl State {
         ty: TypeId,
         origin: BoundExpressionId,
     ) {
-        self.write_target(Target::storage(place), ty, origin);
+        self.write_target(Target::storage(place), ty, origin, None);
     }
 
     pub(in crate::analysis::storage_flow) fn write(
@@ -108,7 +121,7 @@ impl State {
                 }
             }
 
-            self.write_targets(references, ty, origin);
+            self.write_targets(references, ty, origin, None);
 
             for target in affected {
                 self.values.entry(target).or_default().merge(&incoming);
@@ -126,7 +139,7 @@ impl State {
             .map(|(target, source)| (target.clone(), self.capture_source(source, target)))
             .collect::<Vec<_>>();
 
-        self.write_targets(references, ty, origin);
+        self.write_targets(references, ty, origin, None);
 
         for (target, transfer) in transfers {
             if references.is_exact() {
@@ -155,7 +168,13 @@ impl State {
         }
     }
 
-    fn write_targets(&mut self, references: &References, ty: TypeId, origin: BoundExpressionId) {
+    fn write_targets(
+        &mut self,
+        references: &References,
+        ty: TypeId,
+        origin: BoundExpressionId,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
+    ) {
         let exact = references.is_exact();
 
         for target in self.affected_targets(references) {
@@ -167,7 +186,10 @@ impl State {
                 contents.initialized.insert(ty);
 
                 self.values.remove(&target);
-            } else if let Some(stored) = self.values.get_mut(&target) {
+            } else if !invalidation
+                .is_some_and(|invalidation| Self::stable_reference_slot(&target, invalidation))
+                && let Some(stored) = self.values.get_mut(&target)
+            {
                 stored.unknown = true;
             }
 

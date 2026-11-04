@@ -38,19 +38,11 @@ impl State {
             .flat_map(|(_, references)| references.targets.iter())
     }
 
-    pub(in crate::analysis::storage_flow) fn raw_exposed_roots(
-        &self,
-    ) -> BTreeSet<StorageIdentityId> {
-        self.contents
-            .iter()
+    pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
+        self.contents.iter()
             // A callee can publish an address without forming it in this caller.
-            .filter(|(_, contents)| contents.exposed || contents.escaped)
-            .filter_map(|(target, _)| {
-                target
-                    .storage_path()
-                    .map(|path| path.root)
-                    .or_else(|| target.observation_path().map(|path| path.root))
-            })
+            .filter(|(target, contents)| !target.previous && (contents.exposed || contents.escaped))
+            .map(|(target, _)| exposure_region(target))
             .collect()
     }
 
@@ -140,12 +132,12 @@ impl State {
     ) -> BTreeSet<Target> {
         let (targets, _) = self.transitive_regions(roots, |_| true);
 
+        // Publishing a symbolic result also exposes each possible input allocation.
+        // Keep its own identity for backing produced independently of those inputs.
         targets
-            .into_iter()
-            .map(|target| {
-                // A native recipient can use address arithmetic within the allocation.
-                exposure_region(&target)
-            })
+            .iter()
+            .flat_map(|target| std::iter::once(target).chain(self.effect_origins(target)))
+            .map(exposure_region)
             .collect()
     }
 
@@ -180,8 +172,17 @@ impl State {
                 continue;
             }
 
+            let reference_free = self.contents.get(&target).is_some_and(|contents| {
+                !contents.exposed && contents.storage_type.is_some_and(|ty| {
+                    self.complete_reference_types.get(&ty) == Some(&true)
+                })
+            });
+
             for (slot, references) in &self.values {
                 if follow(slot)
+                    // Typed scalars cannot load unrelated pointer slots. Explicit
+                    // stored references and raw allocation views remain authoritative.
+                    && (!reference_free || target.contains(slot))
                     && self.target_relationship(&target, slot)
                         != bray_bound_tree::StorageRelationship::Disjoint
                 {
@@ -207,42 +208,51 @@ impl State {
             crate::analysis::storage_flow::model::StorageAbsence,
         >,
     ) -> ReferenceExit {
-        ReferenceExit {
-            // Boundary summaries retain only observable reference values, not the body state.
-            slots: self
-                .values
-                .iter()
-                .filter_map(|(target, references)| {
-                    let slot = target.observation_path()?;
+        let mut input_regions = BTreeSet::new();
 
-                    Some((slot, references))
-                })
-                .filter(|(slot, _)| {
-                    slot.root == result
-                        || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
-                })
-                .map(|(slot, references)| {
-                    let mut exported = references.clone();
+        // Boundary summaries retain only observable reference values, not the body state.
+        let slots = self
+            .values
+            .iter()
+            .filter_map(|(target, references)| {
+                let slot = target.observation_path()?;
 
-                    for target in &references.targets {
-                        if let Origin::Returned { reference, .. } = &target.origin {
-                            // Expand established origins without turning a region bound into
-                            // exact forwarding or inventing an independent alternative.
-                            exported.inexact = true;
+                Some((slot, references))
+            })
+            .filter(|(slot, _)| {
+                slot.root == result
+                    || !slot.projections.is_empty() && is_entry_slot(&self.contents, slot)
+            })
+            .map(|(slot, references)| {
+                let mut exported = references.clone();
 
-                            let bounds = self.returned_reference_bounds(reference);
+                for target in &references.targets {
+                    if let Origin::Returned { reference, .. } = &target.origin {
+                        // Expand established origins without turning a region bound into
+                        // exact forwarding or inventing an independent alternative.
+                        exported.inexact = true;
 
-                            if !bounds.unknown {
-                                exported.targets.remove(target);
-                            }
+                        let bounds = self.returned_reference_bounds(reference);
 
-                            exported.targets.extend(bounds.targets.iter().cloned());
+                        if bounds.unknown && !bounds.targets.is_empty() {
+                            input_regions.insert(slot.clone());
                         }
-                    }
 
-                    (slot.clone(), exported)
-                })
-                .collect(),
+                        if !bounds.unknown {
+                            exported.targets.remove(target);
+                        }
+
+                        exported.targets.extend(bounds.targets.iter().cloned());
+                    }
+                }
+
+                (slot.clone(), exported)
+            })
+            .collect();
+
+        ReferenceExit {
+            slots,
+            input_regions,
             absent: absent
                 .iter()
                 .filter(|(_, reason)| {

@@ -1056,6 +1056,17 @@ fn returned_static_borrows_preserve_their_owner_through_calls() {
             .dependency_contract_template_data(*dependencies.value());
 
         assert!(
+            template.borrows().iter().any(|reference| {
+                reference.entry().is_none()
+                    && reference.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                    && reference.exit().subject_root()
+                        == bray_symbols::DependencySubjectRoot::Result
+                    && !reference.is_exact()
+            }),
+            "static physical origin must remain independent of call inputs: {template:#?}"
+        );
+
+        assert!(
             template.requirements().iter().any(|requirement| {
                 let bray_symbols::DependencyRequirement::Direct { subject, .. } = requirement
                 else {

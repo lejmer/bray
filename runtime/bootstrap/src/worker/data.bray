@@ -1,0 +1,179 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.worker;
+
+using core.atomic;
+using core.memory;
+using std.memory;
+using std.sync;
+using internal bray.runtime.bootstrap.scheduler;
+using internal std.sync.spin_lock;
+
+internal struct Marker
+{
+}
+
+internal struct Reference
+{
+    marker: Marker;
+    pointer: DataPointer<Domain>;
+}
+
+// This reference borrows the actual OS-entry scope, never a numeric thread ID.
+internal struct ScopeReference
+{
+    marker: Marker;
+    pointer: DataPointer<Scope>;
+}
+
+internal callable Operation = @abi(c) trusted func(
+    pos context: usize,
+    pos operation: u32,
+    pos scope: DataPointer<DataPointer<Scope>>,
+    pos argument: DataPointer<u64>,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        trusted callback_authorized(
+            context = context,
+            operation = operation,
+            scope = scope,
+            argument = argument,
+            outcome = outcome
+        )
+    )
+    ensures(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted callback_returned(outcome = outcome)
+    );
+
+trusted internal predicate callback_authorized(
+    context: usize,
+    operation: u32,
+    scope: DataPointer<DataPointer<Scope>>,
+    argument: DataPointer<u64>,
+    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+);
+
+trusted internal predicate callback_returned(outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
+
+// The template borrows the native binding. Each admitted OS entry retains its own descriptor.
+@copy
+@layout(c)
+internal struct Callback
+{
+    context: usize;
+    call: Operation;
+}
+
+@layout(c)
+internal struct Failure
+{
+    mut stage: u32;
+    mut category: u32;
+    mut native_code: i64;
+}
+
+internal struct Domain
+{
+    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    callback: Callback;
+    state: std.sync.SpinLock<State>;
+}
+
+internal struct State
+{
+    mut stopping: bool;
+    mut entries: std.memory.RawBuffer<std.memory.RawBuffer<Worker>>?;
+    mut count: [usize; 3];
+    mut idle_blocking: usize;
+    mut live: usize;
+    mut completed: bool;
+}
+
+// One stable allocation admits native ownership, startup acknowledgement,
+// detach notification and terminal storage before OS creation.
+internal struct Worker
+{
+    pool: Reference;
+    workload: u32;
+    handle: core.atomic.Atomic<u64>;
+    identity: core.atomic.Atomic<u64>;
+    startup: core.atomic.Atomic<u32>;
+    terminal: core.atomic.Atomic<u32>;
+    detach: core.atomic.Atomic<u32>;
+    formation: core.atomic.Atomic<u32>;
+    failure_stage: core.atomic.Atomic<u32>;
+    failure_category: core.atomic.Atomic<u32>;
+    failure_code: core.atomic.Atomic<i64>;
+}
+
+internal struct WorkerReference
+{
+    marker: Marker;
+    pointer: DataPointer<Worker>;
+}
+
+// A formation claim and its committed native descriptor keep one complete carrier.
+internal struct Descriptor
+{
+    marker: Marker;
+    reference: WorkerReference;
+}
+
+trusted internal predicate forming(owner: &Marker);
+
+trusted internal predicate descriptor_owned(owner: &Marker);
+
+internal struct Scope
+{
+    marker: Marker;
+    worker: &Descriptor;
+    attachment: u64;
+    native_thread: u64;
+}
+
+trusted internal predicate retained(owner: &Marker);
+
+trusted internal predicate retiring(owner: &Reference);
+
+trusted internal predicate reference_slot(pointer: DataPointer<DataPointer<Domain>>);
+
+trusted internal predicate retirement_entry(pointer: DataPointer<DataPointer<Domain>>);
+
+trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
+
+trusted internal predicate scope_slot(pointer: DataPointer<DataPointer<Scope>>);
+
+trusted internal predicate scope_live(owner: &Marker);
+
+trusted internal predicate scope_owned(owner: &Marker);
+
+trusted internal predicate native_entry();
+
+trusted internal predicate retained_worker(owner: &Marker);
+
+trusted internal predicate formation_entry();
+
+trusted internal predicate stop_entry();
+
+internal func no_failure() -> Failure
+{
+    return
+    {
+        stage = 0,
+        category = 0,
+        native_code = 0
+    };
+}
+
+internal union FormationChoice
+{
+    Existing(pos pointer: DataPointer<Worker>);
+    Created(pos formation: Descriptor);
+    Backing;
+}
+
+trusted internal predicate acquisition_for(owner: &Marker, marker: &std.sync.spin_lock.Marker);

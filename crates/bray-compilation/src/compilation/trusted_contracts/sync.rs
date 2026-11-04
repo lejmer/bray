@@ -3,6 +3,7 @@ use std::sync::OnceLock;
 use bray_diagnostics::DiagnosticKind;
 use bray_symbols::PackageIdentity;
 
+use crate::compilation::result_dependencies::callable_dependencies;
 use crate::test_support::{
     ProductionFixtureCache, compilation, production_fixture, source_function_body_key, source_input,
 };
@@ -1200,10 +1201,6 @@ fn consuming_guard_release_keeps_its_destructors_reference_effects() {
         .symbol_graph()
         .expect("fixture compilation must build its symbol graph");
 
-    let context = application
-        .binding_context(&application.state.cancellation)
-        .expect("fixture compilation must provide a binding context");
-
     let callable = symbols
         .type_callable_members()
         .iter()
@@ -1219,18 +1216,7 @@ fn consuming_guard_release_keeps_its_destructors_reference_effects() {
         .expect("production spin-lock guard release")
         .id();
 
-    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-        &context,
-        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-            callable.into(),
-        ),
-    )
-    .expect("fixture symbol query must resolve");
-
-    let template = application
-        .semantic_value_store()
-        .expect("fixture compilation must provide its semantic value store")
-        .dependency_contract_template_data(*dependencies.value());
+    let template = callable_dependencies(&application, callable.into());
 
     assert!(
         matches!(
@@ -1404,6 +1390,108 @@ fn consuming_cleanup_retains_only_proven_external_borrow_identity() {
 }
 
 #[test]
+fn invoking_a_callable_does_not_publish_its_code_address() {
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+        using core.memory;
+        using std.memory;
+        callable Callback = @abi(c) func();
+        trusted func invoke(pos pointer: FunctionPointer<Callback>)
+            requires(trusted core.memory.callable_address_valid<Callback>(pointer = pointer))
+            uses(layout_reinterpret, foreign_call)
+        {
+            let operation = trusted std.memory.callable_from_pointer<Callback>(pointer);
+            operation();
+        }
+    "#,
+    );
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "invoke"))
+        .expect("callable invocation must lower successfully");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
+
+    let callable = crate::test_support::source_function(&application, "invoke");
+    let template = callable_dependencies(&application, callable.into());
+
+    assert!(
+        !template.effects().iter().any(|effect| matches!(
+            effect,
+            bray_symbols::DependencyStorageEffect::Escape
+                | bray_symbols::DependencyStorageEffect::Direct {
+                    kind: bray_symbols::DependencyMutationKind::Escape,
+                    ..
+                }
+                | bray_symbols::DependencyStorageEffect::Indirect {
+                    kind: bray_symbols::DependencyMutationKind::Escape,
+                    ..
+                }
+        )),
+        "capture-free invocation must not publish its code address: {template:#?}"
+    );
+
+    assert!(
+        !template.preserves_storage_on_normal_return(),
+        "foreign invocation still has opaque effects"
+    );
+}
+
+#[test]
+fn rewritten_raw_pointer_fields_publish_opaque_output_identities() {
+    let application = production_sync_compilation(
+        r#"
+        trusted module app;
+        using core.memory;
+        using core.target;
+        struct Cursor { mut pointer: DataPointer<u8>; }
+        trusted func replace_pointer(pos cursor: &mut Cursor, pos address: usize)
+            uses(intrinsic)
+        {
+            cursor.pointer = trusted core.target.from_exposed_address<u8>(address = address);
+        }
+    "#,
+    );
+
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "replace_pointer"))
+        .expect("pointer replacement must lower successfully");
+
+    assert!(
+        !checked.diagnostics().has_errors(),
+        "{:?}",
+        checked.diagnostics()
+    );
+
+    let callable = crate::test_support::source_function(&application, "replace_pointer");
+    let template = callable_dependencies(&application, callable.into());
+
+    let [reference] = template.borrows() else {
+        panic!("rewritten pointer retains one typed output identity: {template:#?}");
+    };
+
+    assert_eq!(reference.entry(), None);
+
+    assert_eq!(
+        reference.kind(),
+        bray_symbols::DependencyReferenceKind::Address
+    );
+
+    assert_eq!(
+        reference.exit().subject_root(),
+        bray_symbols::DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
+    );
+
+    assert_eq!(reference.exit().projections().len(), 1);
+    assert!(!reference.is_exact());
+}
+
+#[test]
 #[ignore = "tier:proof"]
 fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
     let application = production_sync_compilation(
@@ -1431,22 +1519,7 @@ fn returned_address_origin_is_independent_of_its_lifetime_anchor() {
 
     let callable = crate::test_support::source_function(&application, "exact");
 
-    let context = application
-        .binding_context(&application.state.cancellation)
-        .expect("fixture compilation must provide a binding context");
-
-    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-        &context,
-        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-            callable.into(),
-        ),
-    )
-    .expect("fixture symbol query must resolve");
-
-    let template = application
-        .semantic_value_store()
-        .expect("fixture compilation must provide its semantic value store")
-        .dependency_contract_template_data(*dependencies.value());
+    let template = callable_dependencies(&application, callable.into());
 
     assert_eq!(
         template.borrows(),
@@ -1484,22 +1557,7 @@ fn production_guard_borrow_origin_reaches_the_protected_payload() {
         .expect("production guard get member")
         .id();
 
-    let context = application
-        .binding_context(&application.state.cancellation)
-        .expect("fixture compilation must provide a binding context");
-
-    let dependencies = bray_binder::SymbolQueryProvider::resolve_symbol_query(
-        &context,
-        bray_symbols::SymbolQueryRequest::<bray_symbols::CallableResultDependenciesQuery>::new(
-            callable.into(),
-        ),
-    )
-    .expect("fixture symbol query must resolve");
-
-    let template = application
-        .semantic_value_store()
-        .expect("fixture compilation must provide its semantic value store")
-        .dependency_contract_template_data(*dependencies.value());
+    let template = callable_dependencies(&application, callable.into());
 
     let relation = template
         .borrows()
@@ -3378,6 +3436,50 @@ fn borrowed_accessor_does_not_prepare_its_referents_cleanup() {
     let diagnostics = application.check_diagnostics();
 
     assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+}
+
+#[test]
+fn callable_fields_do_not_expose_their_containing_owner() {
+    for abi in ["", "@abi(c)"] {
+        for (operation, valid) in [("touch(&owner);", true), ("mutate(&mut owner);", false)] {
+            let application = compilation(&format!(
+                r#"
+                trusted module app;
+                struct Marker {{}}
+                trusted predicate live(marker: &Marker);
+                callable Callback = {abi} func();
+                struct Owner {{
+                    marker: Marker;
+                    callback: Callback;
+                    trusted destruct() requires(trusted live(&self.marker)) {{}}
+                }}
+                {abi} func inert() {{}}
+                trusted func make() -> Owner ensures(trusted live(&result.marker)) {{
+                    return {{ marker = Marker {{}}, callback = inert }};
+                }}
+                extern func publish(pos callback: Callback);
+                extern func mutate(pos owner: &mut Owner);
+                func touch(pos owner: &Owner) {{ publish(owner.callback); }}
+                func caller() {{ let mut owner = make(); {operation} }}
+            "#
+            ));
+
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{abi} {operation}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
 }
 
 #[test]

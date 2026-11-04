@@ -206,7 +206,7 @@ impl SemanticValueStore {
                     relation.kind(),
                 )
                 .with_dereferences(relation.dereferences())
-                .with_exactness(relation.is_exact())
+                .with_provenance(relation.provenance())
                 .with_target_projections(
                     relation
                         .target_projections()

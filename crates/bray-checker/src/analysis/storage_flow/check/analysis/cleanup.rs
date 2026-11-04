@@ -115,7 +115,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .map(|captures| captures.iter().copied().map(Effect::Cleanup).collect())
                             .or_else(|| {
                                 super::effects::task_effects(
-                                    memory.deferred_effects(task_source.as_ref()?, task_sources.as_ref()?),
+                                    memory.deferred_effects(
+                                        task_source.as_ref()?,
+                                        task_sources.as_ref()?,
+                                    ),
                                     domain.task_cleanup_types(task_sources.as_ref()?, true)?,
                                 )
                             })
@@ -170,18 +173,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 memory.escape_regions(escaped);
 
-                let mut invalidation = match effects.as_deref() {
-                    Some(effects)
-                        if !effects.iter().any(|effect| {
-                            matches!(effect, Effect::Unknown | Effect::Cleanup(_))
-                        }) =>
-                    {
-                        self.resolved_observations(&memory, effects, receiver.iter().cloned())
-                    }
-                    _ => receiver.map_or_else(StorageInvalidation::unknown, |receiver| {
-                        self.opaque_observations(&memory, [receiver])
-                    }),
-                };
+                let mut invalidation =
+                    self.cleanup_invalidation(&memory, effects.as_deref(), receiver.as_ref());
 
                 if (task_source.is_some() || inactive_broadcast)
                     && let Some(path) = task_path
@@ -201,7 +194,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     preserve_run_descriptor(&memory, frame, &[], true, &mut invalidation);
                 }
 
-                self.preserve_borrowed_carriers(state, &memory, &mut invalidation);
+                self.preserve_borrowed_values(state, &memory, &mut invalidation);
 
                 if let Some(call) = &invocation
                     && call.completes
@@ -412,26 +405,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(entry) = relation.entry() else {
-                let mut logical = call
-                    .path
-                    .expect("cleanup receiver has its logical path")
-                    .clone();
+            let mut logical = call
+                .path
+                .expect("cleanup receiver has its logical path")
+                .clone();
 
-                logical.projections = logical
-                    .projections
-                    .iter()
-                    .copied()
-                    .chain(
-                        crate::storage::storage_projections(
-                            self.request.semantic_values(),
-                            self.dependencies,
-                            relation.exit().projections(),
-                        )
-                        .expect("prepared lifecycle reference retains its projections"),
+            logical.projections = logical
+                .projections
+                .iter()
+                .copied()
+                .chain(
+                    crate::storage::storage_projections(
+                        self.request.semantic_values(),
+                        self.dependencies,
+                        relation.exit().projections(),
                     )
-                    .collect();
+                    .expect("prepared lifecycle reference retains its projections"),
+                )
+                .collect();
 
+            let Some(entry) = relation.entry() else {
                 memory.stage_returned_reference(
                     occurrence,
                     destination,
@@ -454,6 +447,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 occurrence,
                 crate::analysis::storage_flow::memory::Source::Value(source),
                 destination,
+                &logical,
                 reference,
             );
         }
@@ -467,18 +461,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         let (fields, elements) = self.input.raw_buffers.get(&ty)?;
 
-        let pointer = receiver.project(&[bray_bound_tree::StorageProjection::ProductField(
-            fields.pointer,
-        )]);
-
-        let targets = memory.referenced_regions(&pointer)?;
+        let targets = memory.owned_regions(receiver, bray_bound_tree::StorageProjection::ProductField(fields.pointer))?;
+        let has_backing = !targets.is_empty();
 
         let mut effects = targets
             .into_iter()
             .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire))
             .collect::<Vec<_>>();
 
-        if *elements {
+        if has_backing && *elements {
             effects.push(Effect::Cleanup(fields.element));
         }
 
@@ -557,7 +548,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 invalidation,
                 call.access,
                 observed,
-                &location,
+                &crate::analysis::storage_flow::memory::Source::Value(location),
                 call.completes && relation.entry() != Some(relation.exit()),
             );
         }

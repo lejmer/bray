@@ -11,11 +11,16 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.host.product;
 
+internal struct RegistrationMarker
+{
+}
+
 // One ordinary noncopy owner retains both the collection and callback target.
 // Directory links are bookkeeping under the resident acquisition. They do not
 // confer ownership or authorize source result observation.
 internal struct WaitRegistration
 {
+    marker: RegistrationMarker;
     target: WaitTarget;
     waiter: Reference;
     retirement: u8;
@@ -33,12 +38,12 @@ internal union WaitTarget
     );
 }
 
-trusted internal predicate registration_owned(owner: &WaitRegistration);
+trusted internal predicate registration_owned(owner: &RegistrationMarker);
 
 trusted internal predicate optional_registration(owner: &(WaitRegistration?));
 
 trusted internal func registration_target(pos owner: &WaitRegistration) -> &Reference
-    requires(trusted registration_owned(owner = owner))
+    requires(trusted registration_owned(owner = &owner.marker))
     ensures(trusted retained(owner = result))
     uses(intrinsic)
 {
@@ -140,6 +145,9 @@ trusted internal func admit_wait(
 
     let registration: WaitRegistration =
     {
+        marker = RegistrationMarker
+        {
+        },
         target = WaitTarget.Task(observed),
         waiter = waiter,
         retirement = retirement,
@@ -179,13 +187,17 @@ trusted internal func publish_wait(
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor
 ) -> (u32, WaitRegistration?)
     requires(
-        trusted registration_owned(owner = &registration),
+        trusted registration_owned(owner = &registration.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
     )
-    ensures(trusted optional_registration(owner = &result.1))
+    ensures(
+        trusted optional_registration(owner = &result.1),
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+    )
     uses(intrinsic)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
@@ -272,8 +284,11 @@ trusted internal func same_task_wait(pos owner: &WaitRegistration, pos child: u6
 // The registration retains this event independently of its external name.
 // A local carrier lends that storage under the resident acquisition.
 trusted internal func event_reference(pos owner: &WaitRegistration) -> bray.runtime.bootstrap.event.Reference
-    requires(trusted registration_owned(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.event.retained(owner = &result), trusted registration_owned(owner = owner))
+    requires(trusted registration_owned(owner = &owner.marker))
+    ensures(
+        trusted bray.runtime.bootstrap.event.retained(owner = &result),
+        trusted registration_owned(owner = &owner.marker)
+    )
     uses(intrinsic)
 {
     return match owner.target
@@ -290,10 +305,10 @@ trusted internal func event_reference(pos owner: &WaitRegistration) -> bray.runt
 }
 
 trusted internal func event_callback(pos owner: &WaitRegistration) -> &bray.runtime.bootstrap.event.Callback
-    requires(trusted registration_owned(owner = owner))
+    requires(trusted registration_owned(owner = &owner.marker))
     ensures(
         trusted bray.runtime.bootstrap.event.callback_owned(owner = result),
-        trusted registration_owned(owner = owner)
+        trusted registration_owned(owner = &owner.marker)
     )
     uses(intrinsic)
 {

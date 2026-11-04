@@ -6,6 +6,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn for_storage(
         storage: &bray_bound_tree::StoragePlan,
         cleanup_free: &std::collections::BTreeSet<bray_bound_tree::StorageIdentityId>,
+        complete_reference_types: &std::sync::Arc<std::collections::BTreeMap<TypeId, bool>>,
     ) -> Self {
         let borrowed = storage
             .borrow_capabilities()
@@ -33,6 +34,7 @@ impl State {
             .collect();
 
         Self {
+            complete_reference_types: std::sync::Arc::clone(complete_reference_types),
             entry_borrows: std::sync::Arc::new(entry_borrows),
             owned_storage,
             unaddressed_storage,
@@ -110,12 +112,14 @@ impl State {
             ) = (&left.origin, &right.origin)
             && left.root != right.root
             && left.projections.is_empty() && right.projections.is_empty()
-            && Place::inline_projections(left_path) && Place::inline_projections(right_path)
             && let (Some(left), Some(right)) = (self.entry_borrows.get(&left.root), self.entry_borrows.get(&right.root))
             && (*left == bray_symbols::BorrowKind::Mutable || *right == bray_symbols::BorrowKind::Mutable)
+            && (*left == bray_symbols::BorrowKind::Mutable || Place::inline_projections(left_path))
+            && (*right == bray_symbols::BorrowKind::Mutable || Place::inline_projections(right_path))
         {
-            // Incoming loans already establish exclusivity. This bounds only their
-            // immediate referents, never raw pointers or references stored inside them.
+            // Mutable owners exclude aliases through their owned storage. Shared
+            // owners can contain interior mutable storage, so their non-inline
+            // projections remain conservative. Stored pointers have separate origins.
             return bray_bound_tree::StorageRelationship::Disjoint;
         }
 
@@ -129,10 +133,6 @@ impl State {
 
         if let Some((reference, slot)) = returned_slot
             && self.is_owned_inline_storage(slot)
-            && !self
-                .contents
-                .get(&Target::storage(Place::root(slot.root)))
-                .is_some_and(|contents| contents.escaped)
             && !self
                 .returned_reference_bounds(reference)
                 .targets

@@ -34,7 +34,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
     ) -> crate::CheckerQueryResult<(), C::UpstreamError> {
         let mut parents = ParentPaths::new();
 
-        for (access, prepared) in &self.reference_paths {
+        for (access, (_, prepared)) in &self.reference_paths {
             let Some(root) = storage
                 .root_identity(*access)
                 .and_then(|root| storage.identity_type(root))

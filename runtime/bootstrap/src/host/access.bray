@@ -54,7 +54,29 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
     executes(total)
     uses(raw_memory, unchecked_alias)
 {
-    let pointer: DataPointer<HostOwner> = trusted host_access_pointer(lease);
+    let pointer = std.memory.uninit_pointer<HostOwner>(lease.owner);
+
+    let authorize = trusted lambda(pos lease: &HostLease, pos pointer: DataPointer<HostOwner>)
+        requires(
+            lease.active,
+            trusted host_access_idle(owner = lease),
+            trusted host_access_live(owner = &lease.acquisition)
+        )
+        ensures(
+            trusted host_access_live(owner = &lease.acquisition),
+            trusted core.memory.valid_read<HostOwner>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<HostOwner>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<HostOwner>(pointer = pointer),
+            trusted core.memory.initialized_as<HostOwner>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<HostOwner>(pointer = pointer),
+            trusted core.memory.epoch_current<HostOwner>(pointer = pointer),
+            trusted core.memory.synchronized_access<HostOwner>(pointer = pointer),
+            trusted core.memory.movement_stable<HostOwner>(pointer = pointer),
+            trusted core.memory.finalization_pending<HostOwner>(pointer = pointer),
+        )
+        executes(pure, total) {};
+
+    trusted authorize(lease, pointer);
 
     return trusted std.memory.borrow_mut_from<HostOwner, HostAnchor>(anchor, pointer);
 }
@@ -75,14 +97,10 @@ internal struct HostLease
         {
             executes(pure)
         }
-        uses(raw_memory, unchecked_alias)
     {
         if self.active
         {
-            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                self.synchronization,
-                trusted lease_synchronization_pointer(&self)
-            );
+            let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(&self);
 
             core.atomic.store<u64, 2>(&synchronization.lock, 0);
         }
@@ -173,33 +191,4 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
             return lease;
         }
     }
-}
-
-trusted internal func host_access_pointer(pos guard: &HostLease) -> DataPointer<HostOwner>
-    uses(intrinsic)
-    executes(pure, total)
-    requires(
-        guard.active,
-        trusted host_access_idle(owner = &guard),
-        trusted host_access_live(owner = &guard.acquisition)
-    )
-    ensures(
-        trusted host_access_live(owner = &guard.acquisition),
-        trusted core.memory.valid_read<HostOwner>(pointer = result, count = 1),
-        trusted core.memory.valid_write<HostOwner>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<HostOwner>(pointer = result),
-        trusted core.memory.initialized_as<HostOwner>(pointer = result),
-        trusted core.memory.exclusive_alias_valid<HostOwner>(pointer = result),
-        trusted core.memory.epoch_current<HostOwner>(pointer = result),
-        trusted core.memory.synchronized_access<HostOwner>(pointer = result),
-        trusted core.memory.movement_stable<HostOwner>(pointer = result),
-        trusted core.memory.finalization_pending<HostOwner>(pointer = result),
-    )
-{
-    if !guard.active
-    {
-        trusted core.target.abort();
-    }
-
-    return std.memory.uninit_pointer<HostOwner>(guard.owner);
 }

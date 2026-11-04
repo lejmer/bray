@@ -266,8 +266,8 @@ trusted internal func deliver_one(
 }
 
 trusted internal func wake_waiter(pos owner: &bray.runtime.bootstrap.task.WaitRegistration) -> u32
-    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = owner))
+    requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
+    ensures(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
 {
     let callback = trusted bray.runtime.bootstrap.task.event_callback(owner);
 

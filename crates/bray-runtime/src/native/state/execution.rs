@@ -40,6 +40,7 @@ impl NativeRuntime {
         &self,
         handle: NativeTaskHandle,
         frame: &NativeInactiveFrame,
+        outcome: &mut NativeRunOutcome,
     ) -> NativeRuntimeStatus {
         let origin = self.thread.runtime().id();
         let mut initial = NativeActivationExecution::default();
@@ -101,6 +102,18 @@ impl NativeRuntime {
                 .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
         {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
+
+        let lane = registration
+            .lane()
+            .expect("the new registration retains its checked lane");
+
+        if !(self.cleanup_workloads.get() && self.worker.is_some())
+            && let Err(failure) = self.workers.demand(&self.core, lane)
+        {
+            super::super::workers::failure_reporting(&failure, outcome);
+
+            return NativeRuntimeStatus::PANICKED;
         }
 
         let task = match NativeTaskServices::new(cancellation, registration, &self.core) {
@@ -288,14 +301,11 @@ impl NativeRuntime {
 
         // Keep the dispatch running until registration ownership is published. An immediate
         // event wake then becomes a pending scheduler wake that suspension releases.
-        let registration = match event.register(
-            generation,
-            started.cancellation.clone(),
-            &started.callback,
-        ) {
-            Ok(registration) => registration,
-            Err(status) => return status,
-        };
+        let registration =
+            match event.register(generation, started.cancellation.clone(), &started.callback) {
+                Ok(registration) => registration,
+                Err(status) => return status,
+            };
 
         let previous = started
             .suspended_wait

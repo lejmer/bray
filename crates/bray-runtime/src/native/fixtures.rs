@@ -302,6 +302,10 @@ mod tests {
         let root = super::super::export::bray_runtime_root_execution(
             NativeInactiveFrameTransfer::new(&token),
             NativeRuntimeConfiguration::new(1, 1),
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
         )
         .root()
         .expect("fixture `root` call must succeed");

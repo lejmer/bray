@@ -287,6 +287,12 @@ impl StorageTarget {
             (StorageOrigin::Returned { .. }, _) | (_, StorageOrigin::Returned { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
+            (StorageOrigin::Entry { .. }, StorageOrigin::Allocation(_))
+            | (StorageOrigin::Allocation(_), StorageOrigin::Entry { .. }) => {
+                // Entry referents predate allocations created by this unit. Later
+                // stores retain explicit aliases to the allocation's own identity.
+                StorageRelationship::Disjoint
+            }
             (StorageOrigin::Entry { .. }, _) | (_, StorageOrigin::Entry { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }

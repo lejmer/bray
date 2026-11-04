@@ -156,7 +156,12 @@ impl ExecutionState {
     pub(super) fn owned_witnesses(
         &self,
         values: impl IntoIterator<Item = ExecutionCondition>,
-    ) -> impl Iterator<Item = (&ExecutionCondition, &std::sync::Arc<crate::execution_guarantees::ExecutionWitness>)> {
+    ) -> impl Iterator<
+        Item = (
+            &ExecutionCondition,
+            &std::sync::Arc<crate::execution_guarantees::ExecutionWitness>,
+        ),
+    > {
         let mut owned = Vec::new();
 
         if !self.witnesses.is_empty() {
@@ -165,11 +170,20 @@ impl ExecutionState {
             }
         }
 
-        let count = if owned.is_empty() { 0 } else { self.witnesses.len() };
+        let count = if owned.is_empty() {
+            0
+        } else {
+            self.witnesses.len()
+        };
 
-        self.witnesses.iter().take(count).filter(move |(carrier, _)| {
-            owned.iter().any(|value| carrier.is_owned_projection_of(value))
-        })
+        self.witnesses
+            .iter()
+            .take(count)
+            .filter(move |(carrier, _)| {
+                owned
+                    .iter()
+                    .any(|value| carrier.is_owned_projection_of(value))
+            })
     }
 
     pub(super) fn call_trusted_assumptions(
@@ -362,14 +376,26 @@ impl ExecutionState {
                 .retain(|(condition, _)| !stale(condition));
         }
 
-        for value in self
+        let mut retired_places = BTreeSet::new();
+        let mut updated_places = Vec::new();
+
+        for (place, value) in self
             .current
-            .values_mut()
-            .chain(self.expressions.values_mut())
-            .chain(self.pending_results.values_mut())
-            .chain(std::iter::once(&mut self.result))
+            .iter_mut()
+            .map(|(place, value)| (Some(place), value))
+            .chain(self.expressions.values_mut().map(|value| (None, value)))
+            .chain(self.pending_results.values_mut().map(|value| (None, value)))
+            .chain(std::iter::once((None, &mut self.result)))
         {
             if !stale(value) {
+                if let Some(place) = place
+                    && place.is_contained_by_any(&retired_places)
+                {
+                    // Preserve the independently known component while its parent
+                    // is retired. Projection paths share immutable metadata.
+                    updated_places.push((place.clone(), value.clone()));
+                }
+
                 continue;
             }
 
@@ -395,6 +421,17 @@ impl ExecutionState {
             } else {
                 *value = ExecutionCondition::Unknown;
             }
+
+            if let Some(place) = place {
+                retired_places.insert(place.clone());
+                updated_places.push((place.clone(), value.clone()));
+            }
+        }
+
+        // Ordered paths visit parents before children. Keep containing snapshots
+        // consistent with surviving fields before a later whole-value capture.
+        for (place, value) in updated_places {
+            update_parent_observations(&mut self.current, &place, &value);
         }
     }
 
@@ -1090,7 +1127,27 @@ mod tests {
             .trusted_assumptions
             .extend([(old.clone(), true), (sibling.clone(), true)]);
 
-        state.current.insert(place.clone(), old.clone());
+        let marker = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let payload = bray_bound_tree::StorageProjection::TupleElement(SymbolOrdinal::new(1));
+        let unchanged = input(1);
+
+        state.current.insert(
+            place.clone(),
+            ExecutionCondition::Constructed(
+                Arc::new(old.clone()),
+                [(marker, unchanged.clone()), (payload, old.clone())].into(),
+            ),
+        );
+
+        state.current.insert(
+            place.clone().project(&[marker]).expect("tuple projection"),
+            unchanged.clone(),
+        );
+
+        state.current.insert(
+            place.clone().project(&[payload]).expect("tuple projection"),
+            old.clone(),
+        );
 
         state.entries.insert(
             occurrence,
@@ -1110,6 +1167,14 @@ mod tests {
         );
 
         state.retire_evaluation(mutation(0));
+
+        let current = place
+            .value_in(&state.current)
+            .expect("retired value retains known components");
+
+        assert_eq!(current.clone().project(marker), unchanged);
+        assert_eq!(current.project(payload), ExecutionCondition::Unknown);
+
         state.assign(place, old.clone());
 
         assert!(!state.is_witness(&old));
@@ -1118,6 +1183,58 @@ mod tests {
         assert!(state.trusted_assumptions.contains(&(sibling, true)));
         assert!(state.entries[&occurrence].arguments.is_empty());
         assert!(state.entries[&occurrence].trusted_assumptions.is_empty());
+    }
+
+    #[test]
+    fn content_changes_keep_unchanged_component_guarantees_until_the_owner_ends() {
+        let owner = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let carrier = input(0);
+
+        let marker = carrier
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+        let payload = carrier
+            .clone()
+            .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let preserved = marker.clone().borrowed();
+
+        let conditions = [
+            preserved.clone(),
+            payload.borrowed(),
+            carrier.clone().borrowed(),
+        ];
+
+        let mut state = ExecutionState::default();
+
+        state.current.insert(owner.clone(), carrier.clone());
+
+        for condition in conditions {
+            state.carry_guarantee(carrier.clone(), condition.clone());
+            state.trusted_assumptions.insert((condition, true));
+        }
+
+        state.invalidate_contents(
+            &BTreeSet::from([owner]),
+            [carrier.clone()],
+            &BTreeSet::new(),
+            &BTreeSet::from([marker]),
+        );
+
+        assert_eq!(
+            state.trusted_assumptions,
+            BTreeSet::from([(preserved.clone(), true)])
+        );
+
+        assert!(
+            state.witnesses[&carrier]
+                .conditions
+                .contains_key(&preserved)
+        );
+
+        state.retire_trusted_values([carrier], &BTreeSet::new());
+        assert!(state.trusted_assumptions.is_empty());
     }
 
     #[test]
@@ -1153,7 +1270,12 @@ mod tests {
 
         let stable = BTreeSet::from([symbol.into()]);
 
-        state.invalidate_contents(&BTreeSet::from([owner.clone()]), [input(0)], &stable);
+        state.invalidate_contents(
+            &BTreeSet::from([owner.clone()]),
+            [input(0)],
+            &stable,
+            &BTreeSet::new(),
+        );
 
         assert_eq!(
             state.trusted_assumptions,
@@ -1180,7 +1302,7 @@ mod tests {
 
         state.witnesses.clear();
         state.carry_guarantee(external.clone(), spatial.clone());
-        state.invalidate_contents(&BTreeSet::new(), [external], &stable);
+        state.invalidate_contents(&BTreeSet::new(), [external], &stable, &BTreeSet::new());
         assert!(state.trusted_assumptions.is_empty());
 
         assert!(
@@ -1194,7 +1316,7 @@ mod tests {
 
         overwritten.carry_guarantee(carrier.clone(), spatial.clone());
         overwritten.trusted_assumptions.insert((spatial, true));
-        overwritten.invalidate_contents(&BTreeSet::new(), [carrier], &stable);
+        overwritten.invalidate_contents(&BTreeSet::new(), [carrier], &stable, &BTreeSet::new());
         assert!(overwritten.trusted_assumptions.is_empty());
     }
 
@@ -1233,6 +1355,7 @@ mod tests {
             &BTreeSet::from([owner.clone()]),
             [input(0)],
             &BTreeSet::from([symbol.into()]),
+            &BTreeSet::new(),
         );
 
         assert_eq!(state.trusted_assumptions, BTreeSet::from([(spatial, true)]));
@@ -1356,6 +1479,7 @@ mod tests {
                         ExecutionPlace::argument(SymbolOrdinal::new(256)),
                     ]),
                     [input(1), input(256)],
+                    &BTreeSet::new(),
                     &BTreeSet::new(),
                 );
 

@@ -18,6 +18,7 @@ pub(super) fn pop_ready(
     scheduler: &Arc<SchedulerData>,
     thread: RuntimeThreadId,
     lanes: u32,
+    worker: Option<&bray_runtime_abi::NativeWorkerScope>,
 ) -> Result<Option<ReadyTask>, SchedulerError> {
     let state = scheduler
         .state
@@ -26,12 +27,16 @@ pub(super) fn pop_ready(
 
     let mut selected = NativeSchedulerObservation::default();
 
-    let status = native::bray_runtime_scheduler_acquisition(
-        &scheduler.source.reference,
-        thread.raw(),
-        lanes,
-        &mut selected,
-    );
+    let status = if let Some(worker) = worker {
+        crate::native::workers::acquisition(worker, lanes, &mut selected)
+    } else {
+        native::bray_runtime_scheduler_acquisition(
+            &scheduler.source.reference,
+            thread.raw(),
+            lanes,
+            &mut selected,
+        )
+    };
 
     if status == 0 {
         return Ok(None);
@@ -131,7 +136,10 @@ pub(super) fn scheduler_snapshot(
             ));
         }
 
-        let timers = scheduler.deadlines.get().map_or(0, super::deadline::BrayDeadlines::count);
+        let timers = scheduler
+            .deadlines
+            .get()
+            .map_or(0, super::deadline::BrayDeadlines::count);
 
         drop(state);
         tasks.sort_unstable_by_key(ScheduledTaskSnapshot::task);

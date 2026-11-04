@@ -101,6 +101,17 @@ pub extern "C" fn bray_runtime_activation_action_readiness(
         origin: snapshot.origin,
     };
 
+    if crate::context::current_task_execution_lane().is_none()
+        && let Some(runtime) = super::super::state::current_runtime()
+        && let Some(worker) = runtime.worker.as_ref()
+    {
+        return if super::super::workers::compatibility(&worker.scope, &required) != 0 {
+            NativeRuntimeStatus::SUCCESS.code()
+        } else {
+            NativeRuntimeStatus::PENDING.code()
+        };
+    }
+
     let thread = if required.affinity != 0
         || required.workloads & NativeLaneRequirements::MAIN_THREAD.bits() != 0
     {

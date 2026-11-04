@@ -16,11 +16,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         )
     }
 
-    pub(in crate::analysis::storage_flow) fn has_complete_references(
+    pub(in crate::analysis::storage_flow) fn reference_free(
         &self,
         storage: &bray_bound_tree::StoragePlan,
         value: &Place,
-    ) -> bool {
+    ) -> Option<bool> {
         let ty = if value.projections.is_empty() {
             storage.storage_type(value.root)
         } else {
@@ -29,7 +29,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .and_then(|access| storage.access(access).map(|access| access.reached_type()))
         };
 
-        ty.is_some_and(|ty| self.complete_reference_types.contains(&ty))
+        self.complete_reference_types.get(&ty?).copied()
     }
 
     pub(in crate::analysis::storage_flow) fn inline_regions(
@@ -38,7 +38,13 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         storage: &bray_bound_tree::StoragePlan,
         value: &Place,
     ) -> Option<Vec<crate::analysis::storage_flow::memory::Target>> {
-        if !value.projections.is_empty() || !self.has_complete_references(storage, value) {
+        if self.reference_free(storage, value)? {
+            // Loading a scalar or a reference-free field does not publish its
+            // owner's address. Its evaluation loan is not a stored pointer.
+            return Some(Vec::new());
+        }
+
+        if !value.projections.is_empty() {
             return None;
         }
 
@@ -155,17 +161,33 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
             }
 
             let mut references = Vec::new();
+            let mut incomplete = std::collections::BTreeSet::new();
 
             for relation in
                 dependencies.lifecycle_dependencies()[&lifecycle.call.callable].borrows()
             {
-                if let Some(ty) = types.get(relation.entry().unwrap_or_else(|| relation.exit()))
+                let subject = if relation.provenance()
+                    == bray_symbols::DependencyReferenceProvenance::InputRegions
+                {
+                    relation.exit()
+                } else {
+                    relation.entry().unwrap_or_else(|| relation.exit())
+                };
+
+                if relation
+                    .entry()
+                    .is_none_or(|entry| types.contains_key(entry))
+                    && let Some(ty) = types.get(subject)
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {
                     references.push(reference);
+                } else {
+                    incomplete.insert(relation.exit().clone());
                 }
             }
+
+            references.retain(|reference| !incomplete.contains(reference.relation().exit()));
 
             self.lifecycle_references
                 .insert(lifecycle.call.callable, references);
@@ -181,7 +203,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         access: bray_bound_tree::StorageAccessId,
     ) -> Option<crate::analysis::storage_flow::memory::Target> {
         let logical = storage.logical_path(access)?;
-        let path = self.reference_paths.get(&access)?;
+
+        let (_, path) = self.reference_paths.get(&access)?;
 
         let entry = storage
             .access(access)?
@@ -236,9 +259,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 {
                     self.reference_paths.insert(
                         access,
-                        bray_bound_tree::StorageReferencePath::new(
-                            path.projections.clone(),
-                            std::sync::Arc::from([]),
+                        (
+                            reached.reached_type(),
+                            bray_bound_tree::StorageReferencePath::new(
+                                path.projections.clone(),
+                                std::sync::Arc::from([]),
+                            ),
                         ),
                     );
                 }
@@ -246,7 +272,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            if let Some((_, prepared)) = crate::storage::reference_path(
+            if let Some(prepared) = crate::storage::reference_path(
                 request,
                 ty,
                 path.projections.clone(),
@@ -276,18 +302,29 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
-            if let Some(bray_bound_tree::BoundExpression::Structured(array)) = request.view().expression(expression)
+            if let Some(bray_bound_tree::BoundExpression::Structured(array)) =
+                request.view().expression(expression)
                 && array.kind() == bray_bound_tree::BoundStructuredExpressionKind::Array
-                && let bray_symbols::TypeData::Array { element, .. } = request.semantic_values().type_data(owner).as_ref()
+                && let bray_symbols::TypeData::Array { element, .. } =
+                    request.semantic_values().type_data(owner).as_ref()
             {
                 for (ordinal, operand) in array.operands().iter().enumerate() {
-                    let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal)
-                        .expect("checked array element count fits storage ordinals"));
+                    let ordinal = bray_symbols::SymbolOrdinal::new(
+                        u32::try_from(ordinal)
+                            .expect("checked array element count fits storage ordinals"),
+                    );
 
                     let mut path = Place::root(identity);
 
-                    path.projections = [bray_bound_tree::StorageProjection::ElementFromStart(ordinal)].into();
-                    self.reference_constructions.entry(expression).or_default().push((*operand, path, *element));
+                    path.projections = [bray_bound_tree::StorageProjection::ElementFromStart(
+                        ordinal,
+                    )]
+                    .into();
+
+                    self.reference_constructions
+                        .entry(expression)
+                        .or_default()
+                        .push((*operand, path, *element));
                 }
             }
 
@@ -335,4 +372,99 @@ pub(super) fn project<C: CheckerRequestContext + ?Sized>(
     path.projections = path.projections.iter().copied().chain(suffix).collect();
 
     Ok(Some(path))
+}
+
+impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_call_reference_inputs(
+        &self,
+        state: &mut crate::analysis::storage_flow::model::StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+    ) {
+        use crate::analysis::storage_flow::memory::Source;
+
+        let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
+            return;
+        };
+
+        for subject in contracts.reference_subjects() {
+            if !matches!(
+                subject.subject_root(),
+                bray_symbols::DependencySubjectRoot::Receiver
+                    | bray_symbols::DependencySubjectRoot::Parameter(_)
+            ) {
+                continue;
+            }
+
+            let Some(ty) = contracts.reference_type(subject) else {
+                continue;
+            };
+
+            let Some(pointee) = crate::representation::reference_target_type(self.request, ty)
+            else {
+                continue;
+            };
+
+            let Some(mut logical) = self.invocation_place(occurrence, subject.subject_root())
+            else {
+                continue;
+            };
+
+            let path = contracts
+                .reference_path(subject)
+                .expect("checked reference input retains its prepared path");
+
+            logical.projections = logical
+                .projections
+                .iter()
+                .chain(path.projections())
+                .copied()
+                .collect();
+
+            let Some(sources) = self.invocation_sources(state, occurrence, subject) else {
+                continue;
+            };
+
+            let [Source::Value(location)] = sources.as_slice() else {
+                continue;
+            };
+
+            self.observe_stored_reference(&mut state.memory, location.clone(), logical, pointee);
+        }
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_stored_reference(
+        &self,
+        memory: &mut crate::analysis::storage_flow::memory::State,
+        location: crate::analysis::storage_flow::memory::Target,
+        logical: Place,
+        pointee: bray_symbols::TypeId,
+    ) {
+        use crate::analysis::storage_flow::memory::Origin;
+
+        if !location.is_exact() || memory.referenced_regions(&location).is_some() {
+            return;
+        }
+
+        let container = location.allocation_region().unwrap_or_else(|| {
+            let mut container = location.clone();
+
+            match &mut container.origin {
+                Origin::Entry { projections, .. } | Origin::Returned { projections, .. } => {
+                    *projections = std::sync::Arc::from([]);
+                }
+                Origin::Storage(place) | Origin::Allocation(place) => {
+                    place.projections = std::sync::Arc::from([]);
+                }
+            }
+
+            container
+        });
+
+        let inputs = memory
+            .effect_origins(&container)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        memory.observe_reference(location, logical, pointee, inputs);
+    }
 }

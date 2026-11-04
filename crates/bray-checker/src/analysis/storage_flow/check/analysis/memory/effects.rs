@@ -1,6 +1,6 @@
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Effect, Target};
+use crate::analysis::storage_flow::memory::Effect;
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::{BoundExpressionId, CheckedMemoryOperationKind, StorageAccessPurpose};
 
@@ -62,7 +62,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     pub(in crate::analysis::storage_flow::check::analysis) fn memory_effects(
         &self,
-        state: &StorageFlowState,
+        state: &mut StorageFlowState,
         expression: BoundExpressionId,
     ) -> Option<Vec<Effect>> {
         let operation = self.memory.operation(expression)?;
@@ -78,6 +78,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return self.buffer_prefix_effects(
                     state,
                     operation,
+                    0,
                     Some(bray_symbols::DependencyMutationKind::Replace(element)),
                 );
             }
@@ -85,12 +86,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return self.buffer_prefix_effects(
                     state,
                     operation,
+                    0,
                     Some(bray_symbols::DependencyMutationKind::Consume),
                 );
             }
             CheckedMemoryOperationKind::RawBufferSetInitializedCount => {
-                return self.buffer_prefix_effects(state, operation, None);
+                return self.buffer_prefix_effects(state, operation, 0, None);
             }
+            CheckedMemoryOperationKind::RawBufferRelocate { .. }
+            | CheckedMemoryOperationKind::RawBufferReplace { .. } => {
+                return self.buffer_transfer_effects(state, operation);
+            }
+            CheckedMemoryOperationKind::RawBufferRelease { .. } => {
+                return self.buffer_release_effects(state, operation);
+            }
+            CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
+                return Some(self.expression_reference(state, operation.arguments()[0])?
+                    .regions(&state.memory)?.into_iter().map(|target| {
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Retire)
+                    }).collect());
+            }
+            CheckedMemoryOperationKind::InlineAssembly { .. }
+            | CheckedMemoryOperationKind::DebuggerTrap
+            | CheckedMemoryOperationKind::UnreachableTermination => return None,
             _ => {}
         }
 
@@ -120,19 +138,30 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             );
         }
 
-        let (argument, element, purpose) = self.memory_mutation(operation)?;
+        let (argument, element, purpose) = self.memory_mutation(operation)
+            .unwrap_or_else(|| panic!("checked mutating memory operation has no effect model: {:?}", operation.kind()));
 
-        let targets = if matches!(
+        let protected = matches!(
             operation.kind(),
             CheckedMemoryOperationKind::UninitMove { .. }
                 | CheckedMemoryOperationKind::UninitAssumeInitialized { .. }
                 | CheckedMemoryOperationKind::UninitWrite { .. }
-        ) {
+        );
+
+        let targets = if protected && !self.expression_is_borrowed(argument) {
             vec![self.uninit_target(state, argument)?]
         } else {
-            let slot = self.argument_storage(argument)?;
+            // An unknown element offset still bounds effects to its backing.
+            // Bounds grant neither exact value identity nor initialization evidence.
+            let targets = self.expression_reference(state, argument)?.regions(&state.memory)?;
 
-            state.memory.referenced_regions(&Target::storage(slot))?
+            if protected {
+                targets.into_iter().map(|target| target.project(&[
+                    bray_bound_tree::StorageProjection::UninitPayload
+                ])).collect()
+            } else {
+                targets
+            }
         };
 
         let kind = if purpose == StorageAccessPurpose::Move {

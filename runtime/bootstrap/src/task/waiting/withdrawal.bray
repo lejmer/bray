@@ -67,12 +67,12 @@ trusted internal func wait_committed(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> bool
     requires(
-        trusted registration_owned(owner = owner),
+        trusted registration_owned(owner = &owner.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = owner),
+        trusted registration_owned(owner = &owner.marker),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
     )
@@ -106,12 +106,12 @@ trusted internal func unlink_registration(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 )
     requires(
-        trusted registration_owned(owner = owner),
+        trusted registration_owned(owner = &owner.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted registration_owned(owner = owner),
+        trusted registration_owned(owner = &owner.marker),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
     )

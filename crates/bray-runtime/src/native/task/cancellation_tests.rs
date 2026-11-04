@@ -507,7 +507,17 @@ fn start_with_resume(
             .task()
             .expect("fixture task admission succeeds");
 
-        assert_eq!(runtime.start(handle, &frame), NativeRuntimeStatus::SUCCESS);
+        assert_eq!(
+            runtime.start(
+                handle,
+                &frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
 
         runtime
             .retained_task(handle)
