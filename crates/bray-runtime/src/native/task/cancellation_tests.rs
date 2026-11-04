@@ -196,6 +196,32 @@ fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
 
         assert_eq!(status, NativeRuntimeStatus::PENDING.code());
         assert_eq!(parent.snapshot().phase, 1);
+
+        let shield = parent.cancellation.shield();
+
+        let services = bray_runtime_abi::NativeTaskDispatchServices {
+            invoke: activation::bray_runtime_activation_callback,
+            ready: activation::readiness,
+            transfer: super::dispatch::transfer,
+            wake: reenter_dispatch,
+            cancel_wait: super::dispatch::cancel_wait,
+        };
+
+        let mut failure = bray_runtime_abi::NativeWorkerFailure {
+            stage: 1, category: 1, native_code: 0,
+        };
+
+        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+        let mut execution = bray_runtime_abi::NativeActivationExecution::default();
+
+        let status = report_provider::bray_runtime_task_control_dispatch(
+            parent.control(), &services, &mut failure, &mut progress, &mut execution,
+        );
+
+        assert_eq!(status, NativeRuntimeStatus::PENDING.code());
+        assert_eq!(parent.snapshot().phase, 1);
+        assert_eq!(failure.stage, 1, "an unacquired dispatch cannot consume failure");
+        drop(shield);
     }
 
     startup();

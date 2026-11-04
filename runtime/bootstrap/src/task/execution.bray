@@ -213,9 +213,7 @@ trusted internal func acquire_dispatch(
     )
     uses(intrinsic)
 {
-    // Recovery must leave shielded cleanup's event linked until readiness
-    // admits its continuation. Ordinary abandonment withdraws the wait.
-    let available = (worker_failed && trusted cancellation_shielded(reference)) || trusted withdraw_wait(reference);
+    let available = trusted withdraw_wait(reference, worker_failed && trusted cancellation_shielded(reference));
 
     let root =
     {

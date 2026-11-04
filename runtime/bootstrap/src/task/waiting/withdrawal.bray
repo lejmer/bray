@@ -20,7 +20,7 @@ trusted internal func take_registration(pos entries: &mut Entries, pos parent: u
 // Withdrawal uses the admitted previous/next links and never scans waiters.
 // A terminal transition commits the still-linked owner to delivery. Resumption
 // waits for its pop, which releases the link before waking the continuation.
-trusted internal func withdraw_wait(pos parent: &Reference) -> bool
+trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready_event: bool) -> bool
     requires(trusted retained(owner = parent), trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted retained(owner = parent))
     uses(intrinsic)
@@ -48,10 +48,12 @@ trusted internal func withdraw_wait(pos parent: &Reference) -> bool
         let committed = trusted wait_committed(&registration, &lease);
         let mut entries = &mut host.tasks;
 
-        if committed
+        // Recovery readiness inspects the retained unready event. A committed
+        // task or event link still prevents dispatch until delivery pops it.
+        if committed || (preserve_unready_event && registration.target matches WaitTarget.Event(_, _, _))
         {
             (trusted wait_slot(&mut entries, identity)).registration = registration;
-            return false;
+            return !committed;
         }
 
         trusted unlink_registration(&mut entries, &registration, &lease);

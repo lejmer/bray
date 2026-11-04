@@ -168,7 +168,7 @@ trusted internal func withdrawal(pos parent: DataPointer<bray.runtime.bootstrap.
 {
     let waiter = trusted bray.runtime.bootstrap.task.read_reference(parent);
 
-    return if trusted bray.runtime.bootstrap.task.withdraw_wait(&waiter)
+    return if trusted bray.runtime.bootstrap.task.withdraw_wait(&waiter, false)
     {
         yield 1;
     }
