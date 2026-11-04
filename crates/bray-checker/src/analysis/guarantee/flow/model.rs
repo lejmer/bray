@@ -176,10 +176,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if let Some(AnalysisRefinement::InvocationCompletion(invocation)) = edge.refinement() {
-            let possible = match invocation
+            let deferred = invocation
                 .expression()
-                .and_then(|expression| self.awaited_invocation(state, expression))
-            {
+                .and_then(|expression| self.awaited_invocation(state, expression));
+
+            let possible = match deferred {
                 Some(source) => self.dependencies.calls()[&source].deferred_completion(),
                 None => self
                     .dependencies
@@ -188,7 +189,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .is_none_or(|contract| contract.normal_completion()),
             };
 
-            if !possible {
+            let source = deferred.unwrap_or(invocation);
+
+            let creates_frame = deferred.is_none()
+                && self
+                    .dependencies
+                    .calls()
+                    .get(&source)
+                    .is_some_and(|contract| contract.deferred_effects().is_some());
+
+            if !possible
+                || (!creates_frame
+                    && !self.owned_normal_completion(
+                        state,
+                        source,
+                        &self.invocation_value(state, invocation),
+                    ))
+            {
                 return false;
             }
         }
@@ -382,11 +399,16 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
                         &mut { ExecutionCondition::WORK_LIMIT },
                     );
 
-                    let subject =
-                        super::super::trusted::static_carrier(self.dependencies, carrier.path())
-                            .substitute(&|_| ExecutionCondition::Unknown, &value, &mut {
-                                ExecutionCondition::WORK_LIMIT
-                            });
+                    let subject = super::super::trusted::static_carrier(
+                        self.request.semantic_values(),
+                        self.dependencies,
+                        carrier.path(),
+                    )
+                    .substitute(
+                        &|_| ExecutionCondition::Unknown,
+                        &value,
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    );
 
                     guarantee
                         .clone()

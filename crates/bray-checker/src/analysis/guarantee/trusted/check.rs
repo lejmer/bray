@@ -15,10 +15,15 @@ pub(in crate::analysis) struct TrustedChecks {
     failed: BTreeSet<BoundExpressionId>,
     failed_execution: BTreeSet<BoundExpressionId>,
     transfers: BTreeSet<BoundExpressionId>,
+    pending_transfers: Vec<(
+        bray_bound_tree::BoundExecutionSite,
+        Option<ExecutionCondition>,
+    )>,
     cleanup_failures: BTreeSet<AnyBoundNodeId>,
     pub(super) guarantees: Vec<(ExecutionCondition, bray_source::SourceSpan)>,
     guarantee_failures: Vec<bool>,
-    pub(in crate::analysis) returned_input: Option<Option<bray_symbols::ConstantTermId>>,
+    pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
+    pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
@@ -57,6 +62,7 @@ impl TrustedChecks {
             .collect::<Vec<_>>();
 
         Self {
+            owned_entry_conditions: boundary.as_ref().into_iter().flat_map(|state| state.assumptions.iter()).filter(|(condition, _)| matches!(condition, ExecutionCondition::Input(place) if place.is_callable_input())).cloned().collect(),
             guarantee_failures: vec![false; guarantees.len()],
             carriers: vec![None; guarantees.len()],
             guarantees,
@@ -78,6 +84,15 @@ impl TrustedChecks {
             operation.occurrence(),
             &mut self.transfers,
         );
+
+        self.pending_transfers.clear();
+
+        super::transfers::collect_returned_witness_transfers(
+            domain,
+            state,
+            operation,
+            &mut self.pending_transfers,
+        );
     }
 
     pub(in crate::analysis) fn cleanup(
@@ -98,6 +113,28 @@ impl TrustedChecks {
         operation: crate::analysis::model::AnalysisOperationKind,
         evidence: Option<bool>,
     ) {
+        // Completion facts can prove that a potential extraction never occurred.
+        for (invocation, condition) in self.pending_transfers.drain(..) {
+            let active = condition.is_none_or(|condition| {
+                condition
+                    .substitute(
+                        &|place| ExecutionCondition::Input(place.clone()),
+                        &domain.invocation_value(state, invocation),
+                        &mut { ExecutionCondition::WORK_LIMIT },
+                    )
+                    .prove_trusted(&BTreeSet::new(), &state.assumptions)
+                    != Some(false)
+            });
+
+            if active {
+                self.transfers.insert(
+                    invocation
+                        .expression()
+                        .expect("pending ownership transfer has its source expression"),
+                );
+            }
+        }
+
         let Some(expression) = operation.occurrence().expression() else {
             return;
         };
@@ -174,13 +211,7 @@ impl TrustedChecks {
             }
         }
 
-        let input = super::carriers::returned_input(domain, &result);
-
-        match &mut self.returned_input {
-            Some(previous) if *previous != input => *previous = None,
-            Some(_) => {}
-            None => self.returned_input = Some(input),
-        }
+        self.collect_owned_return(domain, state, &result);
     }
 
     pub(in crate::analysis) fn finish<C: CheckerRequestContext + ?Sized>(

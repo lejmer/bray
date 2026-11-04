@@ -1,3 +1,4 @@
+use super::DependencyOwnedResult;
 use crate::DependencyStorageEffect;
 use std::sync::Arc;
 
@@ -481,7 +482,7 @@ pub struct DependencyContractTemplateData {
     completion_reports: Option<Arc<[DependencyRequirement]>>,
     abnormal_reports: Option<Arc<[DependencyRequirement]>>,
     borrows: Arc<[DependencyBorrowRelation]>,
-    returned_input: Option<ConstantTermId>,
+    owned_result: DependencyOwnedResult,
     observed_result: Option<ConstantTermId>,
     carriers: Arc<[DependencyWitnessCarrier]>,
     effects: Arc<[super::DependencyStorageEffect]>,
@@ -504,18 +505,16 @@ impl DependencyContractTemplateData {
         self.observed_result
     }
 
-    /// Records an unchanged owned input returned as the complete result on every normal exit.
-    /// Normal completion must have no observable storage mutation or cleanup effects.
-    /// The term contains only a formal input and owned projections, never an equality or dereference.
-    pub fn with_returned_input(mut self, input: Option<ConstantTermId>) -> Self {
-        self.returned_input = input;
+    /// Records complete owning layouts retained by normal completion.
+    pub fn with_owned_result(mut self, result: DependencyOwnedResult) -> Self {
+        self.owned_result = result;
 
         self
     }
 
-    /// Returns the checked whole-value transport, without introducing trusted guarantees.
-    pub const fn returned_input(&self) -> Option<ConstantTermId> {
-        self.returned_input
+    /// Returns the owning result contract, without introducing trusted guarantees.
+    pub const fn owned_result(&self) -> &DependencyOwnedResult {
+        &self.owned_result
     }
 
     /// Attaches dependencies of reports that can accompany normal completion.
@@ -646,7 +645,7 @@ impl DependencyContractTemplateData {
             completion_reports: None,
             abnormal_reports: None,
             borrows: Arc::new([]),
-            returned_input: None,
+            owned_result: DependencyOwnedResult::default(),
             observed_result: None,
             carriers: Arc::new([]),
             effects: Arc::new(super::DependencyStorageEffect::opaque_call()),
@@ -668,7 +667,7 @@ impl DependencyContractTemplateData {
             abnormal_reports: self.abnormal_reports.as_ref().map(Arc::clone),
             // Transformations own a new contract while retaining the immutable checked summary.
             borrows: Arc::clone(&self.borrows),
-            returned_input: self.returned_input,
+            owned_result: self.owned_result.clone(),
             observed_result: self.observed_result,
             carriers: Arc::clone(&self.carriers),
             effects: Arc::clone(&self.effects),

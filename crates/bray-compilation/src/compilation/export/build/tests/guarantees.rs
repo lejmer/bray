@@ -3374,25 +3374,61 @@ impl Addresses {
 }
 "#;
 
-    for operation in ["transfer(&mut destination, &mut source);", "destination = take(&mut source);", "destination.receive(&mut source);", "destination = source.take();"] {
+    for operation in [
+        "transfer(&mut destination, &mut source);",
+        "destination = take(&mut source);",
+        "destination.receive(&mut source);",
+        "destination = source.take();",
+    ] {
         for clear in [false, true] {
             for expired in [false, true] {
-                let provider = if clear { provider.to_owned() } else { provider.replace("source.pointer = core.memory.null<u32>();", "") };
+                let provider = if clear {
+                    provider.to_owned()
+                } else {
+                    provider.replace("source.pointer = core.memory.null<u32>();", "")
+                };
+
                 let payload = if expired { "expired" } else { "retained" };
-                let body = format!("let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);");
+
+                let body = format!(
+                    "let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);"
+                );
 
                 let provider = compilation(&provider);
                 let mut body = body;
 
-                for function in ["produce", "empty", "observe"] { body = body.replace(&format!("{function}("), &format!("example.package.api.{function}(")); }
-                body = body.replace(" transfer(", " example.package.api.transfer(").replace("= take(", "= example.package.api.take(");
+                for function in ["produce", "empty", "observe"] {
+                    body = body.replace(
+                        &format!("{function}("),
+                        &format!("example.package.api.{function}("),
+                    );
+                }
 
-                let consumer = execution_consumer(&provider, &format!("trusted module app; using example.package.api; func caller() {{ {body} }}"));
+                body = body
+                    .replace(" transfer(", " example.package.api.transfer(")
+                    .replace("= take(", "= example.package.api.take(");
+
+                let consumer = execution_consumer(
+                    &provider,
+                    &format!(
+                        "trusted module app; using example.package.api; func caller() {{ {body} }}"
+                    ),
+                );
+
                 let diagnostics = consumer.check_diagnostics();
 
-                assert_eq!(!diagnostics.has_errors(), !expired, "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}");
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    !expired,
+                    "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}"
+                );
 
-                if expired { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven); }
+                if expired {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
             }
         }
     }

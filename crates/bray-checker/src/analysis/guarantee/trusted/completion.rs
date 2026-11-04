@@ -137,8 +137,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let retained = std::iter::once(&state.result)
             .chain(state.current.values())
             .chain(state.pending_results.values())
-            .flat_map(ExecutionCondition::owned_values)
-            .cloned()
+            .flat_map(|value| state.owned_values(value))
             .collect::<BTreeSet<_>>();
 
         let retired = values
@@ -215,13 +214,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         // Publish the admitted entry snapshot independently of current mutable contents.
-        state
+        let completed = state
             .entries
             .get_mut(&invocation)
-            .expect("completed invocation retains its captured entry")
-            .assumptions = entry.assumptions;
+            .expect("completed invocation retains its captured entry");
 
-        state.restore_returned_evidence(entry.returned);
+        completed.assumptions = entry.assumptions;
+        completed.returned = Default::default();
+
+        self.begin_returned_ownership(state, invocation, &entry.arguments, &result, entry.returned);
 
         let mut arguments = entry.arguments;
 
@@ -281,8 +282,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             owning: bool| {
             let sources = self.result_guarantee_owners(
                 invocation,
-                &state.entries.get(&invocation)
-                    .expect("completed invocation retains its captured arguments").arguments,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
                 template,
                 &owners,
                 &address_subjects,
@@ -323,8 +327,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
                     let addresses = self.input_guarantee_addresses(
                         invocation,
-                        &state.entries.get(&invocation)
-                            .expect("completed invocation retains its captured arguments").arguments,
+                        &state
+                            .entries
+                            .get(&invocation)
+                            .expect("completed invocation retains its captured arguments")
+                            .arguments,
                         template,
                         &owners,
                         &address_subjects,

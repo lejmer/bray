@@ -10,6 +10,7 @@ use bray_bound_tree::{
 /// The operands whose values contribute to an expression's result, excluding evaluation inputs.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ValueInputs {
+    pub(super) deferred_sources: BTreeMap<BoundExpressionId, BoundExpressionId>,
     independent: std::collections::BTreeSet<bray_bound_tree::BoundExecutionSite>,
     pub(super) source_inputs: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) pattern_subjects:
@@ -108,6 +109,7 @@ impl ValueInputs {
         }
 
         let mut result = Self {
+            deferred_sources: BTreeMap::new(),
             projected: BTreeMap::new(),
             error_exits: BTreeMap::new(),
             returned_errors: Default::default(),
@@ -178,6 +180,7 @@ impl ValueInputs {
         inputs.writes =
             super::assignment::AssignmentInputs::new(request.unit(), selections, &inputs);
 
+        inputs.collect_deferred_sources(request.unit(), selections);
         inputs.filter_independent(request, types, selections)?;
         inputs.collect_propagation(request, selections)?;
         inputs.collect_source_inputs(request.unit(), selections, patterns);

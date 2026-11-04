@@ -286,12 +286,36 @@ impl SemanticValueStore {
                         .map(|term| self.substitute_constant_term_data(term, substitution))
                         .transpose()?,
                 )
-                .with_returned_input(
-                    template
-                        .returned_input()
-                        .map(|input| self.substitute_constant_term_data(input, substitution))
-                        .transpose()?,
-                )
+                .with_owned_result(template.owned_result().try_map(
+                    &mut |transfer| {
+                        Ok::<_, SemanticValueStoreError>(
+                            super::super::DependencyOwnedResult::Transfer(
+                                super::super::DependencyOwnedTransfer::new(
+                                    self.substitute_constant_term_data(
+                                        transfer.input(),
+                                        substitution,
+                                    )?,
+                                    transfer.output().iter().copied(),
+                                )
+                                .with_condition(
+                                    transfer
+                                        .condition()
+                                        .map(|condition| {
+                                            self.substitute_constant_term_data(
+                                                condition,
+                                                substitution,
+                                            )
+                                        })
+                                        .transpose()?,
+                                ),
+                            ),
+                        )
+                    },
+                    &mut |condition| {
+                        self.substitute_constant_term_data(*condition, substitution)
+                            .map(Some)
+                    },
+                )?)
                 .with_effects(effects),
         )
     }

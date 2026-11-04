@@ -352,8 +352,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .filter_map(|place| place.value_in(&state.current))
             .flat_map(|value| {
-                value
-                    .owned_values()
+                state.owned_values(&value)
                     .map(|value| value.owner_identity().clone())
                     .collect::<Vec<_>>()
             })

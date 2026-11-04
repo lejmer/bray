@@ -442,7 +442,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 } => (reference, true, projections.as_ref(), *kind),
             };
 
-            let Some(suffix) = storage_projections(self.dependencies, projections) else {
+            let Some(suffix) = storage_projections(self.request.semantic_values(), self.dependencies, projections) else {
                 resolved.push(if kind == DependencyMutationKind::Escape {
                     Effect::Escape
                 } else {
@@ -643,14 +643,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         });
 
-        if matches!(identity, StorageIdentity::Parameter(_))
+        if matches!(identity, StorageIdentity::Parameter(_) | StorageIdentity::Receiver(_) | StorageIdentity::AnonymousParameter(_) | StorageIdentity::ContractParameter(_))
             && identity.is_invocation_owned(self.storage.kind())
             && !borrowed
             && (kind != DependencyMutationKind::Escape
                 || self.input.has_complete_references(self.storage, path))
             && !path.projections.contains(&StorageProjection::OwnedTarget)
         {
-            // Writes to inline parameter storage stay in this invocation.
+            // Writes to inline owned input storage stay in this invocation.
             // Escape summaries separately carry its reachable value contents.
             return None;
         }
