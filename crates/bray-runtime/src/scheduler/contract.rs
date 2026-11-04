@@ -29,7 +29,7 @@ impl SchedulerLimits {
 /// A scheduler operation that could not preserve its runtime contract.
 #[derive(Debug)]
 pub enum SchedulerError {
-    /// Native binding or pending-deadline storage could not be admitted.
+    /// Native task binding storage could not be admitted.
     ReadyStorageUnavailable(std::collections::TryReserveError),
     /// Stable Bray scheduler backing could not be allocated.
     BackingUnavailable,
@@ -37,8 +37,20 @@ pub enum SchedulerError {
     RegistrationIdentityExhausted,
     /// The hard timer capacity was reached.
     TimerCapacityReached,
+    /// Source deadline storage could not be admitted.
+    TimerBackingUnavailable,
     /// Pending timer identities cannot be represented.
     TimerIdentityExhausted,
+    /// The selected-target clock could not be observed.
+    TimerClock(bray_runtime_abi::NativePlatformStatus),
+    /// The relative deadline cannot be represented in target nanoseconds.
+    DeadlineOverflow,
+    /// The deadline owner has closed admission.
+    TimersClosed,
+    /// A committed native deadline callback failed.
+    TimerCallback(bray_runtime_abi::NativeRuntimeStatus),
+    /// Native callback backing could not be admitted.
+    TimerResources(bray_runtime_abi::NativeRuntimeStatus),
     /// The task identity is already registered.
     TaskAlreadyRegistered(TaskId),
     /// The task is no longer registered with this scheduler.

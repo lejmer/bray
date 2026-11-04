@@ -1,0 +1,66 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.deadline;
+
+using core.memory;
+using std.memory;
+using std.sync;
+using internal bray.runtime.bootstrap.event;
+using internal bray.runtime.bootstrap.scheduler;
+
+@layout(c)
+internal struct Reference
+{
+    pointer: DataPointer<Domain>;
+}
+
+internal struct Domain
+{
+    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    limit: usize;
+    state: std.sync.SpinLock<State>;
+}
+
+internal struct State
+{
+    mut next: u64;
+    mut entries: std.memory.RawBuffer<Entry>?;
+}
+
+internal struct Entry
+{
+    deadline: u64;
+    identity: u64;
+    scope: u64;
+    callback: bray.runtime.bootstrap.event.Callback;
+}
+
+trusted internal predicate retained(owner: &Reference);
+
+trusted internal predicate retiring(owner: &Reference);
+
+trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+
+trusted internal predicate retirement_entry(pointer: DataPointer<Reference>);
+
+trusted internal predicate heap_owned(owner: &State);
+
+trusted internal predicate entry_owned(owner: &Entry);
+
+trusted internal predicate optional_entry_owned(owner: &(Entry?));
+
+trusted internal predicate domain_owned(owner: &Domain);
+
+trusted internal predicate acquisition_for(owner: &Domain, marker: &std.sync.spin_lock.Marker);
+
+trusted internal const func count(pos state: &State) -> usize
+    executes(pure, total)
+{
+    return if let ?entries = state.entries
+    {
+        yield entries.initialized;
+    }
+    else
+    {
+        yield 0;
+    };
+}

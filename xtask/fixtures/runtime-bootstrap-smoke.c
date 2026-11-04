@@ -36,6 +36,7 @@ static unsigned deallocation_reentry_status;
 static void reenter_pool_on_release(void);
 static int check_numeric_runtime(void);
 static int check_event_runtime(void);
+static int check_deadline_runtime(void);
 static int check_event_cold_shutdown(void);
 static atomic_uint recursive_attachment_status;
 static atomic_uint recursive_attachment_leave_status;
@@ -3228,6 +3229,25 @@ int main(void)
     allocation_callback = before_allocation;
     release_callback = before_release;
 
+    if (getenv("BRAY_RUNTIME_SMOKE_DEADLINES"))
+    {
+        if (bray_runtime_initialization(1, 1) != 0)
+            return 1;
+
+        int status = check_deadline_runtime();
+
+        if (status != 0)
+            return status;
+
+        if (
+            shutdown_product() != 0 ||
+            atomic_load(&live_allocations) != 0
+        )
+            return 247;
+
+        return 0;
+    }
+
     int event_shutdown_status = check_event_cold_shutdown();
 
     if (event_shutdown_status != 0)
@@ -3290,6 +3310,11 @@ int main(void)
 
     if (cancellation_status != 0)
         return cancellation_status;
+
+    int deadline_status = check_deadline_runtime();
+
+    if (deadline_status != 0)
+        return deadline_status;
 
     int event_status = check_event_runtime();
 

@@ -14,7 +14,7 @@ use bray_package_interface::{
     PackageInterfaceExportBundle, PackageInterfaceIdentity, PackageInterfaceSurface,
     encode_package_interface,
 };
-use bray_symbols::{NativeLinkRequirement, PackageIdentity, PackageVersion};
+use bray_symbols::{NativeLinkRequirement, NativeSymbolContract, PackageIdentity, PackageVersion};
 use bray_target::NativeTarget;
 
 /// Publishes a foreign producer as an ordinary native-only library dependency.
@@ -148,6 +148,7 @@ pub(crate) fn standard_library_inputs(
     owned: &[PackageImplementationArtifact],
     target: NativeTarget,
     standard_library: &Path,
+    demands: impl IntoIterator<Item = NativeSymbolContract>,
     output: &Path,
 ) -> Result<NativeDependencyInputs, String> {
     let selected = bray_compilation::SelectedTarget::for_native(target);
@@ -180,13 +181,14 @@ pub(crate) fn standard_library_inputs(
         );
     }
 
-    dependency_inputs(owned, &dependencies, output)
+    dependency_inputs(owned, &dependencies, demands, output)
 }
 
 /// Stages selected packed native dependencies for a foreign host linking owned package archives.
 pub(crate) fn dependency_inputs(
     owned: &[PackageImplementationArtifact],
     dependencies: &[PackageImplementationArtifact],
+    demands: impl IntoIterator<Item = NativeSymbolContract>,
     output: &Path,
 ) -> Result<NativeDependencyInputs, String> {
     let (artifacts, indexes): (Vec<_>, Vec<_>) = owned
@@ -228,7 +230,7 @@ pub(crate) fn dependency_inputs(
     let resolver = NativeUnitResolver::new(indexes);
 
     let selection = resolver
-        .select_seeded(seeds)
+        .select_seeded(demands, seeds)
         .map_err(|error| format!("foreign host package dependencies do not resolve: {error:?}"))?;
 
     let mut links = BTreeSet::new();

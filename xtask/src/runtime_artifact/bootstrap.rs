@@ -135,10 +135,27 @@ pub fn build(
 
     let standard_library = standard_library_directory(root, target);
 
+    // The foreign runtime host observes the selected-target clock directly. Its
+    // ABI reference is not an import of the owned Bray bootstrap package.
+    let clock_symbol = target.object_symbol_name(
+        bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow.native_symbol(),
+    );
+
+    let clock = bray_symbols::NativeSymbolContract::new(
+        bray_symbols::NativeSymbolIdentity::Name(
+            NonEmptySharedStr::try_new(clock_symbol.as_ref())
+                .expect("the clock ABI symbol is nonempty"),
+        ),
+        None,
+        bray_symbols::NativeSymbolBinding::Strong,
+        bray_symbols::NativeSymbolPresence::Required,
+    );
+
     let (inputs, mut links) = crate::native_package::standard_library_inputs(
         &[owned],
         target,
         &standard_library,
+        [clock],
         output,
     )?;
 
