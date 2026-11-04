@@ -546,6 +546,7 @@ impl Lifecycle {
         ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
             returned: Default::default(),
+            addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
             pending_execution: false,

@@ -1,7 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_bound_tree::BoundExpressionId;
-
 use super::super::flow::ExecutionFlowDomain;
 use super::super::state::ExecutionState;
 use crate::{CheckerRequestContext, ExecutionCondition};
@@ -155,198 +153,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.current.extend(completed_inputs);
     }
 
-    fn prepare_call_observations(
-        &self,
-        state: &mut ExecutionState,
-        expression: BoundExpressionId,
-        call: &bray_bound_tree::SelectedCall,
-        arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
-        origins: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
-        retain_carriers: bool,
-    ) -> (Vec<ExecutionCondition>, BTreeSet<crate::ExecutionPlace>) {
-        let mut carriers = Vec::new();
-        let mut owners = BTreeSet::new();
-
-        // Whole-owner guarantees follow the returned value's dependency contract.
-        // Address and field guarantees also depend on the borrowed storage that
-        // established them, even when the raw value has no ordinary borrow.
-        let returned = |operand| {
-            retain_carriers
-                && self
-                    .dependencies
-                    .calls()
-                    .get(&expression.into())
-                    .and_then(|dependencies| dependencies.retained_inputs())
-                    .is_none_or(|inputs| inputs.contains(&operand))
-        };
-
-        for argument in call.arguments() {
-            let (parameter, ordinal, ty) = match argument {
-                bray_bound_tree::SelectedArgument::Explicit {
-                    parameter,
-                    ordinal,
-                    conversion,
-                    ..
-                } => (*parameter, *ordinal, conversion.target_type()),
-                bray_bound_tree::SelectedArgument::Default {
-                    parameter,
-                    ordinal,
-                    ty,
-                    ..
-                } => (Some(*parameter), *ordinal, *ty),
-            };
-
-            let operand = call
-                .input_site(
-                    expression,
-                    bray_symbols::DependencySubjectRoot::Parameter(
-                        bray_symbols::SymbolOrdinal::new(ordinal),
-                    ),
-                )
-                .expect("selected argument has its evaluated input");
-
-            let reference = crate::representation::reference_kind(self.request, ty);
-
-            if reference.is_none() {
-                continue;
-            }
-
-            let Some(place) = self.input_place(operand) else {
-                // Indexed storage has no scalar field path. Its enclosing owner still bounds
-                // the lifetime of a returned address or capability.
-                for access in self
-                    .storage
-                    .occurrence_plans(operand)
-                    .filter(|_| returned(operand))
-                {
-                    if let Some(owner) =
-                        crate::ExecutionPlace::storage_owner(self.storage, access.access())
-                    {
-                        owners.insert(owner);
-                    }
-                }
-
-                continue;
-            };
-
-            if reference == Some(bray_symbols::DependencyReferenceKind::Address) {
-                let ordinal = ordinal
-                    .checked_add(u32::from(call.receiver().is_some()))
-                    .expect("selected argument order must fit");
-
-                let ordinal =
-                    crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal));
-
-                if let Some(current) = place.value_in(&state.current)
-                    && current.owner_identity() != &ExecutionCondition::Unknown
-                    && arguments
-                        .get(&ordinal)
-                        .is_some_and(|entry| entry.owner_identity() == current.owner_identity())
-                {
-                    // Completion clauses observe current contents of the evaluated address.
-                    // A reassigned or exposed pointer slot cannot establish this identity.
-                    if let Some(parameter) = parameter {
-                        arguments.insert(
-                            bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
-                            current.clone(),
-                        );
-                    }
-
-                    arguments.insert(ordinal, current);
-                }
-
-                continue;
-            }
-
-            let input = self.current_input(state, operand);
-
-            // A local borrow alias retains the referent, rather than the slot holding
-            // the alias. Its returned view can outlive that slot while the input lives.
-            if returned(operand) {
-                self.retain_trusted_borrow_owners(&mut owners, operand, &place, origins);
-            }
-
-            let value = input;
-
-            if retain_carriers {
-                carriers.push(value.clone());
-            }
-
-            if let Some(parameter) = parameter {
-                arguments.insert(
-                    bray_bound_tree::BoundReferenceTarget::Surface(parameter.into()).into(),
-                    value.clone(),
-                );
-            }
-
-            let ordinal = ordinal
-                .checked_add(u32::from(call.receiver().is_some()))
-                .expect("selected argument order must fit");
-
-            arguments.insert(
-                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(ordinal)),
-                value,
-            );
-        }
-
-        if let Some(receiver) = call.receiver()
-            && matches!(
-                receiver.mode(),
-                bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
-            )
-            && let Some(input) =
-                call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
-            && let Some(place) = self.input_place(input)
-        {
-            let reference =
-                bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
-
-            let value = self.current_input(state, input);
-
-            if returned(input) {
-                self.retain_trusted_borrow_owners(&mut owners, input, &place, origins);
-            }
-
-            if retain_carriers {
-                carriers.push(value.clone());
-            }
-
-            arguments.insert(reference.into(), value.clone());
-
-            arguments.insert(
-                crate::ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0)),
-                value,
-            );
-        }
-
-        (carriers, owners)
-    }
-
-    fn retain_trusted_borrow_owners(
-        &self,
-        owners: &mut BTreeSet<crate::ExecutionPlace>,
-        expression: bray_bound_tree::BoundExecutionSite,
-        place: &crate::ExecutionPlace,
-        origins: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
-    ) {
-        if let Some(paths) = origins.get(&expression) {
-            owners.extend(
-                paths
-                    .iter()
-                    .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
-            );
-        } else {
-            // Provisional execution analysis has no completed storage transition yet.
-            owners.insert(place.clone());
-        }
-    }
-
     pub(in crate::analysis::guarantee) fn complete_trusted_call(
         &self,
         state: &mut ExecutionState,
@@ -387,54 +193,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        let inferred = self
-            .dependencies
-            .calls()
-            .get(&invocation)
-            .into_iter()
-            .flat_map(|dependencies| {
-                dependencies.carriers().iter().map(|carrier| {
-                    let condition = crate::execution_condition_from_type_term(
-                        self.request.semantic_values(),
-                        carrier.guarantee(),
-                        dependencies.input_count(),
-                    )
-                    .expect("checked carrier condition decodes in the same semantic store");
+        let (guarantees, subjects) = self.completion_guarantees(invocation, contract, &capture);
 
-                    (
-                        capture(&condition),
-                        super::carriers::result_projection(self.dependencies, carrier.path()),
-                    )
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let guarantees = contract
-            .guarantees
+        let address_subjects = contract
+            .address_subjects
             .iter()
-            .map(capture)
-            .chain(inferred.iter().map(|(condition, _)| condition.clone()))
+            .map(|(guarantee, subject, owning)| (capture(guarantee), subject.clone(), *owning))
             .collect::<Vec<_>>();
-
-        let mut subjects = contract
-            .witness_subjects
-            .iter()
-            .filter_map(|(guarantee, subject)| {
-                let guarantee = capture(guarantee);
-
-                if subject.observes_completion_result()
-                    && inferred
-                        .iter()
-                        .any(|(condition, _)| *condition == guarantee)
-                {
-                    None
-                } else {
-                    Some((guarantee, subject.clone()))
-                }
-            })
-            .collect::<Vec<_>>();
-
-        subjects.extend(inferred);
 
         let postconditions = contract
             .postconditions
@@ -469,11 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
 
         let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
-            && let bray_bound_tree::BoundExecutionSite::Node(
-                bray_bound_tree::AnyBoundNodeId::Expression(expression),
-            ) = invocation
-            && let Some(bray_bound_tree::SemanticSelection::Call(call)) =
-                self.semantics.selections().expression(expression)
+            && let Some((expression, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
             self.prepare_call_observations(
@@ -481,6 +242,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 expression,
                 call,
                 &mut arguments,
+                &entry.addresses,
                 observations,
                 !guarantees.is_empty(),
             )
@@ -512,8 +274,33 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         };
 
-        for (guarantee, subject) in &subjects {
-            let guarantee = instantiate(guarantee);
+        let carry_result = |state: &mut ExecutionState,
+                            template: &ExecutionCondition,
+                            guarantee: &ExecutionCondition,
+                            carrier: &ExecutionCondition,
+                            owning: bool| {
+            let sources = self.result_guarantee_owners(
+                invocation,
+                &state.entries.get(&invocation)
+                    .expect("completed invocation retains its captured arguments").arguments,
+                template,
+                &owners,
+                &address_subjects,
+                &instantiate,
+            );
+
+            self.carry_result_guarantee(
+                state,
+                carrier,
+                guarantee,
+                !contract.transferred_inputs.is_empty(),
+                owning,
+                sources,
+            );
+        };
+
+        for (template, subject) in &subjects {
+            let guarantee = instantiate(template);
 
             // A guarantee discharged solely by its ordinary guard carries no trusted authority.
             if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
@@ -529,18 +316,54 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             if subject.observes_completion_result() {
-                self.carry_result_guarantee(
-                    state,
-                    &condition,
-                    &guarantee,
-                    !contract.transferred_inputs.is_empty(),
-                );
+                carry_result(state, template, &guarantee, &condition, true);
             }
 
             for carrier in &carriers {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    state.carry_guarantee(carrier.clone(), guarantee.clone());
+                    let addresses = self.input_guarantee_addresses(
+                        invocation,
+                        &state.entries.get(&invocation)
+                            .expect("completed invocation retains its captured arguments").arguments,
+                        template,
+                        &owners,
+                        &address_subjects,
+                        &instantiate,
+                    );
+
+                    state
+                        .witnesses
+                        .entry(carrier.owner_identity().clone())
+                        .or_default()
+                        .carry(&guarantee, true, &addresses);
                 }
+            }
+        }
+
+        self.carry_input_access_guarantees(
+            invocation,
+            state,
+            &address_subjects,
+            &owners,
+            &instantiate,
+        );
+
+        for template in guarantees
+            .iter()
+            .filter(|guarantee| guarantee.observes_completion_result())
+        {
+            if subjects.iter().any(|(guarantee, subject)| {
+                guarantee == template && subject.observes_completion_result()
+            }) {
+                continue;
+            }
+
+            let guarantee = instantiate(template);
+
+            if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
+                != Some(true)
+            {
+                carry_result(state, template, &guarantee, &result, false);
             }
         }
 
@@ -548,17 +371,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let guarantee = instantiate(guarantee);
 
             guarantee.assume(true, &mut state.trusted_assumptions);
-        }
-
-        if !guarantees.is_empty() && !owners.is_empty() {
-            let dependencies = state
-                .witness_dependencies
-                .entry(result.owner_identity().clone())
-                .or_default();
-
-            // The owning storage transition already resolved the required lifetimes.
-            // These anchors need not name the physical storage reached by the borrow.
-            dependencies.extend(owners);
         }
 
         for postcondition in &postconditions {
@@ -588,8 +400,28 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         carrier: &ExecutionCondition,
         guarantee: &ExecutionCondition,
         transferred: bool,
+        owning: bool,
+        sources: (
+            BTreeSet<crate::ExecutionPlace>,
+            crate::execution_guarantees::AddressDependencies,
+        ),
     ) {
-        state.carry_guarantee(carrier.clone(), guarantee.clone());
+        let (dependencies, addresses) = sources;
+
+        let witness = state
+            .witnesses
+            .entry(carrier.owner_identity().clone())
+            .or_default();
+
+        witness.dependencies.extend(dependencies);
+
+        witness.carry(guarantee, owning, &addresses);
+
+        // Copyable raw-address facts do not own allocation authority. Only a complete
+        // owning carrier restricts which transferred values may supply that authority.
+        if !owning {
+            return;
+        }
 
         let mut pending = vec![guarantee];
 

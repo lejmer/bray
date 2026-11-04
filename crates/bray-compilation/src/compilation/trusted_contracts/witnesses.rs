@@ -139,20 +139,31 @@ impl Compilation {
         result: Option<bray_symbols::TypeId>,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
-    ) -> Result<Vec<(ExecutionCondition, ExecutionCondition)>, FactQueryError> {
+    ) -> Result<
+        (
+            Vec<(ExecutionCondition, ExecutionCondition)>,
+            Vec<(ExecutionCondition, ExecutionCondition, bool)>,
+        ),
+        FactQueryError,
+    > {
         let context = self.binding_context(cancellation)?;
+        let values = self.semantic_value_store()?;
 
         let mut pending = conditions
             .iter()
             .map(|condition| (condition, condition))
             .collect::<Vec<_>>();
 
+        let storage_predicates = self.copyable_storage_predicates();
+
         let mut subjects = Vec::new();
+        let mut addresses = Vec::new();
 
         while let Some((guarantee, condition)) = pending.pop() {
             match condition {
                 ExecutionCondition::Trusted(condition) => {
-                    let ExecutionCondition::Predicate(predicate, _, arguments) = condition.as_ref()
+                    let ExecutionCondition::Predicate(predicate, substitution, arguments) =
+                        condition.as_ref()
                     else {
                         continue;
                     };
@@ -166,7 +177,49 @@ impl Compilation {
                     diagnostics.add_range(signature.diagnostics().iter().cloned());
 
                     if !signature.diagnostics().has_errors() && signature.value().is_trusted() {
-                        for argument in arguments.iter() {
+                        let templates = signature
+                            .value()
+                            .parameters()
+                            .iter()
+                            .map(|parameter| parameter.ty().clone())
+                            .collect::<Vec<_>>();
+
+                        let checked = self.checked_constant_terms_for_templates_with_cancellation(
+                            templates.iter(),
+                            cancellation,
+                        )?;
+
+                        diagnostics.add_range(checked.diagnostics().iter().cloned());
+
+                        if checked.diagnostics().has_errors() {
+                            continue;
+                        }
+
+                        assert_eq!(
+                            templates.len(),
+                            arguments.len(),
+                            "checked predicate retains its signature arity"
+                        );
+
+                        for (template, argument) in templates.iter().zip(arguments.iter()) {
+                            let ty = bray_checker::resolve_type_expression_template(
+                                values, template, checked.value(),
+                            ).expect("checked predicate parameter template resolves before trusted analysis");
+
+                            let ty = values.substitute_type(ty, *substitution)?;
+
+                            if matches!(values.type_data(ty).as_ref(),
+                                bray_symbols::TypeData::Named { definition, .. }
+                                if matches!(crate::compilation::foreign::compiler_known_representation(self, *definition),
+                                    Some(bray_compiler_known::RepresentationRole::RawPointer
+                                        | bray_compiler_known::RepresentationRole::FunctionPointer
+                                        | bray_compiler_known::RepresentationRole::DevicePointer)))
+                            {
+                                let owning = !storage_predicates.contains(predicate);
+
+                                addresses.push((guarantee.clone(), argument.clone(), owning));
+                            }
+
                             let subject = if argument.observes_completion_result() {
                                 if let Some(result) = result {
                                     let (carrier, ty) = argument
@@ -201,40 +254,15 @@ impl Compilation {
             }
         }
 
-        Ok(subjects)
+        Ok((subjects, addresses))
     }
 
-    pub(super) fn trusted_result_is_witness(
+    fn copyable_storage_predicates(
         &self,
-        ty: bray_symbols::TypeId,
-        guarantees: &[ExecutionCondition],
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<bool, FactQueryError> {
-        let mut result_guarantees = guarantees
-            .iter()
-            .filter(|condition| condition.observes_completion_result())
-            .peekable();
-
-        if result_guarantees.peek().is_none() {
-            return Ok(false);
-        }
-
-        let values = self.semantic_value_store()?;
-
-        if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Named { definition, .. }
-            if crate::compilation::foreign::compiler_known_representation(self, *definition).is_some_and(|role|
-                role.numeric_kind().is_some()
-                    || matches!(role, bray_compiler_known::RepresentationRole::RawPointer
-                        | bray_compiler_known::RepresentationRole::FunctionPointer
-                        | bray_compiler_known::RepresentationRole::DevicePointer)))
-        {
-            return Ok(true);
-        }
-
+    ) -> std::collections::BTreeSet<bray_symbols::PredicateDefinitionSymbolId> {
         let provider = self.available_compiler_known_symbols().provider();
 
-        let storage_predicates = [
+        [
             "ValidRead",
             "ValidWrite",
             "AlignedFor",
@@ -265,7 +293,38 @@ impl Compilation {
                 .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
                 .map(bray_symbols::PredicateDefinitionSymbolId::from)
         })
-        .collect::<std::collections::BTreeSet<_>>();
+        .collect::<std::collections::BTreeSet<_>>()
+    }
+
+    pub(super) fn trusted_result_is_witness(
+        &self,
+        ty: bray_symbols::TypeId,
+        guarantees: &[ExecutionCondition],
+        cancellation: &CancellationToken,
+        diagnostics: &mut DiagnosticBag,
+    ) -> Result<bool, FactQueryError> {
+        let mut result_guarantees = guarantees
+            .iter()
+            .filter(|condition| condition.observes_completion_result())
+            .peekable();
+
+        if result_guarantees.peek().is_none() {
+            return Ok(false);
+        }
+
+        let values = self.semantic_value_store()?;
+
+        if !matches!(values.type_data(ty).as_ref(), bray_symbols::TypeData::Named { definition, .. }
+            if crate::compilation::foreign::compiler_known_representation(self, *definition).is_some_and(|role|
+                role.numeric_kind().is_some()
+                    || matches!(role, bray_compiler_known::RepresentationRole::RawPointer
+                        | bray_compiler_known::RepresentationRole::FunctionPointer
+                        | bray_compiler_known::RepresentationRole::DevicePointer)))
+        {
+            return Ok(true);
+        }
+
+        let storage_predicates = self.copyable_storage_predicates();
 
         // Addresses and range extents describe checked storage without owning its authority.
         // Their guarantees retain source dependencies. Custom predicates still create witnesses.

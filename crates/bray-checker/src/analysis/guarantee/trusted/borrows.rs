@@ -81,46 +81,46 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return Default::default();
         };
 
-        let carriers = state
-            .witness_carriers
+        let witnesses = state
+            .witnesses
             .iter()
             .filter(|(carrier, _)| {
                 value
                     .owned_values()
                     .any(|owner| carrier.is_owned_projection_of(owner))
             })
-            // The call entry must retain the original carrier independently of failure invalidation.
-            .filter_map(|(carrier, conditions)| {
-                let conditions = conditions
+            .filter_map(|(carrier, witness)| {
+                let conditions = witness
+                    .conditions
                     .iter()
-                    .filter(|condition| {
+                    .filter(|(condition, _)| {
                         condition.prove_trusted(&state.trusted_assumptions, &state.assumptions)
                             == Some(true)
                     })
-                    .cloned()
-                    .collect::<std::collections::BTreeSet<_>>();
+                    .map(|(condition, addresses)| (condition.clone(), addresses.clone()))
+                    .collect::<BTreeMap<_, _>>();
 
-                (!conditions.is_empty()).then(|| (carrier.clone(), conditions))
+                (!conditions.is_empty()).then(|| {
+                    (
+                        carrier.clone(),
+                        crate::execution_guarantees::ExecutionWitness {
+                            conditions,
+                            dependencies: witness.dependencies.clone(),
+                        },
+                    )
+                })
             })
             .collect::<BTreeMap<_, _>>();
-
-        let dependencies = state
-            .witness_dependencies
-            .iter()
-            .filter(|(carrier, _)| carriers.contains_key(*carrier))
-            .map(|(carrier, dependencies)| (carrier.clone(), dependencies.clone()))
-            .collect();
 
         let allocations = state
             .allocation_owners
             .iter()
-            .filter(|(_, owner)| carriers.contains_key(*owner))
+            .filter(|(_, owner)| witnesses.contains_key(*owner))
             .map(|(condition, owner)| (condition.clone(), owner.clone()))
             .collect();
 
         crate::execution_guarantees::ExecutionValueEvidence {
-            carriers,
-            dependencies,
+            witnesses,
             allocations,
         }
     }
