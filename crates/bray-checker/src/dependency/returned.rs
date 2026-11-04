@@ -152,6 +152,25 @@ pub(crate) fn callee_result_template<C: CheckerRequestContext + ?Sized>(
         template = template.with_borrows([relation]);
     }
 
+    if matches!(
+        call.implementation_hook(),
+        Some(
+            bray_compiler_known::ImplementationHook::TaskJoin
+                | bray_compiler_known::ImplementationHook::TaskCancel
+        )
+    ) {
+        // An opaque Task can return dependencies from any capture. Known body
+        // producers are narrowed independently by completion-source discovery.
+        let requirements = template
+            .requirements()
+            .iter()
+            .cloned()
+            .chain([value_requirement(DependencySubjectRoot::Receiver)])
+            .collect::<Vec<_>>();
+
+        template = template.with_requirements(requirements);
+    }
+
     Ok(template)
 }
 

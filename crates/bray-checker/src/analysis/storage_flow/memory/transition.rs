@@ -142,6 +142,15 @@ impl State {
                     contents.initialized.clear();
                     self.contents.entry(slot).or_default().merge(&contents);
                 }
+
+                super::references::merge_deferred(&mut self.deferred, &transfer.deferred);
+
+                for (reference, bounds) in transfer.returned_inputs {
+                    self.returned_inputs
+                        .entry(reference)
+                        .or_default()
+                        .merge(&bounds);
+                }
             }
         }
     }

@@ -331,8 +331,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
-            owned_inputs: if self.storage.effective_purpose(plan) == bray_bound_tree::StorageAccessPurpose::Move { [bray_symbols::SymbolOrdinal::new(0)].into() } else { Default::default() },
-            returned: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs: if self.storage.effective_purpose(plan)
+                == bray_bound_tree::StorageAccessPurpose::Move
+            {
+                [bray_symbols::SymbolOrdinal::new(0)].into()
+            } else {
+                Default::default()
+            },
             addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -392,8 +399,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         Some(crate::ExecutionCallEvidence {
             implementation_witnesses: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
             owned_inputs: Default::default(),
-            returned: Default::default(),
             addresses: Default::default(),
             anonymous_target: None,
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -411,6 +419,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
+        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+            .filter(|(_, witness)| witness.available)
+            .map(|(owner, _)| owner.clone())
+            .collect();
+
         if let Some(contract) = self
             .request
             .trusted_contracts()
@@ -418,8 +431,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         {
             self.preserve_integer_entry_conditions(state, &contract.preconditions, &mut entry);
         }
-
-        entry.returned = self.returned_value_evidence(state, invocation, &entry.arguments);
 
         entry.addresses = entry
             .arguments
@@ -626,10 +637,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let trusted_assumptions =
             self.call_trusted_assumptions(state, invocation, &arguments, &transferred);
 
+        let owned_inputs = self.owned_input_ordinals(selection);
+
         let mut evidence = crate::ExecutionCallEvidence {
             implementation_witnesses: call.resolution().implementation_witnesses().into(),
-            owned_inputs: self.owned_input_ordinals(selection),
-            returned: Default::default(),
+            witness_inputs: Default::default(),
+            copy_sources: Default::default(),
+            owned_inputs,
             addresses: Default::default(),
             anonymous_target: self.anonymous_call_target(state, expression, call),
             trusted_boundary: !state.trust_boundaries.is_empty(),
@@ -716,7 +730,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let result = self.invocation_value(state, expression.into());
 
-        self.complete_trusted_call(state, expression.into(), result, observations);
+        let result = self.complete_trusted_call(state, expression.into(), result, observations);
+
+        state.expressions.insert(expression, result);
 
         let Some(entry) = state.entries.get(&expression.into()) else {
             return;

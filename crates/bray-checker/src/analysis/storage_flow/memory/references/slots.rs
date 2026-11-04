@@ -43,7 +43,8 @@ impl State {
     ) -> BTreeSet<StorageIdentityId> {
         self.contents
             .iter()
-            .filter(|(_, contents)| contents.exposed)
+            // A callee can publish an address without forming it in this caller.
+            .filter(|(_, contents)| contents.exposed || contents.escaped)
             .filter_map(|(target, _)| {
                 target
                     .storage_path()
@@ -307,19 +308,6 @@ impl State {
             })
     }
 
-    pub(in crate::analysis::storage_flow) fn transfer(
-        &mut self,
-        source: &Place,
-        destination: Place,
-    ) {
-        if !source.is_exact() {
-            self.clear(&destination);
-            return;
-        }
-
-        self.transfer_value(&Target::storage(source.clone()), destination);
-    }
-
     pub(in crate::analysis::storage_flow) fn transfer_value(
         &mut self,
         source: &Target,
@@ -359,8 +347,7 @@ impl State {
                             .collect()
                     })
                     .unwrap_or_default(),
-                payloads: Default::default(),
-                failure_effects: None,
+                ..Default::default()
             },
         }
     }
@@ -373,7 +360,8 @@ impl State {
         let mut transfer = Transfer {
             values: self.transferred_slots(source, destination).collect(),
             payloads: Default::default(),
-            failure_effects: None,
+            deferred: self.capture_deferred_value(source, destination),
+            ..Default::default()
         };
 
         for (target, contents) in self
@@ -414,6 +402,10 @@ impl State {
             // raw pointers can still name the destination's previous contents.
             self.retire(target);
 
+            if matches!(target.origin, Origin::Returned { .. }) {
+                continue;
+            }
+
             for references in transfer.values.values_mut() {
                 references.retire(target);
             }
@@ -423,6 +415,16 @@ impl State {
 
         self.values.extend(transfer.values);
         self.contents.extend(transfer.payloads);
+        self.deferred.extend(transfer.deferred);
+
+        // One abstract origin can describe surviving references from several
+        // evaluations. New completion bounds must not discard those earlier regions.
+        for (reference, bounds) in transfer.returned_inputs {
+            self.returned_inputs
+                .entry(reference)
+                .or_default()
+                .merge(&bounds);
+        }
     }
 
     pub(in crate::analysis::storage_flow) fn clear(&mut self, place: &Place) {
@@ -432,6 +434,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn clear_value(&mut self, target: &Target) {
         // Only the replaced subtree is visited, even when the function has many live values.
         take_subtree(&mut self.values, target).for_each(drop);
+        take_subtree(&mut self.deferred, target).for_each(drop);
     }
 
     pub(in crate::analysis::storage_flow) fn offset(

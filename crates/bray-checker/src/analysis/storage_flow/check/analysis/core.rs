@@ -568,8 +568,59 @@ where
         }
     }
 
-    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
     pub(in crate::analysis::storage_flow) fn apply_operation(
+        &mut self,
+        state: &mut StorageFlowState,
+        operation: &AnalysisOperation,
+    ) {
+        let Some((owner, alternatives)) = state.execution.as_ref().and_then(|execution| {
+            self.execution.deferred_alternatives(execution, operation.kind())
+        }) else {
+            self.apply_operation_branch(state, operation);
+
+            return;
+        };
+
+        // A possible producer owns its effects and completion together. Merge only
+        // after applying the operation, before an opaque alternative can erase its siblings.
+        let mut original = std::mem::take(state);
+        let mut alternatives = alternatives.into_iter().peekable();
+
+        while let Some(alternative) = alternatives.next() {
+            let mut branch = if alternatives.peek().is_some() {
+                original.clone()
+            } else {
+                std::mem::take(&mut original)
+            };
+
+            self.execution.select_deferred(
+                branch.execution.as_mut().expect("reachable producer has execution facts"),
+                owner.clone(),
+                alternative,
+            );
+
+            if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+                && !self.execution.normal_completion(branch.execution.as_ref()
+                    .expect("selected completion retains execution facts"), operation.kind().occurrence())
+            { continue; }
+
+            self.apply_operation(&mut branch, operation);
+
+            if state.reachable {
+                if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. }) {
+                    self.merge_completed(state, &mut branch, operation.kind().occurrence().expression()
+                        .expect("deferred completion retains its await expression"));
+                } else {
+                    state.merge(&branch, None);
+                }
+            } else {
+                *state = branch;
+            }
+        }
+    }
+
+    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
+    fn apply_operation_branch(
         &mut self,
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
@@ -618,7 +669,7 @@ where
             self.record_suspension(state, occurrence);
         }
 
-        let mut refinements = std::mem::take(&mut state.refinements);
+        let refinements = std::mem::take(&mut state.refinements);
         let universe = self.refinements;
 
         self.observe_absence(state, universe.active_refinements(&refinements));
@@ -629,7 +680,7 @@ where
             .expect("reachable storage state has execution facts");
 
         self.retain_operation_reports(state, *operation, &execution);
-        self.transfer_result_dependencies(state, kind);
+        self.transfer_result_dependencies(state, kind, &execution);
 
         if self.publish
             && !matches!(
@@ -647,6 +698,86 @@ where
 
         self.record_replacements(state, kind);
         self.apply_cleanup(state, &mut execution, kind);
+
+        self.apply_completion(state, operation, execution, refinements);
+    }
+
+    fn apply_completion(
+        &mut self,
+        state: &mut StorageFlowState,
+        operation: &AnalysisOperation,
+        mut execution: crate::analysis::guarantee::ExecutionState,
+        refinements: crate::analysis::refinement::RefinementSet,
+    ) {
+        let kind = operation.kind();
+
+        let mut alternatives = self.execution.split_task_completion(&mut execution, kind);
+
+        if !alternatives.is_empty() {
+            alternatives.push(execution);
+            alternatives.reverse();
+
+            // Complete each feasible outcome before joining its effects and result evidence.
+            let mut original = std::mem::take(state);
+            let mut alternatives = alternatives.into_iter().peekable();
+
+            while let Some(execution) = alternatives.next() {
+                let mut branch = if alternatives.peek().is_some() {
+                    original.clone()
+                } else {
+                    std::mem::take(&mut original)
+                };
+
+                self.apply_operation_effects(&mut branch, operation, execution, refinements.clone());
+
+                if state.reachable {
+                    self.merge_completed(state, &mut branch, kind.occurrence().expression()
+                        .expect("Task completion retains its await expression"));
+                } else {
+                    *state = branch;
+                }
+            }
+
+            return;
+        }
+
+        self.apply_operation_effects(state, operation, execution, refinements);
+    }
+
+    fn merge_completed(
+        &self,
+        state: &mut StorageFlowState,
+        incoming: &mut StorageFlowState,
+        expression: BoundExpressionId,
+    ) {
+        let mut execution = state.execution.take().expect("normal completion retains execution facts");
+        let other = incoming.execution.take().expect("completed alternative retains execution facts");
+
+        self.execution.merge_completion(&mut execution, &other, expression);
+        state.merge(incoming, None);
+        state.execution = Some(execution);
+    }
+
+    // rust-style: allow(function-too-large, reason = "one selected completion shares its resolved storage transition and effects")
+    fn apply_operation_effects(
+        &mut self,
+        state: &mut StorageFlowState,
+        operation: &AnalysisOperation,
+        mut execution: crate::analysis::guarantee::ExecutionState,
+        mut refinements: crate::analysis::refinement::RefinementSet,
+    ) {
+        let kind = operation.kind();
+        let universe = self.refinements;
+
+        if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+            && let Some(expression) = kind.occurrence().expression()
+            && self.execution.awaited_task_invocations(&execution, expression).is_some()
+            && self.execution.task_completion(&execution, expression) == Some(false)
+        {
+            state.execution = Some(execution);
+            self.apply_failure_effects(state, kind.occurrence(), self.on_normal_path);
+            execution = state.execution.take().expect("selected completion retains execution facts");
+        }
 
         let completing = matches!(
             kind,
@@ -818,13 +949,19 @@ where
         state.execution = Some(execution);
 
         if preserve_normal_storage {
-            self.capture_failure_effects(
-                state,
-                kind.occurrence(),
-                call_effects,
-                escaped,
-                invalidation.as_ref(),
-            );
+            if !kind.occurrence().expression().is_some_and(|expression| {
+                self.execution.awaited_task_invocations(
+                    state.execution.as_ref().expect("call effects retain execution facts"), expression,
+                ).is_some()
+            }) {
+                self.capture_failure_effects(
+                    state,
+                    kind.occurrence(),
+                    call_effects,
+                    escaped,
+                    invalidation.as_ref(),
+                );
+            }
         } else {
             self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
         }
@@ -992,6 +1129,19 @@ where
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
             self.execution
                 .complete_operation(execution, kind, Some(&observations));
+
+            if matches!(kind,
+                AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
+                    | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
+                && let Some(expression) = kind.occurrence().expression()
+            {
+                self.execution.capture_deferred_reports(execution, expression, || {
+                    crate::dependency::ReportDependencies {
+                        subjects: self.liveness.retained_by(expression).collect(),
+                        requirements: state.result_dependencies.value_requirements(expression).cloned().collect(),
+                    }
+                });
+            }
         }
 
         if self.publish
@@ -1027,7 +1177,15 @@ where
         &mut self,
         state: &mut StorageFlowState,
         kind: AnalysisOperationKind,
+        execution: &crate::analysis::guarantee::ExecutionState,
     ) {
+        let completed = match kind {
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+                self.execution.awaited_value_producers(execution, expression)
+            }
+            _ => None,
+        };
+
         let mut transfer = crate::dependency::ResultTransfer::new(
             self.request,
             self.execution.semantics.types(),
@@ -1042,6 +1200,7 @@ where
             kind.occurrence()
                 .expression()
                 .and_then(|id| self.execution.yield_targets.get(&id).copied()),
+            completed.as_ref(),
         ) {
             self.query_failure = Some(error);
         }
@@ -1285,30 +1444,7 @@ where
         };
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
-            if let Some(expression) = awaited {
-                if let Some(source) = state
-                    .execution
-                    .as_ref()
-                    .and_then(|execution| self.execution.awaited_invocation(execution, expression))
-                {
-                    if let Some(frame) = source
-                        .expression()
-                        .and_then(|id| self.expression_result_storage(id))
-                    {
-                        state.memory.clear(&frame);
-                    }
-
-                    state.memory.complete_transition(source);
-
-                    if let Some(source) = source
-                        .expression()
-                        .and_then(|id| self.expression_result_storage(id))
-                        && let Some(result) = self.expression_result_storage(expression)
-                    {
-                        state.memory.transfer(&source, result);
-                    }
-                }
-            } else if !deferred {
+            if !deferred {
                 state
                     .memory
                     .complete_transition(operation.kind().occurrence());
@@ -1540,6 +1676,10 @@ where
                     if purpose == StorageAccessPurpose::Move {
                         // Ownership tracking retains the selected path independently of the memory transition.
                         state.record_move(place.clone(), plan.expression(), ty, true);
+
+                        if let Some(execution) = state.execution.as_mut() {
+                            self.execution.observe_move(execution, place);
+                        }
                     } else {
                         state.initialize_path(place);
                     }

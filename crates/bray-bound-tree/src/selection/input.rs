@@ -203,6 +203,22 @@ impl SemanticSelection {
             .find(|input| self.input_ordinal(input.root()) == Some(ordinal))
     }
 
+    /// Returns the formal root at a receiver-first ordinal for this invocation phase.
+    pub fn invocation_input_root(
+        &self,
+        occurrence: BoundExecutionSite,
+        ordinal: SymbolOrdinal,
+    ) -> Option<DependencySubjectRoot> {
+        match (self, occurrence) {
+            (Self::Iteration(_), BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_))
+            | (Self::ScopedUse(_), BoundExecutionSite::ScopedEnter(_)) =>
+                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Receiver),
+            (Self::ScopedUse(_), BoundExecutionSite::ScopedExit(_)) =>
+                (ordinal.raw() == 0).then_some(DependencySubjectRoot::Parameter(ordinal)),
+            _ => self.input(ordinal).map(SelectedInput::root),
+        }
+    }
+
     /// Returns the value-producing occurrence supplying a formal input.
     pub fn input_site(
         &self,

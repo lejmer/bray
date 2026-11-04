@@ -90,7 +90,7 @@ fn consuming_and_deallocating_through_an_alias_updates_the_original_target() {
     let ty = error_type();
 
     state.fresh(source.clone(), origins[0]);
-    state.transfer(&source, alias.clone());
+    state.transfer_value(&Target::storage(source.clone()), alias.clone());
 
     assert_eq!(
         state.write(&Target::storage(source.clone()), ty, origins[1], None),
@@ -338,7 +338,7 @@ fn retiring_a_pointer_slot_keeps_the_contents_reached_by_surviving_aliases() {
         None,
     );
 
-    state.transfer(&source, alias.clone());
+    state.transfer_value(&Target::storage(source.clone()), alias.clone());
     state.forget(source.root);
     assert!(!state.has_stored_value(&source));
 
@@ -379,8 +379,8 @@ fn reassignment_changes_the_slot_without_mutating_its_previous_target() {
         None,
     );
 
-    state.transfer(&source, alias.clone());
-    state.transfer(&unknown, source.clone());
+    state.transfer_value(&Target::storage(source.clone()), alias.clone());
+    state.transfer_value(&Target::storage(unknown.clone()), source.clone());
     assert!(!state.has_stored_value(&source));
 
     assert_eq!(
@@ -460,11 +460,11 @@ fn joined_targets_require_all_possible_contents_and_weak_writes_do_not_initializ
 
     left.fresh(first.clone(), origins[0]);
     left.fresh(second.clone(), origins[1]);
-    left.transfer(&first, alias.clone());
+    left.transfer_value(&Target::storage(first.clone()), alias.clone());
 
     let mut right = left.clone();
 
-    right.transfer(&second, alias.clone());
+    right.transfer_value(&Target::storage(second.clone()), alias.clone());
     assert!(left.merge(&right, &Default::default(), &Default::default()));
 
     left.write(
@@ -549,7 +549,7 @@ fn repeated_creation_separates_old_aliases_and_has_a_finite_summary() {
         None,
     );
 
-    state.transfer(&source, alias.clone());
+    state.transfer_value(&Target::storage(source.clone()), alias.clone());
     state.fresh(source.clone(), origins[0]);
 
     state.write(
@@ -643,7 +643,7 @@ fn nested_address_observes_the_reference_slot_and_follows_reassignment() {
         MemoryOperationStatus::Valid
     );
 
-    state.transfer(&other, source.clone());
+    state.transfer_value(&Target::storage(other.clone()), source.clone());
 
     state.read(
         &Target::storage(address.clone()),
@@ -803,8 +803,8 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
     let mut state = State::default();
 
     state.fresh(allocation.clone(), origins[0]);
-    state.transfer(&allocation, field(&aggregate));
-    state.transfer(&aggregate, destination.clone());
+    state.transfer_value(&Target::storage(allocation.clone()), field(&aggregate));
+    state.transfer_value(&Target::storage(aggregate.clone()), destination.clone());
 
     state.write(
         &Target::storage(allocation.clone()),
@@ -835,7 +835,7 @@ fn whole_value_transfer_retains_reference_fields_and_replaces_old_fields() {
         MemoryOperationStatus::UninitializedRawStorage
     );
 
-    state.transfer(&unknown, destination.clone());
+    state.transfer_value(&Target::storage(unknown.clone()), destination.clone());
     assert!(!state.has_stored_value(&destination));
 }
 
@@ -1018,8 +1018,8 @@ fn dynamic_selectors_keep_unknown_locations_without_equating_evaluations() {
     );
 
     state.fresh(replacement.clone(), origins[2]);
-    state.transfer(&replacement, element.clone());
-    state.transfer(&element, loaded.clone());
+    state.transfer_value(&Target::storage(replacement.clone()), element.clone());
+    state.transfer_value(&Target::storage(element.clone()), loaded.clone());
     assert!(state.references(&Target::storage(loaded.clone())).unknown);
 }
 #[test]
@@ -1030,7 +1030,7 @@ fn direct_moves_and_reinitialization_change_existing_pointer_targets() {
     let ty = error_type();
 
     state.address(owner.clone(), pointer.clone(), ty, origins[0]);
-    state.transfer(&pointer, alias.clone());
+    state.transfer_value(&Target::storage(pointer.clone()), alias.clone());
     state.consume_place(owner.clone(), ty);
 
     assert_eq!(
@@ -1087,7 +1087,7 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
         .expect("fixture type must be interned");
 
     state.address(owner.clone(), pointer.clone(), ty, origins[0]);
-    state.transfer(&pointer, alias.clone());
+    state.transfer_value(&Target::storage(pointer.clone()), alias.clone());
     assert_eq!(state.referent(&alias, ty), Some(owner));
     assert_eq!(state.referent(&alias, other), None);
 
@@ -1277,8 +1277,8 @@ fn original_entry_references_survive_slot_reassignment_without_proving_disjointn
 
     state.entry_reference(first.clone());
     state.entry_reference(second.clone());
-    state.transfer(&first, captured.clone());
-    state.transfer(&second, first.clone());
+    state.transfer_value(&Target::storage(first.clone()), captured.clone());
+    state.transfer_value(&Target::storage(second.clone()), first.clone());
 
     let exact = state.exact_references(&captured).collect::<Vec<_>>();
 
@@ -1325,7 +1325,7 @@ fn absent_payload_is_ignored_but_unknown_or_moved_payload_blocks_exact_identity(
             let mut present = State::default();
 
             present.entry_reference(source.clone());
-            present.transfer(&source, payload.clone());
+            present.transfer_value(&Target::storage(source.clone()), payload.clone());
 
             let absent = State::default();
 
@@ -1413,7 +1413,7 @@ fn exposed_entry_reference_keeps_its_origin_without_claiming_a_physical_place() 
     let mut state = State::default();
 
     state.entry_reference(source.clone());
-    state.transfer(&source, pointer.clone());
+    state.transfer_value(&Target::storage(source.clone()), pointer.clone());
     state.expose_address(&pointer, error_type(), origins[0]);
 
     assert_eq!(
@@ -1483,7 +1483,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
     state.transfer_value(&target, field_reference.clone());
     state.borrow_target_storage(capability, target, ty);
     state.retain_borrow(capability, address.clone());
-    state.transfer(&address, copied.clone());
+    state.transfer_value(&Target::storage(address.clone()), copied.clone());
 
     assert_eq!(
         state
@@ -1581,9 +1581,9 @@ fn previous_epoch_cells_do_not_interrupt_current_subtree_transfers() {
         super::model::References::default(),
     );
 
-    state.transfer(&source, destination.clone());
+    state.transfer_value(&Target::storage(source.clone()), destination.clone());
     assert_eq!(state.exact_references(&destination).count(), 2);
-    state.transfer(&destination, pointer.clone());
+    state.transfer_value(&Target::storage(destination.clone()), pointer.clone());
     assert_eq!(state.exact_references(&pointer).count(), 2);
     state.clear(&source);
     assert!(!state.has_stored_value(&field));
@@ -1624,7 +1624,7 @@ fn aggregate_mutation_revokes_reference_fields_without_address_metadata() {
     let mut state = State::default();
 
     state.entry_reference(source.clone());
-    state.transfer(&source, field.clone());
+    state.transfer_value(&Target::storage(source.clone()), field.clone());
     assert!(state.has_stored_value(&field));
 
     assert!(
@@ -1820,7 +1820,7 @@ fn consumed_inline_value_transfers_after_borrow_plan_completion() {
     state.uninit(payload.clone(), error_type());
     state.write_value(payload, error_type(), origins[0], None);
     state.consume_target(super::Target::storage(owner.clone()), error_type());
-    state.transfer(&owner, destination.clone());
+    state.transfer_value(&Target::storage(owner.clone()), destination.clone());
     state.finish_value_transfers();
 
     state.point_at(
@@ -1941,7 +1941,7 @@ fn replacing_inline_storage_does_not_revalidate_a_pointer_to_its_old_contents() 
 
     state.uninit(replacement_payload.clone(), error_type());
     state.write_value(replacement_payload, error_type(), origins[1], None);
-    state.transfer(&replacement, first);
+    state.transfer_value(&Target::storage(replacement.clone()), first);
 
     state.point_at(
         payload,
@@ -2456,7 +2456,7 @@ fn null_pointer_has_no_effect_targets_or_initialization_authority() {
     let mut state = State::default();
 
     state.null(slot.clone());
-    state.transfer(&slot, copied.clone());
+    state.transfer_value(&Target::storage(slot.clone()), copied.clone());
 
     for place in [slot, copied] {
         let target = Target::storage(place);
@@ -2489,7 +2489,7 @@ fn opaque_reachability_distinguishes_safe_borrows_raw_escape_and_nested_argument
             .any(|path| path.root == owner.root)
     );
 
-    state.transfer(&reference, holder.clone());
+    state.transfer_value(&Target::storage(reference.clone()), holder.clone());
 
     let reached = state
         .contained_regions(&Target::storage(holder))
@@ -2621,7 +2621,7 @@ fn returned_borrow_regions_bound_aliases_without_claiming_argument_identity() {
             vec![&candidates[1]],
         );
 
-        state.transfer(&result, copied.clone());
+        state.transfer_value(&Target::storage(result.clone()), copied.clone());
         state.begin_transition(call);
 
         state.stage_returned_references(
@@ -3216,14 +3216,29 @@ fn incoming_exclusive_borrows_have_disjoint_immediate_referents() {
         ..State::default()
     };
 
-    let target = |path: Place| Target { previous: false, origin: StorageOrigin::entry(path) };
+    let target = |path: Place| Target {
+        previous: false,
+        origin: StorageOrigin::entry(path),
+    };
+
     let left = target(left);
     let right = target(right);
     let raw = target(raw);
 
-    assert_eq!(state.target_relationship(&left, &right), StorageRelationship::Disjoint);
-    assert_eq!(state.target_relationship(&left, &left), StorageRelationship::Identical);
-    assert_eq!(state.target_relationship(&left, &raw), StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(
+        state.target_relationship(&left, &right),
+        StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        state.target_relationship(&left, &left),
+        StorageRelationship::Identical
+    );
+
+    assert_eq!(
+        state.target_relationship(&left, &raw),
+        StorageRelationship::PotentiallyOverlapping
+    );
 
     assert_eq!(
         state.target_relationship(&left.project(&[StorageProjection::OwnedTarget]), &right),
@@ -3236,5 +3251,60 @@ fn incoming_exclusive_borrows_have_disjoint_immediate_referents() {
         *layer = 2;
     }
 
-    assert_eq!(state.target_relationship(&nested, &right), StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(
+        state.target_relationship(&nested, &right),
+        StorageRelationship::PotentiallyOverlapping
+    );
+}
+
+#[test]
+fn staged_future_moves_retain_completion_effects_and_references() {
+    let ([frame, moved, payload, output], expressions) = places();
+
+    let producer = expressions[0].into();
+    let movement = expressions[1].into();
+    let observation = expressions[2].into();
+    let producers = [producer].into();
+    let effect = super::Effect::Cleanup(error_type());
+    let mut state = State::default();
+
+    state.begin_transition(producer);
+    state.defer_effects(producer, Some(vec![effect.clone()]));
+
+    state.stage_address(
+        producer,
+        Target::storage(payload.clone()),
+        Target::storage(frame.clone()),
+        error_type(),
+        bray_symbols::DependencyReferenceKind::Borrow,
+    );
+
+    state.capture_deferred_transition(producer, frame.clone());
+    state.begin_transition(movement);
+    state.stage_slot(movement, &frame, moved.clone());
+    state.clear(&frame);
+    state.complete_transition(movement);
+
+    let source = super::Source::Value(Target::storage(moved));
+
+    assert_eq!(
+        state.deferred_effects(&source, &producers),
+        Some(vec![effect])
+    );
+
+    assert!(state.prepare_deferred_completion(
+        observation,
+        &source,
+        output.clone(),
+        [(producer, frame)]
+    ));
+
+    assert!(!state.values.contains_key(&Target::storage(output.clone())));
+    state.complete_transition(observation);
+
+    assert!(
+        state.values[&Target::storage(output)]
+            .targets
+            .contains(&Target::storage(payload))
+    );
 }

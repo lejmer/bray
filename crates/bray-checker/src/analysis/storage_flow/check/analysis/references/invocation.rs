@@ -172,11 +172,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 )
                 .expect("implicit invocation retains its selected protocol");
 
-            let root = if matches!(occurrence, BoundExecutionSite::ScopedExit(_)) {
-                DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(0))
-            } else {
-                DependencySubjectRoot::Receiver
-            };
+            let root = selection
+                .invocation_input_root(occurrence, bray_symbols::SymbolOrdinal::new(0))
+                .expect("implicit invocation retains its sole formal input");
 
             let input = selection
                 .invocation_input_site(occurrence, root)

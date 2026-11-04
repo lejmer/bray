@@ -168,6 +168,24 @@ pub(crate) fn resolve_storage_projections<C: CheckerRequestContext + ?Sized>(
     })
 }
 
+pub(crate) fn owned_storage_projections(
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    projections: &[bray_symbols::ConstantProjectionKind],
+) -> Vec<StorageProjection> {
+    use bray_symbols::ConstantProjectionKind;
+
+    projections.iter().map(|projection| match *projection {
+        ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
+        ConstantProjectionKind::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField {
+            variant: dependencies.projection_variant(field), field,
+        },
+        ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+        ConstantProjectionKind::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
+        ConstantProjectionKind::ArrayElementOrdinal(ordinal) => StorageProjection::ElementFromStart(ordinal),
+        _ => unreachable!("checked transfer contains only owning projections"),
+    }).collect()
+}
+
 pub(crate) fn storage_projections(
     values: &bray_symbols::SemanticValueStore,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,

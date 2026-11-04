@@ -276,6 +276,21 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             };
 
+            if let Some(bray_bound_tree::BoundExpression::Structured(array)) = request.view().expression(expression)
+                && array.kind() == bray_bound_tree::BoundStructuredExpressionKind::Array
+                && let bray_symbols::TypeData::Array { element, .. } = request.semantic_values().type_data(owner).as_ref()
+            {
+                for (ordinal, operand) in array.operands().iter().enumerate() {
+                    let ordinal = bray_symbols::SymbolOrdinal::new(u32::try_from(ordinal)
+                        .expect("checked array element count fits storage ordinals"));
+
+                    let mut path = Place::root(identity);
+
+                    path.projections = [bray_bound_tree::StorageProjection::ElementFromStart(ordinal)].into();
+                    self.reference_constructions.entry(expression).or_default().push((*operand, path, *element));
+                }
+            }
+
             for (projection, operand, suffix) in values.constructed_fields(expression) {
                 let Some(path) = project(request, Place::root(identity), &[projection])? else {
                     continue;

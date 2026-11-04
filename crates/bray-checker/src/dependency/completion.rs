@@ -1,73 +1,100 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundUnit, CheckedSemanticSelections, SemanticSelection,
+    BoundExpression, BoundExpressionId, CheckedSemanticSelections, SemanticSelection,
 };
 
 use super::ValueInputs;
+use crate::{CheckerRequestContext, CheckerUnitView};
 
 impl ValueInputs {
     /// Keeps completion dependencies separate from captures for known lazy producers.
-    pub(super) fn collect_deferred_sources(
+    pub(super) fn collect_deferred_sources<C: CheckerRequestContext + ?Sized>(
         &mut self,
-        unit: &BoundUnit,
+        request: CheckerUnitView<'_, C>,
+        types: &bray_bound_tree::CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
     ) {
-        let mutable = unit
-            .tree()
-            .patterns()
-            .filter(|(_, pattern)| pattern.is_mutable())
-            .flat_map(|(_, pattern)| pattern.bindings().iter().copied())
-            .collect::<BTreeSet<_>>();
+        let unit = request.unit();
 
         for (expression, node) in unit.tree().expressions() {
             let BoundExpression::Await(awaited) = node else {
                 continue;
             };
 
-            if let Some(source) = self.lazy_source(awaited.operand(), unit, selections, &mutable) {
-                self.deferred_sources.insert(expression, source);
-                self.expressions.insert(expression, Vec::new());
+            if let Some((sources, opaque)) = self.lazy_sources(awaited.operand(), request, types, selections) {
+                self.deferred_sources.insert(expression, sources);
+                self.expressions.insert(expression, opaque.into_iter().collect());
             }
         }
     }
 
-    /// Unknown or reassigned future values retain their complete captured contract.
-    fn lazy_source(
+    /// Unknown producers retain their complete captured contract.
+    fn lazy_sources<C: CheckerRequestContext + ?Sized>(
         &self,
         value: BoundExpressionId,
-        unit: &BoundUnit,
+        request: CheckerUnitView<'_, C>,
+        types: &bray_bound_tree::CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
-        mutable: &BTreeSet<bray_symbols::LocalBindingSymbolId>,
-    ) -> Option<BoundExpressionId> {
+    ) -> Option<(BTreeSet<BoundExpressionId>, BTreeSet<BoundExpressionId>)> {
+        let unit = request.unit();
         let mut pending = vec![value];
         let mut visited = BTreeSet::new();
         let mut sources = BTreeSet::new();
+        let mut opaque = BTreeSet::new();
+
+        let is_deferred = |value| types.expression(value).is_some_and(|ty| matches!(
+            crate::representation::type_representation(request, ty.ty()),
+            Some(bray_compiler_known::RepresentationRole::Future | bray_compiler_known::RepresentationRole::Task)
+        ));
 
         while let Some(value) = pending.pop() {
             if !visited.insert(value) {
                 continue;
             }
 
-            if self.writes.values(value).next().is_some() {
-                return None;
-            }
+            let assigned = self
+                .writes
+                .values(value)
+                .map(|assigned| assigned.value)
+                .collect::<Vec<_>>();
 
-            if super::assignment::value_places(unit, selections, self, value).iter().any(|(root, _)| {
-                matches!(root, bray_bound_tree::BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) if mutable.contains(binding))
-            }) {
-                return None;
+            let has_assignment = !assigned.is_empty();
+
+            pending.extend(assigned);
+
+            if matches!(unit.view().expression(value), Some(BoundExpression::Structured(value)) if value.kind() == bray_bound_tree::BoundStructuredExpressionKind::Absence)
+            {
+                continue;
             }
 
             if let Some(SemanticSelection::Call(call)) = selections.expression(value) {
+                if matches!(
+                    call.implementation_hook(),
+                    Some(
+                        bray_compiler_known::ImplementationHook::FutureStart
+                            | bray_compiler_known::ImplementationHook::TaskJoin
+                            | bray_compiler_known::ImplementationHook::TaskCancel
+                    )
+                ) {
+                    pending.push(
+                        call.receiver()
+                            .expect("task operations retain their consumed receiver")
+                            .expression(),
+                    );
+
+                    continue;
+                }
+
                 if !matches!(
                     call.resolution().result(),
                     bray_bound_tree::BoundCallResult::LazyFuture(_)
                 ) {
-                    return None;
+                    if !is_deferred(value) { return None; }
+                    opaque.insert(value);
+                } else {
+                    sources.insert(value);
                 }
-
-                sources.insert(value);
             } else if let Some(initializer) = self
                 .projected_initializer(value)
                 .or_else(|| self.initializers.get(&value).copied())
@@ -78,18 +105,14 @@ impl ValueInputs {
 
                 pending.extend(self.operands(value));
 
-                if pending.len() == previous {
-                    return None;
+                if pending.len() == previous && !has_assignment {
+                    if !is_deferred(value) { return None; }
+                    opaque.insert(value);
                 }
             }
         }
 
-        (sources.len() == 1).then(|| {
-            sources
-                .into_iter()
-                .next()
-                .expect("one lazy producer was established")
-        })
+        (!sources.is_empty() || !opaque.is_empty()).then_some((sources, opaque))
     }
 
     pub(crate) fn deferred_sources(
@@ -97,13 +120,13 @@ impl ValueInputs {
     ) -> impl Iterator<Item = (BoundExpressionId, BoundExpressionId)> {
         self.deferred_sources
             .iter()
-            .map(|(expression, source)| (*expression, *source))
+            .flat_map(|(expression, sources)| sources.iter().map(|source| (*expression, *source)))
     }
 
-    pub(super) fn completion_source(
+    pub(super) fn completion_sources(
         &self,
         expression: BoundExpressionId,
-    ) -> Option<BoundExpressionId> {
-        self.deferred_sources.get(&expression).copied()
+    ) -> Option<&BTreeSet<BoundExpressionId>> {
+        self.deferred_sources.get(&expression)
     }
 }

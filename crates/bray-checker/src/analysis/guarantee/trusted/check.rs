@@ -26,7 +26,7 @@ pub(in crate::analysis) struct TrustedChecks {
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
     pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
-    pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_symbols::DependencyProjection>>>>,
+    pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_bound_tree::StorageProjection>>>>,
 }
 
 impl TrustedChecks {
@@ -199,7 +199,7 @@ impl TrustedChecks {
             _ => state.result.clone(),
         };
 
-        self.collect_carriers(domain.request, domain.dependencies, state, &result);
+        self.collect_carriers(domain.request, state, &result);
 
         if domain.request.unit().key().kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault {
             let observed = super::carriers::portable(domain.request, &result);

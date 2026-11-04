@@ -401,6 +401,17 @@ pub fn map_execution_condition_references<E>(
 
             call(callable, implementation, witnesses, operands)?
         }
+        ExecutionCondition::CapturedInput {
+            owner,
+            invocation,
+            ordinal,
+        } => ExecutionCondition::CapturedInput {
+            owner: std::sync::Arc::new(map_execution_condition_references(
+                owner, map, input, literal, call,
+            )?),
+            invocation: *invocation,
+            ordinal: *ordinal,
+        },
         ExecutionCondition::Projection(field, value) => {
             map_execution_condition_references(value, map, input, literal, call)?.component(*field)
         }

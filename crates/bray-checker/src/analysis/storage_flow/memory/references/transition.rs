@@ -23,18 +23,8 @@ impl State {
         call: bray_bound_tree::BoundExecutionSite,
         effects: Option<Vec<Effect>>,
     ) {
-        self.deferred_effects
-            .insert(call, effects.map(|effects| effects.into_iter().collect()));
-    }
-
-    pub(in crate::analysis::storage_flow) fn deferred_effects(
-        &self,
-        call: bray_bound_tree::BoundExecutionSite,
-    ) -> Option<Vec<Effect>> {
-        self.deferred_effects
-            .get(&call)?
-            .as_ref()
-            .map(|effects| effects.iter().cloned().collect())
+        self.pending.entry(call).or_default().deferred_effects =
+            effects.map(|effects| effects.into_iter().collect());
     }
 
     #[cfg(test)]
@@ -74,7 +64,8 @@ impl State {
             let mut previous = super::super::model::Transfer {
                 values: take_subtree(&mut pending.values, &destination).collect(),
                 payloads: take_subtree(&mut pending.payloads, &destination).collect(),
-                failure_effects: None,
+                deferred: take_subtree(&mut pending.deferred, &destination).collect(),
+                ..Default::default()
             };
 
             previous.merge(&staged);
@@ -83,6 +74,8 @@ impl State {
 
         pending.values.extend(staged.values);
         pending.payloads.extend(staged.payloads);
+        pending.deferred.extend(staged.deferred);
+        pending.returned_inputs.extend(staged.returned_inputs);
     }
 
     pub(in crate::analysis::storage_flow) fn stage_returned_references(
@@ -195,8 +188,15 @@ impl State {
         ty: TypeId,
         bounds: References,
     ) {
-        // Joining executions unions their origins and whether an outside origin is possible.
         self.returned_inputs
+            .entry(reference.clone())
+            .or_default()
+            .merge(&bounds);
+
+        self.pending
+            .entry(call)
+            .or_default()
+            .returned_inputs
             .entry(reference.clone())
             .or_default()
             .merge(&bounds);
@@ -209,9 +209,10 @@ impl State {
             },
         };
 
-        self.retire(&target);
-
-        self.contents
+        self.pending
+            .entry(call)
+            .or_default()
+            .payloads
             .entry(target.clone())
             .or_default()
             .storage_type = Some(ty);
@@ -260,6 +261,7 @@ impl State {
 
         take_subtree(&mut pending.values, &destination).for_each(drop);
         take_subtree(&mut pending.payloads, &destination).for_each(drop);
+        take_subtree(&mut pending.deferred, &destination).for_each(drop);
         pending.values.insert(destination, References::default());
     }
 
@@ -342,8 +344,6 @@ impl State {
         &mut self,
         call: bray_bound_tree::BoundExecutionSite,
     ) {
-        self.deferred_effects.remove(&call);
-
         if let Some(transfer) = self.pending.remove(&call) {
             for slot in transfer.values.keys() {
                 self.clear_value(slot);
@@ -550,32 +550,19 @@ impl State {
             .values
             .values_mut()
             .chain(self.borrows.values_mut())
-            .chain(
-                self.pending
-                    .values_mut()
-                    .flat_map(|transfer| transfer.values.values_mut()),
-            )
         {
             references.retire(current);
         }
 
-        for effects in self.deferred_effects.values_mut().flatten() {
-            *effects = std::mem::take(effects)
-                .into_iter()
-                .map(|mut effect| {
-                    effect.retire(current);
-
-                    effect
-                })
-                .collect();
+        for transfer in self.pending.values_mut() {
+            transfer.retire_dependencies(current);
         }
 
-        for transfer in self.pending.values_mut() {
-            if let Some(effects) = &mut transfer.failure_effects
-                && effects.references(current)
-            {
-                // Branches share immutable captures until storage retirement changes a target epoch.
-                std::sync::Arc::make_mut(effects).retire(current);
+        for entries in self.deferred.values_mut() {
+            for transfer in entries.values_mut() {
+                if transfer.references(current) {
+                    std::sync::Arc::make_mut(transfer).retire_dependencies(current);
+                }
             }
         }
 

@@ -205,7 +205,7 @@ impl ExecutionPlace {
         Some(place)
     }
 
-    fn projection_kind(
+    pub(crate) fn projection_kind(
         projection: bray_bound_tree::StorageProjection,
     ) -> Option<ConstantProjectionKind> {
         use bray_bound_tree::StorageProjection;

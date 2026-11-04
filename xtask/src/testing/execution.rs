@@ -58,7 +58,7 @@ pub(super) fn run(
 
                     results.push((index, result));
 
-                    if !success {
+                    if !success && started.elapsed() >= timeout {
                         break;
                     }
                 }

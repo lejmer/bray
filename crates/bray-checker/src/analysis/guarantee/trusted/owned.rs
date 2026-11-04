@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::{flow::ExecutionFlowDomain, state::ExecutionState};
 use crate::{CheckerRequestContext, ExecutionCondition};
-use bray_symbols::{ConstantProjectionKind, DependencyOwnedResult, DependencyOwnedTransfer};
+use bray_bound_tree::StorageProjection;
+use bray_symbols::{DependencyOwnedResult, DependencyOwnedTransfer};
 
 /// The output shape under which a checked identity transfer is available.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -17,7 +18,7 @@ pub(in crate::analysis) enum OwnedReturnCondition {
 pub(super) struct OwnedReturn {
     value: ExecutionCondition,
     assumptions: BTreeSet<(ExecutionCondition, bool)>,
-    transfers: DependencyOwnedResult,
+    transfers: DependencyOwnedResult<StorageProjection>,
 }
 
 impl super::check::TrustedChecks {
@@ -122,7 +123,7 @@ impl super::check::TrustedChecks {
         &self,
         domain: &ExecutionFlowDomain<'_, '_, C>,
     ) -> DependencyOwnedResult<
-        ConstantProjectionKind,
+        StorageProjection,
         (bray_symbols::ConstantTermId, OwnedReturnCondition),
     > {
         let candidates = self
@@ -142,12 +143,8 @@ impl super::check::TrustedChecks {
             let mut valid = true;
 
             for returned in &self.owned_returns {
-                let (active, leaf_absent) = activity(
-                    domain,
-                    &returned.value,
-                    transfer.output(),
-                    &returned.assumptions,
-                );
+                let (active, leaf_absent) =
+                    activity(&returned.value, transfer.output(), &returned.assumptions);
 
                 let contains = returned
                     .transfers
@@ -221,10 +218,9 @@ impl super::check::TrustedChecks {
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-fn activity<C: CheckerRequestContext + ?Sized>(
-    domain: &ExecutionFlowDomain<'_, '_, C>,
+fn activity(
     result: &ExecutionCondition,
-    path: &[ConstantProjectionKind],
+    path: &[StorageProjection],
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> (Option<bool>, bool) {
     let mut value = result.clone();
@@ -232,7 +228,7 @@ fn activity<C: CheckerRequestContext + ?Sized>(
 
     for projection in path {
         let known = match projection {
-            ConstantProjectionKind::NullableValue => {
+            StorageProjection::NullableValue => {
                 if matches!(value, ExecutionCondition::Present(_)) {
                     Some(true)
                 } else if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
@@ -255,9 +251,9 @@ fn activity<C: CheckerRequestContext + ?Sized>(
                     })
                 }
             }
-            ConstantProjectionKind::UnionPayloadField(field) => value
+            StorageProjection::ActiveUnionPayloadField { variant, .. } => value
                 .clone()
-                .matches_variant(domain.dependencies.projection_variant(*field))
+                .matches_variant(*variant)
                 .prove(assumptions, &mut { ExecutionCondition::WORK_LIMIT }),
             _ => Some(true),
         };
@@ -270,7 +266,7 @@ fn activity<C: CheckerRequestContext + ?Sized>(
             active = None;
         }
 
-        value = value.component(*projection);
+        value = value.project(*projection);
     }
 
     if matches!(&value, ExecutionCondition::Literal(value) if matches!(value.kind(), bray_symbols::ConstantValueKind::NullableAbsent))
@@ -288,18 +284,11 @@ fn activity<C: CheckerRequestContext + ?Sized>(
 
 fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
-    result: &DependencyOwnedResult,
-    transfer: &DependencyOwnedTransfer,
+    result: &DependencyOwnedResult<StorageProjection>,
+    transfer: &DependencyOwnedTransfer<StorageProjection>,
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,
 ) -> bool {
-    if activity(
-        domain,
-        &ExecutionCondition::Result,
-        transfer.output(),
-        assumptions,
-    )
-    .0 == Some(false)
-    {
+    if activity(&ExecutionCondition::Result, transfer.output(), assumptions).0 == Some(false) {
         return true;
     }
 
@@ -336,15 +325,12 @@ fn every_active_layout_transfers<C: CheckerRequestContext + ?Sized>(
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis::guarantee) fn owned_normal_completion(
         &self,
-        state: &ExecutionState,
+        assumptions: &BTreeSet<(ExecutionCondition, bool)>,
         invocation: bray_bound_tree::BoundExecutionSite,
+        entry: &crate::ExecutionCallEvidence,
         result: &ExecutionCondition,
     ) -> bool {
         let Some(contract) = self.dependencies.calls().get(&invocation) else {
-            return true;
-        };
-
-        let Some(entry) = state.entries.get(&invocation) else {
             return true;
         };
 
@@ -366,7 +352,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
         };
 
-        feasible_layout(contract.owned_result(), &state.assumptions, &instantiate)
+        feasible_layout(contract.owned_result(), assumptions, &instantiate)
     }
 }
 

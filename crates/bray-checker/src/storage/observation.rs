@@ -65,6 +65,9 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
             | RepresentationRole::DevicePointer
     ) {
         Observation::Address
+    } else if matches!(role, RepresentationRole::Future | RepresentationRole::Task) {
+        // Runtime progress changes the protected frame, not the owned handle's identity.
+        Observation::Identity
     } else {
         Observation::Mutable
     };

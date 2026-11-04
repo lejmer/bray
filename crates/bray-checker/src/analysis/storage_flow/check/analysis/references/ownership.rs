@@ -3,10 +3,75 @@ use crate::CheckerRequestContext;
 use bray_symbols::TypeData;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn prepare_returned_frames(
+        &self,
+        state: &mut crate::analysis::storage_flow::model::StorageFlowState,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        contracts: &bray_bound_tree::BoundCallDependencyContracts,
+        destination: &bray_bound_tree::StoragePath,
+    ) {
+        use crate::analysis::storage_flow::memory::Target;
+
+        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. })
+            || contracts.owned_result().is_empty()
+        {
+            return;
+        }
+
+        // Opaque frames carry producer state without ordinary reference fields.
+        // Follow the same checked owning-return paths as the execution domain.
+        let selection = self.execution.semantics.selections()
+            .expression(occurrence.expression().expect("owned return has its invocation"))
+            .expect("owned return retains its selected invocation");
+
+        let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
+            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                self.request.semantic_values(), transfer.input(), contracts.input_count(),
+            ).expect("checked ownership source decodes in the same store") else {
+                unreachable!("checked ownership source contains only input projections");
+            };
+
+            let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = input.root else {
+                unreachable!("checked ownership source names a receiver-first input");
+            };
+
+            let root = selection.invocation_input_root(occurrence, ordinal)
+                .expect("owned return retains its actual input");
+
+            let source = self.invocation_place(occurrence, root)?;
+            let input = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+            let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            // Default-call slots already contain adapted values. Other invocations
+            // name the actual source storage, before nullable wrapping.
+            let wrapping = if !selection.evaluates_defaults()
+                && let Some(selected) = selection.input(ordinal)
+                && let Some(expression) = selected.expression()
+            {
+                self.reference_wrapping(expression, selected.ty(self.request.semantic_values()))?
+            } else {
+                Vec::new()
+            };
+
+            let input = if let Some(path) = input.strip_prefix(wrapping.as_slice()) {
+                path
+            } else {
+                // Returning the complete adapted owner also returns its wrapper.
+                output.extend_from_slice(wrapping.strip_prefix(input.as_slice())?);
+
+                &[]
+            };
+
+            Some((Target::storage(source).project(input), Target::storage(destination.clone()).project(&output)))
+        });
+
+        state.memory.stage_deferred_values(occurrence, transfers);
+    }
+
     pub(super) fn owned_result(
         &mut self,
         candidates: bray_symbols::DependencyOwnedResult<
-            bray_symbols::ConstantProjectionKind,
+            bray_bound_tree::StorageProjection,
             (
                 bray_symbols::ConstantTermId,
                 crate::analysis::guarantee::OwnedReturnCondition,
@@ -139,14 +204,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                                 .output()
                                 .iter()
                                 .copied()
-                                .chain([bray_symbols::ConstantProjectionKind::NullableValue]),
+                                .chain([bray_bound_tree::StorageProjection::NullableValue]),
                         )
                     } else {
                         transfer
                     };
 
                     return Ok(bray_symbols::DependencyOwnedResult::Transfer(
-                        transfer.with_condition(condition),
+                        bray_symbols::DependencyOwnedTransfer::new(
+                            transfer.input(),
+                            transfer.output().iter().map(|projection| {
+                                crate::ExecutionPlace::projection_kind(*projection)
+                                    .expect("owned result retains a portable output projection")
+                            }),
+                        )
+                        .with_condition(condition),
                     ));
                 }
 
@@ -203,12 +275,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
     fn owned_result_condition(
         &mut self,
-        path: &[bray_symbols::ConstantProjectionKind],
+        path: &[bray_bound_tree::StorageProjection],
         presence: bool,
     ) -> crate::CheckerQueryResult<Option<bray_symbols::ConstantTermId>, C::UpstreamError> {
         use crate::ExecutionCondition;
         use bray_bound_tree::BoundOperator;
-        use bray_symbols::{ConstantProjectionKind, ConstantValueData, ConstantValueKind};
+        use bray_bound_tree::StorageProjection;
+        use bray_symbols::{ConstantValueData, ConstantValueKind};
 
         let inputs = self
             .request
@@ -239,7 +312,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .chain(presence.then_some(None))
         {
             let condition = match projection {
-                Some(ConstantProjectionKind::NullableValue) | None => {
+                Some(StorageProjection::NullableValue) | None => {
                     assert!(
                         matches!(
                             self.request.semantic_values().type_data(ty).as_ref(),
@@ -258,11 +331,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         ],
                     ))
                 }
-                Some(ConstantProjectionKind::UnionPayloadField(field)) => Some(
-                    subject
-                        .clone()
-                        .matches_variant(self.dependencies.projection_variant(field)),
-                ),
+                Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) => {
+                    Some(subject.clone().matches_variant(variant))
+                }
                 _ => None,
             };
 
@@ -277,8 +348,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             if let Some(projection) = projection {
-                ty = self.owned_projection_type(ty, projection)?;
-                subject = subject.component(projection);
+                ty = self.owned_projection_type(
+                    ty,
+                    crate::ExecutionPlace::projection_kind(projection)
+                        .expect("owned result retains an owning output projection"),
+                )?;
+
+                subject = subject.project(projection);
             }
         }
 
