@@ -271,8 +271,16 @@ impl NativeRuntime {
         }
 
         if status == 0 && progress.kind() == NativeFrameProgressKind::YIELDED {
-            wake.wake()
-                .expect("a yielded task retains its admitted registration");
+            // Source can defer a shielded cleanup on its retained event. That
+            // registration owns the next wake until the event becomes ready.
+            let waiting = task.has_worker_failure()
+                && task.suspended_wait.lock().expect("task wait transport is available")
+                    .as_ref().is_some_and(|wait| !wait.is_ready());
+
+            if !waiting {
+                wake.wake()
+                    .expect("a yielded task retains its admitted registration");
+            }
         }
 
         if status == 1 && progress.kind() == NativeFrameProgressKind::RUNTIME_FAILURE {
@@ -307,7 +315,9 @@ impl NativeRuntime {
 
         // The exclusive dispatch retains its frame while formation runs. Only
         // afterward can release publish the next continuation and racing wakes.
-        if !self.cleanup_workloads.get()
+        // A failed admission already retained a recovery driver. Terminal
+        // metadata has no producer for which to demand another worker.
+        if !terminal && !task.has_worker_failure() && !self.cleanup_workloads.get()
             && let Err(failure) = self.workers.demand(&self.core, lane)
         {
             task.record_worker_failure(failure, scope);

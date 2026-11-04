@@ -679,26 +679,34 @@ mod tests {
             }
         }
 
-        fn wait_for_registration(task: bray_runtime_abi::NativeTaskHandle, mode: usize, steps: usize) {
+        fn wait_for_registration(task: bray_runtime_abi::NativeTaskHandle, mode: usize, steps: usize) -> u64 {
             let limit = std::time::Instant::now() + std::time::Duration::from_secs(5);
 
             loop {
                 drive_cleanup();
 
-                let waiting = state::with_runtime(|runtime| {
+                let (waiting, parked, wakes) = state::with_runtime(|runtime| {
                     let task = runtime.retained_task(task).expect("the suspended task remains live");
-                    let wait = task.suspended_wait.lock().expect("wait transport remains available");
 
-                    wait.as_ref().is_some_and(|wait| !wait.is_ready())
+                    let waiting = task.suspended_wait.lock().expect("wait transport remains available")
+                        .as_ref().is_some_and(|wait| !wait.is_ready());
+
+                    let snapshot = runtime.scheduler.snapshot().expect("the scheduler remains live");
+
+                    let [scheduled] = snapshot.tasks() else {
+                        panic!("directly composed cleanup retains one task registration");
+                    };
+
+                    (waiting, scheduled.dispatch() == crate::ScheduledTaskState::Idle, scheduled.wake_count())
                 }).expect("the runtime remains live");
 
-                if waiting && STEPS.load(Ordering::Relaxed) == steps {
-                    return;
+                if waiting && parked && STEPS.load(Ordering::Relaxed) == steps {
+                    return wakes;
                 }
 
                 assert!(
                     std::time::Instant::now() < limit,
-                    "mode {mode}: expected cleanup step {steps} at an unready event, found step {} and waiting={waiting}",
+                    "mode {mode}: expected parked cleanup step {steps}, found step {} and waiting={waiting}, parked={parked}",
                     STEPS.load(Ordering::Relaxed),
                 );
 
@@ -729,14 +737,17 @@ mod tests {
             wait_for_failure(task);
 
             if matches!(mode, 3 | 4 | 8 | 9) {
-                wait_for_registration(task, mode, usize::from(mode != 4));
+                let before = wait_for_registration(task, mode, usize::from(mode != 4));
 
                 // A fault and stale wake cannot resume a finalizer's unready wait.
                 for _ in 0..4 {
                     assert!(export::bray_runtime_wake(task).is_success());
-                    drive_cleanup();
+                    _ = wait_for_registration(task, mode, usize::from(mode != 4));
                 }
 
+                let after = wait_for_registration(task, mode, usize::from(mode != 4));
+
+                assert_eq!(after - before, 4, "an unready cleanup never wakes itself");
                 assert_eq!(STEPS.load(Ordering::Relaxed), usize::from(mode != 4));
                 assert!(export::bray_runtime_task_event_signal(EVENTS[0].load(Ordering::Relaxed)).is_success());
 

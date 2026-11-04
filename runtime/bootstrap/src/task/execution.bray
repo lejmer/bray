@@ -195,7 +195,11 @@ trusted internal func dispatch_reference(pos owner: &Dispatch) -> &Reference
     return &owner.reference;
 }
 
-trusted internal func acquire_dispatch(pos reference: &Reference, pos services: &Services) -> Dispatch
+trusted internal func acquire_dispatch(
+    pos reference: &Reference,
+    pos services: &Services,
+    pos worker_failed: bool
+) -> Dispatch
     requires(
         trusted retained(owner = reference),
         trusted native_services(owner = services),
@@ -209,7 +213,9 @@ trusted internal func acquire_dispatch(pos reference: &Reference, pos services: 
     )
     uses(intrinsic)
 {
-    let available = trusted withdraw_wait(reference);
+    // Recovery must leave shielded cleanup's event linked until readiness
+    // admits its continuation. Ordinary abandonment withdraws the wait.
+    let available = (worker_failed && trusted cancellation_shielded(reference)) || trusted withdraw_wait(reference);
 
     let root =
     {
