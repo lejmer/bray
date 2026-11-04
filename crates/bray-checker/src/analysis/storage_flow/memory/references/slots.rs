@@ -41,7 +41,7 @@ impl State {
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
         self.contents.iter()
             // A callee can publish an address without forming it in this caller.
-            .filter(|(target, contents)| !target.previous && (contents.exposed || contents.escaped))
+            .filter(|(_, contents)| contents.exposed || contents.escaped)
             .map(|(target, _)| exposure_region(target))
             .collect()
     }

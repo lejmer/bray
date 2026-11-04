@@ -75,7 +75,7 @@ impl State {
             Origin::Returned { reference, .. } => {
                 (None, Some(self.returned_reference_bounds(reference)))
             }
-            Origin::Entry { .. } | Origin::Allocation(_) => (None, None),
+            Origin::Entry { .. } | Origin::Allocation(_) | Origin::Static { .. } => (None, None),
         };
 
         storage.into_iter().chain(

@@ -3059,8 +3059,8 @@ fn raw_exposure_of_an_entry_referent_revokes_its_shared_protection() {
 }
 
 #[test]
-fn returned_pointers_can_reach_published_local_storage_without_current_inputs() {
-    let ([local, result, ..], origins) = places();
+fn returned_references_capture_external_exposure_when_they_are_created() {
+    let ([local, result, later_result, ..], origins) = places();
 
     let call = origins[0].into();
 
@@ -3085,7 +3085,7 @@ fn returned_pointers_can_reach_published_local_storage_without_current_inputs() 
 
     state.escape_targets([local.clone()]);
 
-    assert_ne!(
+    assert_eq!(
         state.target_relationship(&pointer, &local),
         bray_bound_tree::StorageRelationship::Disjoint
     );
@@ -3094,6 +3094,43 @@ fn returned_pointers_can_reach_published_local_storage_without_current_inputs() 
         state.effect_origins(&pointer).next().is_none(),
         "external reachability does not imply this call received a local input"
     );
+
+    state.stage_returned_references(call, [(later_result.clone(), error_type())], []);
+    state.complete_transition(call);
+
+    let later = state.value_target(&Target::storage(later_result), error_type())
+        .expect("a later opaque reference retains the current exposure bound");
+
+    assert_ne!(state.target_relationship(&later, &local), bray_bound_tree::StorageRelationship::Disjoint);
+    assert!(state.effect_origins(&later).any(|target| target == &local));
+}
+
+#[test]
+fn published_returned_aliases_survive_repeated_reference_reads() {
+    let ([reference, pointer, ..], origins) = places();
+
+    let mut state = State::default();
+    let slot = Target::storage(reference.clone());
+
+    state.observe_reference(slot.clone(), reference.clone(), error_type(), []);
+
+    let original = state.value_target(&slot, error_type())
+        .expect("the first read retains an established reference");
+
+    state.stage_address(origins[0].into(), original.clone(), Target::storage(pointer), error_type(),
+        bray_symbols::DependencyReferenceKind::Address);
+
+    state.observe_reference(slot.clone(), reference, error_type(), []);
+
+    let current = state.value_target(&slot, error_type())
+        .expect("the repeated read retains a current reference");
+
+    let exposed = state.raw_exposed_regions();
+
+    assert!(exposed.iter().any(|target| target.previous));
+
+    assert!(exposed.iter().any(|target|
+        state.target_relationship(target, &current) != bray_bound_tree::StorageRelationship::Disjoint));
 }
 
 #[test]
@@ -3454,9 +3491,15 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
     );
 
     assert_eq!(
-        state.target_relationship(&target, &Target::storage(owner)),
+        state.target_relationship(&target, &Target::storage(owner.clone())),
         bray_bound_tree::StorageRelationship::Disjoint,
     );
+
+    let owner = Target::storage(owner);
+
+    state.escape_targets([owner.clone()]);
+
+    assert_eq!(state.target_relationship(&target, &owner), bray_bound_tree::StorageRelationship::Disjoint);
 
     assert!(!state.initialized(&destination, view_type));
 

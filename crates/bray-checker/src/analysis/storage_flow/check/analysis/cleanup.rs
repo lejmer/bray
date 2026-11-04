@@ -565,6 +565,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         Some(
             self.resolve_effects(contracts.effects(), |subject, indirect| {
+                if let Some(location) = self.static_location(subject) {
+                    return if indirect {
+                        memory.referenced_regions(&location)
+                    } else {
+                        Some(vec![location])
+                    };
+                }
+
                 if subject.subject_root() != DependencySubjectRoot::Receiver {
                     return None;
                 }

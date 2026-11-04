@@ -59,6 +59,7 @@ internal struct Entry
     mut wakes: u64;
     mut queued_at: u64;
     mut slot: bool;
+    mut driver: Lane?;
 }
 
 internal struct State
@@ -110,7 +111,8 @@ internal func empty_entry(pos next: usize) -> Entry
         pending = 0,
         wakes = 0,
         queued_at = 0,
-        slot = false
+        slot = false,
+        driver = none
     };
 }
 

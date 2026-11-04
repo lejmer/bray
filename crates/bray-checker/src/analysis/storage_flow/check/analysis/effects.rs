@@ -557,13 +557,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Effect::Unknown | Effect::Cleanup(_) => {
                     unreachable!("opaque effects handled above")
                 }
-                Effect::Static(_) => {
-                    assert_eq!(
-                        effect.static_kind(),
-                        Some(DependencyMutationKind::Escape),
-                        "unresolved static mutation must have an ambient or atomic transition"
-                    );
-                }
                 Effect::Ambient | Effect::Atomic => {
                     unreachable!("classified effects handled above")
                 }
@@ -674,13 +667,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let Some(targets) = resolve(subject, indirect) else {
-                if static_subject {
-                    // Global subjects already belong to the shared semantic graph.
-                    // Their immutable projections do not need a caller-local slot.
-                    resolved.push(Effect::Static(effect.clone()));
-                    continue;
-                }
-
                 if kind == DependencyMutationKind::Atomic {
                     resolved.push(Effect::Atomic);
                     continue;
@@ -733,10 +719,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
                 Effect::Atomic => {
                     self.record_effect(DependencyStorageEffect::Atomic, normal_effects)
-                }
-                Effect::Static(effect) => {
-                    // Retain the checked global identity across forwarding and deferred calls.
-                    self.record_effect(effect.clone(), normal_effects)
                 }
             }
         }
@@ -803,6 +785,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
             Origin::Storage(path) => self.formal_effect(path, kind),
             Origin::Allocation(_) => None,
+            Origin::Static { root, projections } => {
+                // An unresolved selector widens within the same static identity.
+                let projections = projections.iter().copied()
+                    .map_while(crate::storage::dependency_projection);
+
+                Some(DependencyStorageEffect::Direct {
+                    subject: DependencySubject::new(*root, projections),
+                    kind,
+                })
+            }
         };
 
         if let Some(effect) = effect {

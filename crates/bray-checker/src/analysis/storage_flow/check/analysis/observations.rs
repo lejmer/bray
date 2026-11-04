@@ -139,7 +139,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             // These referents have stable identities, but no
                             // freshness claim that could exclude an exposed alias.
                             bray_bound_tree::StorageOrigin::Entry { .. }
-                            | bray_bound_tree::StorageOrigin::Returned { .. } => !visible_exposure.iter().any(|raw| {
+                            | bray_bound_tree::StorageOrigin::Returned { .. }
+                            | bray_bound_tree::StorageOrigin::Static { .. } => !visible_exposure.iter().any(|raw| {
                                 memory.target_relationship(raw, &target) != StorageRelationship::Disjoint
                             }),
                             _ => target
@@ -195,7 +196,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 !targets.is_empty()
                     && targets.iter().all(|target| {
                         matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { .. }
-                            | bray_bound_tree::StorageOrigin::Returned { .. })
+                            | bray_bound_tree::StorageOrigin::Returned { .. }
+                            | bray_bound_tree::StorageOrigin::Static { .. })
                     })
             });
 
@@ -421,10 +423,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .as_ref()
                 .expect("atomic effects prepare their observation frame");
 
-            if effects.iter().any(|effect| {
-                matches!(effect, Effect::Atomic)
-                    || effect.static_kind() == Some(bray_symbols::DependencyMutationKind::Atomic)
-            }) {
+            if effects.contains(&Effect::Atomic) {
                 crate::storage::observation::restrict(
                     self.opaque_observations(
                         memory,

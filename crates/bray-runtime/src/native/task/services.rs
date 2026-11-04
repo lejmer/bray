@@ -1,6 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_runtime_abi::{NativeRuntimeStatus, NativeTaskReference};
+use bray_runtime_abi::{NativePanicReport, NativeRunOutcome, NativeRunState, NativeRuntimeStatus, NativeTaskReference, NativeWorkerFailure};
 
 use super::super::state::NativeRuntimeCore;
 use crate::context::{TaskOutput, current_task_output};
@@ -15,6 +16,8 @@ pub(crate) struct NativeTaskServices {
     pub(in crate::native) output: TaskOutput,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) suspended_wait: Mutex<Option<EventRegistration>>,
+    worker_failure: OnceLock<NativeWorkerFailure>,
+    worker_failure_delivered: AtomicBool,
 }
 
 impl std::fmt::Debug for NativeTaskServices {
@@ -44,6 +47,32 @@ impl NativeTaskServices {
             output: current_task_output(),
             registration,
             suspended_wait: Mutex::new(None),
+            worker_failure: OnceLock::new(),
+            worker_failure_delivered: AtomicBool::new(false),
         })
+    }
+
+    pub(crate) fn record_worker_failure(&self, failure: NativeWorkerFailure, scope: Option<&bray_runtime_abi::NativeWorkerScope>) {
+        if self.worker_failure.set(failure).is_ok() {
+            self.registration.retain_driver(scope, true);
+        }
+    }
+
+    pub(in crate::native) fn take_worker_failure(&self) -> Option<NativePanicReport> {
+        let failure = self.worker_failure.get()?;
+
+        if self.worker_failure_delivered.swap(true, Ordering::Relaxed) {
+            return None;
+        }
+
+        let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+        super::super::workers::failure_reporting(failure, &mut outcome);
+
+        Some(outcome.take_report())
+    }
+
+    pub(in crate::native) fn has_worker_failure(&self) -> bool {
+        self.worker_failure.get().is_some() && !self.worker_failure_delivered.load(Ordering::Relaxed)
     }
 }

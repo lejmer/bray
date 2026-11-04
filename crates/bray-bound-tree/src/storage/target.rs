@@ -19,6 +19,13 @@ pub enum StorageOrigin {
         /// Components reached within the returned referent.
         projections: std::sync::Arc<[crate::StorageProjection]>,
     },
+    /// A static absent from this unit's storage plan. Planned statics use `Storage`.
+    Static {
+        /// The product or exact-thread static instance.
+        root: bray_symbols::DependencySubjectRoot,
+        /// Components reached within the static.
+        projections: std::sync::Arc<[crate::StorageProjection]>,
+    },
     /// A value slot directly belonging to this semantic unit.
     Storage(StoragePath),
     /// An allocation created by one checked operation.
@@ -49,6 +56,12 @@ impl StorageOrigin {
 impl StorageTarget {
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         match &self.origin {
+            StorageOrigin::Static { root, projections } => {
+                !self.previous
+                    && matches!(root, bray_symbols::DependencySubjectRoot::ProductStatic(_)
+                        | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_))
+                    && projections.iter().all(|projection| projection.is_valid_for(unit))
+            }
             StorageOrigin::Storage(path) | StorageOrigin::Allocation(path) => {
                 path.is_valid_for(unit)
             }
@@ -182,6 +195,9 @@ impl StorageTarget {
                 StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => {
                     place.is_exact()
                 }
+                StorageOrigin::Static { projections, .. } => {
+                    projections.iter().all(|projection| projection.is_exact())
+                }
             }
     }
 
@@ -209,7 +225,8 @@ impl StorageTarget {
     pub fn projections(&self) -> &[StorageProjection] {
         match &self.origin {
             StorageOrigin::Entry { projections, .. }
-            | StorageOrigin::Returned { projections, .. } => projections,
+            | StorageOrigin::Returned { projections, .. }
+            | StorageOrigin::Static { projections, .. } => projections,
             StorageOrigin::Storage(place) | StorageOrigin::Allocation(place) => &place.projections,
         }
     }
@@ -233,6 +250,9 @@ impl StorageTarget {
                 place.projections = projections[..boundary.unwrap_or(0)].into()
             }
             StorageOrigin::Entry {
+                projections: path, ..
+            }
+            | StorageOrigin::Static {
                 projections: path, ..
             } => *path = projections[..boundary?].into(),
             StorageOrigin::Storage(place) => place.projections = projections[..boundary?].into(),
@@ -296,6 +316,10 @@ impl StorageTarget {
             (StorageOrigin::Entry { .. }, _) | (_, StorageOrigin::Entry { .. }) => {
                 StorageRelationship::PotentiallyOverlapping
             }
+            (
+                StorageOrigin::Static { root: left, projections: left_path },
+                StorageOrigin::Static { root: right, projections: right_path },
+            ) if left == right => region_relationship(left_path, right_path),
             (StorageOrigin::Storage(left), StorageOrigin::Storage(right))
             | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
                 if left.root != right.root {
@@ -341,6 +365,10 @@ impl StorageTarget {
             | (StorageOrigin::Allocation(left), StorageOrigin::Allocation(right)) => {
                 left.contains(right)
             }
+            (
+                StorageOrigin::Static { root: left, projections: prefix },
+                StorageOrigin::Static { root: right, projections },
+            ) => left == right && projections.starts_with(prefix),
             _ => false,
         }
     }
@@ -375,6 +403,10 @@ impl StorageTarget {
             },
             StorageOrigin::Storage(place) => StorageOrigin::Storage(path(place)),
             StorageOrigin::Allocation(place) => StorageOrigin::Allocation(path(place)),
+            StorageOrigin::Static { root, projections: prefix } => StorageOrigin::Static {
+                root: *root,
+                projections: append(prefix),
+            },
         };
 
         Self {
@@ -496,6 +528,48 @@ mod tests {
             returned.relationship(&StorageTarget::storage(slot(0))),
             StorageRelationship::PotentiallyOverlapping
         );
+    }
+
+    #[test]
+    fn unplanned_statics_preserve_identity_without_claiming_aliases_to_known_storage() {
+        use bray_symbols::{DependencySubjectRoot, StaticSymbolId, SymbolId};
+
+        let declaration = StaticSymbolId::from_symbol_id(SymbolId::new(1));
+
+        let root = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::Static {
+                root: DependencySubjectRoot::ProductStatic(declaration),
+                projections: [].into(),
+            },
+        };
+
+        let thread = StorageTarget {
+            origin: StorageOrigin::Static {
+                root: DependencySubjectRoot::ExactThreadStatic(declaration),
+                projections: [].into(),
+            },
+            ..root.clone()
+        };
+
+        let field = root.project(&[StorageProjection::TupleElement(SymbolOrdinal::new(0))]);
+        let payload = root.project(&[StorageProjection::OwnedTarget]);
+
+        assert!(root.is_valid_for(BoundUnitId::new(1)));
+        assert!(root.is_exact());
+        assert!(root.observation_path().is_none());
+        assert!(root.contains(&field));
+        assert_eq!(payload.allocation_region(), Some(payload.clone()));
+        assert_eq!(root.relationship(&thread), StorageRelationship::Disjoint);
+        assert_eq!(root.relationship(&StorageTarget::storage(slot(0))), StorageRelationship::Disjoint);
+        assert_eq!(root.relationship(&payload), StorageRelationship::Disjoint);
+
+        let borrowed = StorageTarget {
+            previous: false,
+            origin: StorageOrigin::entry(slot(0)),
+        };
+
+        assert_eq!(root.relationship(&borrowed), StorageRelationship::PotentiallyOverlapping);
     }
 
     #[test]

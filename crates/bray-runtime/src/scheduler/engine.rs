@@ -136,7 +136,7 @@ impl Scheduler {
         let lane = self
             .data
             .source
-            .select(execution.descriptor(), execution.origin().unwrap_or(origin))?;
+            .select(None, execution.descriptor(), execution.origin().unwrap_or(origin))?;
 
         let mut registration = 0;
 
@@ -412,9 +412,21 @@ impl TaskRegistration {
             .ok_or(SchedulerError::UnknownTask(self.task))?;
 
         scheduler.source.select(
+            Some((self.task, self.registration)),
             execution.descriptor(),
             execution.origin().unwrap_or(self.origin),
         )
+    }
+
+    pub(crate) fn retain_driver(&self, scope: Option<&bray_runtime_abi::NativeWorkerScope>, cleanup: bool) {
+        let scheduler = self.scheduler.upgrade().expect("an exclusive dispatch retains its scheduler");
+
+        native::bray_runtime_scheduler_recovery(
+            &scheduler.source.reference,
+            self.registration,
+            scope.unwrap_or(&bray_runtime_abi::NativeWorkerScope::default()),
+            cleanup,
+        );
     }
 }
 
@@ -542,6 +554,10 @@ mod tests {
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
         let wake = registration.wake_handle();
         let retired = task.id();
+
+        super::unregister_task(&scheduler.data, retired, None);
+
+        assert!(matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired));
 
         drop(registration);
         drop(task);
@@ -1404,7 +1420,7 @@ mod tests {
         );
 
         source
-            .select(&descriptor, origin)
+            .select(None, &descriptor, origin)
             .map_err(|error| match error {
                 SchedulerError::LaneSelection(error) => error,
                 error => panic!("fixture lane selection failed: {error:?}"),

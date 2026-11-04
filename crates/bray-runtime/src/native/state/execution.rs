@@ -203,6 +203,7 @@ impl NativeRuntime {
 
             if wait.as_ref().is_some_and(|wait| !wait.is_ready())
                 && !task.cancellation.is_requested()
+                && !task.has_worker_failure()
                 && task.snapshot().phase < 3
             {
                 (true, None)
@@ -214,11 +215,7 @@ impl NativeRuntime {
         drop(completed_wait);
 
         if pending {
-            return ready
-                .suspend(task.execution_state())
-                .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
-                    NativeRuntimeStatus::SUCCESS
-                });
+            return self.suspend_ready(ready, &task, task.execution_state(), false);
         }
 
         let context = TaskExecutionContext::new(
@@ -240,17 +237,21 @@ impl NativeRuntime {
         });
 
         if status == 6 {
-            return ready
-                .suspend(task.execution_state())
-                .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
-                    NativeRuntimeStatus::SUCCESS
-                });
+            return self.suspend_ready(ready, &task, task.execution_state(), false);
         }
 
         assert!(
             status <= 3,
             "Bray dispatch returns one admitted scheduling outcome"
         );
+
+        if (status == 1 || status == 3)
+            && let Some(mut report) = task.take_worker_failure()
+        {
+            // A spare can fail after this task has no producer callback left.
+            // Report that worker incident without replacing an observed outcome.
+            let _ = report.consume(true);
+        }
 
         let execution = super::super::activation::execution(&execution);
 
@@ -266,8 +267,10 @@ impl NativeRuntime {
             );
         }
 
-        if ready.suspend(execution).is_err() {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        let suspension = self.suspend_ready(ready, &task, execution, status == 1 || status == 3);
+
+        if !suspension.is_success() {
+            return suspension;
         }
 
         if status == 0 && progress.kind() == NativeFrameProgressKind::YIELDED {
@@ -279,6 +282,55 @@ impl NativeRuntime {
             NativeRuntimeStatus::RUNTIME_FAILURE
         } else {
             NativeRuntimeStatus::SUCCESS
+        }
+    }
+
+    fn suspend_ready(
+        &self,
+        ready: crate::ReadyTask,
+        task: &NativeTaskServices,
+        execution: crate::FrameExecutionState,
+        terminal: bool,
+    ) -> NativeRuntimeStatus {
+        let scope = self.worker.as_ref().map(|worker| &worker.scope);
+
+        if terminal
+            && (scope.is_some() || !matches!(ready.lane().placement(), ExecutionLanePlacement::Migratable))
+        {
+            // Empty terminal metadata keeps its actual narrow driver. A later
+            // cleanup action with stronger requirements still demands its lane.
+            task.registration.retain_driver(scope, false);
+        }
+
+        let lane = match task.registration.execution_lane(&execution) {
+            Ok(lane) => lane,
+            Err(crate::SchedulerError::UnknownTask(_)) => return NativeRuntimeStatus::SUCCESS,
+            Err(_) => return NativeRuntimeStatus::RUNTIME_FAILURE,
+        };
+
+        // The exclusive dispatch retains its frame while formation runs. Only
+        // afterward can release publish the next continuation and racing wakes.
+        if !self.cleanup_workloads.get()
+            && let Err(failure) = self.workers.demand(&self.core, lane)
+        {
+            task.record_worker_failure(failure, scope);
+
+            if let Err(error) = task.registration.wake_handle().wake() {
+                if matches!(error, crate::SchedulerError::UnknownTask(_)) {
+                    if let Some(mut report) = task.take_worker_failure() {
+                        let _ = report.consume(true);
+                    }
+
+                    return NativeRuntimeStatus::SUCCESS;
+                }
+
+                return NativeRuntimeStatus::RUNTIME_FAILURE;
+            }
+        }
+
+        match ready.suspend(execution) {
+            Ok(_) | Err(crate::SchedulerError::UnknownTask(_)) => NativeRuntimeStatus::SUCCESS,
+            Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
         }
     }
 
@@ -318,14 +370,16 @@ impl NativeRuntime {
             "task event wait registration must be consumed before resumption"
         );
 
-        if ready.suspend(execution).is_err() {
+        let status = self.suspend_ready(ready, started, execution, false);
+
+        if !status.is_success() {
             started
                 .suspended_wait
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .take();
 
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+            return status;
         }
 
         NativeRuntimeStatus::SUCCESS

@@ -466,7 +466,8 @@ impl State {
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_) => {
+                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_)
+                | Origin::Static { .. } => {
                     matches!(
                         invalidation,
                         bray_bound_tree::StorageInvalidation::All { .. }

@@ -710,11 +710,21 @@ macro_rules! runtime_role_catalog {
             }
             SchedulerSelection {
                 "Select a compatible lane from checked continuation requirements.", "scheduler_selection",
-                native: (SCHEDULER_SELECTION_SYMBOL = "bray_runtime_scheduler_selection", [Pointer, Pointer, Pointer] -> U32),
+                native: (SCHEDULER_SELECTION_SYMBOL = "bray_runtime_scheduler_selection", [Pointer, U64, Pointer, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Pointer] -> U32,
+                compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("scheduler.selection"), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: []
+            }
+            SchedulerRecovery {
+                "Retain an admitted driver for terminal or failed task cleanup.", "scheduler_recovery",
+                native: (SCHEDULER_RECOVERY_SYMBOL = "bray_runtime_scheduler_recovery", [Pointer, U64, Pointer, U32] -> Void),
+                service: Execution,
+                call_hook: (),
+                compiler: C [Pointer, U64, Pointer, U32] -> Void,
+                owner: Host, availability: All, bootstrap: ("scheduler.recovery"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
             }

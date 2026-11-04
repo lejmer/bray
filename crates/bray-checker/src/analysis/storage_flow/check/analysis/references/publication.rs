@@ -212,7 +212,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 Some((path, false))
             }
-            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. } => None,
+            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. }
+            | Origin::Static { .. } => None,
         };
 
         let Some((target, stored_reference)) = source else {

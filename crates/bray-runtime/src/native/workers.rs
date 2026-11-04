@@ -190,7 +190,6 @@ pub(super) struct Context {
     pub(super) scope: bray_runtime_abi::NativeWorkerScope,
     pub(super) workload: ExecutionWorkload,
     pub(super) ready: std::cell::RefCell<Option<crate::ReadyTask>>,
-    pub(super) failure: std::cell::RefCell<Option<bray_runtime_abi::NativePanicReport>>,
 }
 
 pub(crate) extern "C" fn invoke(
@@ -258,16 +257,6 @@ pub(crate) extern "C" fn invoke(
 
                 let _ = runtime.drive_ready(ready);
 
-                if let Some(report) = runtime
-                    .worker
-                    .as_ref()
-                    .expect("the worker retains its context")
-                    .failure
-                    .borrow_mut()
-                    .take()
-                {
-                    *outcome = bray_runtime_abi::NativeRunOutcome::panicked(report);
-                }
             }
             5 => super::state::unbind_worker(),
             6 => {
@@ -285,13 +274,17 @@ pub(crate) extern "C" fn invoke(
                     .as_ref()
                     .expect("the selected callback belongs to its OS-entry scope");
 
-                assert!(
-                    worker
-                        .failure
-                        .replace(Some(outcome.take_report()))
-                        .is_none(),
-                    "one pending callback owns its formation failure"
-                );
+                // Source transfers an inline worker cause without record or message
+                // backing. Retain that typed value until its task can enter cleanup.
+                let (primary, head, tail, count, reserved) = outcome.take_report().take_parts();
+
+                assert_eq!((head, tail, count, reserved), (0, 0, 0, 0), "worker formation uses only its inline primary");
+
+                let failure = primary.expect("worker formation preserves its primary")
+                    .worker_failure().expect("worker formation preserves its typed cause");
+
+                worker.ready.borrow().as_ref().expect("the failed spare admission retains its dispatch")
+                    .record_worker_failure(failure, scope);
             }
             8 => NativeCallback::worker_owner(context).finish_services(),
             _ => panic!("Source invokes one defined worker operation"),
@@ -304,12 +297,7 @@ pub(crate) extern "C" fn invoke(
 }
 
 pub(in crate::native) fn take_failure() -> Option<bray_runtime_abi::NativePanicReport> {
-    super::state::current_runtime().and_then(|runtime| {
-        runtime
-            .worker
-            .as_ref()
-            .and_then(|worker| worker.failure.borrow_mut().take())
-    })
+    super::state::current_services().and_then(|task| task.take_worker_failure())
 }
 
 #[cfg(test)]
@@ -319,7 +307,7 @@ mod tests {
 
     use bray_runtime_abi::{
         NativeActivationDescriptor, NativeCleanupStorageShape, NativeFrameExit,
-        NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
+        NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame, NativeRunOutcome,
     };
 
     extern "C-unwind" fn ignore(_: usize) {}
@@ -356,6 +344,111 @@ mod tests {
                 destroy: ignore,
             },
         )
+    }
+
+    #[test]
+    fn closed_worker_admission_preserves_suspended_cleanup_on_its_source_root() {
+        use crate::native::{export, state};
+
+        use bray_runtime_abi::{
+            NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
+            NativeRunState, NativeRuntimeConfiguration,
+        };
+
+        use std::sync::atomic::AtomicUsize;
+
+        static BODIES: AtomicUsize = AtomicUsize::new(0);
+        static CLEANUP_STEPS: AtomicUsize = AtomicUsize::new(0);
+        static DESTROYED: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C" fn requirements(_: usize, state: u32, operation: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(
+                NativeFrameAffinity::MOVABLE,
+                if state == 0 && operation == 0 {
+                    NativeLaneRequirements::NONE
+                } else {
+                    NativeLaneRequirements::BLOCKING
+                },
+            )
+        }
+
+        extern "C-unwind" fn resume(progress: &mut NativeFrameProgress, _: usize) {
+            let runtime = state::current_runtime().expect("the admitted source root remains bound");
+            let state = crate::current_task_execution_context().expect("the callback retains its state").state().raw();
+
+            if state == 2 {
+                // A yielded finalizer resumes through the frame's resume callback.
+                cleanup_step(progress);
+
+                return;
+            }
+
+            assert_eq!(state, 0, "failed later admission must not enter ordinary work");
+            BODIES.fetch_add(1, Ordering::Relaxed);
+            super::bray_runtime_worker_admission_state(runtime.scheduler.source_reference(), 1);
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::YIELDED, 1, 0);
+        }
+
+        extern "C-unwind" fn cleanup(progress: &mut NativeFrameProgress, _: usize, _: NativeFrameExit) {
+            cleanup_step(progress);
+        }
+
+        fn cleanup_step(progress: &mut NativeFrameProgress) {
+            assert_eq!(crate::context::current_task_execution_lane().expect("cleanup retains its actual lane").workload(), crate::ExecutionWorkload::Blocking);
+
+            let step = CLEANUP_STEPS.fetch_add(1, Ordering::Relaxed);
+
+            *progress = NativeFrameProgress::new(
+                if step == 0 { NativeFrameProgressKind::YIELDED } else { NativeFrameProgressKind::COMPLETED },
+                2,
+                0,
+            );
+        }
+
+        extern "C-unwind" fn destroy(_: usize) {
+            DESTROYED.fetch_add(1, Ordering::Relaxed);
+        }
+
+        let _isolation = crate::native::test_runtime_isolation();
+
+        BODIES.store(0, Ordering::Relaxed);
+        CLEANUP_STEPS.store(0, Ordering::Relaxed);
+        DESTROYED.store(0, Ordering::Relaxed);
+
+        assert!(export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
+
+        let frame = super::super::fixtures::admit(0, NativeActivationDescriptor {
+            storage: NativeCleanupStorageShape::new([93; 32], 8, 8),
+            header: 0,
+            completion: 0,
+            completion_bytes: 8,
+            completion_align: 8,
+            states: 3,
+            state: requirements,
+            resume,
+            cancel: resume,
+            broadcast,
+            resolve: cleanup,
+            move_completion: completion,
+            destroy,
+        });
+
+        let task = export::bray_runtime_task_allocation().task().expect("the task is admitted");
+
+        let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+        assert!(export::bray_runtime_task_start(task, frame, &mut admitted).is_success());
+
+        let mut outcome = state::with_runtime(|runtime| runtime.resolve_task(task)).expect("the root remains live");
+
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert_eq!(BODIES.load(Ordering::Relaxed), 1);
+        assert_eq!(CLEANUP_STEPS.load(Ordering::Relaxed), 2);
+        assert!(outcome.take_report().consume(false).is_success());
+        assert!(state::with_runtime(|runtime| runtime.resolve_task_retirement(task)).expect("the owner remains live").is_success());
+        assert!(export::bray_runtime_task_destruction(task).is_success());
+        assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
+        assert!(export::bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
@@ -458,7 +551,7 @@ mod tests {
 
             assert!(
                 runtime
-                    .start(task, &frame(requirements, child))
+                    .start(task, &frame(requirements, child), &mut bray_runtime_abi::NativeRunOutcome::new(NativeRunState::PENDING, 0))
                     .is_success()
             );
 
@@ -482,7 +575,9 @@ mod tests {
             .task()
             .expect("the parent is admitted");
 
-        assert!(export::bray_runtime_task_start(parent_task, frame(blocking, parent)).is_success());
+        let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+        assert!(export::bray_runtime_task_start(parent_task, frame(blocking, parent), &mut admitted).is_success());
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
@@ -642,7 +737,9 @@ mod tests {
         ] {
             let task = export::bray_runtime_task_allocation().task().expect("the lane task is admitted");
 
-            assert!(export::bray_runtime_task_start(task, frame(requirements, resume)).is_success());
+            let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+            assert!(export::bray_runtime_task_start(task, frame(requirements, resume), &mut admitted).is_success());
             tasks.push(task);
 
             if tasks.len() == 1 {
@@ -675,20 +772,10 @@ mod tests {
         println!("compute_resumes={COMPUTE_RESUMES} elapsed_ns={}", started.elapsed().as_nanos());
 
         for task in tasks {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let runtime = state::current_runtime().expect("the host stays active");
 
-            loop {
-                let runtime = state::current_runtime().expect("the host stays active");
-
-                if runtime.observe(task).state() == NativeRunState::COMPLETED
-                    && runtime.retire_task(task).is_success()
-                {
-                    break;
-                }
-
-                assert!(Instant::now() < deadline, "each task must complete and retire");
-                std::thread::yield_now();
-            }
+            assert_eq!(runtime.resolve_task(task).state(), NativeRunState::COMPLETED);
+            assert!(runtime.resolve_task_retirement(task).is_success());
 
             assert!(export::bray_runtime_task_destruction(task).is_success());
         }

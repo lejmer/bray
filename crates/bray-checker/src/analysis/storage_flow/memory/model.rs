@@ -16,43 +16,18 @@ pub(in crate::analysis::storage_flow) enum Effect {
     Atomic,
     Mutation(Target, bray_symbols::DependencyMutationKind),
     Cleanup(TypeId),
-    // A callee can affect a static absent from this unit's storage plan. Keep its
-    // checked subject for forwarding without inventing a local invocation input.
-    Static(bray_symbols::DependencyStorageEffect),
 }
 
 impl Effect {
-    pub(in crate::analysis::storage_flow) fn static_kind(
-        &self,
-    ) -> Option<bray_symbols::DependencyMutationKind> {
-        match self {
-            Self::Static(
-                bray_symbols::DependencyStorageEffect::Direct { kind, .. }
-                | bray_symbols::DependencyStorageEffect::Indirect { kind, .. },
-            ) => Some(*kind),
-            Self::Static(effect) => {
-                panic!("unresolved static effect has no rooted transition: {effect:?}")
-            }
-            _ => None,
-        }
-    }
-
     pub(in crate::analysis::storage_flow) fn is_ambient(&self) -> bool {
         matches!(self, Self::Ambient)
-            || self.static_kind().is_some_and(|kind| {
-                !matches!(
-                    kind,
-                    bray_symbols::DependencyMutationKind::Atomic
-                        | bray_symbols::DependencyMutationKind::Escape
-                )
-            })
     }
 
     pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
         matches!(
             self,
             Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic)
-        ) || self.static_kind() == Some(bray_symbols::DependencyMutationKind::Atomic)
+        )
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
@@ -82,7 +57,7 @@ impl Effect {
                     })
             }
             Self::Unknown | Self::Escape | Self::Cleanup(_) => true,
-            Self::Ambient | Self::Atomic | Self::Static(_) => false,
+            Self::Ambient | Self::Atomic => false,
         }
     }
 
@@ -96,8 +71,7 @@ impl Effect {
             | Self::Ambient
             | Self::Escape
             | Self::Atomic
-            | Self::Cleanup(_)
-            | Self::Static(_) => None,
+            | Self::Cleanup(_) => None,
         }
     }
 }

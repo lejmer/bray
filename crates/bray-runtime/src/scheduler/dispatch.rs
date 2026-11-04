@@ -172,6 +172,11 @@ impl ReadyTask {
     pub(crate) fn take_native_task(&mut self) -> Option<Arc<crate::native::NativeTaskServices>> {
         self.native.take()
     }
+
+    pub(crate) fn record_worker_failure(&self, failure: bray_runtime_abi::NativeWorkerFailure, scope: &bray_runtime_abi::NativeWorkerScope) {
+        self.native.as_ref().expect("a native worker dispatch retains its task services")
+            .record_worker_failure(failure, Some(scope));
+    }
     /// Returns the independent run identity.
     pub const fn task(&self) -> TaskId {
         self.task
@@ -229,6 +234,7 @@ impl ReadyTask {
         );
 
         let lane = self.scheduler.source.select(
+            Some((self.task, self.registration)),
             execution.descriptor(),
             execution.origin().unwrap_or(binding.origin),
         )?;

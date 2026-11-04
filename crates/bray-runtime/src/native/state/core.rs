@@ -920,7 +920,6 @@ pub(in crate::native) fn bind_worker(
                 scope,
                 workload,
                 ready: RefCell::new(None),
-                failure: RefCell::new(None),
             }),
             core,
             #[cfg(test)]

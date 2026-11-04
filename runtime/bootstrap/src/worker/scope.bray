@@ -147,3 +147,31 @@ trusted internal func read_compatibility_scope(
 {
     return trusted read_scope(pointer);
 }
+
+// Only the native continuing-driver boundary supplies this optional live slot.
+// A present value is the actual Source-owned OS-entry scope, never an ID lookup.
+trusted internal func driver_scope(pos pointer: DataPointer<DataPointer<Scope>>) -> u64?
+    requires(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = pointer))
+    uses(intrinsic, raw_memory)
+{
+    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Scope>>)
+        requires(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = pointer))
+        ensures(
+            trusted core.memory.valid_read<DataPointer<Scope>>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<DataPointer<Scope>>(pointer = pointer),
+            trusted core.memory.initialized_as<DataPointer<Scope>>(pointer = pointer),
+            trusted scope_slot(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted authorize(pointer);
+
+    if trusted core.target.expose_address<Scope>(trusted std.memory.read<DataPointer<Scope>>(pointer)) == 0
+    {
+        return none;
+    }
+
+    let scope = trusted read_scope(pointer);
+
+    return (trusted scope_value(&scope)).attachment;
+}

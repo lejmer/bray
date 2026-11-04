@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::core::StorageFlowCollector;
 use crate::CheckerRequestContext;
-use crate::analysis::storage_flow::memory::{Place, Source, Target};
+use crate::analysis::storage_flow::memory::{Origin, Place, Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, SemanticSelection};
 use bray_symbols::DependencySubjectRoot;
@@ -131,7 +131,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .cloned()
             .collect::<Vec<_>>();
 
-        let escaped = memory.escaped_regions(targets);
+        let mut escaped = memory.escaped_regions(targets);
 
         for target in &escaped {
             self.record_target_effect(
@@ -140,6 +140,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 DependencyMutationKind::Escape,
                 normal_effects,
             );
+        }
+
+        // Generic cleanup retains its conditional effect in the exported summary.
+        // Only local exposure is conservative before that type is instantiated.
+        if !all_inputs
+            && effects.is_some_and(|effects| {
+                effects.iter().any(|effect| matches!(effect, Effect::Cleanup(_)))
+            })
+        {
+            escaped.extend(memory.escaped_regions(roots.iter().cloned()));
         }
 
         escaped
@@ -777,22 +787,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: BoundExecutionSite,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<Vec<Target>> {
-        if matches!(
-            subject.subject_root(),
-            DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)
-        ) {
-            let place = self.invocation_place(occurrence, subject.subject_root())?;
-
-            // An unresolved selector widens within this static, rather than to
-            // unrelated invocation inputs or other static declarations.
-            let projections = crate::storage::storage_projections(
-                self.request.semantic_values(),
-                self.dependencies,
-                subject.projections(),
-            )
-            .unwrap_or_default();
-
-            return Some(vec![Target::storage(place).project(&projections)]);
+        if let Some(target) = self.static_location(subject) {
+            return Some(vec![target]);
         }
 
         let path = self
@@ -828,6 +824,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let start = Target::storage(start?);
 
         Some(vec![state.memory.reference_location(start, path, None)?])
+    }
+
+    pub(in crate::analysis::storage_flow::check::analysis) fn static_location(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<Target> {
+        let root = subject.subject_root();
+
+        let (DependencySubjectRoot::ProductStatic(declaration)
+        | DependencySubjectRoot::ExactThreadStatic(declaration)) = root else {
+            return None;
+        };
+
+        let target = match self.storage.binding(bray_bound_tree::StorageBindingTarget::Static(declaration)) {
+            Some(bray_bound_tree::StorageBinding::Identity(identity)) => Target::storage(Place::root(identity)),
+            Some(bray_bound_tree::StorageBinding::Access(access)) => Target::storage(
+                self.storage.logical_path(access).expect("planned static binding has a logical path").clone()
+            ),
+            None => Target {
+                previous: false,
+                origin: Origin::Static { root, projections: [].into() },
+            },
+        };
+
+        // A selector unknown to the caller widens only within this static.
+        let projections = crate::storage::storage_projections(
+            self.request.semantic_values(), self.dependencies, subject.projections(),
+        ).unwrap_or_default();
+
+        Some(target.project(&projections))
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn invocation_result(
