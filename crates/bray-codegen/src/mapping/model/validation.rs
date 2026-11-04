@@ -156,7 +156,8 @@ pub fn mapped_symbol_runtime_roles(
             Some(
                 bray_runtime_interface::NativeEntryKind::ThreadStorageExit
                 | bray_runtime_interface::NativeEntryKind::RuntimeStatus
-                | bray_runtime_interface::NativeEntryKind::RuntimeIdentity,
+                | bray_runtime_interface::NativeEntryKind::RuntimeIdentity
+                | bray_runtime_interface::NativeEntryKind::RuntimeValue,
             ) => *role == RuntimeAbiRole::PanicReporting,
             Some(bray_runtime_interface::NativeEntryKind::EntryStatus) => {
                 *role == RuntimeAbiRole::PanicReporting

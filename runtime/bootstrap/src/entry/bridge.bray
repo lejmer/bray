@@ -166,7 +166,7 @@ trusted internal func exchange(
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
     )
     executes(total)
-    uses(raw_memory, unchecked_init, unchecked_alias, intrinsic)
+    uses(raw_memory, unchecked_init, intrinsic)
 {
     let destination = trusted lambda(pos pointer: DataPointer<NativeCallbacks>) -> DataPointer<NativeCallbacks>
         requires(trusted native_provider())
@@ -210,10 +210,7 @@ trusted internal func exchange(
                 return bray.runtime.bootstrap.STATUS_RUNTIME_FAILURE;
             }
 
-            let synchronization = trusted std.memory.borrow_from<
-                bray.runtime.bootstrap.host.Synchronization,
-                Uninit<bray.runtime.bootstrap.host.Synchronization>
-            >(lease.synchronization, trusted bray.runtime.bootstrap.host.lease_synchronization_pointer(lease));
+            let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
             let control_key = core.atomic.load<u64, 1>(&synchronization.control_key);
 
@@ -316,16 +313,12 @@ trusted internal func read(
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
     )
     executes(total)
-    uses(raw_memory, unchecked_alias)
 {
     // Native TLS is empty during final cleanup. The host retains one closing row
     // for this exact native thread and rejects another acquisition until it retires.
     let native_thread: u64 = if kind != 0 && identity == 0
     {
-        let synchronization = trusted std.memory.borrow_from<
-            bray.runtime.bootstrap.host.Synchronization,
-            Uninit<bray.runtime.bootstrap.host.Synchronization>
-        >(lease.synchronization, trusted bray.runtime.bootstrap.host.lease_synchronization_pointer(lease));
+        let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
 
         yield core.atomic.load<u64, 1>(&synchronization.lock);
     }

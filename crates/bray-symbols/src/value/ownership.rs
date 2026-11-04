@@ -71,24 +71,31 @@ impl<Projection, Input> Default for DependencyOwnedResult<Projection, Input> {
 
 impl<Projection: Clone + Ord, Input: Clone + Ord> DependencyOwnedResult<Projection, Input> {
     /// Retains a complete alternative's ordinary shape, including empty layouts.
+    /// Distributes guards over choices and orders them so repeated joins remain canonical.
     pub fn case(condition: Input, result: Self) -> Self {
-        let mut inner = &result;
-
-        while let Self::Case {
-            condition: previous,
-            result: child,
-        } = inner
-        {
-            if previous == &condition {
-                return result;
+        match result {
+            Self::Choice(values) => Self::choice(
+                values
+                    .iter()
+                    .map(|value| Self::case(condition.clone(), value.clone())),
+            ),
+            Self::Case {
+                condition: previous,
+                result,
+            } if previous < condition => {
+                Self::case(previous, Self::case(condition, result.as_ref().clone()))
             }
-
-            inner = child;
-        }
-
-        Self::Case {
-            condition,
-            result: Arc::new(result),
+            Self::Case {
+                condition: previous,
+                result,
+            } if previous == condition => Self::Case {
+                condition: previous,
+                result,
+            },
+            result => Self::Case {
+                condition,
+                result: Arc::new(result),
+            },
         }
     }
 
@@ -246,5 +253,74 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
                 .collect::<Result<Vec<_>, _>>()
                 .map(DependencyOwnedResult::choice),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DependencyOwnedResult, DependencyOwnedTransfer};
+
+    type Layout = DependencyOwnedResult<u8, u8>;
+
+    #[test]
+    fn guarded_loop_alternatives_reach_a_fixed_point() {
+        let original = Layout::choice([
+            Layout::Transfer(DependencyOwnedTransfer::new(7, [])),
+            Layout::default(),
+        ]);
+
+        let expected = Layout::choice([
+            original.clone(),
+            Layout::case(2, original.clone()),
+            Layout::case(3, original.clone()),
+            Layout::case(2, Layout::case(3, original.clone())),
+        ]);
+
+        let mut current = original;
+
+        for _ in 0..32 {
+            current = Layout::choice([
+                current.clone(),
+                Layout::case(2, current.clone()),
+                Layout::case(3, current),
+            ]);
+        }
+
+        assert_eq!(current, expected);
+
+        assert_eq!(
+            Layout::case(2, current.clone()),
+            Layout::case(2, Layout::case(2, current))
+        );
+    }
+
+    #[test]
+    fn guarded_layouts_keep_complete_alternatives_and_empty_cases() {
+        let layout = Layout::all([
+            Layout::Transfer(DependencyOwnedTransfer::new(5, [0])),
+            Layout::Transfer(DependencyOwnedTransfer::new(7, [1])),
+        ]);
+
+        let forward = Layout::case(2, Layout::case(3, layout.clone()));
+        let reverse = Layout::case(3, Layout::case(2, layout.clone()));
+
+        assert_eq!(forward, reverse);
+        assert_eq!(forward.guarded_transfers().count(), 2);
+
+        assert!(
+            forward
+                .guarded_transfers()
+                .all(|(_, guards)| guards == vec![&2, &3])
+        );
+
+        assert_eq!(
+            Layout::case(2, Layout::default()),
+            Layout::Case {
+                condition: 2,
+                result: std::sync::Arc::new(Layout::default()),
+            }
+        );
+
+        assert_eq!(layout.transfers().count(), 2);
     }
 }

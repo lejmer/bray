@@ -342,6 +342,17 @@ pub enum DependencyReferenceKind {
     Address,
 }
 
+/// What a checked reference relation establishes about its input.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DependencyReferenceProvenance {
+    /// The output has the same address as the selected input.
+    Exact,
+    /// The output forwards one of the established input origins.
+    Alternatives,
+    /// The output may reach these input regions without forwarding their authority.
+    InputRegions,
+}
+
 /// Checked origin information across one callable's normal completion.
 /// Exact relations identify the entry subject's original address. Other relations
 /// jointly bound its possible regions without establishing address equality.
@@ -355,21 +366,20 @@ pub struct DependencyBorrowRelation<Subject = DependencySubject, Projection = De
     kind: DependencyReferenceKind,
     target_projections: Arc<[Projection]>,
     dereferences: u32,
-    exact: bool,
+    provenance: DependencyReferenceProvenance,
 }
 
 impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
     /// Records a complete normal-exit origin bound.
-    /// An absent input records a raw address's independence from invocation inputs,
+    /// An absent input records a reference's independence from invocation inputs,
     /// without establishing freshness, initialization, lifetime or trusted authority.
     pub fn new(entry: Option<Subject>, exit: Subject, kind: DependencyReferenceKind) -> Self {
-        assert!(
-            entry.is_some() || kind == DependencyReferenceKind::Address,
-            "an independent raw-address bound cannot replace a borrow's input origin"
-        );
-
         Self {
-            exact: entry.is_some(),
+            provenance: if entry.is_some() {
+                DependencyReferenceProvenance::Exact
+            } else {
+                DependencyReferenceProvenance::Alternatives
+            },
             entry,
             exit,
             kind,
@@ -385,14 +395,35 @@ impl<Subject, Projection> DependencyBorrowRelation<Subject, Projection> {
             "independent reference origin cannot identify an input address"
         );
 
-        self.exact = exact;
+        if exact {
+            self.provenance = DependencyReferenceProvenance::Exact;
+        } else if !matches!(self.provenance, DependencyReferenceProvenance::InputRegions) {
+            self.provenance = DependencyReferenceProvenance::Alternatives;
+        }
 
         self
     }
 
     /// Whether the relation identifies one address on every completing path.
     pub const fn is_exact(&self) -> bool {
-        self.exact
+        matches!(self.provenance, DependencyReferenceProvenance::Exact)
+    }
+
+    /// Records whether the relation forwards a value or only bounds possible reachability.
+    pub fn with_provenance(mut self, provenance: DependencyReferenceProvenance) -> Self {
+        assert!(
+            provenance != DependencyReferenceProvenance::Exact || self.entry.is_some(),
+            "independent reference origin cannot identify an input address"
+        );
+
+        self.provenance = provenance;
+
+        self
+    }
+
+    /// Whether the relation identifies an address, forwards an origin, or only bounds reachability.
+    pub const fn provenance(&self) -> DependencyReferenceProvenance {
+        self.provenance
     }
 
     /// Selects additional nested borrow layers before reading the entry reference.

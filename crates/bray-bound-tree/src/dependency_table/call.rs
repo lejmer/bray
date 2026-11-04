@@ -61,7 +61,7 @@ impl BoundCallReports {
     }
 }
 
-/// An exact input-to-output reference relation of a selected call.
+/// A checked input-to-output reference relation of a selected call.
 /// Address formation locates storage without equating a pointer with the borrowed value.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct BoundCallReference {
@@ -89,7 +89,7 @@ impl BoundCallReference {
         &self.relation
     }
 
-    /// The source storage type when the result forms an address instead of forwarding a reference.
+    /// The reached storage type when forming an address or a bounded reference.
     pub const fn addressed_type(&self) -> Option<bray_symbols::TypeId> {
         self.addressed_type
     }
@@ -118,7 +118,10 @@ pub struct BoundCallDependencyContracts {
     references: Vec<BoundCallReference>,
     effects: Arc<[bray_symbols::DependencyStorageEffect]>,
     retained_inputs: Option<BTreeSet<crate::BoundExecutionSite>>,
-    reference_paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+    reference_subjects: BTreeMap<
+        bray_symbols::DependencySubject,
+        (bray_symbols::TypeId, crate::StorageReferencePath),
+    >,
     normal_completion: bool,
     normal_storage_preserved: bool,
     deferred_effects: Option<Arc<[bray_symbols::DependencyStorageEffect]>>,
@@ -183,7 +186,7 @@ impl BoundCallDependencyContracts {
             references: Vec::new(),
             effects: Arc::new(bray_symbols::DependencyStorageEffect::opaque_call()),
             retained_inputs: None,
-            reference_paths: BTreeMap::new(),
+            reference_subjects: BTreeMap::new(),
             normal_completion: true,
             normal_storage_preserved: false,
             deferred_effects: None,
@@ -281,19 +284,22 @@ impl BoundCallDependencyContracts {
         self.deferred_completion
     }
 
-    /// Shares checked access paths between reference transfers and mutation effects.
-    pub fn with_reference_paths(
+    /// Shares checked reference types and paths between transfers and mutation effects.
+    pub fn with_reference_subjects(
         mut self,
-        paths: BTreeMap<bray_symbols::DependencySubject, crate::StorageReferencePath>,
+        inputs: BTreeMap<
+            bray_symbols::DependencySubject,
+            (bray_symbols::TypeId, crate::StorageReferencePath),
+        >,
     ) -> Self {
-        self.reference_paths = paths;
+        self.reference_subjects = inputs;
 
         self
     }
 
-    /// Returns the input subjects whose reference paths were prepared by call analysis.
+    /// Returns the input and result subjects prepared by call analysis.
     pub fn reference_subjects(&self) -> impl Iterator<Item = &bray_symbols::DependencySubject> {
-        self.reference_paths.keys()
+        self.reference_subjects.keys()
     }
 
     /// Returns the selected input path prepared by type analysis.
@@ -301,7 +307,15 @@ impl BoundCallDependencyContracts {
         &self,
         subject: &bray_symbols::DependencySubject,
     ) -> Option<&crate::StorageReferencePath> {
-        self.reference_paths.get(subject)
+        self.reference_subjects.get(subject).map(|(_, path)| path)
+    }
+
+    /// Returns the checked value type at one selected reference subject.
+    pub fn reference_type(
+        &self,
+        subject: &bray_symbols::DependencySubject,
+    ) -> Option<bray_symbols::TypeId> {
+        self.reference_subjects.get(subject).map(|(ty, _)| *ty)
     }
 
     /// Records the dependencies carried by the returned value.

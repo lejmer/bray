@@ -107,7 +107,10 @@ where
         FixedPointOutcome::Complete(result) => result,
         FixedPointOutcome::Cancelled => return CheckerOutcome::Cancelled,
         FixedPointOutcome::ConvergenceInvariantViolated => {
-            panic!("finite storage-flow analysis exceeded its convergence bound")
+            panic!(
+                "finite storage-flow analysis exceeded its convergence bound in {:?}",
+                request.unit().key()
+            )
         }
     };
 
@@ -268,7 +271,7 @@ where
             .filter_map(|(site, proven)| proven.then_some(site)),
     );
 
-    let published = match crate::analysis::refinement::publish_refinements(
+    match crate::analysis::refinement::publish_refinements(
         request,
         graph,
         refinements,
@@ -280,13 +283,11 @@ where
 
             collector.diagnostics.add_range(diagnostics);
 
-            published
+            CheckerOutcome::complete((analysis, published), collector.diagnostics)
         }
-        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
-    };
-
-    CheckerOutcome::complete((analysis, published), collector.diagnostics)
+        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
+        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 fn record_node_refinements(
@@ -574,7 +575,8 @@ where
         operation: &AnalysisOperation,
     ) {
         let Some((owner, alternatives)) = state.execution.as_ref().and_then(|execution| {
-            self.execution.deferred_alternatives(execution, operation.kind())
+            self.execution
+                .deferred_alternatives(execution, operation.kind())
         }) else {
             self.apply_operation_branch(state, operation);
 
@@ -594,22 +596,49 @@ where
             };
 
             self.execution.select_deferred(
-                branch.execution.as_mut().expect("reachable producer has execution facts"),
+                branch
+                    .execution
+                    .as_mut()
+                    .expect("reachable producer has execution facts"),
                 owner.clone(),
                 alternative,
             );
 
-            if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
-                && !self.execution.normal_completion(branch.execution.as_ref()
-                    .expect("selected completion retains execution facts"), operation.kind().occurrence())
-            { continue; }
+            if matches!(
+                operation.kind(),
+                AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Completion,
+                    ..
+                }
+            ) && !self.execution.normal_completion(
+                branch
+                    .execution
+                    .as_ref()
+                    .expect("selected completion retains execution facts"),
+                operation.kind().occurrence(),
+            ) {
+                continue;
+            }
 
             self.apply_operation(&mut branch, operation);
 
             if state.reachable {
-                if matches!(operation.kind(), AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. }) {
-                    self.merge_completed(state, &mut branch, operation.kind().occurrence().expression()
-                        .expect("deferred completion retains its await expression"));
+                if matches!(
+                    operation.kind(),
+                    AnalysisOperationKind::Call {
+                        phase: AnalysisCallPhase::Completion,
+                        ..
+                    }
+                ) {
+                    self.merge_completed(
+                        state,
+                        &mut branch,
+                        operation
+                            .kind()
+                            .occurrence()
+                            .expression()
+                            .expect("deferred completion retains its await expression"),
+                    );
                 } else {
                     state.merge(&branch, None);
                 }
@@ -619,7 +648,6 @@ where
         }
     }
 
-    // rust-style: allow(function-too-large, reason = "one storage transition shares its resolved targets, effects, and normal-return state before publishing them together")
     fn apply_operation_branch(
         &mut self,
         state: &mut StorageFlowState,
@@ -728,11 +756,21 @@ where
                     std::mem::take(&mut original)
                 };
 
-                self.apply_operation_effects(&mut branch, operation, execution, refinements.clone());
+                self.apply_operation_effects(
+                    &mut branch,
+                    operation,
+                    execution,
+                    refinements.clone(),
+                );
 
                 if state.reachable {
-                    self.merge_completed(state, &mut branch, kind.occurrence().expression()
-                        .expect("Task completion retains its await expression"));
+                    self.merge_completed(
+                        state,
+                        &mut branch,
+                        kind.occurrence()
+                            .expression()
+                            .expect("Task completion retains its await expression"),
+                    );
                 } else {
                     *state = branch;
                 }
@@ -750,34 +788,67 @@ where
         incoming: &mut StorageFlowState,
         expression: BoundExpressionId,
     ) {
-        let mut execution = state.execution.take().expect("normal completion retains execution facts");
-        let other = incoming.execution.take().expect("completed alternative retains execution facts");
+        let mut execution = state
+            .execution
+            .take()
+            .expect("normal completion retains execution facts");
 
-        self.execution.merge_completion(&mut execution, &other, expression);
+        let other = incoming
+            .execution
+            .take()
+            .expect("completed alternative retains execution facts");
+
+        self.execution
+            .merge_completion(&mut execution, &other, expression);
+
         state.merge(incoming, None);
         state.execution = Some(execution);
     }
 
-    // rust-style: allow(function-too-large, reason = "one selected completion shares its resolved storage transition and effects")
+    fn apply_task_outcome(
+        &mut self,
+        state: &mut StorageFlowState,
+        kind: AnalysisOperationKind,
+        mut execution: crate::analysis::guarantee::ExecutionState,
+    ) -> crate::analysis::guarantee::ExecutionState {
+        let occurrence = kind.occurrence();
+
+        if matches!(
+            kind,
+            AnalysisOperationKind::Call {
+                phase: AnalysisCallPhase::Completion,
+                ..
+            }
+        ) && let Some(expression) = occurrence.expression()
+            && self
+                .execution
+                .awaited_task_invocations(&execution, expression)
+                .is_some()
+            && self.execution.task_completion(&execution, expression) == Some(false)
+        {
+            state.execution = Some(execution);
+            self.apply_failure_effects(state, occurrence, self.on_normal_path);
+
+            execution = state
+                .execution
+                .take()
+                .expect("selected completion retains execution facts");
+        }
+
+        execution
+    }
+
     fn apply_operation_effects(
         &mut self,
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
-        mut execution: crate::analysis::guarantee::ExecutionState,
+        execution: crate::analysis::guarantee::ExecutionState,
         mut refinements: crate::analysis::refinement::RefinementSet,
     ) {
         let kind = operation.kind();
+        let occurrence = kind.occurrence();
         let universe = self.refinements;
-
-        if matches!(kind, AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
-            && let Some(expression) = kind.occurrence().expression()
-            && self.execution.awaited_task_invocations(&execution, expression).is_some()
-            && self.execution.task_completion(&execution, expression) == Some(false)
-        {
-            state.execution = Some(execution);
-            self.apply_failure_effects(state, kind.occurrence(), self.on_normal_path);
-            execution = state.execution.take().expect("selected completion retains execution facts");
-        }
+        let mut execution = self.apply_task_outcome(state, kind, execution);
 
         let completing = matches!(
             kind,
@@ -802,7 +873,7 @@ where
                 }
             )
         {
-            self.record_input_targets(state, kind.occurrence());
+            self.record_input_targets(state, occurrence);
         }
 
         let assignment_mutation = (!completing)
@@ -823,18 +894,22 @@ where
         let mut invocation_roots = (!completing)
             .then(|| self.call_attempt(kind))
             .flatten()
-            .map(|_| self.invocation_roots(state, kind.occurrence()));
+            .map(|_| self.invocation_roots(state, occurrence));
 
         let preserve_normal_storage = !completing
             && self.call_attempt(kind).is_some()
             && self
                 .execution
-                .call_preserves_normal_storage(&execution, kind.occurrence());
+                .call_preserves_normal_storage(&execution, occurrence);
 
         let normal_effects = self.on_normal_path
-            && (!preserve_normal_storage || self.normal_failures.contains(&kind.occurrence()));
+            && (!preserve_normal_storage || self.normal_failures.contains(&occurrence));
 
         let call_effects = self.begin_transition(state, kind, assignment.as_ref(), &execution);
+
+        if let Some(effects) = &call_effects {
+            state.memory.observe_effect_types(effects);
+        }
 
         if let Some(roots) = &assignment_roots {
             // Capture precedes destination invalidation and does not require an exact target.
@@ -856,6 +931,9 @@ where
                 self.address_escapes(state, kind, call_effects.as_deref(), roots, normal_effects)
             })
             .unwrap_or_default();
+
+        let marker_exposure = (!escaped.is_empty() && !self.input.borrowed_identities.is_empty())
+            .then(|| state.memory.raw_exposed_regions());
 
         if preserve_normal_storage {
             // Opaque effects can reach the whole exposed allocation on abnormal return.
@@ -879,11 +957,6 @@ where
             );
         }
 
-        let assignment_path = assignment
-            .as_ref()
-            .and_then(|target| target.storage_path())
-            .cloned();
-
         let mut invalidation = (!completing)
             .then(|| {
                 self.operation_observations(
@@ -892,19 +965,16 @@ where
                     assignment.as_ref(),
                     call_effects.as_deref(),
                     invocation_roots.as_deref(),
+                    marker_exposure.as_ref(),
                 )
             })
             .flatten();
 
         if let Some(invalidation) = &mut invalidation {
-            self.preserve_borrowed_carriers(state, &state.memory, invalidation);
+            self.preserve_borrowed_values(state, &state.memory, invalidation);
 
-            if self
-                .input
-                .tag_preserving_assignments
-                .contains(&kind.occurrence())
-            {
-                self.preserve_assignment_discriminants(&state.memory, invalidation);
+            if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
+                self.preserve_assignment_values(&state.memory, invalidation, *contents);
             }
         }
 
@@ -920,8 +990,9 @@ where
 
             self.record_operation_observations(kind, assignment.as_ref(), invalidation.as_ref());
 
-            let assignment = assignment_path
+            let assignment = assignment
                 .as_ref()
+                .and_then(|target| target.storage_path())
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
 
             self.execution.transfer_operation(
@@ -946,23 +1017,24 @@ where
 
         self.record_call_evidence(&execution, kind);
 
+        let task_completion = preserve_normal_storage
+            && occurrence.expression().is_some_and(|expression| {
+                self.execution
+                    .awaited_task_invocations(&execution, expression)
+                    .is_some()
+            });
+
         state.execution = Some(execution);
 
-        if preserve_normal_storage {
-            if !kind.occurrence().expression().is_some_and(|expression| {
-                self.execution.awaited_task_invocations(
-                    state.execution.as_ref().expect("call effects retain execution facts"), expression,
-                ).is_some()
-            }) {
-                self.capture_failure_effects(
-                    state,
-                    kind.occurrence(),
-                    call_effects,
-                    escaped,
-                    invalidation.as_ref(),
-                );
-            }
-        } else {
+        if preserve_normal_storage && !task_completion {
+            self.capture_failure_effects(
+                state,
+                occurrence,
+                call_effects,
+                escaped,
+                invalidation.as_ref(),
+            );
+        } else if !preserve_normal_storage {
             self.apply_call_effects(state, kind, call_effects.as_deref(), invalidation.as_ref());
         }
 
@@ -974,7 +1046,7 @@ where
         {
             // The operator has completed and published retained outputs. End its
             // remaining input loans before the assignment installs that result.
-            self.end_last_use_borrows(state, kind.occurrence());
+            self.end_last_use_borrows(state, occurrence);
         }
 
         let memory_status = self.apply_storage_operation(
@@ -1027,6 +1099,7 @@ where
                     state,
                     plan,
                     self.refinements.active_refinements(refinements),
+                    None,
                 );
             }
         }
@@ -1130,17 +1203,26 @@ where
             self.execution
                 .complete_operation(execution, kind, Some(&observations));
 
-            if matches!(kind,
+            if matches!(
+                kind,
                 AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(_))
-                    | AnalysisOperationKind::Call { phase: AnalysisCallPhase::Completion, .. })
-                && let Some(expression) = kind.occurrence().expression()
-            {
-                self.execution.capture_deferred_reports(execution, expression, || {
-                    crate::dependency::ReportDependencies {
-                        subjects: self.liveness.retained_by(expression).collect(),
-                        requirements: state.result_dependencies.value_requirements(expression).cloned().collect(),
+                    | AnalysisOperationKind::Call {
+                        phase: AnalysisCallPhase::Completion,
+                        ..
                     }
-                });
+            ) && let Some(expression) = kind.occurrence().expression()
+            {
+                self.execution
+                    .capture_deferred_reports(execution, expression, || {
+                        crate::dependency::ReportDependencies {
+                            subjects: self.liveness.retained_by(expression).collect(),
+                            requirements: state
+                                .result_dependencies
+                                .value_requirements(expression)
+                                .cloned()
+                                .collect(),
+                        }
+                    });
             }
         }
 
@@ -1180,9 +1262,9 @@ where
         execution: &crate::analysis::guarantee::ExecutionState,
     ) {
         let completed = match kind {
-            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
-                self.execution.awaited_value_producers(execution, expression)
-            }
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => self
+                .execution
+                .awaited_value_producers(execution, expression),
             _ => None,
         };
 
@@ -1351,7 +1433,7 @@ where
                                 Some(StorageIdentity::InvocationInput { .. })
                             )
                     }) {
-                        self.apply_plan(state, plan, refinements.clone());
+                        self.apply_plan(state, plan, refinements.clone(), invalidation);
                     }
 
                     state.memory.finish_value_transfers();
@@ -1375,7 +1457,7 @@ where
                                 )
                             })
                         {
-                            self.apply_plan(state, plan, refinements.clone());
+                            self.apply_plan(state, plan, refinements.clone(), invalidation);
                         }
                     } else {
                         if let Some(result) = self.invocation_result(invocation) {
@@ -1434,7 +1516,7 @@ where
                 continue;
             }
 
-            self.apply_plan(state, plan, refinements.clone());
+            self.apply_plan(state, plan, refinements.clone(), invalidation);
         }
 
         let memory_status = if matches!(operation.kind(), AnalysisOperationKind::Result { .. }) {
@@ -1444,6 +1526,25 @@ where
         };
 
         if memory_status.is_none_or(|status| status == MemoryOperationStatus::Valid) {
+            if memory_status.is_some() {
+                let occurrence = operation.kind().occurrence();
+
+                if let Some(result) = self.invocation_result(occurrence)
+                    && state.memory.has_stored_value(&result)
+                {
+                    let result = crate::analysis::storage_flow::memory::Target::storage(result);
+
+                    // Intrinsics produce current values. Admit that result into the
+                    // same pending transfer used by ordinary call completion.
+                    state
+                        .memory
+                        .stage_value(occurrence, &result, result.clone());
+                }
+
+                // A completed reference has an identity even when its origin is opaque.
+                self.prepare_result_references(state, occurrence);
+            }
+
             if !deferred {
                 state
                     .memory
@@ -1473,6 +1574,7 @@ where
         state: &mut StorageFlowState,
         plan: StorageAccessPlan,
         refinements: impl Iterator<Item = &'refinements Refinement> + Clone,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) {
         let purpose = self.storage.effective_purpose(plan);
 
@@ -1535,7 +1637,9 @@ where
                 );
             }
 
-            if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow, target) {
+            if let Err(error) =
+                self.apply_valid_operation(state, plan, purpose, borrow, target, invalidation)
+            {
                 self.query_failure = Some(error);
 
                 return;
@@ -1652,6 +1756,7 @@ where
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
         target: Option<crate::analysis::storage_flow::memory::Target>,
+        invalidation: Option<&bray_bound_tree::StorageInvalidation>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
             StorageAccessPurpose::Move
@@ -1689,7 +1794,9 @@ where
                     if purpose == StorageAccessPurpose::Move {
                         state.memory.consume_target(target, ty);
                     } else {
-                        state.memory.write_target(target, ty, plan.expression());
+                        state
+                            .memory
+                            .write_target(target, ty, plan.expression(), invalidation);
                     }
                 } else {
                     // A lifetime anchor cannot stand in for an unresolved physical target.
@@ -1756,7 +1863,24 @@ where
             | StorageAccessPurpose::Member
             | StorageAccessPurpose::Index
             | StorageAccessPurpose::Slice
-            | StorageAccessPurpose::Projection => {}
+            | StorageAccessPurpose::Projection => {
+                if plan.purpose() != StorageAccessPurpose::Write
+                    && let Some((ty, _)) = self.input.reference_paths.get(&plan.access())
+                    && let Some(pointee) =
+                        crate::representation::reference_target_type(self.request, *ty)
+                    && let Some(logical) = self.storage.logical_path(plan.access())
+                    && !logical.projections.is_empty()
+                    && let Some(target) = target
+                {
+                    // Keep the value read from a reference field separate from its slot.
+                    self.observe_stored_reference(
+                        &mut state.memory,
+                        target,
+                        logical.clone(),
+                        pointee,
+                    );
+                }
+            }
         }
 
         Ok(())

@@ -22,7 +22,9 @@ impl Scheduler {
         let (native, cancellation) = {
             let state = self.lock_state()?;
 
-            let task = state.tasks.get(&wake.task)
+            let task = state
+                .tasks
+                .get(&wake.task)
                 .filter(|task| task.registration == wake.registration)
                 .ok_or(SchedulerError::UnknownTask(wake.task))?;
 
@@ -32,13 +34,21 @@ impl Scheduler {
         let deadline = deadline::deadline_after(duration)?;
 
         let resources = if native.is_none() {
-            Some(NativeCallback::task(cancellation, wake.clone()).map_err(SchedulerError::TimerResources)?)
+            Some(
+                NativeCallback::task(cancellation, wake.clone())
+                    .map_err(SchedulerError::TimerResources)?,
+            )
         } else {
             None
         };
 
         let descriptor = native.as_ref().map_or_else(
-            || resources.as_ref().expect("host task admits callback resources").retain_timer(),
+            || {
+                resources
+                    .as_ref()
+                    .expect("host task admits callback resources")
+                    .retain_timer()
+            },
             |native| native.callback.retain_timer(),
         );
 
@@ -48,7 +58,11 @@ impl Scheduler {
             let deadlines = self.deadlines()?;
             let state = self.lock_state()?;
 
-            if !state.tasks.get(&wake.task).is_some_and(|task| task.registration == wake.registration) {
+            if !state
+                .tasks
+                .get(&wake.task)
+                .is_some_and(|task| task.registration == wake.registration)
+            {
                 return Err(SchedulerError::UnknownTask(wake.task));
             }
 
@@ -63,7 +77,9 @@ impl Scheduler {
         deadline_ns: u64,
         descriptor: NativeEventCallback,
     ) -> Result<TimerRegistration, SchedulerError> {
-        let result = self.deadlines().and_then(|deadlines| deadlines.register(deadline_ns, 0, &descriptor));
+        let result = self
+            .deadlines()
+            .and_then(|deadlines| deadlines.register(deadline_ns, 0, &descriptor));
 
         self.finish_registration(result, descriptor)
     }
@@ -74,12 +90,18 @@ impl Scheduler {
         descriptor: NativeEventCallback,
     ) -> Result<TimerRegistration, SchedulerError> {
         match result {
-            Ok(identity) => Ok(TimerRegistration { identity, scheduler: Arc::clone(&self.data) }),
+            Ok(identity) => Ok(TimerRegistration {
+                identity,
+                scheduler: Arc::clone(&self.data),
+            }),
             Err(error) => {
                 // Rejection leaves the descriptor with its native producer.
                 let status = (descriptor.call)(descriptor.context, 0);
 
-                assert!(status.is_success(), "rejected deadline releases its callback resources");
+                assert!(
+                    status.is_success(),
+                    "rejected deadline releases its callback resources"
+                );
 
                 Err(error)
             }
@@ -91,18 +113,40 @@ impl Scheduler {
             return Ok(deadlines);
         }
 
-        let prepared = BrayDeadlines::new(&self.data.source.reference, self.data.limits.timers().get())?;
+        let prepared =
+            BrayDeadlines::new(&self.data.source.reference, self.data.limits.timers().get())?;
+
         let _ = self.data.deadlines.set(prepared);
 
-        Ok(self.data.deadlines.get().expect("a competing deadline owner is published"))
+        Ok(self
+            .data
+            .deadlines
+            .get()
+            .expect("a competing deadline owner is published"))
     }
 
     pub(super) fn promote_elapsed_timers(&self) -> Result<(), SchedulerError> {
-        self.data.deadlines.get().map_or(Ok(()), BrayDeadlines::dispatch)
+        self.data
+            .deadlines
+            .get()
+            .map_or(Ok(()), BrayDeadlines::dispatch)
     }
 
     pub(super) fn timer_remaining(&self) -> Result<Option<Duration>, SchedulerError> {
-        self.data.deadlines.get().map_or(Ok(None), BrayDeadlines::remaining)
+        self.data
+            .deadlines
+            .get()
+            .map_or(Ok(None), BrayDeadlines::remaining)
+    }
+
+    pub(crate) fn worker_wait_milliseconds(&self) -> u64 {
+        self.timer_remaining()
+            .expect("a retained worker can observe its optional deadline")
+            .map_or(u64::from(u32::MAX - 1), |remaining| {
+                u64::try_from(remaining.as_nanos().div_ceil(1_000_000))
+                    .unwrap_or(u64::from(u32::MAX - 1))
+                    .min(u64::from(u32::MAX - 1))
+            })
     }
 
     pub(crate) fn close_timers(&self) {
@@ -119,6 +163,10 @@ pub struct TimerRegistration {
 
 impl Drop for TimerRegistration {
     fn drop(&mut self) {
-        self.scheduler.deadlines.get().expect("a registered timer retains its deadline owner").withdraw(self.identity);
+        self.scheduler
+            .deadlines
+            .get()
+            .expect("a registered timer retains its deadline owner")
+            .withdraw(self.identity);
     }
 }

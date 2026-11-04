@@ -25,8 +25,9 @@ pub use constant::{
 pub use dependency::{
     DependencyBorrowRelation, DependencyCallInput, DependencyCallOutput,
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyReferenceKind,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
-    DependencyWitnessCarrier, GuardedDependencyRequirement, LifecycleObligationKind,
+    DependencyReferenceProvenance, DependencyRequirement, DependencyRequirementKind,
+    DependencySubject, DependencySubjectRoot, DependencyWitnessCarrier,
+    GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};
 pub use id::{

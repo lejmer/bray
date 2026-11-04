@@ -196,6 +196,32 @@ fn committed_delivery_prevents_an_unpopped_waiter_from_withdrawing() {
 
         assert_eq!(status, NativeRuntimeStatus::PENDING.code());
         assert_eq!(parent.snapshot().phase, 1);
+
+        let shield = parent.cancellation.shield();
+
+        let services = bray_runtime_abi::NativeTaskDispatchServices {
+            invoke: activation::bray_runtime_activation_callback,
+            ready: activation::readiness,
+            transfer: super::dispatch::transfer,
+            wake: reenter_dispatch,
+            cancel_wait: super::dispatch::cancel_wait,
+        };
+
+        let mut failure = bray_runtime_abi::NativeWorkerFailure {
+            stage: 1, category: 1, native_code: 0,
+        };
+
+        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+        let mut execution = bray_runtime_abi::NativeActivationExecution::default();
+
+        let status = report_provider::bray_runtime_task_control_dispatch(
+            parent.control(), &services, &mut failure, &mut progress, &mut execution,
+        );
+
+        assert_eq!(status, NativeRuntimeStatus::PENDING.code());
+        assert_eq!(parent.snapshot().phase, 1);
+        assert_eq!(failure.stage, 1, "an unacquired dispatch cannot consume failure");
+        drop(shield);
     }
 
     startup();
@@ -440,6 +466,7 @@ fn drive_with_wake(task: &Arc<NativeTaskServices>, wake: extern "C" fn(u64)) {
             ready: activation::readiness,
             transfer: super::dispatch::transfer,
             wake,
+            cancel_wait: super::dispatch::cancel_wait,
         };
 
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
@@ -450,6 +477,7 @@ fn drive_with_wake(task: &Arc<NativeTaskServices>, wake: extern "C" fn(u64)) {
                 report_provider::bray_runtime_task_control_dispatch(
                     task.control(),
                     &services,
+                    &mut bray_runtime_abi::NativeWorkerFailure::default(),
                     &mut progress,
                     &mut execution,
                 )
@@ -507,7 +535,17 @@ fn start_with_resume(
             .task()
             .expect("fixture task admission succeeds");
 
-        assert_eq!(runtime.start(handle, &frame), NativeRuntimeStatus::SUCCESS);
+        assert_eq!(
+            runtime.start(
+                handle,
+                &frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
 
         runtime
             .retained_task(handle)

@@ -320,8 +320,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let contract = self.request.trusted_contracts()?.calls.get(&invocation)?;
         let evidence = state.entries.get(&invocation)?;
 
-        self.trusted_requirements_proven(evidence, &contract.requirements)
-            .then(|| self.empty_memory_copy(state, invocation))
+        let proven = self.trusted_requirements_proven(evidence, &contract.requirements);
+
+        proven.then(|| self.empty_memory_copy(state, invocation))
     }
 }
 

@@ -73,7 +73,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             self.builder.position_at_end(construct);
 
-            let start = self.start_admitted_root(root, runtime, backing)?;
+            let start = self.start_admitted_root(root, runtime, backing, outcome)?;
 
             let status =
                 crate::translation::unit::support::extract_value(&self.builder, start.into(), 0)?;
@@ -118,6 +118,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             // Observation replaces this only for a successfully started root. Failed
             // admission retains its original outcome and still reaches host teardown.
+            let previous = llvm(self.builder.build_load(
+                outcome_type,
+                outcome,
+                "root.start.outcome",
+            ))?;
+
+            let (state, _) =
+                crate::translation::unit::support::native_run_outcome(&self.builder, previous)?;
+
+            let detailed = crate::translation::unit::support::native_run_state_is(
+                &self.builder,
+                state,
+                bray_runtime_abi::NativeRunState::PANICKED,
+                "root.start.detailed",
+            )?;
+
+            let generic = context.append_basic_block(self.function, "root.start.failure");
+
+            llvm(
+                self.builder
+                    .build_conditional_branch(detailed, joined, generic),
+            )?;
+
+            self.builder.position_at_end(generic);
             llvm(self.builder.build_store(outcome, failure))?;
             llvm(self.builder.build_unconditional_branch(joined))?;
             self.builder.position_at_end(joined);
@@ -145,6 +169,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         root: &BoundUnitKey,
         runtime: bray_ir::MirRuntimeReference,
         backing: inkwell::values::PointerValue<'context>,
+        outcome: inkwell::values::PointerValue<'context>,
     ) -> Result<inkwell::values::StructValue<'context>, CodegenFailure> {
         let (constructor, signature) = self.root_entry(root, RootExecution::Synchronous)?;
 
@@ -208,7 +233,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ]);
 
         let start = self
-            .invoke_native_runtime(runtime, &[frame_transfer.into(), configuration.into()])?
+            .invoke_native_runtime(
+                runtime,
+                &[frame_transfer.into(), configuration.into(), outcome.into()],
+            )?
             .and_then(|value| match value {
                 BasicValueEnum::StructValue(value) => Some(value),
                 _ => None,

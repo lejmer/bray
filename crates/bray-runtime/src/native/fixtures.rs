@@ -22,6 +22,17 @@ struct Frame {
 }
 
 pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> NativeInactiveFrame {
+    let records = crate::outgoing::OutgoingRecords::admit(4)
+        .expect("fixture outgoing records must admit the supplied values");
+
+    admit_with_records(context, callbacks, records)
+}
+
+pub(super) fn admit_with_records(
+    context: usize,
+    callbacks: NativeActivationDescriptor,
+    mut outgoing: crate::outgoing::OutgoingRecords,
+) -> NativeInactiveFrame {
     let mut bytes = 0;
     let mut alignment = 0;
 
@@ -75,9 +86,6 @@ pub(super) fn admit(context: usize, callbacks: NativeActivationDescriptor) -> Na
         callbacks,
         context,
     });
-
-    let mut outgoing = crate::outgoing::OutgoingRecords::admit(4)
-        .expect("fixture outgoing records must admit the supplied values");
 
     let (head, tail, count) = std::mem::take(&mut outgoing).into_parts();
 
@@ -302,6 +310,10 @@ mod tests {
         let root = super::super::export::bray_runtime_root_execution(
             NativeInactiveFrameTransfer::new(&token),
             NativeRuntimeConfiguration::new(1, 1),
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
         )
         .root()
         .expect("fixture `root` call must succeed");

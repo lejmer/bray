@@ -344,6 +344,9 @@ impl Compilation {
 
                 let mut operation_resolutions = Vec::<SemanticResolution>::new();
 
+                let mut apply_repeated_lengths = !has_repetitions
+                    || (operations.is_empty() && !has_iterations);
+
                 loop {
                     let selected_patterns = scoped_pattern_subjects(
                         bound.result().value(),
@@ -362,7 +365,9 @@ impl Compilation {
 
                     let operation_input = selection_type_input(&operation_resolutions)
                         .with_iteration_sources(iteration_sources.iter().cloned())
-                        .with_repeated_array_lengths(repeated_lengths.iter().copied());
+                        .with_repeated_array_lengths(
+                            repeated_lengths.iter().copied().filter(|_| apply_repeated_lengths)
+                        );
 
                     let mut result = self.compute_expression_semantics(
                         &key,
@@ -393,8 +398,14 @@ impl Compilation {
                         cancellation,
                     )?.unwrap_or_default();
 
-                    if next == operation_resolutions && next_iteration_sources == iteration_sources
-                        && next_lengths == repeated_lengths
+                    let context_complete = next == operation_resolutions
+                        && next_iteration_sources == iteration_sources;
+
+                    // Resolve contextual element types before concrete extents make
+                    // provisional literal defaults look like fixed argument types.
+                    if !apply_repeated_lengths && context_complete {
+                        apply_repeated_lengths = true;
+                    } else if context_complete && next_lengths == repeated_lengths
                     {
                         let (semantics, diagnostics) = result.0.into_parts();
 

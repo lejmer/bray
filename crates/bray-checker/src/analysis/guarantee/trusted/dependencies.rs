@@ -11,6 +11,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         entry: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         guarantee: &ExecutionCondition,
+        owning: bool,
         owners: &BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
         address_subjects: &[(ExecutionCondition, ExecutionCondition, bool)],
         instantiate: &impl Fn(&ExecutionCondition) -> ExecutionCondition,
@@ -18,6 +19,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         BTreeSet<crate::ExecutionPlace>,
         crate::execution_guarantees::AddressDependencies,
     ) {
+        // An owning carrier can also carry a raw access promise. That promise still
+        // expires with every possible physical input region of the address.
+        let owning = owning
+            && !address_subjects
+                .iter()
+                .any(|(condition, _, owning)| condition == guarantee && !owning);
+
         let arguments = entry;
         let mut retained = BTreeSet::new();
 
@@ -54,7 +62,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .references()
                             .iter()
                             .filter(|reference| {
-                                reference.relation().kind()
+                                !(owning && reference.relation().provenance() == bray_symbols::DependencyReferenceProvenance::InputRegions)
+                                    && reference.relation().kind()
                                     == bray_symbols::DependencyReferenceKind::Address
                                     && reference.relation().exit().subject_root()
                                         == bray_symbols::DependencySubjectRoot::Result
@@ -74,19 +83,36 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let retained_input = dependencies
                         .retained_inputs()
-                        .is_none_or(|inputs| inputs.contains(input));
+                        .is_none_or(|inputs| inputs.contains(input))
+                        || !owning
+                            && dependencies.references().iter().any(|reference| {
+                                reference.relation().exit().subject_root()
+                                    == bray_symbols::DependencySubjectRoot::Result
+                                    && reference.relation().entry().and_then(|entry| {
+                                        call.input_site(expression, entry.subject_root())
+                                    }) == Some(*input)
+                            });
 
-                    let independent = dependencies.references().iter().any(|reference| {
-                        reference.relation().entry().is_none()
-                            && reference.relation().is_exact()
-                            && reference.relation().kind()
+                    let mut origins = dependencies
+                        .references()
+                        .iter()
+                        .filter(|reference| {
+                            reference.relation().kind()
                                 == bray_symbols::DependencyReferenceKind::Address
-                            && subject
-                                == super::carriers::result_projection(
-                                    self.request.semantic_values(), self.dependencies,
-                                    reference.relation().exit().projections(),
-                                )
-                    });
+                                && reference.relation().exit().subject_root()
+                                    == bray_symbols::DependencySubjectRoot::Result
+                                && subject
+                                    == super::carriers::result_projection(
+                                        self.request.semantic_values(),
+                                        self.dependencies,
+                                        reference.relation().exit().projections(),
+                                    )
+                        })
+                        .map(|reference| reference.relation())
+                        .peekable();
+
+                    let independent = origins.peek().is_some()
+                        && origins.all(|relation| relation.entry().is_none());
 
                     if let Some(owners) = sources.get(&address) {
                         addresses
@@ -114,11 +140,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let owners = &source.borrowed;
 
-            if owners.is_empty()
-                || dependencies
-                    .retained_inputs()
-                    .is_some_and(|inputs| !inputs.contains(input))
-            {
+            if owners.is_empty() {
                 continue;
             }
 
@@ -128,13 +150,25 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .filter(|reference| {
                     let relation = reference.relation();
 
-                    relation.exit().subject_root() == bray_symbols::DependencySubjectRoot::Result
+                    !(owning
+                        && relation.provenance()
+                            == bray_symbols::DependencyReferenceProvenance::InputRegions)
+                        && relation.exit().subject_root()
+                            == bray_symbols::DependencySubjectRoot::Result
                         && relation
                             .entry()
                             .and_then(|entry| call.input_site(expression, entry.subject_root()))
                             == Some(*input)
                 })
                 .peekable();
+
+            if dependencies
+                .retained_inputs()
+                .is_some_and(|inputs| !inputs.contains(input))
+                && (owning || references.peek().is_none())
+            {
+                continue;
+            }
 
             if dependencies.retained_inputs().is_none()
                 || references.peek().is_none()
@@ -148,7 +182,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for reference in references {
                 let address = super::carriers::result_projection(
-                    self.request.semantic_values(), self.dependencies,
+                    self.request.semantic_values(),
+                    self.dependencies,
                     reference.relation().exit().projections(),
                 );
 
@@ -160,7 +195,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     let input = entry_subject(
                         arguments,
-                        &reference_subject(self.request.semantic_values(), self.dependencies, call, entry),
+                        &reference_subject(
+                            self.request.semantic_values(),
+                            self.dependencies,
+                            call,
+                            entry,
+                        ),
                     );
 
                     let owners = source.addresses.get(&input).unwrap_or(owners);
@@ -196,7 +236,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     == bray_symbols::DependencySubjectRoot::Result
                 && subject
                     == &super::carriers::result_projection(
-                        self.request.semantic_values(), self.dependencies,
+                        self.request.semantic_values(),
+                        self.dependencies,
                         reference.relation().exit().projections(),
                     )
         }) {
@@ -210,7 +251,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let source = reference_subject(self.request.semantic_values(), self.dependencies, call, entry);
+            let source = reference_subject(
+                self.request.semantic_values(),
+                self.dependencies,
+                call,
+                entry,
+            );
 
             let source = entry_subject(arguments, &source);
 
@@ -378,14 +424,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let relation = reference.relation();
 
             relation.kind() == bray_symbols::DependencyReferenceKind::Address
-                && reference_subject(self.request.semantic_values(), self.dependencies, call, relation.exit()) == *subject
+                && reference_subject(
+                    self.request.semantic_values(),
+                    self.dependencies,
+                    call,
+                    relation.exit(),
+                ) == *subject
         }) {
             let entry = reference.relation().entry()?;
 
             origins
                 .entry(call.input_site(expression, entry.subject_root())?)
                 .or_default()
-                .insert(reference_subject(self.request.semantic_values(), self.dependencies, call, entry));
+                .insert(reference_subject(
+                    self.request.semantic_values(),
+                    self.dependencies,
+                    call,
+                    entry,
+                ));
         }
 
         (!origins.is_empty()).then_some(origins)

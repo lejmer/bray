@@ -64,9 +64,20 @@ pub(super) fn translate_runtime_boundary<'context>(
         kind,
         bray_runtime_interface::NativeEntryKind::RuntimeStatus
             | bray_runtime_interface::NativeEntryKind::RuntimeIdentity
+            | bray_runtime_interface::NativeEntryKind::RuntimeValue
             | bray_runtime_interface::NativeEntryKind::EntryStatus
     ) {
         let (state, _) = native_run_outcome(&builder, result)?;
+
+        if kind == bray_runtime_interface::NativeEntryKind::RuntimeValue {
+            crate::translation::require_runtime_success(
+                module,
+                context,
+                &builder,
+                state.into(),
+                "worker.entry.completed",
+            )?;
+        }
 
         let completed = native_run_state_is(
             &builder,
@@ -101,22 +112,21 @@ pub(super) fn translate_runtime_boundary<'context>(
                 ),
                 "entry.cleanup.status",
             ))?
-            .into_int_value()
+        } else if kind == bray_runtime_interface::NativeEntryKind::RuntimeValue {
+            status.get_type().const_zero()
         } else if kind == bray_runtime_interface::NativeEntryKind::RuntimeIdentity {
-            context.i64_type().const_zero()
+            context.i64_type().const_zero().into()
         } else {
-            context.i32_type().const_int(
-                u64::from(bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code()),
-                false,
-            )
+            context
+                .i32_type()
+                .const_int(
+                    u64::from(bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code()),
+                    false,
+                )
+                .into()
         };
 
-        let returned = llvm(builder.build_select(
-            completed,
-            status,
-            BasicValueEnum::IntValue(failure),
-            "runtime.status",
-        ))?;
+        let returned = llvm(builder.build_select(completed, status, failure, "runtime.status"))?;
 
         llvm(builder.build_return(Some(&returned)))?;
     } else {

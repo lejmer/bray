@@ -19,13 +19,23 @@ pub(crate) fn run_static_finalizer(
             ];
         };
 
-        if !runtime.start(task, &frame).is_success() {
-            return [
-                Some(OwnedCleanupIncident::runtime_failure()),
-                None,
-                None,
-                None,
-            ];
+        let mut rejected = bray_runtime_abi::NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+
+        if !runtime.start(task, &frame, &mut rejected).is_success() {
+            let status = runtime.destroy_task(task);
+
+            assert!(
+                status.is_success(),
+                "rejected finalizer admission releases its unstarted control"
+            );
+
+            let incident = if rejected.state() == NativeRunState::PANICKED {
+                OwnedCleanupIncident::report_owner(rejected.take_report())
+            } else {
+                OwnedCleanupIncident::runtime_failure()
+            };
+
+            return [Some(incident), None, None, None];
         }
 
         let Some(root) = NativeRootHandle::new(task.raw()) else {

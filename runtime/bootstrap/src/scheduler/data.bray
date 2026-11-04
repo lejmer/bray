@@ -59,11 +59,13 @@ internal struct Entry
     mut wakes: u64;
     mut queued_at: u64;
     mut slot: bool;
+    mut driver: Lane?;
 }
 
 internal struct State
 {
     mut deadline_closed: bool;
+    mut worker_closed: bool;
     mut entries: std.memory.RawBuffer<Entry>?;
     mut queues: std.memory.RawBuffer<Queue>?;
     mut free_queue: usize;
@@ -109,7 +111,8 @@ internal func empty_entry(pos next: usize) -> Entry
         pending = 0,
         wakes = 0,
         queued_at = 0,
-        slot = false
+        slot = false,
+        driver = none
     };
 }
 

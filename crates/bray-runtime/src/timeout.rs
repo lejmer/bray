@@ -10,6 +10,10 @@ use crate::{RootCancellationHandle, SchedulerError, TimerRegistration};
 pub enum RunTimeoutError {
     /// Native execution services could not be retained or initialized.
     Runtime(NativeRuntimeStatus),
+    /// The demanded progress worker could not establish its target thread or attachment.
+    Worker(bray_runtime_abi::NativeWorkerFailure),
+    /// Native cancellation callback backing could not be admitted.
+    Callback(NativeRuntimeStatus),
     /// The shared scheduler could not admit the deadline and its callback.
     Deadline(SchedulerError),
 }
@@ -21,11 +25,15 @@ pub fn register_run_timeout(
     cancellation: &RootCancellationHandle,
 ) -> Result<TimerRegistration, RunTimeoutError> {
     let deadline = crate::scheduler::deadline_after(duration).map_err(RunTimeoutError::Deadline)?;
-    let runtime = crate::native::retain_timeout_runtime().map_err(RunTimeoutError::Runtime)?;
+    let runtime = crate::native::retain_timeout_runtime()?;
     let scheduler = runtime.core.scheduler().clone();
-    let resources = NativeCallback::timeout(cancellation.clone(), runtime).map_err(RunTimeoutError::Runtime)?;
 
-    scheduler.register_callback(deadline, resources.retain_timer()).map_err(RunTimeoutError::Deadline)
+    let resources = NativeCallback::timeout(cancellation.clone(), runtime)
+        .map_err(RunTimeoutError::Callback)?;
+
+    scheduler
+        .register_callback(deadline, resources.retain_timer())
+        .map_err(RunTimeoutError::Deadline)
 }
 
 #[cfg(test)]
@@ -43,7 +51,13 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
         let root = crate::RootCancellationHandle::new(crate::CancellationContext::root());
 
-        assert!(matches!(register_run_timeout(Duration::MAX, &root), Err(super::RunTimeoutError::Deadline(crate::SchedulerError::DeadlineOverflow))));
+        assert!(matches!(
+            register_run_timeout(Duration::MAX, &root),
+            Err(super::RunTimeoutError::Deadline(
+                crate::SchedulerError::DeadlineOverflow
+            ))
+        ));
+
         assert_eq!(root.source(), None);
 
         assert_eq!(
@@ -95,27 +109,45 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
         let mut timer = None;
         let mut cancellation = None;
-        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).expect("outgoing records are admitted");
+
+        let mut admitted =
+            crate::outgoing::OutgoingRecords::admit(1).expect("outgoing records are admitted");
+
         let limit = Instant::now() + Duration::from_secs(2);
 
         let outcome = execute_synchronous_root(
             || {
                 while !current_run_cancellation_requested() {
-                    assert!(Instant::now() < limit, "retained deadline services make progress after closure");
+                    assert!(
+                        Instant::now() < limit,
+                        "retained deadline services make progress after closure"
+                    );
+
                     std::thread::yield_now();
                 }
             },
             |root| {
                 cancellation = Some(root.clone());
-                timer = Some(register_run_timeout(Duration::from_millis(10), &root).expect("timeout is admitted"));
-                assert!(crate::native::implementation::bray_runtime_execution_shutdown().is_success());
+
+                timer = Some(
+                    register_run_timeout(Duration::from_millis(10), &root)
+                        .expect("timeout is admitted"),
+                );
+
+                assert!(
+                    crate::native::implementation::bray_runtime_execution_shutdown().is_success()
+                );
             },
             &mut admitted,
         );
 
         drop(timer);
         assert!(matches!(outcome, RunOutcome::Completed(())));
-        assert_eq!(cancellation.and_then(|handle| handle.source()), Some(RootCancellationSource::Timeout));
+
+        assert_eq!(
+            cancellation.and_then(|handle| handle.source()),
+            Some(RootCancellationSource::Timeout)
+        );
     }
 
     #[test]

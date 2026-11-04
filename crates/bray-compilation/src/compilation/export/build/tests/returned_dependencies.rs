@@ -3,6 +3,322 @@ use crate::test_support::source_function_body_key;
 use super::fixtures::{compilation, compilation_from_sources, execution_consumer};
 
 #[test]
+fn independent_borrowed_results_do_not_claim_owned_marker_preservation() {
+    let api = r#"
+        trusted module api;
+        using core.memory;
+        using core.target;
+
+        struct Marker {}
+        struct Holder { marker: &Marker; }
+        trusted predicate live(marker: &Marker);
+
+        trusted const func make() -> Marker ensures(trusted live(&result))
+        {
+            return Marker {};
+        }
+
+        static TOKEN: Marker = make();
+
+        func global_reference() -> &Marker ensures(trusted live(result))
+        {
+            return &TOKEN;
+        }
+
+        func input_reference(pos marker: &Marker) -> &Marker
+            requires(trusted live(marker))
+            ensures(trusted live(result))
+        {
+            return marker;
+        }
+
+        trusted func publish() -> usize uses(intrinsic)
+        {
+            return trusted core.target.expose_address<Marker>(
+                core.memory.address_of<Marker>(&TOKEN)
+            );
+        }
+
+        trusted func publish_reference(pos marker: &Marker) -> usize uses(intrinsic)
+        {
+            return trusted core.target.expose_address<Marker>(core.memory.address_of<Marker>(marker));
+        }
+
+        func observe(pos marker: &Marker)
+            requires(trusted live(marker)) executes(pure, total)
+        {}
+    "#;
+
+    let provider = compilation(api);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for imported in [false, true] {
+        for owned in [false, true] {
+            for (opaque, loan) in [
+                (false, ""), (true, ""),
+                (false, "slot"), (true, "slot"),
+                (false, "referent"), (true, "referent"),
+                (false, "carrier"), (true, "carrier"),
+            ] {
+                let prefix = if imported { "example.package.api" } else { "api" };
+
+                let reference = if owned {
+                    format!("{prefix}.input_reference(&owner)")
+                } else {
+                    format!("{prefix}.global_reference()")
+                };
+
+                let source = format!(
+                    r#"
+                    module app;
+                    using {prefix};
+                    extern func opaque();
+
+                    func caller()
+                    {{
+                        let owner = trusted {prefix}.make();
+                        let reference = {reference};
+                        {hold}
+                        _ = trusted {prefix}.publish();
+                        {effect}
+                        {prefix}.observe({observed});
+                        {release}
+                    }}
+                    "#,
+                    effect = if opaque { "opaque();" } else { "" },
+                    observed = if loan == "carrier" { "holder.marker" } else { "reference" },
+                    hold = match loan {
+                        "carrier" => format!("let holder: {prefix}.Holder = {{ marker = reference }};"),
+                        "slot" => format!("let loan: &&{prefix}.Marker = &reference;"),
+                        "referent" => format!("let loan: &{prefix}.Marker = &reference;"),
+                        _ => String::new(),
+                    },
+                    release = if loan.is_empty() || loan == "carrier" { "" } else { "_ = loan;" },
+                );
+
+                let application = if imported {
+                    execution_consumer(&provider, &source)
+                } else {
+                    compilation_from_sources([api, &source])
+                };
+
+                let diagnostics = application.check_diagnostics();
+                let valid = owned || !opaque;
+
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    valid,
+                    "imported={imported}, owned={owned}, opaque={opaque}, loan={loan}: {diagnostics:#?}"
+                );
+
+                if !valid {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
+            }
+        }
+    }
+
+    for imported in [false, true] {
+        for published in [false, true] {
+            let prefix = if imported { "example.package.api" } else { "api" };
+
+            let source = format!(r#"
+                module app;
+                using {prefix};
+                extern func opaque();
+
+                func caller(pos holder: &{prefix}.Holder)
+                    requires(trusted {prefix}.live(holder.marker))
+                {{
+                    {publication}
+                    opaque();
+                    {prefix}.observe(holder.marker);
+                }}
+            "#, publication = if published {
+                format!("_ = trusted {prefix}.publish_reference(holder.marker);")
+            } else { String::new() });
+
+            let application = if imported {
+                execution_consumer(&provider, &source)
+            } else {
+                compilation_from_sources([api, &source])
+            };
+
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), !published,
+                "imported={imported}, published={published}: {diagnostics:#?}");
+
+            if published {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics,
+                    bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+
+}
+
+#[test]
+fn imported_static_publication_only_exposes_the_selected_static() {
+    for directive in ["", "@thread_local"] {
+        for address in ["&TOKEN", "&owner.marker"] {
+            let provider = compilation(&format!(
+                r#"
+                trusted module api;
+                using core.memory;
+                using core.target;
+
+                struct Marker {{}}
+                struct Owner {{ marker: Marker; }}
+                trusted predicate live(marker: &Marker);
+
+                trusted const func make_marker() -> Marker
+                    ensures(trusted live(&result))
+                {{
+                    return Marker {{}};
+                }}
+
+                trusted func create() -> Owner
+                    ensures(trusted live(&result.marker))
+                {{
+                    return {{ marker = Marker {{}} }};
+                }}
+
+                {directive} static TOKEN: Marker = make_marker();
+                {directive} static OTHER: Marker = make_marker();
+
+                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic)
+                {{
+                    return trusted core.target.expose_address<Marker>(
+                        core.memory.address_of<Marker>({address})
+                    );
+                }}
+
+                trusted func relay(pos owner: &Owner) -> usize
+                {{
+                    return trusted publish(owner);
+                }}
+
+                trusted func observe(pos marker: &Marker)
+                    requires(trusted live(marker)) executes(pure, total)
+                {{}}
+                "#,
+            ));
+
+            for observed in ["TOKEN", "OTHER"] {
+                let consumer = execution_consumer(
+                    &provider,
+                    &format!(
+                        r#"
+                        module app;
+                        using example.package.api;
+                        extern func opaque();
+
+                        func caller()
+                        {{
+                            trusted example.package.api.observe(&example.package.api.TOKEN);
+                            trusted example.package.api.observe(&example.package.api.OTHER);
+                            let owner = trusted example.package.api.create();
+                            _ = trusted example.package.api.relay(&owner);
+                            opaque();
+                            trusted example.package.api.observe(&example.package.api.{observed});
+                        }}
+                        "#,
+                    ),
+                );
+
+                let diagnostics = consumer.check_diagnostics();
+                let valid = address != "&TOKEN" || observed != "TOKEN";
+
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    valid,
+                    "{directive}, {address}, {observed}: {diagnostics:#?}"
+                );
+
+                if !valid {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn imported_static_borrows_keep_physical_origins_separate_from_lifetimes() {
+    for (directive, exact_thread) in [("", false), ("@thread_local", true)] {
+        let provider = compilation(&format!(
+            r#"
+            module api;
+            struct Cell {{ value: u32; }}
+            {directive} static STATE: Cell = {{ value = 7 }};
+            func borrow(pos unrelated: &u32) -> &Cell {{ return &STATE; }}
+            func forward(pos unrelated: &u32) -> &Cell {{ return borrow(unrelated); }}
+        "#
+        ));
+
+        let consumer = execution_consumer(
+            &provider,
+            r#"
+            module app;
+            using example.package.api;
+            func caller(pos unrelated: &u32) -> &u32 {
+                return &example.package.api.forward(unrelated).value;
+            }
+        "#,
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            !diagnostics.has_errors(),
+            "exact_thread={exact_thread}: {diagnostics:#?}"
+        );
+
+        let summary = crate::compilation::result_dependencies::source_function_dependencies(
+            &consumer, "caller",
+        );
+
+        assert!(
+            summary
+                .borrows()
+                .iter()
+                .any(|reference| reference.entry().is_none()
+                    && reference.kind() == bray_symbols::DependencyReferenceKind::Borrow
+                    && !reference.is_exact()),
+            "static borrow must not alias the unrelated input: {summary:#?}"
+        );
+
+        assert!(
+            summary.requirements().iter().any(|requirement| {
+                let bray_symbols::DependencyRequirement::Direct { subject, .. } = requirement
+                else {
+                    return false;
+                };
+                matches!(
+                    subject.subject_root(),
+                    bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                ) == exact_thread
+                    && matches!(
+                        subject.subject_root(),
+                        bray_symbols::DependencySubjectRoot::ProductStatic(_)
+                            | bray_symbols::DependencySubjectRoot::ExactThreadStatic(_)
+                    )
+            }),
+            "static lifetime must survive serialization: {summary:#?}"
+        );
+    }
+}
+
+#[test]
 fn imported_call_effects_distinguish_forwarding_from_mutation() {
     let provider = compilation(
         r#"
@@ -2303,6 +2619,13 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
 
         extern func accept(pos value: Metadata);
 
+        extern func accept_fields(pos value: bool, pos namespace: [u64; 4]);
+
+        func projected(pos value: &Metadata)
+        {
+            accept_fields(value.value, value.namespace);
+        }
+
         func forwarded(pos value: Metadata)
         {
             accept(value);
@@ -2324,6 +2647,7 @@ fn copied_parameter_storage_does_not_escape_through_source_or_imported_calls() {
             ("scalar", "value.value"),
             ("aggregate", "value"),
             ("forwarded", "value"),
+            ("projected", "&value"),
             ("reference", "&value"),
         ] {
             let body = format!(
@@ -3392,5 +3716,125 @@ fn completed_composite_values_drop_only_the_obsolete_frame_capture() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn indexed_protected_writes_preserve_siblings_without_initializing_other_elements() {
+    let api = r#"
+        trusted module api;
+        using core.memory;
+
+        trusted func put<T>(pos storage: &mut [Uninit<T>; 2], pos index: usize, pos value: T)
+            requires(index < 2)
+        {
+            _ = core.memory.uninit_write<T>(&mut storage[index], value);
+        }
+    "#;
+
+    let provider = compilation(api);
+
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    let flow = provider.storage_flow(source_function_body_key(&provider, "put")).unwrap();
+
+    assert!(!flow.value().is_recovered(), "a checked indexed write retains its finite contract");
+
+    for imported in [false, true] {
+        for read_other in [false, true] {
+            let prefix = if imported { "example.package.api" } else { "api" };
+
+            let read = if read_other {
+                "_ = trusted core.memory.move_initialized<u8>(&mut owner.slots[1 - index]);"
+            } else {
+                ""
+            };
+
+            let capability = if read_other { "uses(unchecked_init)" } else { "" };
+
+            let source = format!(r#"
+                trusted module app;
+                using core.memory;
+                using {prefix}.put;
+                struct Marker {{}}
+                struct Owner {{ marker: Marker; mut slots: [Uninit<u8>; 2]; }}
+                trusted predicate live(marker: &Marker);
+                func observe(pos marker: &Marker) requires(trusted live(marker)) executes(pure, total) {{}}
+                trusted func caller(pos owner: &mut Owner, pos index: usize)
+                    requires(index < 2, trusted live(&owner.marker))
+                    {capability}
+                {{
+                    trusted {prefix}.put<u8>(&mut owner.slots, index, 7);
+                    observe(&owner.marker);
+                    {read}
+                }}
+            "#);
+
+            let consumer = if imported {
+                execution_consumer(&provider, &source)
+            } else {
+                compilation_from_sources([api, &source])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), !read_other, "imported={imported}, read_other={read_other}: {diagnostics:#?}");
+
+            if read_other {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+}
+
+#[test]
+fn exclusive_inputs_preserve_guarantees_through_protected_storage_writes() {
+    let api = r#"
+        trusted module api;
+        using core.memory;
+
+        struct Cell
+        {
+            mut value: bool;
+        }
+
+        trusted func overwrite(pos storage: &mut Uninit<u8>, pos independent: &mut Cell)
+            requires(independent.value)
+            ensures(independent.value)
+        {
+            _ = core.memory.uninit_write<u8>(storage, 0);
+        }
+    "#;
+
+    let provider = compilation(api);
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+
+    for imported in [false, true] {
+        let prefix = if imported { "example.package.api" } else { "api" };
+
+        let source = format!(r#"
+            trusted module app;
+            using core.memory;
+            using {prefix};
+
+            trusted func caller(pos storage: &mut Uninit<u8>, pos independent: &mut {prefix}.Cell)
+                requires(independent.value)
+                ensures(independent.value)
+            {{
+                trusted {prefix}.overwrite(storage, independent);
+            }}
+        "#);
+
+        let consumer = if imported {
+            execution_consumer(&provider, &source)
+        } else {
+            compilation_from_sources([api, &source])
+        };
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "imported={imported}: {diagnostics:#?}");
     }
 }

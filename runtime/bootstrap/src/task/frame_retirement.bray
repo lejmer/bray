@@ -9,21 +9,23 @@ using internal bray.runtime.bootstrap.activation.execution;
 
 // Retirement consumes frame access while retaining the independent cell claim.
 // No path projects the old header after its producer's destroy callback.
-trusted internal func retire_dispatch(pos owner: &Dispatch) -> u32
+trusted internal func retire_dispatch(pos owner: Dispatch) -> u32
     requires(
         owner.active,
         owner.root != 0,
-        trusted dispatch_owner(owner = owner),
+        trusted dispatch_owner(owner = &owner),
+        trusted dispatch_acquired(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     uses(intrinsic)
 {
-    let (mut progress, mut unused, mut incidents, status, mut outcome) = trusted retire_frame(owner);
+    let (mut progress, mut unused, mut incidents, status, mut outcome) = trusted retire_frame(&owner);
 
     if status == 6
     {
+        trusted release_dispatch(owner);
         return 0;
     }
 
@@ -59,7 +61,7 @@ trusted internal func retire_dispatch(pos owner: &Dispatch) -> u32
         trusted bray.runtime.bootstrap.activation.execution.take_report(&mut incident)
     );
 
-    let reference = trusted dispatch_reference(owner);
+    let reference = trusted dispatch_reference(&owner);
 
     let execution =
     {
@@ -70,9 +72,10 @@ trusted internal func retire_dispatch(pos owner: &Dispatch) -> u32
         yield execution_value(&control);
     };
 
-    trusted transfer_service(trusted dispatch_services(owner), &execution, &mut unused, &mut incidents);
-    trusted finish_retirement(owner);
-    trusted notify_waiters(owner, 1);
+    trusted transfer_service(trusted dispatch_services(&owner), &execution, &mut unused, &mut incidents);
+    trusted finish_retirement(&owner);
+    trusted notify_waiters(&owner, 1);
+    trusted release_dispatch(owner);
     return 3;
 }
 

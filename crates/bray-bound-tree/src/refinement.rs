@@ -46,6 +46,8 @@ pub enum StorageInvalidation {
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
         stable_descriptors: BTreeSet<crate::StoragePath>,
+        /// Immutable component observations proven unchanged by these writes.
+        stable_values: BTreeSet<crate::StoragePath>,
     },
 }
 
@@ -83,6 +85,36 @@ impl StorageInvalidation {
                 stable_descriptors.retain(|path| descriptors.contains(path));
                 stable_values.retain(|path| values.contains(path));
             }
+            (
+                Self::All {
+                    stable_descriptors,
+                    stable_values,
+                },
+                Self::Observed {
+                    stable_descriptors: descriptors,
+                    stable_values: values,
+                    ..
+                },
+            )
+            | (
+                Self::Observed {
+                    stable_descriptors,
+                    stable_values,
+                    ..
+                },
+                Self::All {
+                    stable_descriptors: descriptors,
+                    stable_values: values,
+                },
+            ) => {
+                stable_descriptors.retain(|path| descriptors.contains(path));
+                stable_values.retain(|path| values.contains(path));
+
+                *self = Self::All {
+                    stable_descriptors: std::mem::take(stable_descriptors),
+                    stable_values: std::mem::take(stable_values),
+                };
+            }
             (_, Self::All { .. }) | (Self::All { .. }, _) => *self = Self::unknown(),
             (
                 Self::Observed {
@@ -91,6 +123,7 @@ impl StorageInvalidation {
                     snapshots,
                     referents,
                     stable_descriptors,
+                    stable_values,
                 },
                 Self::Observed {
                     scope: incoming_scope,
@@ -98,10 +131,12 @@ impl StorageInvalidation {
                     snapshots: incoming_snapshots,
                     referents: incoming_referents,
                     stable_descriptors: incoming_descriptors,
+                    stable_values: incoming_values,
                 },
             ) => {
                 *scope = (*scope).max(*incoming_scope);
                 stable_descriptors.retain(|path| incoming_descriptors.contains(path));
+                stable_values.retain(|path| incoming_values.contains(path));
                 snapshots.retain(|path, target| incoming_snapshots.get(path) == Some(target));
                 referents.extend(incoming_referents.iter().cloned());
 
@@ -128,6 +163,11 @@ impl StorageInvalidation {
     pub fn invalidates_path(&self, path: &crate::StoragePath, storage: &StoragePlan) -> bool {
         match self {
             Self::All { .. } => true,
+            Self::Observed { stable_values, .. }
+                if stable_values.iter().any(|stable| stable.contains(path)) =>
+            {
+                false
+            }
             Self::Observed { accesses, .. } => accesses
                 .values()
                 .flatten()
@@ -142,7 +182,16 @@ impl StorageInvalidation {
     pub fn invalidates(&self, access: StorageAccessId, storage: &StoragePlan) -> bool {
         match self {
             Self::All { .. } => true,
-            Self::Observed { accesses, .. } => accesses.contains_key(&access),
+            Self::Observed {
+                accesses,
+                stable_values,
+                ..
+            } => {
+                accesses.contains_key(&access)
+                    && !storage.logical_path(access).is_some_and(|path| {
+                        stable_values.iter().any(|stable| stable.contains(path))
+                    })
+            }
             Self::Paths(mutations) => mutations.iter().any(|mutation| {
                 storage.relationship_to_path(access, mutation) != StorageRelationship::Disjoint
             }),
@@ -323,6 +372,7 @@ impl CheckedRefinements {
                         snapshots,
                         referents,
                         stable_descriptors,
+                        stable_values,
                         ..
                     } => {
                         accesses.iter().any(|(access, paths)| {
@@ -333,6 +383,7 @@ impl CheckedRefinements {
                         }) || referents
                             .iter()
                             .chain(stable_descriptors)
+                            .chain(stable_values)
                             .any(|path| !path.is_valid_for(unit))
                     }
                 }
@@ -573,6 +624,7 @@ mod tests {
             .into(),
             referents: [first.clone()].into(),
             stable_descriptors: [first.clone(), second.clone()].into(),
+            stable_values: [first.clone(), second.clone()].into(),
         };
 
         let right = super::StorageInvalidation::Observed {
@@ -581,9 +633,23 @@ mod tests {
             snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
+            stable_values: [first.clone()].into(),
         };
 
         left.merge(&right);
+
+        let opaque = super::StorageInvalidation::All {
+            stable_descriptors: [first.clone()].into(),
+            stable_values: [first.clone()].into(),
+        };
+
+        let mut global = opaque.clone();
+        let mut resolved = left.clone();
+
+        global.merge(&left);
+        resolved.merge(&opaque);
+        assert_eq!(global, opaque);
+        assert_eq!(resolved, opaque);
 
         assert_eq!(
             left,
@@ -592,6 +658,7 @@ mod tests {
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
                 snapshots: [(first.clone(), first.clone())].into(),
                 stable_descriptors: [first.clone()].into(),
+                stable_values: [first.clone()].into(),
                 referents: [first, second].into(),
             }
         );

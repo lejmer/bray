@@ -44,4 +44,6 @@ pub(crate) use test_report::{
     host_signal as test_report_host_signal, result_operation as test_report_result_operation,
     summary_counts as test_report_summary_counts,
     summary_operation as test_report_summary_operation,
+    timeout_admission_failure as test_report_timeout_admission_failure,
+    worker_failure as test_report_worker_failure,
 };

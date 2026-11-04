@@ -23,10 +23,7 @@ pub(in crate::analysis) fn merge(
         return true;
     };
 
-    let (incoming_joined, mut changed) = match block {
-        Some(block) => join_observations(target, incoming, block),
-        None => (std::borrow::Cow::Borrowed(incoming), false),
-    };
+    let (incoming_joined, mut changed) = join_observations(target, incoming, block);
 
     let incoming = &incoming_joined;
     let dependencies = target.completion_dependencies.len();
@@ -113,7 +110,6 @@ pub(in crate::analysis) fn merge(
         }
     }
 
-    changed |= merge_values(&mut target.current, &incoming.current);
     changed |= merge_values(&mut target.expressions, &incoming.expressions);
     changed |= merge_values(&mut target.pending_results, &incoming.pending_results);
 
@@ -128,7 +124,7 @@ pub(in crate::analysis) fn merge(
 fn join_observations<'a>(
     target: &mut ExecutionState,
     incoming: &'a ExecutionState,
-    block: AnalysisBlockId,
+    block: Option<AnalysisBlockId>,
 ) -> (std::borrow::Cow<'a, ExecutionState>, bool) {
     let mut changed = false;
     let mut incoming_joined = std::borrow::Cow::Borrowed(incoming);
@@ -185,12 +181,14 @@ fn join_observations<'a>(
                 &mut { ExecutionCondition::WORK_LIMIT },
             )
         } else {
-            ExecutionCondition::Joined(
-                block.unit(),
-                u32::try_from(block.to_index().expect("flow block has an index"))
-                    .expect("flow block index fits"),
-                place.clone(),
-            )
+            block.map_or(ExecutionCondition::Unknown, |block| {
+                ExecutionCondition::Joined(
+                    block.unit(),
+                    u32::try_from(block.to_index().expect("flow block has an index"))
+                        .expect("flow block index fits"),
+                    place.clone(),
+                )
+            })
         };
 
         if value != other && joined != ExecutionCondition::Unknown {
@@ -202,17 +200,11 @@ fn join_observations<'a>(
                 ExecutionCondition::Literal(_) | ExecutionCondition::Boolean(_)
             );
 
-            let left_truth =
-                value.prove(&target.assumptions, &mut { ExecutionCondition::WORK_LIMIT });
-
-            let right_truth = other.prove(&incoming.assumptions, &mut {
-                ExecutionCondition::WORK_LIMIT
-            });
-
-            if let (Some(left), Some(right)) = (left_truth, right_truth)
-                && left == right
-            {
-                joined_facts.push((joined.clone(), left));
+            if let Some(holds) = common_truth(
+                (&value, &target.assumptions),
+                (&other, &incoming.assumptions),
+            ) {
+                joined_facts.push((joined.clone(), holds));
             }
         }
 
@@ -228,6 +220,17 @@ fn join_observations<'a>(
 
     for (place, value) in &places {
         super::super::state::update_parent_observations(&mut joined_values, place, value);
+    }
+
+    if block.is_none() {
+        // Returned branches already renamed their result carriers. Intersect their
+        // storage snapshots without performing a second ownership or predicate join.
+        for (place, value) in joined_values {
+            changed |= target.current.get(&place) != Some(&value);
+            target.current.insert(place, value);
+        }
+
+        return (incoming_joined, changed);
     }
 
     for (place, joined) in &joined_values {
@@ -366,6 +369,16 @@ fn join_observations<'a>(
     changed |= publish_owned_results(target, &mut incoming_joined, owned_results);
 
     (incoming_joined, changed)
+}
+
+fn common_truth(
+    left: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    right: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+) -> Option<bool> {
+    let left = left.0.prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+    let right = right.0.prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+
+    (left == right).then_some(left)
 }
 
 fn publish_owned_results(

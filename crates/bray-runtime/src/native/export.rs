@@ -59,6 +59,7 @@ native_export! {
     pub extern "C" fn bray_runtime_root_execution(
         frame: NativeInactiveFrameTransfer,
         configuration: NativeRuntimeConfiguration,
+        outcome: &mut NativeRunOutcome,
     ) -> NativeRootStart {
         catch_unwind(AssertUnwindSafe(|| {
             super::state::with_root_execution_context(|| {
@@ -66,7 +67,7 @@ native_export! {
                     return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
                 };
 
-                let start = super::host::with_output(|| execute_root(frame, configuration));
+                let start = super::host::with_output(|| execute_root(frame, configuration, outcome));
 
                 if let Some(root) = start.root()
                     && let Ok(Ok(cancellation)) =
@@ -169,9 +170,10 @@ native_export! {
     pub extern "C" fn bray_runtime_task_start(
         task: NativeTaskHandle,
         frame: NativeInactiveFrame,
+        outcome: &mut NativeRunOutcome,
     ) -> NativeRuntimeStatus {
         contain_status(|| {
-            with_runtime(|runtime| runtime.start(task, &frame))
+            with_runtime(|runtime| runtime.start(task, &frame, outcome))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -372,6 +374,7 @@ fn take_transferred_frame(transfer: NativeInactiveFrameTransfer) -> Option<Nativ
 fn execute_root(
     frame: NativeInactiveFrame,
     configuration: NativeRuntimeConfiguration,
+    outcome: &mut NativeRunOutcome,
 ) -> NativeRootStart {
     let status = initialize_for_execution(configuration);
 
@@ -386,8 +389,8 @@ fn execute_root(
         return NativeRootStart::failure(allocation.status());
     };
 
-    let status =
-        with_runtime(|runtime| runtime.start(task, &frame)).unwrap_or_else(|status| status);
+    let status = with_runtime(|runtime| runtime.start(task, &frame, outcome))
+        .unwrap_or_else(|status| status);
 
     if !status.is_success() {
         let released = with_runtime(|runtime| runtime.destroy_task(task))
@@ -1620,22 +1623,43 @@ mod tests {
             .expect("fixture native task handle must be valid");
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(missing, &frame))
-                .expect("fixture runtime must be active"),
+            super::with_runtime(|runtime| runtime.start(
+                missing,
+                &frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            ))
+            .expect("fixture runtime must be active"),
             NativeRuntimeStatus::UNKNOWN_TASK
         );
 
         assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 0);
 
         assert!(
-            super::with_runtime(|runtime| runtime.start(task, &frame))
-                .expect("fixture runtime must be active")
-                .is_success()
+            super::with_runtime(|runtime| runtime.start(
+                task,
+                &frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            ))
+            .expect("fixture runtime must be active")
+            .is_success()
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(task, &frame))
-                .expect("fixture runtime must be active"),
+            super::with_runtime(|runtime| runtime.start(
+                task,
+                &frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            ))
+            .expect("fixture runtime must be active"),
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
@@ -1672,7 +1696,17 @@ mod tests {
 
         let frame = protected_frame(8, resume_frame, ignore_completion_move, ignore_action);
 
-        assert!(bray_runtime_task_start(task, frame).is_success());
+        assert!(
+            bray_runtime_task_start(
+                task,
+                frame,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            )
+            .is_success()
+        );
 
         let retained = super::super::state::with_runtime(|runtime| runtime.retained_task(task))
             .expect("runtime remains active")
@@ -1745,16 +1779,26 @@ mod tests {
         let start = bray_runtime_root_execution(
             NativeInactiveFrameTransfer::new(&frame),
             NativeRuntimeConfiguration::new(0, 1),
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
         );
 
         assert_eq!(start.status(), NativeRuntimeStatus::INVALID_ARGUMENT);
         assert!(start.root().is_none());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
 
-        let root =
-            bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame), configuration)
-                .root()
-                .expect("fixture `root` call must succeed");
+        let root = bray_runtime_root_execution(
+            NativeInactiveFrameTransfer::new(&frame),
+            configuration,
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
+        )
+        .root()
+        .expect("fixture `root` call must succeed");
 
         assert_eq!(
             bray_runtime_root_terminal_observation(root).state(),
@@ -1793,7 +1837,18 @@ mod tests {
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
         drop(failure);
 
-        assert!(bray_runtime_task_start(task, inactive).is_success());
+        assert!(
+            bray_runtime_task_start(
+                task,
+                inactive,
+                &mut bray_runtime_abi::NativeRunOutcome::new(
+                    bray_runtime_abi::NativeRunState::COMPLETED,
+                    0
+                )
+            )
+            .is_success()
+        );
+
         assert!(bray_runtime_main_thread_lane_drive().is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
 
@@ -1905,11 +1960,25 @@ mod tests {
     ) -> super::NativeRootStart {
         let transfer = NativeInactiveFrameTransfer::new(&frame);
 
-        bray_runtime_root_execution(transfer, configuration)
+        bray_runtime_root_execution(
+            transfer,
+            configuration,
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
+        )
     }
 
     fn start_test_task(task: NativeTaskHandle, frame: NativeInactiveFrame) -> NativeRuntimeStatus {
-        bray_runtime_task_start(task, frame)
+        bray_runtime_task_start(
+            task,
+            frame,
+            &mut bray_runtime_abi::NativeRunOutcome::new(
+                bray_runtime_abi::NativeRunState::COMPLETED,
+                0,
+            ),
+        )
     }
 
     #[test]

@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
-use super::native::{self, BrayScheduler};
 use super::deadline::BrayDeadlines;
+use super::native::{self, BrayScheduler};
 
 /// One Bray scheduler and the native resources retained by its registrations.
 #[derive(Clone, Debug)]
@@ -46,6 +46,10 @@ pub(super) struct RegisteredTask {
 }
 
 impl Scheduler {
+    pub(crate) fn source_reference(&self) -> &bray_runtime_abi::NativeSchedulerReference {
+        &self.data.source.reference
+    }
+
     pub(crate) fn wake_waiters(&self) {
         native::bray_runtime_scheduler_notification(&self.data.source.reference);
     }
@@ -132,7 +136,7 @@ impl Scheduler {
         let lane = self
             .data
             .source
-            .select(execution.descriptor(), execution.origin().unwrap_or(origin))?;
+            .select(None, execution.descriptor(), execution.origin().unwrap_or(origin))?;
 
         let mut registration = 0;
 
@@ -231,7 +235,24 @@ impl Scheduler {
             .into_iter()
             .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
 
-        super::dispatch::pop_ready(&self.data, thread, lanes)
+        super::dispatch::pop_ready(&self.data, thread, lanes, None)
+    }
+
+    pub(crate) fn take_worker_ready(
+        &self,
+        thread: &RuntimeThread,
+        lanes: impl IntoIterator<Item = ExecutionLane>,
+        scope: &bray_runtime_abi::NativeWorkerScope,
+    ) -> Result<Option<super::dispatch::ReadyTask>, SchedulerError> {
+        self.promote_elapsed_timers()?;
+
+        let thread = thread.id();
+
+        let lanes = lanes
+            .into_iter()
+            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
+
+        super::dispatch::pop_ready(&self.data, thread, lanes, Some(scope))
     }
 
     /// Returns the number of registered independent runs.
@@ -391,9 +412,21 @@ impl TaskRegistration {
             .ok_or(SchedulerError::UnknownTask(self.task))?;
 
         scheduler.source.select(
+            Some((self.task, self.registration)),
             execution.descriptor(),
             execution.origin().unwrap_or(self.origin),
         )
+    }
+
+    pub(crate) fn retain_driver(&self, scope: Option<&bray_runtime_abi::NativeWorkerScope>, cleanup: bool) {
+        let scheduler = self.scheduler.upgrade().expect("an exclusive dispatch retains its scheduler");
+
+        native::bray_runtime_scheduler_recovery(
+            &scheduler.source.reference,
+            self.registration,
+            scope.unwrap_or(&bray_runtime_abi::NativeWorkerScope::default()),
+            cleanup,
+        );
     }
 }
 
@@ -521,6 +554,10 @@ mod tests {
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
         let wake = registration.wake_handle();
         let retired = task.id();
+
+        super::unregister_task(&scheduler.data, retired, None);
+
+        assert!(matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired));
 
         drop(registration);
         drop(task);
@@ -893,7 +930,15 @@ mod tests {
         assert_eq!(ready.task(), task.id());
         drop(ready);
 
-        assert_eq!(scheduler.data.deadlines.get().expect("timer service was demanded").count(), 0);
+        assert_eq!(
+            scheduler
+                .data
+                .deadlines
+                .get()
+                .expect("timer service was demanded")
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1117,7 +1162,16 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         assert!(state.tasks.is_empty());
-        assert_eq!(scheduler.data.deadlines.get().expect("timer service was demanded").count(), 0);
+
+        assert_eq!(
+            scheduler
+                .data
+                .deadlines
+                .get()
+                .expect("timer service was demanded")
+                .count(),
+            0
+        );
     }
 
     #[test]
@@ -1126,28 +1180,66 @@ mod tests {
         let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
 
         let scheduler = Scheduler::new(
-            [RuntimeCapability::CooperativeExecution, RuntimeCapability::MigratableLanes],
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+            ],
             runtime.runtime().id(),
             SchedulerLimits::new(nonzero(1), nonzero(1)),
-        ).expect("scheduler backing is admitted");
+        )
+        .expect("scheduler backing is admitted");
 
-        let task = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
         let wake = registration.wake_handle();
 
-        assert!(matches!(scheduler.register_timer(Duration::MAX, &wake), Err(SchedulerError::DeadlineOverflow)));
+        assert!(matches!(
+            scheduler.register_timer(Duration::MAX, &wake),
+            Err(SchedulerError::DeadlineOverflow)
+        ));
+
         assert!(scheduler.data.deadlines.get().is_none());
 
-        let timer = scheduler.register_timer(Duration::from_secs(60), &wake).expect("first timer is admitted");
+        let timer = scheduler
+            .register_timer(Duration::from_secs(60), &wake)
+            .expect("first timer is admitted");
 
-        assert!(matches!(scheduler.register_timer(Duration::ZERO, &wake), Err(SchedulerError::TimerCapacityReached)));
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &wake),
+            Err(SchedulerError::TimerCapacityReached)
+        ));
+
         scheduler.close_timers();
-        assert!(matches!(scheduler.register_timer(Duration::ZERO, &wake), Err(SchedulerError::TimersClosed)));
-        assert!(wake.wake().expect("rejection retains the task's readiness owner"));
-        assert_eq!(scheduler.snapshot().expect("scheduler remains observable").timer_count(), 1);
+
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &wake),
+            Err(SchedulerError::TimersClosed)
+        ));
+
+        assert!(
+            wake.wake()
+                .expect("rejection retains the task's readiness owner")
+        );
+
+        assert_eq!(
+            scheduler
+                .snapshot()
+                .expect("scheduler remains observable")
+                .timer_count(),
+            1
+        );
 
         drop(timer);
-        assert_eq!(scheduler.snapshot().expect("withdrawal remains available after closure").timer_count(), 0);
+
+        assert_eq!(
+            scheduler
+                .snapshot()
+                .expect("withdrawal remains available after closure")
+                .timer_count(),
+            0
+        );
     }
 
     #[test]
@@ -1155,12 +1247,19 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
         let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
         let scheduler = scheduler(runtime.runtime().id());
-        let task = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
         scheduler.close_timers();
 
-        assert!(matches!(scheduler.register_timer(Duration::ZERO, &registration.wake_handle()), Err(SchedulerError::TimersClosed)));
+        assert!(matches!(
+            scheduler.register_timer(Duration::ZERO, &registration.wake_handle()),
+            Err(SchedulerError::TimersClosed)
+        ));
+
         assert!(scheduler.data.deadlines.get().is_none());
     }
 
@@ -1169,10 +1268,16 @@ mod tests {
         let _isolation = crate::native::test_runtime_isolation();
         let runtime = RuntimeThreadScope::enter().expect("runtime thread initializes");
         let scheduler = scheduler(runtime.runtime().id());
-        let task = TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
+
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
         let wake = registration.wake_handle();
-        let timer = scheduler.register_timer(Duration::from_secs(60), &wake).expect("timer is admitted");
+
+        let timer = scheduler
+            .register_timer(Duration::from_secs(60), &wake)
+            .expect("timer is admitted");
 
         drop(scheduler);
         assert!(wake.wake().expect("the timer retains its scheduler"));
@@ -1315,7 +1420,7 @@ mod tests {
         );
 
         source
-            .select(&descriptor, origin)
+            .select(None, &descriptor, origin)
             .map_err(|error| match error {
                 SchedulerError::LaneSelection(error) => error,
                 error => panic!("fixture lane selection failed: {error:?}"),

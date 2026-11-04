@@ -4,9 +4,9 @@ use crate::{CompilationOptions, SelectedTarget, WorkerBudget};
 
 use bray_runtime_interface::{
     BinarySymbolName, PlatformServiceBinding, PlatformServiceRole, ProtectedFrameAbiVersions,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactComponentMetadata,
-    RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
-    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
+    RuntimeAbiRole, RuntimeArtifact, RuntimeArtifactComponentMetadata, RuntimeArtifactId,
+    RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
+    RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{NativeLinkRequirement, ProductKind};
 
@@ -178,7 +178,7 @@ fn runtime_artifact_with_roles_and_platform_services(
         RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)
     });
 
-    let version = RuntimeAbiVersion::new(1, 0);
+    let version = bray_runtime_interface::EXECUTION_ABI_VERSION;
 
     let capabilities = [
         RuntimeCapability::CooperativeExecution,

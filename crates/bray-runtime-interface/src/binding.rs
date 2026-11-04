@@ -65,6 +65,8 @@ pub enum NativeEntryKind {
     RuntimeStatus,
     /// Contain bootstrap identity lookup failures and return the unavailable identity zero.
     RuntimeIdentity,
+    /// Return the selected OS worker entry value without attaching recursively.
+    RuntimeValue,
     /// Preserve the body outcome and return entry cleanup status independently.
     EntryStatus,
 }
@@ -73,15 +75,19 @@ impl NativeEntryKind {
     /// Selects the non-attaching entry boundary required by a bootstrap role.
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
-            RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
-            RuntimeAbiRole::ThreadStorageExit | RuntimeAbiRole::ControlStorageExit => {
-                Some(Self::ThreadStorageExit)
+            RuntimeAbiRole::WorkerPointerEntry | RuntimeAbiRole::WorkerWordEntry => {
+                Some(Self::RuntimeValue)
             }
+            RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
+            RuntimeAbiRole::ThreadStorageExit
+            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::WorkerStop => Some(Self::ThreadStorageExit),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
             RuntimeAbiRole::EntryContextRegistration
             | RuntimeAbiRole::RuntimeInitialization
+            | RuntimeAbiRole::WorkerDemand
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentMarkMain

@@ -93,6 +93,11 @@ pub use storage::{
 };
 
 pub use scheduler::{
-    NativeDeadlineReference, NativeSchedulerLane, NativeSchedulerObservation, NativeSchedulerReference,
-    NativeSchedulerRequirements,
+    NativeDeadlineReference, NativeSchedulerLane, NativeSchedulerObservation,
+    NativeSchedulerReference, NativeSchedulerRequirements,
+};
+
+mod worker;
+pub use worker::{
+    NativeWorkerCallback, NativeWorkerFailure, NativeWorkerReference, NativeWorkerScope,
 };

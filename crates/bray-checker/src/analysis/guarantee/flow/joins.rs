@@ -481,6 +481,33 @@ mod tests {
         assert!(merged.assumptions.contains(&(value, true)));
     }
     #[test]
+    fn returned_branches_keep_shared_fields_in_the_whole_snapshot() {
+        use crate::analysis::guarantee::state::ExecutionState;
+
+        let owner = ExecutionPlace::argument(SymbolOrdinal::new(0));
+        let marker = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let marker_place = owner.clone().component(marker);
+        let shared = ExecutionCondition::Input(marker_place.clone());
+        let mut left = ExecutionState::default();
+        let mut right = ExecutionState::default();
+
+        left.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
+        left.assign(marker_place.clone(), shared.clone());
+        right.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
+        right.assign(marker_place.clone(), shared.clone());
+
+        let mut merged = Some(left);
+
+        super::super::merge::merge(&mut merged, &Some(right), None);
+
+        let merged = merged.expect("both returned branches are reachable");
+        let whole = owner.value_in(&merged.current).expect("retained owner");
+
+        assert_eq!(whole.component(marker), shared);
+        assert_eq!(marker_place.value_in(&merged.current), Some(shared));
+    }
+
+    #[test]
     fn stable_owned_values_converge_across_guarded_back_edges() {
         use crate::analysis::guarantee::state::ExecutionState;
         use crate::analysis::id::AnalysisBlockId;

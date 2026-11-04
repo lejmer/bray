@@ -3,6 +3,189 @@ use bray_diagnostics::DiagnosticKind;
 use crate::test_support::compilation;
 
 #[test]
+fn publishing_a_static_address_only_exposes_that_static() {
+    for directive in ["", "@thread_local"] {
+        for address in ["&TOKEN", "&owner.marker"] {
+            for observed in ["TOKEN", "OTHER"] {
+                let source = format!(
+                    r#"
+                    trusted module app;
+                    using core.memory;
+                    using core.target;
+                    struct Marker {{}}
+                    struct Owner {{ marker: Marker; }}
+                    trusted predicate live(marker: &Marker);
+                    trusted const func make_marker() -> Marker
+                        ensures(trusted live(&result))
+                    {{
+                        return Marker {{}};
+                    }}
+                    trusted func create() -> Owner
+                        ensures(trusted live(&result.marker))
+                    {{
+                        return {{ marker = Marker {{}} }};
+                    }}
+                    {directive} static TOKEN: Marker = make_marker();
+                    {directive} static OTHER: Marker = make_marker();
+                    trusted func publish(pos owner: &Owner) -> usize uses(intrinsic)
+                    {{
+                        return trusted core.target.expose_address<Marker>(
+                            core.memory.address_of<Marker>({address})
+                        );
+                    }}
+                    trusted func relay(pos owner: &Owner) -> usize
+                    {{
+                        return trusted publish(owner);
+                    }}
+                    extern func opaque();
+                    trusted func observe(pos marker: &Marker)
+                        requires(trusted live(marker)) executes(pure, total) {{}}
+                    func caller()
+                    {{
+                        trusted observe(&TOKEN);
+                        trusted observe(&OTHER);
+                        let owner = trusted create();
+                        _ = trusted relay(&owner);
+                        opaque();
+                        trusted observe(&{observed});
+                    }}
+                    "#,
+                );
+
+                let application = compilation(&source);
+                let diagnostics = application.check_diagnostics();
+                let valid = address != "&TOKEN" || observed != "TOKEN";
+
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    valid,
+                    "{source}: {diagnostics:#?}"
+                );
+
+                if !valid {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn publishing_global_addresses_keeps_unpublished_input_ownership() {
+    for directive in ["", "@thread_local"] {
+        for (address, valid) in [("&TOKEN", true), ("&owner.marker", false)] {
+            let source = format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                using core.target;
+                struct Marker {{}}
+                struct Owner {{ marker: Marker; }}
+                trusted predicate live(marker: &Marker);
+                trusted func create() -> Owner ensures(trusted live(&result.marker)) {{
+                    return {{ marker = Marker {{}} }};
+                }}
+                {directive} static TOKEN: Marker = Marker {{}};
+                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                    return trusted core.target.expose_address<Marker>(core.memory.address_of<Marker>({address}));
+                }}
+                extern func opaque();
+                extern trusted func observe(pos owner: Owner) requires(trusted live(&owner.marker));
+                func caller() {{
+                    let owner = trusted create();
+                    _ = trusted publish(&owner);
+                    opaque();
+                    trusted observe(owner);
+                }}
+                "#,
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn copied_pointer_bounds_survive_contents_writes() {
+    for borrowed in [true, false] {
+        for reversed in [true, false] {
+            let (parameter, reference) = if borrowed {
+                ("&Owner", "owner")
+            } else {
+                ("Owner", "&owner")
+            };
+
+            let record = "trusted core.memory.write<Record>(record, { value = owner.counter });";
+            let active = "trusted core.memory.write<usize>(active, 0);";
+
+            let writes = if reversed {
+                format!("{active} {record}")
+            } else {
+                format!("{record} {active}")
+            };
+
+            let source = format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                struct Record {{ value: usize; }}
+                struct Owner {{ record: DataPointer<Record>; active: DataPointer<usize>; counter: usize; }}
+                trusted predicate owns(owner: &Owner);
+                trusted func record_pointer(pos owner: &Owner) -> DataPointer<Record>
+                    requires(trusted owns(owner))
+                    ensures(
+                        trusted owns(owner),
+                        trusted core.memory.valid_write<Record>(pointer = result, count = 1),
+                        trusted core.memory.aligned_for<Record>(pointer = result)
+                    )
+                    executes(pure, total)
+                {{ return owner.record; }}
+                trusted func active_pointer(pos owner: &Owner) -> DataPointer<usize>
+                    requires(trusted owns(owner))
+                    ensures(
+                        trusted owns(owner),
+                        trusted core.memory.valid_write<usize>(pointer = result, count = 1),
+                        trusted core.memory.aligned_for<usize>(pointer = result)
+                    )
+                    executes(pure, total)
+                {{ return owner.active; }}
+                trusted func caller(pos owner: {parameter})
+                    requires(trusted owns({reference}))
+                    uses(raw_memory, unchecked_init)
+                {{
+                    let active = trusted active_pointer({reference});
+                    let record = trusted record_pointer({reference});
+                    {writes}
+                }}
+            "#
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+        }
+    }
+}
+
+#[test]
 fn storing_address_bits_does_not_bind_destination_initialization_to_the_pointee() {
     for (after, valid) in [
         ("_ = bits;", true),
@@ -683,19 +866,41 @@ impl Addresses {
 }
 "#;
 
-    for operation in ["transfer(&mut destination, &mut source);", "destination = take(&mut source);", "destination.receive(&mut source);", "destination = source.take();"] {
+    for operation in [
+        "transfer(&mut destination, &mut source);",
+        "destination = take(&mut source);",
+        "destination.receive(&mut source);",
+        "destination = source.take();",
+    ] {
         for clear in [false, true] {
             for expired in [false, true] {
-                let provider = if clear { provider.to_owned() } else { provider.replace("source.pointer = core.memory.null<u32>();", "") };
+                let provider = if clear {
+                    provider.to_owned()
+                } else {
+                    provider.replace("source.pointer = core.memory.null<u32>();", "")
+                };
+
                 let payload = if expired { "expired" } else { "retained" };
-                let body = format!("let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);");
+
+                let body = format!(
+                    "let retained: u32 = 1; let mut source = produce(&retained); let mut destination = empty(); {{ let expired: u32 = 0; source = produce(&{payload}); {operation} }} observe(destination.pointer);"
+                );
 
                 let application = compilation(&format!("{provider} func caller() {{ {body} }}"));
                 let diagnostics = application.check_diagnostics();
 
-                assert_eq!(!diagnostics.has_errors(), !expired, "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}");
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    !expired,
+                    "{operation}: clear={clear}, expired={expired}: {diagnostics:#?}"
+                );
 
-                if expired { bray_testing::assert_goal_state_diagnostic_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven); }
+                if expired {
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        diagnostics,
+                        DiagnosticKind::CheckingTrustedObligationNotProven,
+                    );
+                }
             }
         }
     }

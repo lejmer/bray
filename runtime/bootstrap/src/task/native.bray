@@ -59,6 +59,22 @@ trusted internal func admission(pos runtime: u64) -> u64
 trusted internal func admit(pos runtime: u64) -> u64
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
 {
+    // This report allowance belongs to the task, independently of any frame's
+    // body panic. Admission and recycling happen outside the host acquisition.
+    let mut failure_records = trusted bray.runtime.bootstrap.report.chain.admit(1);
+
+    if failure_records.status != 0
+    {
+        return 0;
+    }
+
+    let protocol = trusted lambda(pos owner: &bray.runtime.bootstrap.report.chain.Owner)
+        requires(trusted bray.runtime.bootstrap.report.chain.owned(owner = owner))
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted protocol(&failure_records);
+
     let mut prepared: Prepared =
     {
         slabs = none,
@@ -84,9 +100,19 @@ trusted internal func admit(pos runtime: u64) -> u64
                 return 0;
             }
 
-            yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, runtime)
+            yield match consume trusted admit_locked(&mut host.tasks, &mut prepared, failure_records.records, runtime)
             {
-                case Ok(handle) { return handle; }
+                case Ok(handle)
+                {
+                    // Commit the admitted allowance before releasing host access.
+                    // Growth borrows no report owner and cannot consume its witness.
+                    if handle != 0
+                    {
+                        _ = trusted bray.runtime.bootstrap.report.chain.take(&mut failure_records);
+                    }
+
+                    return handle;
+                }
                 case Error(request) { yield request; }
             };
         };
@@ -101,6 +127,7 @@ trusted internal func admit(pos runtime: u64) -> u64
 trusted internal func admit_locked(
     pos entries: &mut Entries,
     pos prepared: &mut Prepared,
+    pos failure_records: bray.runtime.bootstrap.ReportRecords,
     pos runtime: u64
 ) -> Result<u64, Growth>
 {
@@ -140,7 +167,7 @@ trusted internal func admit_locked(
         core.atomic.store<usize, 4>(&slot.cancellation, 0);
 
         slot.control = core.memory.uninit_from<std.sync.SpinLock<Control>>(
-            trusted std.sync.SpinLock<Control>(prepare())
+            trusted std.sync.SpinLock<Control>(prepare(failure_records))
         );
 
         entries.free = next;

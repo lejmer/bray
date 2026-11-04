@@ -65,7 +65,8 @@ internal struct WaitRegistration<T>
         }
     }
 
-    consume mut func complete()
+    mut func complete()
+        ensures(!self.active)
         executes(total)
     {
         self.active = false;
@@ -98,7 +99,8 @@ internal struct ChannelWaitWake<T>
         }
     }
 
-    trusted consume mut func disarm()
+    trusted mut func disarm()
+        ensures(!self.active)
         executes(total)
     {
         self.active = false;

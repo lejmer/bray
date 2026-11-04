@@ -1,6 +1,8 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host.product;
 
+internal const ABI_VERSION: u32 = 2;
+
 @copy
 internal union Phase
 {
@@ -8,6 +10,7 @@ internal union Phase
     Open;
     Closing;
     Detaching;
+    WaitingForWorkers;
     Cleaning;
     Closed;
     Failed;
@@ -34,6 +37,7 @@ internal struct State
             case Open { yield 1; }
             case Closing { yield 2; }
             case Detaching { yield 2; }
+            case WaitingForWorkers { yield 2; }
             case Cleaning { yield 2; }
             case Closed { yield 3; }
             case Failed { yield 4; }
@@ -170,6 +174,11 @@ internal struct State
             else if operation == 13
             {
                 self.workers -= 1;
+
+                if self.workers == 0 && self.phase matches WaitingForWorkers
+                {
+                    self.phase = Phase.Closing;
+                }
             }
         }
 
