@@ -163,21 +163,24 @@ internal struct Dispatch
     services: &Services;
     root: usize;
     active: bool;
+}
 
-    trusted destruct()
-        requires(trusted dispatch_acquired(owner = &self.acquisition))
-        uses(intrinsic)
+// Producer callbacks contain abnormal outcomes in Progress. This claim stays
+// inside dispatch and is released once after every returned scheduling outcome.
+// Explicit release avoids admitting a fallible local destructor during cleanup.
+trusted internal func release_dispatch(pos owner: Dispatch)
+    requires(trusted dispatch_acquired(owner = &owner.acquisition))
+    uses(intrinsic)
+{
+    if owner.active
     {
-        if self.active
-        {
-            let reference = trusted dispatch_reference(&self);
-            let mut guard = trusted lock_cell(reference);
+        let reference = trusted dispatch_reference(&owner);
+        let mut guard = trusted lock_cell(reference);
 
-            if trusted end_dispatch(trusted guard.get())
-            {
-                // The enclosing native reference remains owned through return.
-                trusted core.target.abort();
-            }
+        if trusted end_dispatch(trusted guard.get())
+        {
+            // The enclosing native reference remains owned through return.
+            trusted core.target.abort();
         }
     }
 }

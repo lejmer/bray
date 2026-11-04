@@ -134,20 +134,8 @@ pub extern "C" fn bray_runtime_activation_callback(
     // dispatch ownership or execution context is a runtime invariant failure.
     let resumable = selected.is_resumable();
 
-    let failure = super::super::workers::take_failure();
-
-    let callback = || {
-        let reject = failure.is_some()
-            && matches!(
-                selected,
-                Operation::Resume | Operation::Cancel | Operation::Move(_)
-            );
-
+    let mut callback = || {
         invoke(destination, &mut outgoing, |destination| {
-            if reject {
-                return;
-            }
-
             match selected {
                 Operation::Resume => (descriptor.resume)(destination, context),
                 Operation::Cancel => (descriptor.cancel)(destination, context),
@@ -157,20 +145,6 @@ pub extern "C" fn bray_runtime_activation_callback(
                 Operation::Destroy => (descriptor.destroy)(context),
             }
         });
-
-        if let Some(failure) = failure {
-            let mut failure = RuntimePanic::from_native(failure);
-
-            if destination.kind() == NativeFrameProgressKind::PANICKED {
-                let mut primary = RuntimePanic::from_native(destination.take_report());
-
-                primary.append(failure, &mut outgoing);
-                failure = primary;
-            }
-
-            failure.reserve_from(&mut outgoing);
-            *destination = NativeFrameProgress::panicked(failure.into_native());
-        }
     };
 
     if resumable || crate::context::current_task_execution_lane().is_some() {

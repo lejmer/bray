@@ -296,10 +296,6 @@ pub(crate) extern "C" fn invoke(
     result.unwrap_or(bray_runtime_abi::NativeRuntimeStatus::PANICKED.code())
 }
 
-pub(in crate::native) fn take_failure() -> Option<bray_runtime_abi::NativePanicReport> {
-    super::state::current_services().and_then(|task| task.take_worker_failure())
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::Ordering;
@@ -389,6 +385,10 @@ mod tests {
             *progress = NativeFrameProgress::new(NativeFrameProgressKind::YIELDED, 1, 0);
         }
 
+        extern "C-unwind" fn cancel(progress: &mut NativeFrameProgress, _: usize) {
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 1, 0);
+        }
+
         extern "C-unwind" fn cleanup(progress: &mut NativeFrameProgress, _: usize, _: NativeFrameExit) {
             cleanup_step(progress);
         }
@@ -426,7 +426,7 @@ mod tests {
             states: 3,
             state: requirements,
             resume,
-            cancel: resume,
+            cancel,
             broadcast,
             resolve: cleanup,
             move_completion: completion,
@@ -449,6 +449,334 @@ mod tests {
         assert!(export::bray_runtime_task_destruction(task).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
         assert!(export::bray_runtime_execution_shutdown().is_success());
+    }
+
+    #[test]
+    fn late_worker_failure_preserves_cleanup_waits_results_and_original_panics() {
+        use crate::native::{export, fixtures, state};
+
+        use bray_runtime_abi::{
+            NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
+            NativePanicReport, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
+        };
+
+        use std::sync::atomic::AtomicUsize;
+
+        static STEPS: AtomicUsize = AtomicUsize::new(0);
+        static RESOLVERS: AtomicUsize = AtomicUsize::new(0);
+        static ABANDONED: AtomicUsize = AtomicUsize::new(0);
+        static MOVED: AtomicUsize = AtomicUsize::new(0);
+        static CHILD_CONSUMED: AtomicUsize = AtomicUsize::new(0);
+        static EVENTS: [AtomicUsize; 2] = [const { AtomicUsize::new(0) }; 2];
+
+        extern "C" fn requirements(mode: usize, state: u32, operation: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(
+                NativeFrameAffinity::MOVABLE,
+                if (mode == 6 && operation == 5) || (state != 0 && mode != 5) {
+                    NativeLaneRequirements::COMPUTE
+                } else {
+                    NativeLaneRequirements::NONE
+                },
+            )
+        }
+
+        fn close_workers() {
+            let runtime = state::current_runtime().expect("cleanup retains its Source runtime");
+
+            super::bray_runtime_worker_admission_state(runtime.scheduler.source_reference(), 1);
+        }
+
+        extern "C-unwind" fn resume(progress: &mut NativeFrameProgress, mode: usize) {
+            let current = crate::current_task_execution_context().expect("the callback retains its continuation").state().raw();
+
+            if mode == 6 {
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17);
+            } else if mode == 10 {
+                assert_ne!(current, 0, "the canceled parent abandons the child before body entry");
+                cleanup_step(progress, mode);
+            } else if mode == 8 {
+                if current == 0 {
+                    crate::context::enter_current_run_cleanup_shield();
+                }
+
+                cleanup_step(progress, mode);
+
+                if progress.kind() == NativeFrameProgressKind::COMPLETED {
+                    crate::context::leave_current_run_cleanup_shield();
+                }
+            } else if current == 0 {
+                if mode == 2 {
+                    panic!("original body panic");
+                }
+
+                if mode == 9 {
+                    fixtures::compose(child(10), 1);
+                    *progress = NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 1, 0);
+                } else if mode == 5 {
+                    fixtures::compose(child(6), 1);
+                    *progress = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
+                } else {
+                    *progress = NativeFrameProgress::new(
+                        if mode == 1 { NativeFrameProgressKind::CANCELLED } else { NativeFrameProgressKind::COMPLETED },
+                        0,
+                        0,
+                    );
+                }
+            } else {
+                if mode == 4 && STEPS.load(Ordering::Relaxed) == 0 {
+                    consume_child();
+                }
+
+                cleanup_step(progress, mode);
+            }
+        }
+
+        fn consume_child() {
+            let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+            fixtures::take_completion(&mut outcome);
+            assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+            CHILD_CONSUMED.fetch_add(1, Ordering::Relaxed);
+        }
+
+        extern "C-unwind" fn cancel(progress: &mut NativeFrameProgress, mode: usize) {
+            assert_eq!(mode, 5, "only an initialized incoming result needs cancellation entry");
+            consume_child();
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 1, 0);
+        }
+
+        extern "C-unwind" fn cleanup(progress: &mut NativeFrameProgress, mode: usize, exit: NativeFrameExit) {
+            if mode == 10 {
+                assert_eq!(exit, NativeFrameExit::RUNTIME_FAILURE);
+                cleanup_step(progress, mode);
+                return;
+            }
+
+            if mode == 9 {
+                assert_eq!(exit, NativeFrameExit::CANCELLED);
+                assert_eq!(STEPS.load(Ordering::Relaxed), 3);
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+                return;
+            }
+
+            if mode == 8 {
+                if exit == NativeFrameExit::COMPLETED {
+                    assert_eq!(STEPS.load(Ordering::Relaxed), 3);
+                    *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+                    return;
+                }
+
+                assert_eq!(exit, NativeFrameExit::RUNTIME_FAILURE);
+                assert_eq!(STEPS.load(Ordering::Relaxed), 3);
+                ABANDONED.fetch_add(1, Ordering::Relaxed);
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+                return;
+            }
+
+            if mode == 6 || mode == 5 {
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+                return;
+            }
+
+            if RESOLVERS.fetch_add(1, Ordering::Relaxed) != 0 {
+                assert_eq!(exit, NativeFrameExit::RUNTIME_FAILURE);
+                assert_eq!(STEPS.load(Ordering::Relaxed), 3);
+                ABANDONED.fetch_add(1, Ordering::Relaxed);
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+                return;
+            }
+
+            assert_eq!(exit, match mode {
+                1 => NativeFrameExit::CANCELLED,
+                2 => NativeFrameExit::PANICKED,
+                _ => NativeFrameExit::COMPLETED,
+            });
+
+            if mode == 4 {
+                fixtures::compose(child(7), 1);
+                *progress = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
+            } else {
+                cleanup_step(progress, mode);
+            }
+        }
+
+        extern "C-unwind" fn child_resume(progress: &mut NativeFrameProgress, _: usize) {
+            let current = crate::current_task_execution_context().expect("child continuation is live").state().raw();
+
+            *progress = if current == 0 {
+                close_workers();
+
+                NativeFrameProgress::new(NativeFrameProgressKind::TASK_EVENT, 1, EVENTS[0].load(Ordering::Relaxed))
+            } else {
+                NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 1, 17)
+            };
+        }
+
+        fn cleanup_step(progress: &mut NativeFrameProgress, mode: usize) {
+            let step = STEPS.fetch_add(1, Ordering::Relaxed);
+
+            if step == 0 && mode != 4 {
+                close_workers();
+            }
+
+            *progress = NativeFrameProgress::new(
+                if step == 2 { NativeFrameProgressKind::COMPLETED }
+                else if matches!(mode, 3 | 8 | 10) { NativeFrameProgressKind::TASK_EVENT }
+                else { NativeFrameProgressKind::YIELDED },
+                step as u32 + 1,
+                if matches!(mode, 3 | 8 | 10) && step < 2 { EVENTS[step].load(Ordering::Relaxed) } else { 0 },
+            );
+        }
+
+        extern "C-unwind" fn moved(mode: usize, _: usize) {
+            if mode == 6 {
+                close_workers();
+            } else if mode != 7 && mode != 10 {
+                MOVED.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        fn descriptor(resume: bray_runtime_abi::NativeFrameResumeCallback) -> NativeActivationDescriptor {
+            NativeActivationDescriptor {
+                storage: NativeCleanupStorageShape::new([94; 32], 8, 8),
+                header: 0, completion: 0, completion_bytes: 8, completion_align: 8,
+                states: 4, state: requirements, resume, cancel, broadcast,
+                resolve: cleanup, move_completion: moved, destroy: ignore,
+            }
+        }
+
+        fn child(mode: usize) -> NativeInactiveFrame {
+            let mut callbacks = descriptor(if mode == 7 { child_resume } else { resume });
+
+            callbacks.resolve = if mode == 10 { cleanup } else { resolve };
+
+            fixtures::admit(mode, callbacks)
+        }
+
+        fn drive_cleanup() {
+            let status = state::with_runtime(|runtime| runtime.with_cleanup_driving(|| runtime.drive_main_thread()))
+                .expect("cleanup retains its established runtime");
+
+            assert!(status.is_success() || status == NativeRuntimeStatus::PENDING, "cleanup drive: {status:?}");
+        }
+
+        fn wait_for_failure(task: bray_runtime_abi::NativeTaskHandle) {
+            let limit = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
+            loop {
+                let failed = state::with_runtime(|runtime| {
+                    let task = runtime.retained_task(task).expect("the task remains live");
+
+                    task.has_worker_failure() || task.snapshot().phase >= 3
+                }).expect("the worker retains its runtime");
+
+                if failed {
+                    return;
+                }
+
+                assert!(std::time::Instant::now() < limit, "closed worker admission must settle");
+                std::thread::yield_now();
+            }
+        }
+
+        fn wait_for_registration(task: bray_runtime_abi::NativeTaskHandle, mode: usize, steps: usize) {
+            let limit = std::time::Instant::now() + std::time::Duration::from_secs(5);
+
+            loop {
+                drive_cleanup();
+
+                let waiting = state::with_runtime(|runtime| {
+                    let task = runtime.retained_task(task).expect("the suspended task remains live");
+                    let wait = task.suspended_wait.lock().expect("wait transport remains available");
+
+                    wait.as_ref().is_some_and(|wait| !wait.is_ready())
+                }).expect("the runtime remains live");
+
+                if waiting && STEPS.load(Ordering::Relaxed) == steps {
+                    return;
+                }
+
+                assert!(
+                    std::time::Instant::now() < limit,
+                    "mode {mode}: expected cleanup step {steps} at an unready event, found step {} and waiting={waiting}",
+                    STEPS.load(Ordering::Relaxed),
+                );
+
+                std::thread::yield_now();
+            }
+        }
+
+        let _isolation = crate::native::test_runtime_isolation();
+
+        for mode in [0, 1, 2, 3, 4, 5, 8, 9] {
+            for count in [&STEPS, &RESOLVERS, &ABANDONED, &MOVED, &CHILD_CONSUMED] {
+                count.store(0, Ordering::Relaxed);
+            }
+
+            assert!(export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
+
+            for event in &EVENTS {
+                event.store(export::bray_runtime_task_event_creation(), Ordering::Relaxed);
+            }
+
+            let records = crate::outgoing::OutgoingRecords::admit(1).expect("one frame report record is sufficient");
+            let frame = fixtures::admit_with_records(mode, descriptor(resume), records);
+            let task = export::bray_runtime_task_allocation().task().expect("the task is admitted");
+            let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+            assert!(export::bray_runtime_task_start(task, frame, &mut admitted).is_success());
+
+            wait_for_failure(task);
+
+            if matches!(mode, 3 | 4 | 8 | 9) {
+                wait_for_registration(task, mode, usize::from(mode != 4));
+
+                // A fault and stale wake cannot resume a finalizer's unready wait.
+                for _ in 0..4 {
+                    assert!(export::bray_runtime_wake(task).is_success());
+                    drive_cleanup();
+                }
+
+                assert_eq!(STEPS.load(Ordering::Relaxed), usize::from(mode != 4));
+                assert!(export::bray_runtime_task_event_signal(EVENTS[0].load(Ordering::Relaxed)).is_success());
+
+                if matches!(mode, 3 | 8 | 9) {
+                    wait_for_registration(task, mode, 2);
+                    assert_eq!(STEPS.load(Ordering::Relaxed), 2);
+                    assert!(export::bray_runtime_task_event_signal(EVENTS[1].load(Ordering::Relaxed)).is_success());
+                }
+            }
+
+            let mut outcome = state::with_runtime(|runtime| runtime.with_cleanup_driving(|| runtime.resolve_task(task)))
+                .expect("the task remains live");
+
+            assert_eq!(outcome.state(), NativeRunState::PANICKED, "mode {mode}");
+            assert_eq!(STEPS.load(Ordering::Relaxed), if mode == 5 { 0 } else { 3 }, "mode {mode}");
+            assert_eq!(ABANDONED.load(Ordering::Relaxed), usize::from(matches!(mode, 0 | 3 | 4 | 8)), "mode {mode}");
+            assert_eq!(MOVED.load(Ordering::Relaxed), 0);
+            assert_eq!(CHILD_CONSUMED.load(Ordering::Relaxed), usize::from(matches!(mode, 4 | 5)));
+
+            let (primary, head, tail, count, reserved) = outcome.take_report().take_parts();
+
+            let primary = primary.expect("the operational or original panic stays primary");
+
+            assert_eq!(primary.worker_failure().is_none(), mode == 2);
+            assert_eq!(count, usize::from(mode == 2));
+
+            let mut report = NativePanicReport::new(primary, crate::report_provider::bray_runtime_report_consumer);
+
+            report.set_outgoing(head, tail, count);
+            report.set_reserved(reserved);
+            assert!(report.consume(false).is_success());
+            assert!(state::with_runtime(|runtime| runtime.resolve_task_retirement(task)).expect("retirement retains its owner").is_success());
+            assert!(export::bray_runtime_task_destruction(task).is_success());
+
+            for event in &EVENTS {
+                assert!(export::bray_runtime_task_event_destruction(event.load(Ordering::Relaxed)).is_success());
+            }
+
+            assert!(export::bray_runtime_execution_shutdown().is_success());
+        }
     }
 
     #[test]

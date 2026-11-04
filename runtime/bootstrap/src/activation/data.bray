@@ -89,6 +89,7 @@ internal const RESOLVING: u32 = 5;
 internal const RETAINED: u32 = 6;
 
 internal func empty_progress() -> Progress
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
     executes(pure, total)
 {
     return

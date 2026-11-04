@@ -25,6 +25,7 @@ trusted internal func retire_dispatch(pos owner: Dispatch) -> u32
 
     if status == 6
     {
+        trusted release_dispatch(owner);
         return 0;
     }
 
@@ -74,6 +75,7 @@ trusted internal func retire_dispatch(pos owner: Dispatch) -> u32
     trusted transfer_service(trusted dispatch_services(&owner), &execution, &mut unused, &mut incidents);
     trusted finish_retirement(&owner);
     trusted notify_waiters(&owner, 1);
+    trusted release_dispatch(owner);
     return 3;
 }
 

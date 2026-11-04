@@ -1120,10 +1120,10 @@ macro_rules! runtime_role_catalog {
             }
             TaskControlDispatch {
                 "Drive one exclusively claimed Bray task outside its cell lock.", "task_control_dispatch",
-                native: (TASK_CONTROL_DISPATCH_SYMBOL = "bray_runtime_task_control_dispatch", [Pointer, Pointer, Pointer, Pointer] -> U32),
+                native: (TASK_CONTROL_DISPATCH_SYMBOL = "bray_runtime_task_control_dispatch", [Pointer, Pointer, Pointer, Pointer, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Pointer, Pointer] -> U32,
+                compiler: C [Pointer, Pointer, Pointer, Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: ("task.dispatch"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [ExecuteCallbackRoot, PublishTerminalState]

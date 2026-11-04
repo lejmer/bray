@@ -73,6 +73,16 @@ impl NativeTaskServices {
     }
 
     pub(in crate::native) fn has_worker_failure(&self) -> bool {
-        self.worker_failure.get().is_some() && !self.worker_failure_delivered.load(Ordering::Relaxed)
+        self.pending_worker_failure().is_some()
+    }
+
+    pub(in crate::native) fn pending_worker_failure(&self) -> Option<&NativeWorkerFailure> {
+        let failure = self.worker_failure.get()?;
+
+        (!self.worker_failure_delivered.load(Ordering::Relaxed)).then_some(failure)
+    }
+
+    pub(in crate::native) fn acknowledge_worker_failure(&self) {
+        self.worker_failure_delivered.store(true, Ordering::Relaxed);
     }
 }

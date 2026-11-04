@@ -84,6 +84,22 @@ pub(super) fn with_execution<T>(
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
 pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecution) -> u32 {
+    if let Some(task) = super::super::state::current_services()
+        && task.has_worker_failure()
+    {
+        let completed = {
+            let mut wait = task.suspended_wait.lock().expect("task wait transport is available");
+
+            if wait.as_ref().is_some_and(|wait| !wait.is_ready()) {
+                return NativeRuntimeStatus::PENDING.code();
+            }
+
+            wait.take()
+        };
+
+        drop(completed);
+    }
+
     bray_runtime_activation_action_readiness(snapshot)
 }
 

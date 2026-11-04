@@ -202,11 +202,8 @@ impl NativeRuntime {
                 .expect("task wait transport is available");
 
             if wait.as_ref().is_some_and(|wait| !wait.is_ready())
-                && !task.cancellation.is_requested()
-                && !task.has_worker_failure()
-                && task.snapshot().phase < 3
-            {
-                (true, None)
+                && !task.cancellation.is_requested() && task.snapshot().phase < 3 {
+                (!task.has_worker_failure(), None)
             } else {
                 (false, wait.take())
             }

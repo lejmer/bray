@@ -65,6 +65,7 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
 {
     let reference = trusted read_reference(pointer);
 
+    let unused =
     {
         let mut guard = trusted lock_cell(&reference);
         let control = trusted guard.get();
@@ -90,6 +91,11 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
             return 6;
         }
 
+        let unused = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+            &mut control.failure_records,
+            bray.runtime.bootstrap.empty_records()
+        );
+
         control.source_owner = false;
 
         if trusted release(control)
@@ -97,7 +103,11 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
             // This call still borrows its independent native storage reference.
             trusted core.target.abort();
         }
-    }
+
+        yield unused;
+    };
+
+    _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
 
     return 0;
 }

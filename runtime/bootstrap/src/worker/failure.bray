@@ -42,11 +42,15 @@ trusted internal func failure_reporting(
 }
 
 // Preserve the complete failure value in the existing inline primary.
-trusted internal func failure_outcome(pos failure: &Failure) -> bray.runtime.bootstrap.ReportOutcome
-    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+trusted internal func failure_report(
+    pos failure: &Failure,
+    reservation: usize = 0
+) -> bray.runtime.bootstrap.PanicReportData
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result))
 {
     let mut report = bray.runtime.bootstrap.empty_panic_report();
 
+    report.reserved = reservation;
     report.cause = 8;
     report.primary_present = 1;
     report.worker_stage = failure.stage;
@@ -54,10 +58,16 @@ trusted internal func failure_outcome(pos failure: &Failure) -> bray.runtime.boo
     report.worker_native_code = failure.native_code;
     report.consumer = trusted bray.runtime.bootstrap.consume_address();
 
+    return report;
+}
+
+trusted internal func failure_outcome(pos failure: &Failure) -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+{
     return
     {
         state = bray.runtime.bootstrap.RUN_PANICKED,
         payload = 0,
-        report = report
+        report = trusted failure_report(failure)
     };
 }

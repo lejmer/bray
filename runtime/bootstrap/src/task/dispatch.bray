@@ -16,17 +16,18 @@ using internal bray.runtime.bootstrap.host.product;
 trusted internal func dispatch(
     pos pointer: DataPointer<Reference>,
     pos service_pointer: DataPointer<Services>,
+    pos failure_pointer: DataPointer<bray.runtime.bootstrap.worker.Failure>,
     pos progress: DataPointer<bray.runtime.bootstrap.activation.Progress>,
     pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 ) -> u32
     requires(
-        trusted dispatch_entry(reference = pointer, services = service_pointer),
+        trusted dispatch_entry(reference = pointer, services = service_pointer, failure = failure_pointer),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
 {
-    let (reference, services) = trusted read_dispatch_inputs(pointer, service_pointer);
+    let (reference, services, mut failure) = trusted read_dispatch_inputs(pointer, service_pointer, failure_pointer);
 
     let (returned, final_execution, kind) =
     {
@@ -37,8 +38,13 @@ trusted internal func dispatch(
             return 6;
         }
 
-        yield trusted advance_dispatch(claim);
+        yield trusted advance_dispatch(claim, &mut failure);
     };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(
+        failure_pointer,
+        failure
+    );
 
     trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
         progress,
@@ -106,25 +112,100 @@ trusted internal func suspend_dispatch(
     trusted suspend(trusted guard.get(), execution);
 }
 
+// Publish only after frame cleanup. Worker admission failure first uses ordinary
+// abandonment, then becomes the task's terminal panic.
 trusted internal func complete_dispatch(
     pos owner: &Dispatch,
     pos execution: bray.runtime.bootstrap.activation.requirements.Execution,
-    pos outcome: bray.runtime.bootstrap.ReportOutcome
-)
-    requires(owner.active, trusted dispatch_owner(owner = owner))
-    ensures(trusted dispatch_owner(owner = owner))
+    pos mut progress: bray.runtime.bootstrap.activation.Progress,
+    pos failure: &mut bray.runtime.bootstrap.worker.Failure
+) -> bray.runtime.bootstrap.activation.Progress
+    requires(
+        owner.active,
+        trusted dispatch_owner(owner = owner),
+        trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &progress.report)
+    )
+    ensures(
+        trusted dispatch_owner(owner = owner),
+        trusted dispatch_acquired(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report)
+    )
+    uses(intrinsic)
 {
     let reference = trusted dispatch_reference(owner);
 
-    // Lexical cleanup has returned. Close delivery before publishing the result;
-    // the exclusive dispatch claim still owns the terminal transition.
     trusted close_cancellation(reference);
 
-    let mut guard = trusted lock_cell(reference);
-    let control = trusted guard.get();
+    // A completed value already committed before the fault keeps its observation.
+    // The native terminal path reports that late failure as an incident instead.
+    let mut terminal_progress = if failure.stage != 0 && progress.kind != 1
+    {
+        let reserved =
+        {
+            let mut guard = trusted lock_cell(reference);
+            let control = trusted guard.get();
 
-    control.execution = execution;
-    trusted complete(control, outcome);
+            yield std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+                &mut control.failure_records,
+                bray.runtime.bootstrap.empty_records()
+            );
+        };
+
+        if reserved.count != 1
+        {
+            trusted core.target.abort();
+        }
+
+        let incoming: bray.runtime.bootstrap.activation.Progress =
+        {
+            kind = 3,
+            state = progress.state,
+            payload = 0,
+            report = trusted bray.runtime.bootstrap.worker.failure_report(&failure, reservation = reserved.head)
+        };
+
+        let merged = trusted bray.runtime.bootstrap.activation.execution.merge_panic(&mut progress, incoming);
+
+        failure.stage = 0;
+        yield merged;
+    }
+    else
+    {
+        yield progress;
+    };
+
+    let outcome: bray.runtime.bootstrap.ReportOutcome =
+    {
+        state = terminal_progress.kind - 1,
+        payload = terminal_progress.payload,
+        report = trusted bray.runtime.bootstrap.activation.execution.take_report(&mut terminal_progress)
+    };
+
+    let unused =
+    {
+        let current_reference = trusted dispatch_reference(owner);
+        let mut guard = trusted lock_cell(current_reference);
+        let control = trusted guard.get();
+
+        control.execution = execution;
+        trusted complete(control, outcome);
+
+        yield std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+            &mut control.failure_records,
+            bray.runtime.bootstrap.empty_records()
+        );
+    };
+
+    _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
+
+    terminal_progress.payload = 0;
+
+    trusted notify_waiters(owner, 0);
+    return terminal_progress;
 }
 
 internal func yielded(pos state: u32) -> bray.runtime.bootstrap.activation.Progress
@@ -142,7 +223,8 @@ internal func yielded(pos state: u32) -> bray.runtime.bootstrap.activation.Progr
 // resolve other tasks, while this noncopy claim excludes another dispatcher.
 // Zero means suspended, one means terminal, and three means no producer work.
 trusted internal func advance_dispatch(
-    pos owner: Dispatch
+    pos owner: Dispatch,
+    pos failure: &mut bray.runtime.bootstrap.worker.Failure
 ) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32)
     requires(
         owner.active,
@@ -166,6 +248,7 @@ trusted internal func advance_dispatch(
             return (yielded(initial.execution.state), initial.execution, status);
         }
 
+        trusted release_dispatch(owner);
         return (bray.runtime.bootstrap.activation.empty_progress(), initial.execution, 3);
     }
 
@@ -175,7 +258,7 @@ trusted internal func advance_dispatch(
     {
         transitions += 1;
 
-        let (mut progress, mut unused, mut incidents, status) = trusted step_dispatch(&owner);
+        let (mut progress, mut unused, mut incidents, status) = trusted step_dispatch(&owner, failure.stage != 0);
 
         if unused.count != 0 || incidents.count != 0
         {
@@ -193,24 +276,10 @@ trusted internal func advance_dispatch(
         {
             let execution = trusted frame_snapshot(&owner, false);
 
-            let outcome: bray.runtime.bootstrap.ReportOutcome =
-            {
-                state = progress.kind - 1,
-                payload = progress.payload,
-                report = trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
-                    &mut progress.report,
-                    bray.runtime.bootstrap.empty_panic_report()
-                )
-            };
+            let returned = trusted complete_dispatch(&owner, execution, progress, failure);
 
-            trusted complete_dispatch(&owner, execution, outcome);
-
-            // Only Control owns the terminal payload/report. Native scheduling
-            // receives completion metadata without another transferable result.
-            progress.payload = 0;
-
-            trusted notify_waiters(&owner, 0);
-            return (progress, execution, 1);
+            trusted release_dispatch(owner);
+            return (returned, execution, 1);
         }
 
         let cancellation = trusted dispatch_cancellation(&owner);
@@ -231,6 +300,7 @@ trusted internal func advance_dispatch(
         }
 
         trusted suspend_dispatch(&owner, execution);
+        trusted release_dispatch(owner);
         return (progress, execution, 0);
     }
 
@@ -238,6 +308,7 @@ trusted internal func advance_dispatch(
     let execution = trusted frame_snapshot(&owner, cancellation);
 
     trusted suspend_dispatch(&owner, execution);
+    trusted release_dispatch(owner);
     return (yielded(execution.state), execution, 0);
 }
 
@@ -274,7 +345,8 @@ trusted internal func transfer_dispatch(
 }
 
 trusted internal func step_dispatch(
-    pos owner: &Dispatch
+    pos owner: &Dispatch,
+    pos worker_failed: bool
 ) -> (
         bray.runtime.bootstrap.activation.Progress,
         bray.runtime.bootstrap.ReportRecords,
@@ -288,12 +360,29 @@ trusted internal func step_dispatch(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted dispatch_owner(owner = owner))
+    ensures(
+        trusted dispatch_owner(owner = owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report)
+    )
 {
     let services = trusted dispatch_services(owner);
     let (invoke, ready) = trusted activation_callbacks(services);
 
     let cancellation = trusted dispatch_cancellation(owner);
+    let reference = trusted dispatch_reference(owner);
+    let failed = worker_failed && !trusted cancellation_shielded(reference);
+    let mut frame_cursor = trusted cursor(owner);
 
-    return trusted bray.runtime.bootstrap.activation.run.step(trusted cursor(owner), invoke, ready, cancellation);
+    if failed
+    {
+        frame_cursor = trusted cancel_wait_service(services, frame_cursor);
+    }
+
+    return trusted bray.runtime.bootstrap.activation.run.step(
+        frame_cursor,
+        invoke,
+        ready,
+        cancellation,
+        abandoning = failed
+    );
 }

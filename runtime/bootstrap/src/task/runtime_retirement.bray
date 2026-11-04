@@ -94,7 +94,9 @@ trusted internal func runtime_retirement(pos context: DataPointer<RuntimeRetirem
 
     while index <= limit
     {
-        trusted retire_runtime_slot(&owner, index);
+        let unused = trusted retire_runtime_slot(&owner, index);
+
+        _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
 
         index += 1;
     }
@@ -102,7 +104,10 @@ trusted internal func runtime_retirement(pos context: DataPointer<RuntimeRetirem
     return 0;
 }
 
-trusted internal func retire_runtime_slot(pos owner: &ClosingRuntime, pos index: usize)
+trusted internal func retire_runtime_slot(
+    pos owner: &ClosingRuntime,
+    pos index: usize
+) -> bray.runtime.bootstrap.ReportRecords
     requires(trusted runtime_closing(owner = &owner.acquisition))
     ensures(trusted runtime_closing(owner = &owner.acquisition))
     uses(intrinsic)
@@ -120,7 +125,7 @@ trusted internal func retire_runtime_slot(pos owner: &ClosingRuntime, pos index:
 
     if slot.runtime != owner.identity || slot.control matches none
     {
-        return;
+        return bray.runtime.bootstrap.empty_records();
     }
 
     // This view stays inside the actual resident acquisition. It borrows the
@@ -148,7 +153,7 @@ trusted internal func retire_runtime_slot(pos owner: &ClosingRuntime, pos index:
     };
 
     let reference = trusted issue_reference(&lease, &slot, index);
-    let last = trusted close_runtime_admission(&lease, &reference, owner);
+    let (last, unused) = trusted close_runtime_admission(&lease, &reference, owner);
 
     if last
     {
@@ -158,13 +163,15 @@ trusted internal func retire_runtime_slot(pos owner: &ClosingRuntime, pos index:
 
         let retired = trusted take_released(&lease, &mut recycling_anchor, &reference);
     }
+
+    return unused;
 }
 
 trusted internal func close_runtime_admission(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
     pos reference: &Reference,
     pos owner: &ClosingRuntime
-) -> bool
+) -> (bool, bray.runtime.bootstrap.ReportRecords)
     requires(
         trusted runtime_closing(owner = &owner.acquisition),
         trusted retained(owner = reference),
@@ -172,7 +179,7 @@ trusted internal func close_runtime_admission(
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
     )
     ensures(
-        !result || trusted released(owner = reference),
+        !result.0 || trusted released(owner = reference),
         trusted runtime_closing(owner = &owner.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
@@ -184,7 +191,7 @@ trusted internal func close_runtime_admission(
 
     if reference.runtime != owner.identity || !control.source_owner
     {
-        return false;
+        return (false, bray.runtime.bootstrap.empty_records());
     }
 
     if !(control.phase matches Phase.Admitted)
@@ -196,5 +203,10 @@ trusted internal func close_runtime_admission(
     control.phase = Phase.Resolved;
     control.retired = true;
 
-    return trusted release(control);
+    let unused = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+        &mut control.failure_records,
+        bray.runtime.bootstrap.empty_records()
+    );
+
+    return (trusted release(control), unused);
 }

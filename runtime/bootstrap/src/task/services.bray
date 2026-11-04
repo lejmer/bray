@@ -9,6 +9,10 @@ using internal bray.runtime.bootstrap.activation;
 // These operations borrow the native task context for one dispatch. They
 // transport cancellation shielding, incidents and wake delivery. The Bray
 // record remains the only owner of task state and terminal disposition.
+internal callable CancelWaitService = @abi(c) trusted func()
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.pool.protocol_access());
+
 internal callable WakeService = @abi(c) trusted func(pos task: u64);
 
 internal callable TransferService = @abi(c) trusted func(
@@ -43,6 +47,7 @@ internal struct Services
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>;
     transfer: FunctionPointer<TransferService>;
     wake: FunctionPointer<WakeService>;
+    cancel_wait: FunctionPointer<CancelWaitService>;
 }
 
 // The native caller retains the whole table, its context and code providers
@@ -145,21 +150,45 @@ trusted internal func wake_service(pos owner: &Services, pos task: u64)
     trusted invoke(task);
 }
 
-// One native dispatch lends both disjoint inputs and keeps their whole owners
+// One native dispatch lends disjoint inputs and keeps their whole owners
 // and providers live. Reading one borrowed wire value cannot consume the other.
-trusted internal predicate dispatch_entry(reference: DataPointer<Reference>, services: DataPointer<Services>);
+trusted internal predicate dispatch_entry(
+    reference: DataPointer<Reference>,
+    services: DataPointer<Services>,
+    failure: DataPointer<bray.runtime.bootstrap.worker.Failure>
+);
 
 trusted internal func read_dispatch_inputs(
     pos reference: DataPointer<Reference>,
-    pos services: DataPointer<Services>
-) -> (Reference, Services)
-    requires(trusted dispatch_entry(reference = reference, services = services))
+    pos services: DataPointer<Services>,
+    pos failure: DataPointer<bray.runtime.bootstrap.worker.Failure>
+) -> (Reference, Services, bray.runtime.bootstrap.worker.Failure)
+    requires(trusted dispatch_entry(reference = reference, services = services, failure = failure))
     ensures(trusted retained(owner = &result.0), trusted native_services(owner = &result.1))
     uses(raw_memory)
 {
-    let permit = trusted lambda(pos reference: DataPointer<Reference>, pos services: DataPointer<Services>)
-        requires(trusted dispatch_entry(reference = reference, services = services))
+    let permit = trusted lambda(
+        pos reference: DataPointer<Reference>,
+        pos services: DataPointer<Services>,
+        pos failure: DataPointer<bray.runtime.bootstrap.worker.Failure>
+    )
+        requires(trusted dispatch_entry(reference = reference, services = services, failure = failure))
         ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.worker.Failure>(pointer = failure, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.worker.Failure>(pointer = failure),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.worker.Failure>(pointer = failure),
+            trusted core.memory.non_overlapping<u8>(
+                left = std.memory.byte_address<Reference>(reference),
+                left_count = std.memory.size_of<Reference>(),
+                right = std.memory.byte_address<bray.runtime.bootstrap.worker.Failure>(failure),
+                right_count = std.memory.size_of<bray.runtime.bootstrap.worker.Failure>()
+            ),
+            trusted core.memory.non_overlapping<u8>(
+                left = std.memory.byte_address<Services>(services),
+                left_count = std.memory.size_of<Services>(),
+                right = std.memory.byte_address<bray.runtime.bootstrap.worker.Failure>(failure),
+                right_count = std.memory.size_of<bray.runtime.bootstrap.worker.Failure>()
+            ),
             trusted core.memory.valid_read<Reference>(pointer = reference, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = reference),
             trusted core.memory.initialized_as<Reference>(pointer = reference),
@@ -175,10 +204,42 @@ trusted internal func read_dispatch_inputs(
         )
         executes(pure, total) {};
 
-    trusted permit(reference, services);
+    trusted permit(reference, services, failure);
 
+    let native_failure = trusted std.memory.read<bray.runtime.bootstrap.worker.Failure>(failure);
     let native_callbacks = trusted std.memory.read<Services>(services);
     let native_reference = trusted std.memory.read<Reference>(reference);
 
-    return (native_reference, native_callbacks);
+    return (native_reference, native_callbacks, native_failure);
+}
+
+trusted internal func cancel_wait_service(
+    pos owner: &Services,
+    pos frame: bray.runtime.bootstrap.activation.run.Cursor
+) -> bray.runtime.bootstrap.activation.run.Cursor
+    requires(
+        trusted native_services(owner = owner),
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &frame),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted native_services(owner = owner),
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &result),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    uses(layout_reinterpret, foreign_call)
+{
+    let permit = trusted lambda(pos owner: &Services)
+        requires(trusted native_services(owner = owner))
+        ensures(trusted core.memory.callable_address_valid<CancelWaitService>(pointer = owner.cancel_wait))
+        executes(pure, total) {};
+
+    trusted permit(owner);
+
+    let invoke = trusted std.memory.callable_from_pointer<CancelWaitService>(owner.cancel_wait);
+
+    trusted invoke();
+    return frame;
 }

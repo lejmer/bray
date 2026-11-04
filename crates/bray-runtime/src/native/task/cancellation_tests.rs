@@ -440,6 +440,7 @@ fn drive_with_wake(task: &Arc<NativeTaskServices>, wake: extern "C" fn(u64)) {
             ready: activation::readiness,
             transfer: super::dispatch::transfer,
             wake,
+            cancel_wait: super::dispatch::cancel_wait,
         };
 
         let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
@@ -450,6 +451,7 @@ fn drive_with_wake(task: &Arc<NativeTaskServices>, wake: extern "C" fn(u64)) {
                 report_provider::bray_runtime_task_control_dispatch(
                     task.control(),
                     &services,
+                    &mut bray_runtime_abi::NativeWorkerFailure::default(),
                     &mut progress,
                     &mut execution,
                 )
