@@ -87,6 +87,12 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted native_configuration(owner = &configuration), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted view_owned(owner = &selected.acquisition))
 {
+    let provider = match consume create_native_provider(&configuration)
+    {
+        case Ok(value) { yield value; }
+        case Error(status) { return status; }
+    };
+
     let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
 
     if std.memory.is_null<u8>(allocation)
@@ -117,5 +123,6 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     let execution = trusted initialize_domain(allocation, scheduler, identity, configuration);
 
     trusted install_binding(selected, trusted own_binding(selected, execution));
+    trusted install_native_provider(selected, provider);
     return 0;
 }

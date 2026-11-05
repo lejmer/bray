@@ -79,7 +79,7 @@ extern "C" fn observe(
 // and Source driver scopes retain that same exact-thread owner until the last
 // scope ends, including when a driver outlives the call that created it.
 struct Provider {
-    thread: bray_platform::RuntimeThread,
+    thread: bray_platform::RuntimeThreadId,
     previous: Callbacks,
     scopes: usize,
 }
@@ -101,7 +101,7 @@ impl Scope {
 
     pub(crate) fn enter() -> Result<Self, NativeRuntimeStatus> {
         let attachment = RuntimeThreadScope::enter_or_reuse()?;
-        let runtime = attachment.runtime().clone();
+        let thread = attachment.runtime().id();
         let retained = PROVIDER.with(|provider| {
             let mut provider = provider.borrow_mut();
 
@@ -109,7 +109,7 @@ impl Scope {
                 return false;
             };
 
-            assert_eq!(provider.thread.id(), runtime.id(), "the native provider belongs to this live exact-thread epoch");
+            assert_eq!(provider.thread, thread, "the native provider belongs to this live exact-thread epoch");
 
             provider.scopes = provider.scopes.checked_add(1).expect("live provider scope count fits its native word");
 
@@ -129,7 +129,7 @@ impl Scope {
             }
 
             PROVIDER.with(|provider| {
-                let replaced = provider.borrow_mut().replace(Provider { thread: runtime, previous, scopes: 1 });
+                let replaced = provider.borrow_mut().replace(Provider { thread, previous, scopes: 1 });
 
                 assert!(replaced.is_none(), "provider registration publishes once before callbacks can reenter");
             });
@@ -155,7 +155,7 @@ impl Scope {
             let mut provider = provider.borrow_mut();
             let current = provider.as_mut().expect("every live scope retains its provider registration");
 
-            assert_eq!(current.thread.id(), thread, "retirement resolves the provider from its acquired epoch");
+            assert_eq!(current.thread, thread, "retirement resolves the provider from its acquired epoch");
 
             current.scopes = current.scopes.checked_sub(1).expect("each scope releases its provider claim once");
 

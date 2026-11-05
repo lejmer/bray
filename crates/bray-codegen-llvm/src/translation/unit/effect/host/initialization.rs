@@ -61,6 +61,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 pointer.into(),
                 pointer.into(),
                 pointer.into(),
+                usize.const_zero().into(),
+                usize.const_zero().into(),
             ])
 
     }

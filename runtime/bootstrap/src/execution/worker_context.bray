@@ -24,6 +24,7 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
         binding = core.memory.uninit_from<(Binding?)>(none),
         attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(none),
         previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
+        provider = core.memory.uninit_from<(NativeProviderScope?)>(none),
         phase = core.atomic.initialize<u32>(1),
         views = core.atomic.initialize<usize>(0),
         thread = value.attachment,
@@ -57,6 +58,12 @@ trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.w
         return { stage = 5, category = status, native_code = 0 };
     }
 
+    let provider = match consume create_native_provider(&(trusted domain(owner)).configuration)
+    {
+        case Ok(value) { yield value; }
+        case Error(failure) { return { stage = 9, category = failure, native_code = 0 }; }
+    };
+
     let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
 
     if std.memory.is_null<u8>(allocation)
@@ -87,6 +94,7 @@ trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.w
         let selected = trusted borrow_execution(&execution);
 
         trusted install_binding(&selected, trusted pin_binding(trusted pin(owner)));
+        trusted install_native_provider(&selected, provider);
     }
 
     trusted bray.runtime.bootstrap.worker.install_execution(scope, execution);

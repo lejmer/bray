@@ -20,7 +20,7 @@ pub enum RuntimeAbiType {
     Usize,
     /// Address of byte storage or a native callback.
     Pointer,
-    /// Worker and timer capacities.
+    /// Execution limits and optional native provider callbacks.
     Configuration,
     /// Root-start status and root handle.
     RootStart,

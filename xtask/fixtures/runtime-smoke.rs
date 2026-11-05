@@ -21,6 +21,8 @@ struct Configuration {
     invoke: *const u8,
     admit_context: *const u8,
     release_context: *const u8,
+    scope_enter: usize,
+    scope_finish: usize,
 }
 
 #[repr(transparent)]
@@ -502,6 +504,8 @@ fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
         invoke: std::ptr::null(),
         admit_context: std::ptr::null(),
         release_context: std::ptr::null(),
+        scope_enter: 0,
+        scope_finish: 0,
     }) == Status::SUCCESS);
 
     let frame = admit(descriptor);

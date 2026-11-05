@@ -134,6 +134,10 @@ trusted internal func prepare_retirement(pos owner: &bray.runtime.bootstrap.host
 {
     trusted close_retiring_owner(owner, identity);
 
+    // The actual binding retains native code until the exact-thread provider
+    // scope has finished restoring its callbacks.
+    _ = trusted take_native_provider(owner);
+
     let incidents = trusted release_driver_binding(owner);
 
     // An explicit withdrawal may already have restored an enclosing context.

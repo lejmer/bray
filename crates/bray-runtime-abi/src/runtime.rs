@@ -653,13 +653,15 @@ mod tests {
 
     #[test]
     fn runtime_records_have_the_native_abi_layout() {
-        assert_abi_layout!(NativeRuntimeConfiguration, size: 48, align: 8, fields: {
+        assert_abi_layout!(NativeRuntimeConfiguration, size: 64, align: 8, fields: {
             task_capacity: 0,
             timer_capacity: 8,
             capabilities: 16,
             invoke: 24,
             admit_context: 32,
             release_context: 40,
+            scope_enter: 48,
+            scope_finish: 56,
         });
 
         assert_abi_layout!(NativeRunOutcome, size: 184, align: 8, fields: {
