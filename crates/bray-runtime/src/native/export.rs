@@ -448,11 +448,6 @@ mod tests {
         );
 
         assert_eq!(
-            bray_runtime_task_destruction(task),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        assert_eq!(
             bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
         );
@@ -543,11 +538,6 @@ mod tests {
         assert!(
             super::super::fixtures::complete(task)
                 .is_success()
-        );
-
-        assert_eq!(
-            bray_runtime_task_destruction(task),
-            NativeRuntimeStatus::SUCCESS
         );
 
         assert_eq!(
@@ -1048,8 +1038,6 @@ mod tests {
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
-
         assert_eq!(
             bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::SUCCESS
@@ -1153,7 +1141,6 @@ mod tests {
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
         assert!(bray_runtime_execution_shutdown().is_success());
     }
@@ -1281,7 +1268,6 @@ mod tests {
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 1);
         assert!(bray_runtime_execution_shutdown().is_success());
     }
@@ -1447,7 +1433,6 @@ mod tests {
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
         assert!(bray_runtime_execution_shutdown().is_success());
     }
@@ -1493,7 +1478,6 @@ mod tests {
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
         assert!(bray_runtime_execution_shutdown().is_success());
     }
 
@@ -2104,16 +2088,6 @@ mod tests {
         assert!(
             super::super::fixtures::complete(competitor)
                 .is_success()
-        );
-
-        assert_eq!(
-            bray_runtime_task_destruction(root),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        assert_eq!(
-            bray_runtime_task_destruction(competitor),
-            NativeRuntimeStatus::SUCCESS
         );
 
         assert_eq!(

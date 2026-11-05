@@ -204,7 +204,13 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             // this owner must still support the same current condition.
             previous.retain(|carrier| result.contains(carrier)
                 || super::owned::activity(returned, carrier.path(), &state.assumptions).0 == Some(false));
-            previous.extend(result.into_iter().filter(|carrier| exits.iter().all(|exit| exit.excludes(carrier.path()))));
+            for carrier in result {
+                if !previous.contains(&carrier)
+                    && exits.iter().all(|exit| exit.excludes(carrier.path()))
+                {
+                    previous.insert(carrier);
+                }
+            }
         }
         None => *previous = Some(result),
     }

@@ -20,7 +20,7 @@ internal union Finalization
 {
     None;
     Synchronous(pos callback: SynchronousStart);
-    Asynchronous(pos finalizer: Finalizer, pos mut frame: usize, pos discard: FrameDiscard, pos driver: AsyncFinalizer);
+    Asynchronous(pos finalizer: Finalizer, pos mut frame: usize, pos execution: NativeExecution);
 }
 
 internal union StaticOwner
@@ -63,11 +63,11 @@ internal struct AdmittedStatic
             _ = trusted drain_outcome(output);
         }
 
-        if let Asynchronous(_, frame, discard, _) = self.finalization
+        if let Asynchronous(_, frame, execution) = self.finalization
         {
             if frame != 0
             {
-                trusted discard(frame);
+                trusted execution.discard(std.memory.address_of<NativeExecution>(&execution), frame);
             }
         }
     }
@@ -208,12 +208,12 @@ trusted internal func clean_static(pos owner: &mut AdmittedStatic) -> usize
     {
         case None {}
         case Synchronous(callback) { incidents = trusted synchronous_finalizer(callback); }
-        case Asynchronous(finalizer, frame, _, driver)
+        case Asynchronous(finalizer, frame, execution)
         {
             let admitted = frame;
 
             frame = 0;
-            incidents = trusted driver(admitted, finalizer);
+            incidents = trusted execution.run_finalizer(std.memory.address_of<NativeExecution>(&execution), admitted, finalizer);
         }
     }
 

@@ -24,23 +24,31 @@ internal callable CleanupContext = @abi(c) trusted func(
 ) -> CleanupResult
     requires(trusted native_host());
 
-internal callable FrameAdmission = @abi(c) trusted func(pos destination: DataPointer<usize>) -> u32
+// The caller retains this complete service record and its acquired resource
+// through reentrant admission, rollback and finalizer execution.
+internal predicate execution_slot(pointer: DataPointer<NativeExecution>) = core.memory.valid_read<NativeExecution>(pointer = pointer, count = 1) && core.memory.aligned_for<NativeExecution>(pointer = pointer) && core.memory.initialized_as<NativeExecution>(pointer = pointer) && core.memory.shared_alias_valid<NativeExecution>(pointer = pointer);
+
+internal callable FrameAdmission = @abi(c) trusted func(pos execution: DataPointer<NativeExecution>, pos destination: DataPointer<usize>) -> u32
     requires(
         trusted native_host(),
+        execution_slot(pointer = execution),
         trusted core.memory.valid_write<usize>(pointer = destination, count = 1),
         trusted core.memory.aligned_for<usize>(pointer = destination)
     )
     ensures(
+        execution_slot(pointer = execution),
         trusted core.memory.valid_read<usize>(pointer = destination, count = 1),
         trusted core.memory.initialized_as<usize>(pointer = destination),
         trusted core.memory.aligned_for<usize>(pointer = destination)
     );
 
-internal callable FrameDiscard = @abi(c) trusted func(pos admission: usize)
-    requires(trusted native_host());
+internal callable FrameDiscard = @abi(c) trusted func(pos execution: DataPointer<NativeExecution>, pos admission: usize)
+    requires(trusted native_host(), execution_slot(pointer = execution))
+    ensures(execution_slot(pointer = execution));
 
-internal callable AsyncFinalizer = @abi(c) trusted func(pos admission: usize, pos finalizer: Finalizer) -> usize
-    requires(trusted native_host());
+internal callable AsyncFinalizer = @abi(c) trusted func(pos execution: DataPointer<NativeExecution>, pos admission: usize, pos finalizer: Finalizer) -> usize
+    requires(trusted native_host(), execution_slot(pointer = execution))
+    ensures(execution_slot(pointer = execution));
 
 internal callable WorkerDetach = @abi(c) trusted func(pos resource: usize, pos product: usize)
     requires(trusted native_host());

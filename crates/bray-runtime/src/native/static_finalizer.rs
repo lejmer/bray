@@ -1,17 +1,11 @@
 use crate::incident::OwnedCleanupIncident;
 
 pub(crate) fn run_static_finalizer(
-    _admission: crate::TaskAdmission,
+    task: bray_runtime_abi::NativeTaskHandle,
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
 ) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
-
-    let allocation = super::export::bray_runtime_task_allocation();
-
-    let Some(task) = allocation.task() else {
-        return [Some(OwnedCleanupIncident::runtime_failure()), None, None, None];
-    };
 
     let mut rejected = bray_runtime_abi::NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
     let address = std::ptr::from_ref(&frame).addr();
@@ -21,13 +15,10 @@ pub(crate) fn run_static_finalizer(
 
         assert!(status.is_success(), "rejected finalizer admission releases its unstarted Source claim");
 
-        let incident = if rejected.state() == NativeRunState::PANICKED {
-            OwnedCleanupIncident::report_owner(rejected.take_report())
-        } else {
-            OwnedCleanupIncident::runtime_failure()
-        };
+        let incident = OwnedCleanupIncident::outcome(rejected).unwrap_or_else(OwnedCleanupIncident::runtime_failure);
+        let [broadcast, resolution] = dispose_inactive(frame);
 
-        return [Some(incident), None, None, None];
+        return [Some(incident), broadcast, resolution, None];
     }
 
     let root = NativeRootHandle::new(task.raw()).expect("an allocated Source claim has a nonzero handle");
@@ -46,6 +37,21 @@ pub(crate) fn run_static_finalizer(
         .then(OwnedCleanupIncident::runtime_failure);
 
     [first, second, third, resolution]
+}
+
+fn dispose_inactive(frame: bray_runtime_abi::NativeInactiveFrame) -> [Option<OwnedCleanupIncident>; 2] {
+    type Invoke = for<'a> extern "C" fn(&mut bray_runtime_abi::NativeActivationInvocation<'a>);
+    #[expect(unsafe_code, reason = "Source consumes the retained inactive finalizer through its lifecycle ABI")]
+    unsafe extern "C" {
+        safe fn bray_runtime_inactive_frame_broadcast(frame: &bray_runtime_abi::NativeInactiveFrame, invoke: Invoke, ready: Invoke, outcome: &mut bray_runtime_abi::NativeRunOutcome);
+        safe fn bray_runtime_inactive_frame_resolution(frame: &bray_runtime_abi::NativeInactiveFrame, invoke: Invoke, ready: Invoke, outcome: &mut bray_runtime_abi::NativeRunOutcome);
+    }
+    let mut broadcast = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+    let mut resolution = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    bray_runtime_inactive_frame_broadcast(&frame, super::export::bray_runtime_activation_callback, super::export::bray_runtime_activation_action_readiness, &mut broadcast);
+    bray_runtime_inactive_frame_resolution(&frame, super::export::bray_runtime_activation_callback, super::export::bray_runtime_activation_action_readiness, &mut resolution);
+    [OwnedCleanupIncident::outcome(broadcast), OwnedCleanupIncident::outcome(resolution)]
 }
 
 pub(crate) fn with_static_cleanup_context<T>(
@@ -90,6 +96,8 @@ mod tests {
     };
 
     use super::run_static_finalizer;
+
+    static FRAME_DESTRUCTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     fn with_static_cleanup_runtime<T>(
         callback: impl FnOnce() -> T,
@@ -238,14 +246,15 @@ mod tests {
 
     #[test]
     fn admitted_finalizer_runs_after_further_outgoing_admission_is_rejected() {
-        let admission = crate::test_support::admit_task();
-        let frame = inactive_frame(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE);
-        let _failure = crate::outgoing::tests::reject_admission();
+        let _isolation = super::super::state::test_runtime_isolation();
+        let (incidents, runtime_incident) = with_static_cleanup_runtime(|| {
+            let admission = super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its actual Source claim");
+            let frame = inactive_frame(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE);
+            let _failure = crate::outgoing::tests::reject_admission();
 
-        assert!(crate::TaskAdmission::new().is_err());
-
-        let (incidents, runtime_incident) =
-            with_static_cleanup_runtime(|| run_static_finalizer(admission, frame, resolve));
+            assert!(crate::outgoing::OutgoingRecords::admit(1).is_err());
+            run_static_finalizer(admission, frame, resolve)
+        });
 
         assert!(incidents.iter().all(Option::is_none));
         assert!(runtime_incident.is_none());
@@ -253,12 +262,13 @@ mod tests {
 
     #[test]
     fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
+        let _isolation = super::super::state::test_runtime_isolation();
         let _attachment = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
             run_static_finalizer(
-                crate::test_support::admit_task(),
+                super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"),
                 inactive_frame(
                     NativeFrameAffinity::ORIGIN_THREAD,
                     NativeLaneRequirements::NONE,
@@ -273,6 +283,7 @@ mod tests {
 
     #[test]
     fn cleanup_runtime_services_every_owned_cleanup_lane() {
+        let _isolation = super::super::state::test_runtime_isolation();
         let cases = [
             (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE),
             (
@@ -290,7 +301,7 @@ mod tests {
                 .into_iter()
                 .flat_map(|(affinity, requirements)| {
                     run_static_finalizer(
-                        crate::test_support::admit_task(),
+                        super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"),
                         inactive_frame(affinity, requirements),
                         resolve,
                     )
@@ -304,6 +315,8 @@ mod tests {
 
     #[test]
     fn cleanup_runtime_requires_a_retained_main_thread_identity() {
+        let _isolation = super::super::state::test_runtime_isolation();
+        FRAME_DESTRUCTIONS.store(0, std::sync::atomic::Ordering::Relaxed);
         let main_frame = || {
             inactive_frame(
                 NativeFrameAffinity::MAIN_THREAD,
@@ -312,10 +325,11 @@ mod tests {
         };
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(crate::test_support::admit_task(), main_frame(), resolve)
+            run_static_finalizer(super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"), main_frame(), resolve)
         });
 
         assert_eq!(incidents.iter().flatten().count(), 1);
+        assert_eq!(FRAME_DESTRUCTIONS.load(std::sync::atomic::Ordering::Relaxed), 1);
         assert!(runtime_incidents.is_none());
 
         assert!(
@@ -326,7 +340,7 @@ mod tests {
         );
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(crate::test_support::admit_task(), main_frame(), resolve)
+            run_static_finalizer(super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"), main_frame(), resolve)
         });
 
         assert!(incidents.iter().all(Option::is_none));
@@ -366,7 +380,13 @@ mod tests {
         )
     }
 
-    extern "C" fn state(context: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
+    extern "C" fn state(context: usize, _: u32, operation: u32, _: usize) -> NativeFrameState {
+        // These fixtures capture only an immutable scalar. Cleanup has no body
+        // execution requirement or exact-thread dependency of its own.
+        if operation >= 2 {
+            return NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE);
+        }
+
         let context = u64::try_from(context)
             .unwrap_or_else(|_| panic!("test frame context must fit the native ABI"));
 
@@ -393,7 +413,7 @@ mod tests {
 
     extern "C-unwind" fn ignore_broadcast(_: &mut NativeFrameProgress, _: usize) {}
 
-    extern "C-unwind" fn ignore_action(_: usize) {}
+    extern "C-unwind" fn ignore_action(_: usize) { FRAME_DESTRUCTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
 
     extern "C-unwind" fn ignore_resolution(
         _: &mut bray_runtime_abi::NativeFrameProgress,
