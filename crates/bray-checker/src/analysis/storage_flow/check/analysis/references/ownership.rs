@@ -174,7 +174,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !copies {
                     let condition = if conditional {
-                        self.owned_result_condition(transfer.output(), presence)?
+                        self.result_path_condition(transfer.output(), presence)?
                     } else {
                         None
                     };
@@ -273,7 +273,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Ok(projected.expect("checked owned path retains its projected type"))
     }
 
-    fn owned_result_condition(
+    pub(super) fn result_path_condition(
         &mut self,
         path: &[bray_bound_tree::StorageProjection],
         presence: bool,
@@ -312,6 +312,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .chain(presence.then_some(None))
         {
             let condition = match projection {
+                None if !matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Nullable(_)) => None,
                 Some(StorageProjection::NullableValue) | None => {
                     assert!(
                         matches!(

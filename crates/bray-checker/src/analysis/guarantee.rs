@@ -21,6 +21,7 @@ pub(in crate::analysis) use flow::merge_execution;
 pub(crate) use flow::{ExecutionFlowDomain, prepare_execution_flow};
 pub(in crate::analysis) use state::ExecutionState;
 pub(in crate::analysis) use trusted::{OwnedReturnCondition, TrustedChecks};
+pub(in crate::analysis) use trusted::{portable_carrier, portable_carrier_path};
 mod flow;
 
 pub(in crate::analysis) use cleanup::{CleanupMutation, Lifecycle, LifecycleInvocation, Observer};

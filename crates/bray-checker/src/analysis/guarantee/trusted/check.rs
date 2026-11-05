@@ -25,7 +25,7 @@ pub(in crate::analysis) struct TrustedChecks {
     pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
-    pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier>>,
+    pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>>>,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_bound_tree::StorageProjection>>>>,
 }
 

@@ -10,6 +10,7 @@ mod transfers;
 
 pub(in crate::analysis) use check::TrustedChecks;
 pub(in crate::analysis) use owned::OwnedReturnCondition;
+pub(in crate::analysis) use carriers::{portable as portable_carrier, portable_path as portable_carrier_path};
 
 pub(super) use borrows::project_place;
 

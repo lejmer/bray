@@ -4738,3 +4738,47 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
         assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
     }
 }
+
+#[test]
+fn returned_owner_facts_follow_only_the_active_result_payload() {
+    for (mutation, valid) in [("", true), ("if change { owner.active = false; }", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Owner {{ mut active: bool; pointer: DataPointer<u8>; }}
+            trusted predicate held(owner: &Owner);
+            extern trusted func opaque(pos owner: &Owner) -> DataPointer<u8>
+                requires(trusted held(owner))
+                ensures(trusted held(owner));
+            func forward(pos mut owner: Owner, pos reject: bool, pos change: bool) -> Result<u8, Owner>
+                requires(trusted held(&owner))
+            {{
+                _ = trusted opaque(&owner);
+
+                if reject
+                {{
+                    {mutation}
+                    return Error(owner);
+                }}
+
+                return Ok(0);
+            }}
+            func use_owner(pos owner: Owner) requires(trusted held(&owner)) {{}}
+            func caller(pos owner: Owner, pos reject: bool, pos change: bool)
+                requires(trusted held(&owner))
+            {{
+                match consume forward(owner, reject, change)
+                {{
+                    case Ok(_) {{}}
+                    case Error(rejected) {{ use_owner(rejected); }}
+                }}
+            }}
+            "#,
+        );
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+    }
+}
