@@ -499,12 +499,14 @@ trusted internal func insert_attachment(
 
         while index < count
         {
-            if entries[index].identity == 0
+            let entry = &mut entries[index];
+
+            if entry.identity == 0
             {
-                entries[index].identity = identity;
-                entries[index].native_thread = native_thread;
-                entries[index].depth = 1;
-                entries[index].closing = false;
+                entry.identity = identity;
+                entry.native_thread = native_thread;
+                entry.depth = 1;
+                entry.closing = false;
                 return Ok(true);
             }
 

@@ -44,7 +44,6 @@ internal struct NativeProviderScope
 
     trusted destruct()
         requires(trusted native_provider_owned(owner = &self))
-        executes(total)
     {
         trusted finish_native_provider(&self);
     }
@@ -52,7 +51,6 @@ internal struct NativeProviderScope
 
 trusted internal func finish_native_provider(pos owner: &NativeProviderScope)
     requires(trusted native_provider_owned(owner = owner))
-    executes(total)
     uses(foreign_call)
 {
     let output = trusted lambda(pos owner: &NativeProviderScope) -> DataPointer<[u64; 16]>

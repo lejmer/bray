@@ -23,9 +23,6 @@ internal struct Domain
 {
     backing: bray.runtime.bootstrap.scheduler.Backing;
     limit: usize;
-    poll_service: Poll;
-    wait_service: Wait;
-    close_service: Close;
     state: std.sync.SpinLock<State>;
 }
 

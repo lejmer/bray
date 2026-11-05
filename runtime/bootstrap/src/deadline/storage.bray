@@ -142,9 +142,6 @@ trusted internal func initialize(
         {
             backing = backing,
             limit = limit,
-            poll_service = poll_service,
-            wait_service = wait_service,
-            close_service = close_service,
             state = trusted std.sync.SpinLock<State>(
                 {
                     next = 1,

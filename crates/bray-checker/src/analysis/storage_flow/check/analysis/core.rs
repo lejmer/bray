@@ -1088,14 +1088,18 @@ where
             use bray_bound_tree::CheckedMemoryOperationKind as Operation;
 
             let pointee = match operation.kind() {
-                Operation::Write { pointee }
+                Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
+                | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
+                | Operation::Write { pointee }
                 | Operation::Copy { pointee, .. }
                 | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
-                Operation::UninitWrite { element } => Some(*element),
+                Operation::UninitMove { element }
+                | Operation::UninitAssumeInitialized { element }
+                | Operation::UninitWrite { element } => Some(*element),
                 _ => None,
             };
 
-            if pointee.is_some_and(|pointee| self.input.footprint.marker_free_store(pointee)) {
+            if pointee.is_some_and(|pointee| self.input.footprint.marker_free_transfer(pointee)) {
                 self.preserve_store_values(&state.memory, invalidation, false, true);
             }
         }

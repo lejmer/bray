@@ -2182,7 +2182,7 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
 }
 
 #[test]
-fn typed_data_writes_preserve_borrowed_ownership_markers() {
+fn typed_data_transfers_preserve_borrowed_ownership_markers() {
     for (pointee, value, valid) in [
         ("u32", "1", true),
         ("(u32?)", "none", true),
@@ -2192,6 +2192,10 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
             false,
         ),
     ] {
+        for operation in [
+            format!("trusted core.memory.write<{pointee}>(destination, {value});"),
+            format!("_ = trusted core.memory.read<{pointee}>(destination);"),
+        ] {
         let source = format!(
             r#"
             trusted module app;
@@ -2209,6 +2213,8 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
                 ensures(
                     trusted held(&owner.marker),
                     trusted core.memory.valid_write<{pointee}>(pointer = result, count = 1),
+                    trusted core.memory.valid_read<{pointee}>(pointer = result, count = 1),
+                    trusted core.memory.initialized_as<{pointee}>(pointer = result),
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
                 )
                 executes(pure, total);
@@ -2220,7 +2226,7 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
             {{
                 _ = core.memory.address_of<Owner>(owner);
                 let destination = pointer(owner);
-                trusted core.memory.write<{pointee}>(destination, {value});
+                {operation}
                 observe(owner);
             }}
             "#
@@ -2240,6 +2246,7 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
+        }
         }
     }
 }
