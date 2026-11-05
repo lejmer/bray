@@ -82,10 +82,16 @@ impl NativeEntryKind {
             | RuntimeAbiRole::TaskAllocation
             | RuntimeAbiRole::AwaitedFrameComposition
             | RuntimeAbiRole::ActivationCallback
-            | RuntimeAbiRole::ActivationActionReadiness => {
+            | RuntimeAbiRole::ActivationActionReadiness
+            | RuntimeAbiRole::ExecutionOwnerClone
+            | RuntimeAbiRole::ExecutionOwnerRelease
+            | RuntimeAbiRole::ExecutionOwnerWorker
+            | RuntimeAbiRole::ExecutionOwnerDetach => {
                 Some(Self::RuntimeValue)
             }
-            RuntimeAbiRole::ThreadAttachmentIdentity | RuntimeAbiRole::ExecutionScopeEnter => {
+            RuntimeAbiRole::ThreadAttachmentIdentity
+            | RuntimeAbiRole::ExecutionScopeEnter
+            | RuntimeAbiRole::ExecutionOwnerScopeEnter => {
                 Some(Self::RuntimeIdentity)
             }
             RuntimeAbiRole::ThreadStorageExit
@@ -96,6 +102,8 @@ impl NativeEntryKind {
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
             RuntimeAbiRole::EntryContextRegistration
             | RuntimeAbiRole::ExecutionScopeFinish
+            | RuntimeAbiRole::ExecutionOwnerCurrent
+            | RuntimeAbiRole::ExecutionStartup
             | RuntimeAbiRole::MainThreadLaneStartup
             | RuntimeAbiRole::MainThreadLaneDrive
             | RuntimeAbiRole::ExecutionWorkersStartup

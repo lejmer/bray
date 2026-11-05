@@ -64,14 +64,6 @@ impl Resources {
 
 }
 
-impl Drop for Resources {
-    fn drop(&mut self) {
-        if let Self::Timeout { runtime, .. } = self {
-            runtime.release();
-        }
-    }
-}
-
 struct Binding {
     resources: Arc<Resources>,
     native_owner: bool,

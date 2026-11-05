@@ -290,6 +290,55 @@ macro_rules! runtime_role_catalog {
                 owner: Bootstrap, availability: All, bootstrap: ("execution.native_scope_finish"), host_control: false,
                 capabilities: [], effects: []
             }
+            ExecutionOwnerCurrent {
+                "Retain the current complete execution owner into native storage.", "execution_owner_current",
+                native: (EXECUTION_OWNER_CURRENT_SYMBOL = "bray_runtime_execution_owner_current", [Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_current"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionStartup {
+                "Establish an Origin driver and execution domain without granting Main authority.", "execution_startup",
+                native: (EXECUTION_STARTUP_SYMBOL = "bray_runtime_execution_startup", [Configuration] -> U32),
+                call_hook: (), compiler: C [Configuration] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.startup"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionOwnerClone {
+                "Retain an independent service claim from the borrowed execution owner.", "execution_owner_clone",
+                native: (EXECUTION_OWNER_CLONE_SYMBOL = "bray_runtime_execution_owner_clone", [Pointer, Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer, Pointer] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_clone"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionOwnerRelease {
+                "Consume the actual native execution owner and retire its service claim and pin.", "execution_owner_release",
+                native: (EXECUTION_OWNER_RELEASE_SYMBOL = "bray_runtime_execution_owner_release", [Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_release"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionOwnerWorker {
+                "Observe whether this execution owns the actual current worker.", "execution_owner_worker",
+                native: (EXECUTION_OWNER_WORKER_SYMBOL = "bray_runtime_execution_owner_worker", [Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_worker"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionOwnerDetach {
+                "Detach retained execution workers from retiring product attachments.", "execution_owner_detach",
+                native: (EXECUTION_OWNER_DETACH_SYMBOL = "bray_runtime_execution_owner_detach", [Pointer] -> Void),
+                call_hook: (), compiler: C [Pointer] -> Void,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_detach"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionOwnerScopeEnter {
+                "Bind a borrowed execution owner through the complete native entry scope.", "execution_owner_scope_enter",
+                native: (EXECUTION_OWNER_SCOPE_ENTER_SYMBOL = "bray_runtime_execution_owner_scope_enter", [Pointer, Usize, Usize, Pointer] -> U64),
+                call_hook: (), compiler: C [Pointer, Usize, Usize, Pointer] -> U64,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_scope_enter"), host_control: false,
+                capabilities: [], effects: []
+            }
             EntryContinuation {
                 "Continue an admitted native entry inside its scoped context bridge.", "entry_continuation",
                 native: (ENTRY_CONTINUATION_SYMBOL = "bray_runtime_entry_continuation", [Pointer, Usize, U32, Pointer] -> U32),
