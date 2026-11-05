@@ -37,6 +37,7 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
     };
 
     assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
+    assert!(host.role_binding(RuntimeAbiRole::ProductExecutionProvider).is_none());
 
     let frame_unit = plan
         .units()

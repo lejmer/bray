@@ -300,7 +300,7 @@ macro_rules! runtime_role_catalog {
             ExecutionStartup {
                 "Establish an Origin driver and execution domain without granting Main authority.", "execution_startup",
                 native: (EXECUTION_STARTUP_SYMBOL = "bray_runtime_execution_startup", [Configuration] -> U32),
-                call_hook: (), compiler: C [Configuration] -> U32,
+                call_hook: (), compiler: Bray [] -> Void,
                 owner: Bootstrap, availability: All, bootstrap: ("execution.startup"), host_control: false,
                 capabilities: [], effects: []
             }
@@ -449,7 +449,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (TaskEventCreation),
                 compiler: Bray [] -> Usize,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_event_creation"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [CreateTaskEvent]
             }
@@ -459,7 +459,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (TaskEventSignal),
                 compiler: Bray [Usize] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("event.signal"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [SignalTaskEvent, EstablishVisibility]
             }
@@ -469,7 +469,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (TaskEventDestruction),
                 compiler: Bray [Usize] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_event_destruction"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [ReleaseTaskEvent]
             }
@@ -1343,7 +1343,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.suspension_registration"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [RegisterContinuation]
             }
@@ -1485,7 +1485,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_resolution"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AcquireTerminalState, EstablishVisibility]
             }

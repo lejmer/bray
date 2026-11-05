@@ -86,7 +86,9 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ExecutionOwnerClone
             | RuntimeAbiRole::ExecutionOwnerRelease
             | RuntimeAbiRole::ExecutionOwnerWorker
-            | RuntimeAbiRole::ExecutionOwnerDetach => {
+            | RuntimeAbiRole::ExecutionOwnerDetach
+            | RuntimeAbiRole::TaskEventCreation
+            | RuntimeAbiRole::SuspensionRegistration => {
                 Some(Self::RuntimeValue)
             }
             RuntimeAbiRole::ThreadAttachmentIdentity
@@ -112,6 +114,9 @@ impl NativeEntryKind {
             | RuntimeAbiRole::RootCancellationRequest
             | RuntimeAbiRole::TaskStart
             | RuntimeAbiRole::TaskDestruction
+            | RuntimeAbiRole::TaskResolution
+            | RuntimeAbiRole::TaskEventSignal
+            | RuntimeAbiRole::TaskEventDestruction
             | RuntimeAbiRole::TaskCancellationRequest
             | RuntimeAbiRole::Wake
             | RuntimeAbiRole::CleanupIncidentReporting

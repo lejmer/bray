@@ -701,11 +701,10 @@ pub(super) fn native_host_runtime_roles(
         ]);
     }
 
-    if product_execution(statics, native_statics).is_some()
-        || roles
-            .iter()
-            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
-    {
+    // The executable driver already owns services through result and
+    // synchronous static cleanup. A separate product execution binding is
+    // needed for suspending cleanup or worker attachment cleanup only.
+    if product_execution(statics, native_statics).is_some() {
         roles.insert(RuntimeAbiRole::ProductExecutionProvider);
     }
 
