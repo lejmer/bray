@@ -18,13 +18,9 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn observed_references(
         &self,
-    ) -> impl Iterator<Item = (Place, &BTreeSet<Target>, bool)> {
-        self.values.iter().filter_map(|(location, references)| {
-            Some((
-                location.observation_path()?,
-                &references.targets,
-                references.unknown,
-            ))
+    ) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
+        self.values.iter().map(|(location, references)| {
+            (location, &references.targets, references.unknown)
         })
     }
 

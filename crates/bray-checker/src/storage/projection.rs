@@ -3,6 +3,24 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+/// Resolves physical storage only when it denotes a logical value in this plan.
+/// A raw pointer's incoming pointee is distinct from the pointer value itself.
+pub(crate) fn storage_observation_path(
+    storage: &bray_bound_tree::StoragePlan,
+    values: &bray_symbols::SemanticValueStore,
+    target: &bray_bound_tree::StorageTarget,
+) -> Option<bray_bound_tree::StoragePath> {
+    if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
+        && !storage.storage_type(reference.root).is_some_and(|ty| {
+            matches!(values.type_data(ty).as_ref(), TypeData::Borrow { .. })
+        })
+    {
+        return None;
+    }
+
+    target.observation_path()
+}
+
 /// Resolves one checked value projection while preserving declaration diagnostics and substitution.
 pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,

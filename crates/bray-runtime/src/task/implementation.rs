@@ -443,22 +443,6 @@ where
         Ok(TaskResumeStatus::Terminal(kind))
     }
 
-    pub(crate) fn transfer_cleanup_incident(
-        &self,
-        sink: &crate::CleanupReportSink,
-        origin: crate::CleanupIncidentOrigin,
-        panic: RuntimePanic,
-    ) {
-        let mut admitted = crate::outgoing::OutgoingRecords::default();
-
-        sink.transfer(
-            crate::CleanupIncidentProducer::Task(self.id()),
-            origin,
-            panic,
-            &mut admitted,
-        );
-    }
-
     /// Registers an observer to wake when this task becomes terminal.
     pub fn register_join_waiter(
         self: &Arc<Self>,
@@ -605,15 +589,6 @@ where
         };
 
         wake_all(waiters);
-    }
-
-    pub(crate) fn execution_origin(&self) -> crate::CleanupIncidentOrigin {
-        let data = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        crate::CleanupIncidentOrigin::new(data.execution.frame(), data.execution.state())
     }
 
     fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {

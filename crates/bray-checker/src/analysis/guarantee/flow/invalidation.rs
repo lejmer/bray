@@ -739,20 +739,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let aliases = observations
             .iter()
             .filter_map(|(path, target)| {
-                if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
-                    && !self.storage.storage_type(reference.root).is_some_and(|ty| {
-                        matches!(
-                            self.request.semantic_values().type_data(ty).as_ref(),
-                            bray_symbols::TypeData::Borrow { .. }
-                        )
-                    })
-                {
-                    // A raw pointer's entry referent is a separate object. Its slot's
-                    // current value observes the address, not that object's contents.
-                    return None;
-                }
-
-                let target = target.observation_path()?;
+                let target = crate::storage::storage_observation_path(
+                    self.storage,
+                    self.request.semantic_values(),
+                    target,
+                )?;
 
                 if *path == target {
                     return None;

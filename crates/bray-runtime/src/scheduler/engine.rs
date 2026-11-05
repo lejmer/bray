@@ -45,14 +45,6 @@ pub(super) struct RegisteredTask {
 }
 
 impl Scheduler {
-    pub(crate) fn source_reference(&self) -> &bray_runtime_abi::NativeSchedulerReference {
-        &self.data.source.reference
-    }
-
-    pub(crate) fn wake_waiters(&self) {
-        native::bray_runtime_scheduler_notification(&self.data.source.reference);
-    }
-
     /// Creates a scheduler without starting workers or optional services.
     /// Returns an error if scheduler backing cannot be admitted.
     pub fn new(
@@ -233,16 +225,6 @@ impl Scheduler {
 
     // Keep the creating attachment and any checked live frame origin through
     // registration retirement. This cold resource query owns no lane policy.
-    pub(crate) fn has_attachment_users(&self, thread: &RuntimeThread) -> bool {
-        let state = self
-            .lock_state()
-            .expect("worker retirement retains scheduler bindings");
-
-        state.tasks.values().any(|binding| {
-            binding.origin == thread.id() || binding.execution.origin() == Some(thread.id())
-        })
-    }
-
     /// Captures current task metadata in deterministic identity order.
     pub fn snapshot(&self) -> Result<SchedulerSnapshot, SchedulerError> {
         super::dispatch::scheduler_snapshot(&self.data)

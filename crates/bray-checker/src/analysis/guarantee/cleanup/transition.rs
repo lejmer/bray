@@ -322,6 +322,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             false,
             false,
         );
+
+        if let Some(completion) = flow.completion(mutation) {
+            self.observe_references(state, completion.references());
+        }
     }
 
     #[expect(

@@ -202,8 +202,7 @@ trusted internal func entry_scope(pos isolate: bool) -> EntryScope
     }
 
     let suspended = trusted suspend_current(&selected);
-    let mut previous: bray.runtime.bootstrap.host.ExecutionOwner? = none;
-    let exchanged = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut previous);
+    let (exchanged, previous) = bray.runtime.bootstrap.host.exchange_attachment_execution(none);
 
     if exchanged != 0
     {
@@ -321,9 +320,9 @@ trusted internal func retire_entry_execution(
     )
     uses(intrinsic)
 {
-    let mut retired: bray.runtime.bootstrap.host.ExecutionOwner? = none;
+    let (status, retired) = bray.runtime.bootstrap.host.exchange_attachment_execution(none);
 
-    if trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut retired) != 0
+    if status != 0
     {
         trusted core.target.abort();
     }
@@ -351,7 +350,12 @@ trusted internal func restore_entry_execution(
 {
     trusted bray.runtime.bootstrap.host.enter_attachment_execution(previous);
 
-    if trusted bray.runtime.bootstrap.host.exchange_attachment_execution(previous) != 0
+    let outgoing = std.memory.replace_value<(bray.runtime.bootstrap.host.ExecutionOwner?)>(previous, none);
+    let (status, returned) = bray.runtime.bootstrap.host.exchange_attachment_execution(outgoing);
+
+    _ = std.memory.replace_value<(bray.runtime.bootstrap.host.ExecutionOwner?)>(previous, returned);
+
+    if status != 0
     {
         trusted core.target.abort();
     }
