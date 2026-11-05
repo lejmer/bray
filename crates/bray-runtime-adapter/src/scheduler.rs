@@ -67,26 +67,10 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_activation_callback(
-        invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
-    ) -> bray_runtime_abi::NativeActivationInvocation<'_> {
-        implementation::bray_runtime_activation_callback(invocation)
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_activation_callback_admission(
         count: usize,
         destination: &mut bray_runtime_abi::NativeReportRecords,
     ) -> u32 {
         implementation::bray_runtime_activation_callback_admission(count, destination)
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_activation_action_readiness(
-        invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
-    ) -> bray_runtime_abi::NativeActivationInvocation<'_> {
-        implementation::bray_runtime_activation_action_readiness(invocation)
     }
 }

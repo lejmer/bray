@@ -80,7 +80,9 @@ impl NativeEntryKind {
             | RuntimeAbiRole::RootExecution
             | RuntimeAbiRole::RootTerminalObservation
             | RuntimeAbiRole::TaskAllocation
-            | RuntimeAbiRole::AwaitedFrameComposition => {
+            | RuntimeAbiRole::AwaitedFrameComposition
+            | RuntimeAbiRole::ActivationCallback
+            | RuntimeAbiRole::ActivationActionReadiness => {
                 Some(Self::RuntimeValue)
             }
             RuntimeAbiRole::ThreadAttachmentIdentity | RuntimeAbiRole::ExecutionScopeEnter => {

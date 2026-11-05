@@ -14,7 +14,7 @@ static CALLBACKS: LazyLock<Mutex<HashMap<usize, Binding>>> =
 
 pub(crate) enum Resources {
     Task {
-        cancellation: Option<CancellationContext>,
+        cancellation: CancellationContext,
         wake: TaskWakeHandle,
     },
     SourceTask {
@@ -100,7 +100,7 @@ impl NativeCallback {
     }
 
     pub(crate) fn task(
-        cancellation: Option<CancellationContext>,
+        cancellation: CancellationContext,
         wake: TaskWakeHandle,
     ) -> Result<Self, NativeRuntimeStatus> {
         Self::insert(Resources::Task {

@@ -317,7 +317,13 @@ impl Compilation {
         }
 
         if has_async_entries {
-            runtime_roles.insert(RuntimeAbiRole::RootExecution);
+            runtime_roles.extend([
+                RuntimeAbiRole::RootExecution,
+                RuntimeAbiRole::InactiveFrameBroadcast,
+                RuntimeAbiRole::InactiveFrameResolution,
+                RuntimeAbiRole::ActivationCallback,
+                RuntimeAbiRole::ActivationActionReadiness,
+            ]);
             runtime_roles.insert(RuntimeAbiRole::MainThreadLaneStartup);
             runtime_roles.insert(RuntimeAbiRole::MainThreadLaneDrive);
             runtime_roles.extend(RuntimeAbiRole::host_controls());

@@ -227,6 +227,50 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             })
             .expect("checked MIR effect translation requires an established mapping or value");
 
+        let status = crate::translation::unit::support::extract_value(&self.builder, start.into(), 0)?
+            .into_int_value();
+
+        let accepted = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "root.frame.transferred",
+        ))?;
+
+        let rejected = self.types.context().append_basic_block(self.function, "root.frame.rejected");
+        let joined = self.types.context().append_basic_block(self.function, "root.frame.finished");
+
+        llvm(self.builder.build_conditional_branch(accepted, joined, rejected))?;
+        self.builder.position_at_end(rejected);
+
+        // Root startup takes the inactive frame only on success. A rejected
+        // host-owned frame still owes capture cleanup before product teardown.
+        let cleanup = self.allocate_panic_report_context()?;
+
+        for role in [
+            bray_runtime_interface::RuntimeAbiRole::InactiveFrameBroadcast,
+            bray_runtime_interface::RuntimeAbiRole::InactiveFrameResolution,
+        ] {
+            self.cleanup_inactive_storage(
+                frame_storage,
+                bray_ir::MirRuntimeReference::new(role, runtime.abi_version()),
+                cleanup,
+            )?;
+
+            crate::translation::panic::merge_pending_outcomes(
+                self.module,
+                self.types.context(),
+                &self.builder,
+                self.request.target(),
+                runtime.abi_version(),
+                outcome,
+                cleanup,
+            )?;
+        }
+
+        llvm(self.builder.build_unconditional_branch(joined))?;
+        self.builder.position_at_end(joined);
+
         Ok(start)
     }
 

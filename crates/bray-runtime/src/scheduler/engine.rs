@@ -41,8 +41,7 @@ pub(super) struct RegisteredTask {
     pub(super) registration: u64,
     pub(super) execution: FrameExecutionState,
     pub(super) origin: RuntimeThreadId,
-    pub(super) cancellation: Option<CancellationContext>,
-    pub(super) native: Option<Arc<crate::native::NativeTaskServices>>,
+    pub(super) cancellation: CancellationContext,
 }
 
 impl Scheduler {
@@ -102,7 +101,7 @@ impl Scheduler {
         cancellation: &CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
         let mut registration =
-            self.register(task, execution, origin, Some(cancellation.clone()))?;
+            self.register(task, execution, origin, cancellation.clone())?;
 
         let wake = registration.wake_handle();
 
@@ -117,21 +116,12 @@ impl Scheduler {
         Ok(registration)
     }
 
-    pub(crate) fn register_native(
-        &self,
-        task: TaskId,
-        execution: FrameExecutionState,
-        origin: RuntimeThreadId,
-    ) -> Result<TaskRegistration, SchedulerError> {
-        self.register(task, execution, origin, None)
-    }
-
     fn register(
         &self,
         task: TaskId,
         execution: FrameExecutionState,
         origin: RuntimeThreadId,
-        cancellation: Option<CancellationContext>,
+        cancellation: CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
         let lane = self
             .data
@@ -181,7 +171,6 @@ impl Scheduler {
                         execution,
                         origin,
                         cancellation,
-                        native: None,
                     },
                 );
 
@@ -205,7 +194,6 @@ impl Scheduler {
                         execution,
                         origin,
                         cancellation,
-                        native: None,
                     },
                 );
 
@@ -270,44 +258,6 @@ impl Scheduler {
         state.tasks.values().any(|binding| {
             binding.origin == thread.id() || binding.execution.origin() == Some(thread.id())
         })
-    }
-
-    pub(crate) fn unregister_native_task(&self, task: TaskId) {
-        unregister_task(&self.data, task, None);
-    }
-
-    pub(crate) fn install_native_task(
-        &self,
-        task: Arc<crate::native::NativeTaskServices>,
-    ) -> Result<(), SchedulerError> {
-        let mut state = self.lock_state()?;
-
-        let registered = state
-            .tasks
-            .get_mut(&task.id())
-            .ok_or(SchedulerError::UnknownTask(task.id()))?;
-
-        assert!(
-            registered.native.is_none(),
-            "a registration accepts native resources once"
-        );
-
-        registered.cancellation = Some(task.cancellation.clone());
-        registered.native = Some(task);
-
-        Ok(())
-    }
-
-    pub(crate) fn native_task(
-        &self,
-        task: TaskId,
-    ) -> Result<Arc<crate::native::NativeTaskServices>, SchedulerError> {
-        self.lock_state()?
-            .tasks
-            .get(&task)
-            .and_then(|registered| registered.native.as_ref())
-            .map(Arc::clone)
-            .ok_or(SchedulerError::UnknownTask(task))
     }
 
     /// Captures current task metadata in deterministic identity order.
@@ -488,13 +438,13 @@ fn unregister_task(scheduler: &SchedulerData, task: TaskId, registration: Option
 /// Transferable wake for one generation-checked Bray registration.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
-    owner: WakeOwner,
+    pub(super) owner: WakeOwner,
 }
 
 // A generic registration borrows its scheduler. A native wake owns an actual
 // Source storage reference, which retains execution independently of TLS.
 #[derive(Clone, Debug)]
-enum WakeOwner {
+pub(super) enum WakeOwner {
     Scheduler {
         task: TaskId,
         registration: u64,
