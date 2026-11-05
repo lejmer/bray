@@ -171,11 +171,11 @@ pub trait DependencyContractInstantiationContext {
     fn unit(&self) -> BoundUnitId;
 
     /// Resolves one formal requirement subject to the exact selection selected in this unit.
-    fn resolve_subject(
+    fn resolve_requirement(
         &mut self,
         subject: &DependencySubject,
         requirement: DependencyRequirementKind,
-    ) -> Result<BoundDependencySubject, Self::Error>;
+    ) -> Result<BoundDependencyRequirement, Self::Error>;
 
     /// Resolves one formal semantic guard to its exact bound-unit condition.
     fn resolve_guard(
@@ -322,6 +322,16 @@ pub enum BoundDependencyRequirement {
         /// The exact required semantic state.
         kind: BoundDependencyRequirementKind,
     },
+    /// Dependencies carried by a selected value, independently of the access used to read it.
+    /// Inferred callee projections need not have an explicit source access in the caller.
+    Value {
+        /// The evaluated input or result containing the selected value.
+        source: StorageAccessId,
+        /// Its checked selections and dereferences, relative to the source access.
+        path: crate::StorageReferencePath,
+        /// The selected value's type, after those selections and dereferences.
+        ty: bray_symbols::TypeId,
+    },
     /// Requirements active only while a semantic condition holds.
     Guarded(GuardedBoundDependencyRequirement),
 }
@@ -346,6 +356,7 @@ impl BoundDependencyRequirement {
     fn is_valid_for(&self, unit: BoundUnitId) -> bool {
         match self {
             Self::Direct { subject, .. } => subject.is_valid_for(unit),
+            Self::Value { source, path, .. } => source.unit() == unit && path.is_valid_for(unit),
             Self::Guarded(requirement) => requirement.is_valid_for(unit),
         }
     }
@@ -353,6 +364,7 @@ impl BoundDependencyRequirement {
     fn exists_in(&self, storage: &StoragePlan) -> bool {
         match self {
             Self::Direct { subject, .. } => subject.exists_in(storage),
+            Self::Value { source, .. } => storage.access(*source).is_some(),
             Self::Guarded(requirement) => requirement.exists_in(storage),
         }
     }
@@ -378,6 +390,9 @@ impl BoundDependencyContract {
             match requirement {
                 BoundDependencyRequirement::Direct { subject, .. } => {
                     subjects.insert(*subject);
+                }
+                BoundDependencyRequirement::Value { source, .. } => {
+                    subjects.insert(BoundDependencySubject::StorageAccess(*source));
                 }
                 BoundDependencyRequirement::Guarded(guarded) => {
                     subjects.insert(guarded.guard().subject());
@@ -463,15 +478,15 @@ where
             Err(DependencyContractInstantiationError::UnresolvedWitness)
         }
         DependencyRequirement::Direct { subject, kind } => {
-            let subject = context
-                .resolve_subject(subject, *kind)
+            let requirement = context
+                .resolve_requirement(subject, *kind)
                 .map_err(DependencyContractInstantiationError::Resolution)?;
 
-            if !subject.is_valid_for(context.unit()) {
+            if !requirement.is_valid_for(context.unit()) {
                 return Err(DependencyContractInstantiationError::ForeignUnit);
             }
 
-            Ok(BoundDependencyRequirement::direct(subject, (*kind).into()))
+            Ok(requirement)
         }
         DependencyRequirement::Guarded(guarded) => {
             let guard = context
@@ -693,12 +708,15 @@ mod tests {
             self.unit
         }
 
-        fn resolve_subject(
+        fn resolve_requirement(
             &mut self,
             _subject: &DependencySubject,
-            _requirement: DependencyRequirementKind,
-        ) -> Result<BoundDependencySubject, Self::Error> {
-            Ok(BoundDependencySubject::StorageAccess(self.access))
+            requirement: DependencyRequirementKind,
+        ) -> Result<BoundDependencyRequirement, Self::Error> {
+            Ok(BoundDependencyRequirement::direct(
+                BoundDependencySubject::StorageAccess(self.access),
+                requirement.into(),
+            ))
         }
 
         fn resolve_guard(

@@ -1008,6 +1008,10 @@ mod tests {
                     subject: BoundDependencySubject::StorageAccess(access),
                     kind,
                 } if *access == expected_access && *kind == expected_kind
+            ) || matches!(requirement,
+                BoundDependencyRequirement::Value { source, path, .. }
+                    if *source == expected_access && path.projections().is_empty()
+                        && expected_kind == BoundDependencyRequirementKind::ValueDependencies
             )
         }));
     }

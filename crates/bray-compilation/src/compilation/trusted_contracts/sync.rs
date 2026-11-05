@@ -390,6 +390,89 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
 }
 
 #[test]
+fn transparent_predicate_getters_preserve_the_contained_owner() {
+    for (body, valid) in [
+        (
+            "match consume owner { case ?value { consume(value); } case none {} }",
+            true,
+        ),
+        ("consume(Owner { acquisition = Marker {} });", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Owner {{ acquisition: Marker; }}
+            trusted predicate acquired(owner: &Marker);
+            const func present_owner(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_) executes(pure, total) {{
+                return match owner {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+            predicate optional_owner(owner: &(Owner?)) = owner matches none || acquired(owner = &present_owner(owner).acquisition);
+            func consume(pos owner: Owner) requires(trusted acquired(owner = &owner.acquisition)) {{}}
+            func forward(pos owner: Owner?) requires(trusted optional_owner(owner = &owner)) {{ {body} }}
+            "#
+        );
+        let application = compilation(&source);
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "forward"))
+            .expect("predicate getter retains its checked reference context");
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+    }
+}
+
+#[test]
+fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
+    for (mutation, valid) in [("", true), ("source = 1;", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Marker {{}}
+            struct Reference {{ acquisition: Marker; pointer: DataPointer<u32>; }}
+            trusted predicate acquired(owner: &Marker);
+            extern func address(pos source: &u32) -> DataPointer<u32> executes(pure, total);
+            trusted func fresh(pos pointer: DataPointer<u32>) -> Reference
+                ensures(trusted acquired(owner = &result.acquisition)) {{
+                return {{ acquisition = Marker {{}}, pointer = pointer }};
+            }}
+            const func borrow_reference(pos owner: &Reference) -> &Reference executes(pure, total) {{ return owner; }}
+            trusted func retain(pos owner: &Reference) -> Reference
+                requires(trusted acquired(owner = &owner.acquisition))
+                ensures(trusted acquired(owner = &result.acquisition)) {{
+                return {{ acquisition = Marker {{}}, pointer = owner.pointer }};
+            }}
+            func consume(pos owner: Reference) requires(trusted acquired(owner = &owner.acquisition)) {{}}
+            func caller() {{
+                let mut source: u32 = 0;
+                let first = fresh(address(&source));
+                let second = retain(borrow_reference(&first));
+                consume(first);
+                {mutation}
+                consume(second);
+            }}
+            "#
+        );
+        let application = compilation(&source);
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("address retention keeps its checked producer contracts");
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+    }
+}
+
+#[test]
 fn callable_fields_borrow_their_owning_context_in_contracts() {
     for (predicate, subject) in [
         ("trusted predicate held(owner: &Owner);", "owner"),

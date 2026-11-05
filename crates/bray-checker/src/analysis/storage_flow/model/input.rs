@@ -216,7 +216,7 @@ impl StorageFlowInput {
         };
 
         input.prepare_locations(storage, cleanup);
-        input.prepare_report_dependencies(storage, liveness, dependencies, cleanup);
+        input.prepare_report_dependencies(request, storage, liveness, dependencies, cleanup);
 
         input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
