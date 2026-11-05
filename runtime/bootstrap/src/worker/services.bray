@@ -20,19 +20,6 @@ internal callable Stop = @abi(c) trusted func(pos owner: DataPointer<Reference>,
 internal callable Detach = @abi(c) trusted func(pos owner: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = owner));
 
-internal callable Release = @abi(c) trusted func(pos owner: Reference)
-    requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner));
-
-// The allocation carries its own final release operation alongside demand and
-// stop. Merely retaining an empty optional pool does not retain its implementation.
-trusted internal func release_reference(pos owner: Reference)
-    requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
-    uses(foreign_call)
-{
-    let operation = (trusted domain(&owner)).release_service;
-
-    trusted operation(owner);
-}
 
 // Operations belong to the pool that owns their backing and provider. Root-only
 // consumers can borrow this interface without retaining native worker creation.

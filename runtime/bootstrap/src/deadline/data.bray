@@ -24,7 +24,6 @@ internal struct Domain
     poll_service: Poll;
     wait_service: Wait;
     close_service: Close;
-    release_service: Release;
     state: std.sync.SpinLock<State>;
 }
 

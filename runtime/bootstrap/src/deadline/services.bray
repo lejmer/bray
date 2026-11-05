@@ -17,18 +17,6 @@ internal callable Wait = @abi(c) trusted func(pos owner: DataPointer<Reference>,
 internal callable Close = @abi(c) trusted func(pos owner: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = owner));
 
-internal callable Release = @abi(c) trusted func(pos owner: Reference)
-    requires(trusted retained(owner = &owner), trusted retiring(owner = &owner));
-
-// Retirement transfers the complete broker owner to its selected provider.
-trusted internal func release_reference(pos owner: Reference)
-    requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
-    uses(foreign_call)
-{
-    let operation = (trusted domain(&owner)).release_service;
-
-    trusted operation(owner);
-}
 
 internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))

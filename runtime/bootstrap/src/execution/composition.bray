@@ -2,6 +2,7 @@
 trusted internal module bray.runtime.bootstrap.execution;
 
 using core.memory;
+using core.atomic;
 using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.activation;
@@ -116,7 +117,7 @@ trusted internal func composition_readiness(pos mut owner: bray.runtime.bootstra
 
     let (_, status) = trusted select_lane(
         trusted bound_execution(&selected),
-        0,
+        core.atomic.load<u64, 0>(&(trusted context(&selected)).registration),
         trusted bray.runtime.bootstrap.activation.callback.execution(&owner),
         none
     );

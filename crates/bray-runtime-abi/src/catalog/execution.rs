@@ -459,7 +459,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (TaskEventSignal),
                 compiler: Bray [Usize] -> U32,
-                owner: Bootstrap, availability: All, bootstrap: ("event.signal"), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_event_signal"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [SignalTaskEvent, EstablishVisibility]
             }

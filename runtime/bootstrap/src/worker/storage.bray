@@ -163,7 +163,6 @@ trusted internal func initialize(
             demand_service = demand_service,
             stop_service = stop_service,
             detach_service = detach_service,
-            release_service = destroy_reference,
             state = trusted std.sync.SpinLock<State>(
                 {
                     stopping = false,
@@ -292,7 +291,6 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
     trusted destroy_reference(trusted retire(pointer));
 }
 
-@abi(c)
 trusted internal func destroy_reference(pos owner: Reference)
     requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
 {
