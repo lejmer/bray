@@ -34,6 +34,16 @@ const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
     fields
 };
 const PANIC_REPORT: AbiField = AbiField::Struct(&PANIC_REPORT_FIELDS);
+const RUN_OUTCOME: AbiField = AbiField::Struct(&[U32, USIZE, PANIC_REPORT]);
+const FRAME_PROGRESS: AbiField = AbiField::Struct(&[U32, U32, USIZE, PANIC_REPORT]);
+const ACTIVATION_EXIT: AbiField = AbiField::TaggedUnion {
+    tag: RepresentationRole::ScalarU32,
+    variants: &[&[], &[], &[], &[], &[], &[], &[]],
+};
+const ACTIVATION_OPERATION: AbiField = AbiField::TaggedUnion {
+    tag: RepresentationRole::ScalarU32,
+    variants: &[&[], &[], &[], &[ACTIVATION_EXIT], &[USIZE], &[]],
+};
 const PRODUCT_IDENTITY_FIELDS: &[AbiField] = &[AbiField::Array {
     element: RepresentationRole::ScalarU8,
     length: 32,
@@ -81,6 +91,18 @@ macro_rules! define_runtime_source_fields {
     (@field PanicReportPointer) => { AbiField::NativePointer };
     (@field PanicReport) => { PANIC_REPORT };
     (@field FrameState) => { AbiField::Struct(&[U32, U32]) };
+    (@field Configuration) => { AbiField::Struct(&[
+        AbiField::Struct(&[]), USIZE, USIZE, U32,
+        AbiField::NativePointer, AbiField::NativePointer, AbiField::NativePointer,
+    ]) };
+    (@field RootStart) => { AbiField::Struct(&[U32, U64]) };
+    (@field TaskAllocation) => { AbiField::Struct(&[U32, U64]) };
+    (@field RunOutcome) => { RUN_OUTCOME };
+    (@field FrameProgress) => { FRAME_PROGRESS };
+    (@field ActivationInvocation) => { AbiField::Struct(&[
+        AbiField::Struct(&[]), AbiField::NativePointer, AbiField::NativePointer,
+        USIZE, ACTIVATION_OPERATION, AbiField::NativePointer, AbiField::NativePointer, U32,
+    ]) };
     (@field InactiveFrame) => { AbiField::Struct(&[
         AbiField::Struct(&[USIZE, USIZE, USIZE, U64, USIZE]), AbiField::NativePointer,
     ]) };
@@ -644,7 +666,7 @@ mod tests {
     }
 
     #[test]
-    fn source_initialization_requires_native_abi_and_pointer_width_parameters() {
+    fn source_initialization_requires_native_abi_without_capacity_parameters() {
         let compilation = compilation("module app;\n");
 
         let usize = compilation
@@ -655,17 +677,14 @@ mod tests {
             .codegen_representation_type(RepresentationRole::ScalarU32)
             .expect("fixture type must have a code-generation representation");
 
-        for (abi, parameter, context, expected) in [
-            (CallableAbi::C, usize, true, true),
-            (CallableAbi::C, usize, false, false),
-            (CallableAbi::C, u32, true, false),
-            (CallableAbi::Bray, usize, true, false),
+        for (abi, parameters, context, expected) in [
+            (CallableAbi::C, &[][..], true, true),
+            (CallableAbi::C, &[][..], false, false),
+            (CallableAbi::C, &[usize, usize][..], true, false),
+            (CallableAbi::Bray, &[][..], true, false),
         ] {
             let signature = CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(parameter, None, []),
-                    CodegenParameterMapping::direct(parameter, None, []),
-                ],
+                parameters.iter().copied().map(|parameter| CodegenParameterMapping::direct(parameter, None, [])),
                 CodegenResultMapping::direct(u32, None, []),
                 abi,
                 false,
@@ -688,6 +707,47 @@ mod tests {
                 .expect("fixture runtime signature must be checked"),
                 Some(expected),
             );
+        }
+    }
+
+    #[test]
+    fn source_invocation_checks_the_tag_and_each_operation_payload() {
+        for (tag, move_payload, accepted) in [
+            ("u32", "usize", true),
+            ("u8", "usize", false),
+            ("u32", "u32", false),
+        ] {
+            let compilation = compilation(&format!(r#"
+                module native_abi;
+
+                @layout(c, tag = u32)
+                union Exit {{ Completed; Cancelled; Panicked; RuntimeFailure; Quiescence; RetainedDestruction; SynchronousDisposal; }}
+
+                @layout(c, tag = {tag})
+                union Operation {{ Resume; Cancel; Broadcast; Resolve(pos cleanup_exit: Exit); Move(pos destination: {move_payload}); Destroy; }}
+            "#));
+
+            let symbols = compilation.symbol_graph().expect("native operation declarations bind");
+            let operation = symbols.unions().iter().find(|union| {
+                symbols.member_name(union.id().into()).is_some_and(|name| name.as_str() == "Operation")
+            }).expect("the fixture declares its native operation");
+
+            let ty = crate::compilation::substitution::named_type(
+                compilation.semantic_value_store().expect("native operations have semantic types"),
+                bray_symbols::NamedTypeSymbolId::Union(operation.id()),
+            ).expect("native operation types resolve");
+
+            let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
+            let matched = super::abi_type_matches(
+                &compilation,
+                ty,
+                &super::ACTIVATION_OPERATION,
+                &CancellationToken::new(),
+                &mut diagnostics,
+            ).expect("native operation ABI checks complete");
+
+            assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+            assert_eq!(matched, accepted, "tag={tag}, move payload={move_payload}");
         }
     }
 
