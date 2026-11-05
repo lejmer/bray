@@ -177,11 +177,7 @@ trusted internal func record_worker_failure(pos selected: &Current, pos owner: &
 
     let task = trusted bray.runtime.bootstrap.task.take_retained(reference);
 
-    {
-        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(&task);
-
-        trusted guard.get().failure = failure;
-    }
+    trusted record_task_failure(&task, failure);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(task);
 }

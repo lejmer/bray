@@ -1,6 +1,6 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
+    NativeExecutionLaneResult, NativeFrameProgress,
     NativeRunResultLayout, NativeRuntimeStatus, NativeTaskHandle,
 };
 
@@ -29,16 +29,6 @@ native_adapter! {
 }
 
 
-native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
-        frame: NativeInactiveFrame,
-        resume_state: u32,
-        destination: usize,
-        abandoning: u8,
-    ) {
-        implementation::bray_runtime_awaited_frame_composition(frame, resume_state, destination, abandoning)
-    }
-}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_task_event_creation() -> usize {

@@ -228,12 +228,12 @@ trusted internal func compose(
     let mut records = bray.runtime.bootstrap.empty_records();
     let invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
         &mut cursor,
-        std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(&requested),
+        &requested,
         &description,
         operation,
         argument,
-        std.memory.address_of_mut<bray.runtime.bootstrap.activation.Progress>(&mut progress),
-        std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records)
+        &mut progress,
+        &mut records
     );
     let admitted = trusted admit(invocation);
 
