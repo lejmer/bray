@@ -345,7 +345,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        let Some(path) = target.observation_path() else {
+        let Some(path) = crate::storage::storage_observation_path(
+            self.storage,
+            self.request.semantic_values(),
+            target,
+        ) else {
             return;
         };
 

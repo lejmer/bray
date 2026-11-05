@@ -71,6 +71,20 @@ trusted internal func pending_storage(
     );
 }
 
+trusted internal func pending_observation(
+    pos selected: &Current
+) -> &(bray.runtime.bootstrap.scheduler.Observation?)
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    return trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(
+        selected,
+        trusted pending_storage(selected)
+    );
+}
+
 trusted internal func acquire_ready(pos selected: &Current, pos owner: &Reference) -> bool
     requires(
         trusted view_owned(owner = &selected.acquisition),
@@ -81,12 +95,7 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
     uses(raw_memory, unchecked_init, unchecked_alias, intrinsic)
 {
-    let pointer = trusted pending_storage(selected);
-
-    if trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(
-        selected,
-        pointer
-    ) matches ?_
+    if trusted pending_observation(selected) matches ?_
     {
         trusted core.target.abort();
     }

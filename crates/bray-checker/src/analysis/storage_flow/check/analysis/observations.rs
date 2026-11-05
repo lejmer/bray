@@ -95,6 +95,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
 
+
         for (root, markers) in &self.input.footprint.identities {
             if matches!(
                 self.storage.identity(*root),
@@ -726,7 +727,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .clone()
             .any(|target| memory.unknown_reference_may_reach(target));
 
-        for (slot, targets, unknown) in memory.observed_references() {
+        for (target, targets, unknown) in memory.observed_references() {
+            let Some(slot) = crate::storage::storage_observation_path(
+                self.storage,
+                self.request.semantic_values(),
+                target,
+            ) else {
+                continue;
+            };
+
             if crate::ExecutionPlace::storage_path(self.storage, &slot).is_none() {
                 continue;
             }

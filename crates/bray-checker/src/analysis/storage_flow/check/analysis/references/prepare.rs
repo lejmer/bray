@@ -125,8 +125,6 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 continue;
             }
 
-            let mut types = std::collections::BTreeMap::new();
-
             for subject in
                 dependencies.lifecycle_dependencies()[&lifecycle.call.callable].reference_subjects()
             {
@@ -155,8 +153,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                         .or_default()
                         .insert((std::sync::Arc::from(path.projections()), ty));
 
-                    types.insert(subject.clone(), ty);
-                    self.lifecycle_paths.insert(key, path);
+                    self.lifecycle_paths.insert(key, (ty, path));
                 }
             }
 
@@ -176,8 +173,8 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
                 if relation
                     .entry()
-                    .is_none_or(|entry| types.contains_key(entry))
-                    && let Some(ty) = types.get(subject)
+                    .is_none_or(|entry| self.lifecycle_paths.contains_key(&(lifecycle.call.callable, entry.clone())))
+                    && let Some((ty, _)) = self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {

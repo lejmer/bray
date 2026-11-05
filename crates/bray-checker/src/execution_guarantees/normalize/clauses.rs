@@ -86,7 +86,7 @@ pub fn predicate_conditions_with_inputs(
     let patterns = super::pattern_conditions(unit, patterns, values);
 
     let references = storage.map_or_else(BTreeMap::new, |(plan, flow)| {
-        reference_conditions(plan, flow)
+        reference_conditions(plan, flow, values)
     });
 
     let mut pending = roots
@@ -228,6 +228,7 @@ fn predicate_domain(
 fn reference_conditions(
     storage: &bray_bound_tree::StoragePlan,
     flow: &bray_bound_tree::StorageFlow,
+    values: &bray_symbols::SemanticValueStore,
 ) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
     let mut references = BTreeMap::new();
 
@@ -260,8 +261,7 @@ fn reference_conditions(
                 projections,
             } => crate::ExecutionPlace::storage_path(storage, reference)
                 .and_then(|place| place.project(projections)),
-            _ => target
-                .observation_path()
+            _ => crate::storage::storage_observation_path(storage, values, target)
                 .and_then(|path| crate::ExecutionPlace::storage_path(storage, &path)),
         };
 

@@ -128,16 +128,6 @@ impl Scheduler {
             .map_or(Ok(None), BrayDeadlines::remaining)
     }
 
-    pub(crate) fn worker_wait_milliseconds(&self) -> u64 {
-        self.timer_remaining()
-            .expect("a retained worker can observe its optional deadline")
-            .map_or(u64::from(u32::MAX - 1), |remaining| {
-                u64::try_from(remaining.as_nanos().div_ceil(1_000_000))
-                    .unwrap_or(u64::from(u32::MAX - 1))
-                    .min(u64::from(u32::MAX - 1))
-            })
-    }
-
     pub(crate) fn close_timers(&self) {
         super::native::close_deadlines(&self.data.source.reference);
     }

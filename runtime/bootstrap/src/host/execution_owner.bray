@@ -10,12 +10,12 @@ using internal bray.runtime.bootstrap;
 
 // Exchange whole, thread-bound execution owners on the actual current
 // attachment. Their acquisition or OS-entry scope keeps that attachment live.
-trusted internal func exchange_attachment_execution(pos execution: &mut(ExecutionOwner?)) -> u32
+internal func exchange_attachment_execution(pos execution: ExecutionOwner?) -> (u32, ExecutionOwner?)
     requires((execution matches none || trusted execution_option_owned(owner = &execution)))
-    ensures((execution matches none || trusted execution_option_owned(owner = &execution)))
+    ensures((result.1 matches none || trusted execution_option_owned(owner = &result.1)))
     when(execution matches ?_)
     {
-        ensures(result == 0 || execution matches ?_)
+        ensures(result.0 == 0 || result.1 matches ?_)
     }
     uses(intrinsic)
 {
@@ -26,7 +26,7 @@ trusted internal func exchange_attachment_execution(pos execution: &mut(Executio
 
         if !lease.active
         {
-            return 4;
+            return (4, execution);
         }
 
         let identity = trusted current_attachment_locked(&lease);
@@ -41,19 +41,19 @@ trusted internal func exchange_attachment_execution(pos execution: &mut(Executio
             {
                 if entry.closing
                 {
-                    return 4;
+                    return (4, execution);
                 }
 
                 needs_exit = entry.cleanup matches none && execution matches ?_;
             }
             else
             {
-                return 4;
+                return (4, execution);
             }
         }
         else
         {
-            return 4;
+            return (4, execution);
         }
     }
 
@@ -63,7 +63,7 @@ trusted internal func exchange_attachment_execution(pos execution: &mut(Executio
 
         if status != 0
         {
-            return status;
+            return (status, execution);
         }
     }
 
@@ -71,7 +71,7 @@ trusted internal func exchange_attachment_execution(pos execution: &mut(Executio
 
     if !lease.active
     {
-        return 4;
+        return (4, execution);
     }
 
     let identity = trusted current_attachment_locked(&lease);
@@ -86,15 +86,28 @@ trusted internal func exchange_attachment_execution(pos execution: &mut(Executio
         {
             if entry.closing
             {
-                return 4;
+                return (4, execution);
             }
 
-            trusted internal std.memory.swap_values<(ExecutionOwner?)>(&mut entry.execution, execution);
-            return 0;
+            let previous = trusted replace_execution_owner(entry, execution);
+
+            return (0, previous);
         }
     }
 
-    return 4;
+    return (4, execution);
+}
+
+// The actual attachment row owns its installed execution record. Replacement
+// transfers that complete owner and installs the incoming owner in the same slot.
+trusted internal func replace_execution_owner(
+    pos attachment: &mut Attachment,
+    pos execution: ExecutionOwner?
+) -> ExecutionOwner?
+    requires(execution matches none || trusted execution_option_owned(owner = &execution))
+    ensures(result matches none || trusted execution_option_owned(owner = &result))
+{
+    return std.memory.replace_value<(ExecutionOwner?)>(&mut attachment.execution, execution);
 }
 
 trusted internal func take_attachment_execution(pos owner: &AttachmentExit) -> ExecutionOwner?

@@ -38,7 +38,7 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
             bray_symbols::CallableInstanceData,
             bray_symbols::DependencySubject,
         ),
-        bray_bound_tree::StorageReferencePath,
+        (bray_symbols::TypeId, bray_bound_tree::StorageReferencePath),
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,

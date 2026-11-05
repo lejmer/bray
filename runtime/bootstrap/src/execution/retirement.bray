@@ -26,12 +26,14 @@ trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runt
 
     trusted bray.runtime.bootstrap.host.enter_attachment_execution(&mut withdrawn);
 
-    if trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut withdrawn) != 0
+    let (status, returned) = bray.runtime.bootstrap.host.exchange_attachment_execution(withdrawn);
+
+    if status != 0
     {
         trusted core.target.abort();
     }
 
-    return withdrawn;
+    return returned;
 }
 
 internal func take_retiring_resources(

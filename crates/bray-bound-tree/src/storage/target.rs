@@ -201,7 +201,9 @@ impl StorageTarget {
             }
     }
 
-    /// Returns the value observation supplied by a direct slot or one entry borrow layer.
+    /// Returns a direct slot or first incoming-reference layer structurally.
+    /// Interpreting an entry as a logical value also requires its declared storage type.
+    /// A raw pointer's pointee is distinct from the pointer descriptor.
     pub fn observation_path(&self) -> Option<StoragePath> {
         if self.previous || self.projections().contains(&StorageProjection::OwnedTarget) {
             return None;

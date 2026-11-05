@@ -131,7 +131,7 @@ trusted internal func publish_event_wait(
 {
     let parent = owner.waiter.handle;
 
-    let (previous, immediate): (usize, bool) =
+    let (previous, immediate): (u64, bool) =
     {
         let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
         let mut mutation = trusted event_anchor(retained_event, lease);

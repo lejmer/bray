@@ -84,8 +84,7 @@ trusted internal func publish_driver(
 {
     let resource = execution.resource;
     let selected = trusted borrow_execution(&execution);
-    let mut previous: bray.runtime.bootstrap.host.ExecutionOwner? = execution;
-    let published = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut previous);
+    let (published, previous) = bray.runtime.bootstrap.host.exchange_attachment_execution(execution);
 
     if published != 0
     {
@@ -99,14 +98,15 @@ trusted internal func publish_driver(
         case Ok(_) { return (0, none); }
         case Error(status)
         {
-            let mut withdrawn = trusted take_previous(&selected);
+            let withdrawn = trusted take_previous(&selected);
+            let (restored, returned) = bray.runtime.bootstrap.host.exchange_attachment_execution(withdrawn);
 
-            if trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut withdrawn) != 0
+            if restored != 0
             {
                 trusted core.target.abort();
             }
 
-            return (status, withdrawn);
+            return (status, returned);
         }
     }
 }

@@ -62,17 +62,6 @@ impl CleanupIncident {
         )
     }
 
-    pub(crate) fn report(&mut self) -> bray_runtime_abi::NativeRuntimeStatus {
-        let Some(report) = self.payload.take() else {
-            return bray_runtime_abi::NativeRuntimeStatus::SUCCESS;
-        };
-
-        crate::report_provider::bray_runtime_report_segment_consumer(
-            &self.metadata.into_native(),
-            &mut report.into_native(),
-        )
-    }
-
     /// Returns the deterministic encounter ordinal.
     pub const fn ordinal(&self) -> u64 {
         self.metadata.ordinal

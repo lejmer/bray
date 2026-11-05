@@ -216,17 +216,6 @@ impl NativeCallback {
     // Retain resources for the descriptor transferred into a Source registration.
     // This only clones already admitted owners and never allocates.
     pub(crate) fn retain_timer(&self) -> NativeEventCallback {
-        self.retain_with(invoke_timer)
-    }
-
-    pub(super) fn retain(&self) -> NativeEventCallback {
-        self.retain_with(invoke)
-    }
-
-    fn retain_with(
-        &self,
-        call: extern "C" fn(usize, u32) -> NativeRuntimeStatus,
-    ) -> NativeEventCallback {
         let mut callbacks = CALLBACKS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -242,7 +231,7 @@ impl NativeCallback {
 
         NativeEventCallback {
             context: self.identity,
-            call,
+            call: invoke_timer,
         }
     }
 }
@@ -271,15 +260,7 @@ impl Drop for NativeCallback {
     }
 }
 
-pub(super) extern "C" fn invoke(context: usize, notify: u32) -> NativeRuntimeStatus {
-    invoke_with(context, notify, TaskWakeCause::Explicit)
-}
-
 extern "C" fn invoke_timer(context: usize, notify: u32) -> NativeRuntimeStatus {
-    invoke_with(context, notify, TaskWakeCause::Timer)
-}
-
-fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRuntimeStatus {
     let result = std::panic::catch_unwind(|| {
         if notify == 0 {
             release(context);
@@ -304,10 +285,10 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
                 cancellation, wake, ..
             } => {
                 let _cancellation = cancellation;
-                let _ = wake.wake_with_cause(cause);
+                let _ = wake.wake_with_cause(TaskWakeCause::Timer);
             }
             Resources::SourceTask { wake, .. } => {
-                let _ = wake.wake_with_cause(cause);
+                let _ = wake.wake_with_cause(TaskWakeCause::Timer);
             }
             Resources::Timeout { cancellation, .. } => {
                 cancellation.request_timeout();

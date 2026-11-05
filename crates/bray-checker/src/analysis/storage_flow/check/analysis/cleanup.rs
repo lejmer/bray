@@ -217,11 +217,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     memory.complete_transition(operation.occurrence());
                 }
 
-                if let (Some(call), Some(effects)) = (&invocation, &effects) {
-                    self.cleanup_observations(&memory, call, effects, &mut invalidation);
-                }
+                let completion = if let (Some(call), Some(effects)) = (&invocation, &effects) {
+                    self.cleanup_observations(&memory, call, effects, &mut invalidation)
+                } else {
+                    bray_bound_tree::StorageCompletion::default()
+                };
 
                 if publish {
+                    if invocation.is_some() {
+                        self.completions
+                            .entry(identity)
+                            .and_modify(|previous| previous.merge(&completion))
+                            .or_insert_with(|| completion.clone());
+                    }
+
                     self.cleanup_mutations
                         .entry(identity)
                         .and_modify(|previous| previous.merge(&invalidation))
@@ -230,6 +239,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 domain.invalidate_observations(execution, identity, &invalidation, false, false);
+                domain.observe_references(execution, completion.references());
             };
 
         domain.transition_storage_cleanup(
@@ -393,7 +403,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
 
             let location = |subject: &bray_symbols::DependencySubject| {
-                let path = self
+                let (_, path) = self
                     .input
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone()))?;
@@ -498,15 +508,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         call: &crate::analysis::guarantee::LifecycleInvocation<'_>,
         effects: &[Effect],
         invalidation: &mut StorageInvalidation,
-    ) {
+    ) -> bray_bound_tree::StorageCompletion {
+        let mut observations = std::collections::BTreeMap::new();
+
         let Some(path) = call.path else {
-            return;
+            return bray_bound_tree::StorageCompletion::default();
         };
 
         let contracts = &self.dependencies.lifecycle_dependencies()[&call.lifecycle.call.callable];
 
         let Some(receiver) = self.cleanup_receiver(memory, call.access, call.path) else {
-            return;
+            return bray_bound_tree::StorageCompletion::default();
         };
 
         for relation in contracts.borrows() {
@@ -520,7 +532,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(prepared) = self
+            let Some((_, prepared)) = self
                 .input
                 .lifecycle_paths
                 .get(&(call.lifecycle.call.callable, relation.exit().clone()))
@@ -552,6 +564,50 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 call.completes && relation.entry() != Some(relation.exit()),
             );
         }
+        // A normal destructor can establish facts about a borrowed field even
+        // when it consumes that field instead of forwarding it into another value.
+        if call.completes {
+            for subject in contracts.reference_subjects() {
+                if subject.subject_root() != DependencySubjectRoot::Receiver {
+                    continue;
+                }
+
+                let Some((ty, prepared)) = self.input.lifecycle_paths.get(&(
+                    call.lifecycle.call.callable,
+                    subject.clone(),
+                )) else {
+                    continue;
+                };
+
+                if crate::representation::reference_kind(self.request, *ty)
+                    != Some(bray_symbols::DependencyReferenceKind::Borrow)
+                {
+                    continue;
+                }
+
+                let Some(location) = memory.reference_location(receiver.clone(), prepared, None) else {
+                    continue;
+                };
+
+                let Some(targets) = memory.value_targets(&location) else {
+                    continue;
+                };
+
+                let [target] = targets.as_slice() else {
+                    continue;
+                };
+
+                observations.insert(
+                    StoragePath {
+                        root: path.root,
+                        projections: path.projections.iter().chain(prepared.projections()).copied().collect(),
+                    },
+                    target.clone(),
+                );
+            }
+        }
+
+        bray_bound_tree::StorageCompletion::new(observations, Default::default())
     }
 
     fn lifecycle_effects(
@@ -583,7 +639,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     return Some(vec![receiver]);
                 }
 
-                let prepared = self
+                let (_, prepared) = self
                     .input
                     .lifecycle_paths
                     .get(&(lifecycle.call.callable, subject.clone()))?;
