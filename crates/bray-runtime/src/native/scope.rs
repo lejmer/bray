@@ -16,6 +16,12 @@ unsafe extern "C" {
         isolate: u32,
     ) -> u64;
     safe fn bray_runtime_execution_scope_finish(storage: *mut u8) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_owner_scope_enter(
+        storage: *mut u8,
+        bytes: usize,
+        align: usize,
+        owner: &super::state::RetainedRuntime,
+    ) -> u64;
 }
 
 // The private boundary checks Source's actual layout before changing ownership.
@@ -34,18 +40,31 @@ pub(super) struct Scope {
 
 impl Scope {
     pub(super) fn enter(isolate: bool) -> Result<Self, NativeRuntimeStatus> {
+        Self::acquire(|storage| bray_runtime_execution_scope_enter(
+            storage,
+            size_of::<Storage>(),
+            align_of::<Storage>(),
+            u32::from(isolate),
+        ))
+    }
+
+    pub(super) fn borrow_owner(owner: &super::state::RetainedRuntime) -> Result<Self, NativeRuntimeStatus> {
+        Self::acquire(|storage| bray_runtime_execution_owner_scope_enter(
+            storage,
+            size_of::<Storage>(),
+            align_of::<Storage>(),
+            owner,
+        ))
+    }
+
+    fn acquire(enter: impl FnOnce(*mut u8) -> u64) -> Result<Self, NativeRuntimeStatus> {
         let mut scope = Self {
             storage: Storage([MaybeUninit::uninit(); 128]),
             active: false,
             _thread: PhantomData,
         };
 
-        let entered = bray_runtime_execution_scope_enter(
-            scope.storage.0.as_mut_ptr().cast(),
-            size_of::<Storage>(),
-            align_of::<Storage>(),
-            u32::from(isolate),
-        );
+        let entered = enter(scope.storage.0.as_mut_ptr().cast());
 
         // A contained construction failure has not initialized Source storage.
         // An entry that merely could not isolate still commits an actual scope.

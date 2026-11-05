@@ -39,16 +39,33 @@ trusted internal func native_scope_enter(
     ensures(trusted native_scope_initialized(owner = &storage))
     uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
 {
-    // A mismatched private ABI is a provider bug. Check before changing entry
-    // ownership, so no live Source value can be stranded in undersized storage.
-    if bytes < std.memory.stride_of<EntryScope>()
-        || align < std.memory.align_of<EntryScope>()
-        || isolate > 1
+    trusted validate_native_scope(bytes, align);
+
+    if isolate > 1
     {
         trusted core.target.abort();
     }
 
-    let scope = trusted entry_scope(isolate != 0);
+    return trusted publish_native_scope(storage, bytes, align, trusted entry_scope(isolate != 0));
+}
+
+internal func validate_native_scope(pos bytes: usize, pos align: usize)
+{
+    // Check before changing ownership, so an ABI mismatch cannot strand a live
+    // Source scope in undersized native storage.
+    if bytes < std.memory.stride_of<EntryScope>()
+        || align < std.memory.align_of<EntryScope>()
+    {
+        trusted core.target.abort();
+    }
+
+}
+
+trusted internal func publish_native_scope(pos storage: DataPointer<u8>, pos bytes: usize, pos align: usize, pos scope: EntryScope) -> u64
+    requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align), trusted entry_scope_owned(owner = &scope))
+    ensures(trusted native_scope_initialized(owner = &storage))
+    uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
+{
     let status = scope.status;
     let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
     let permit = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>, pos bytes: usize, pos align: usize)
