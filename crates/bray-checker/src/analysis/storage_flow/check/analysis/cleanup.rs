@@ -475,6 +475,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             receiver,
             bray_bound_tree::StorageProjection::ProductField(fields.pointer),
         )?;
+
         let has_backing = !targets.is_empty();
 
         let mut effects = targets
@@ -567,6 +568,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 call.completes && relation.entry() != Some(relation.exit()),
             );
         }
+
         // A normal destructor can establish facts about a borrowed field even
         // when it consumes that field instead of forwarding it into another value.
         if call.completes {

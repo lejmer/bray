@@ -95,7 +95,11 @@ trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime
     uses(raw_memory)
 {
     let queue_pointer = std.memory.address_of<Reference>(backing_queue(&owner));
-    let execution_pointer = std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(backing_execution(&owner));
+
+    let execution_pointer = std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(
+        backing_execution(&owner)
+    );
+
     let execution = trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(execution_pointer);
     let queue_owner = trusted std.memory.read<Reference>(queue_pointer);
 

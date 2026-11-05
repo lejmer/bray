@@ -71,9 +71,7 @@ trusted internal func pending_storage(
     );
 }
 
-trusted internal func pending_observation(
-    pos selected: &Current
-) -> &(bray.runtime.bootstrap.scheduler.Observation?)
+trusted internal func pending_observation(pos selected: &Current) -> &(bray.runtime.bootstrap.scheduler.Observation?)
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(trusted view_owned(owner = &selected.acquisition))
     executes(pure, total)

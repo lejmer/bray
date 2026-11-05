@@ -74,6 +74,7 @@ internal func take_retiring_resources(
     // Move each remaining obligation out of its actual context slot. Both take
     // operations replace the slot with none and preserve the counted view.
     let attachment = trusted take_driver_attachment(&selected);
+
     let previous = trusted take_previous(&selected);
 
     return (attachment, previous);
