@@ -88,7 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             // Consuming the carrier does not freeze the contents of its borrowed fields.
-            super::super::state::update_parent_observations(arguments, &place, &value);
+            super::super::state::update_parent_observations(arguments, &place, &value, Some(prepared.projections()));
             arguments.insert(place, value);
 
             if let Some(reference) = selection.inputs()

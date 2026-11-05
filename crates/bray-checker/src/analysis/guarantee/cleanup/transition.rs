@@ -430,7 +430,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .as_ref()
                         .and_then(|path| ExecutionPlace::storage_path(self.storage, path))
                     {
-                        state.assign(place, crate::ExecutionCondition::Unknown);
+                        state.assign(place, crate::ExecutionCondition::Unknown, None);
                     }
 
                     let retained = std::iter::once(&state.result)

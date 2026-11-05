@@ -433,6 +433,7 @@ impl ExecutionCondition {
         &self,
         path: &[bray_symbols::ConstantProjectionKind],
         value: Self,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
     ) -> Self {
         use bray_bound_tree::StorageProjection;
         use bray_symbols::ConstantProjectionKind;
@@ -442,7 +443,7 @@ impl ExecutionCondition {
         };
 
         if let Some(snapshot) = self.nullable_payload_snapshot() {
-            let updated = snapshot.with_component(path, value);
+            let updated = snapshot.with_component(path, value, storage);
 
             if updated == *snapshot {
                 return self.clone();
@@ -453,7 +454,7 @@ impl ExecutionCondition {
             };
 
             return owner
-                .with_component(&[ConstantProjectionKind::NullableValue], updated)
+                .with_component(&[ConstantProjectionKind::NullableValue], updated, storage)
                 .component(ConstantProjectionKind::NullableValue);
         }
 
@@ -465,13 +466,19 @@ impl ExecutionCondition {
             }
             ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
             ConstantProjectionKind::UnionPayloadField(field) => {
-                let Self::Constructed(_, fields) = self else {
-                    return Self::Unknown;
-                };
-
-                let Some((projection, _)) = fields.iter().find(|(projection, _)|
+                // The checked storage path retains the variant even when this
+                // observation has not materialized an active payload yet.
+                let projection = storage.into_iter().flatten().find(|projection|
                     matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field)
-                ) else { return Self::Unknown; };
+                ).or_else(|| {
+                    let Self::Constructed(_, fields) = self else { return None; };
+
+                    fields.iter().find_map(|(projection, _)|
+                        matches!(projection, StorageProjection::ActiveUnionPayloadField { field: candidate, .. } if candidate == field).then_some(projection)
+                    )
+                });
+
+                let Some(projection) = projection else { return Self::Unknown; };
 
                 *projection
             }
@@ -483,7 +490,7 @@ impl ExecutionCondition {
         // Stored components contain payload data. The extraction view retains
         // its owner separately and must not become its own payload's backing.
         let previous = previous.nullable_payload_snapshot().unwrap_or(&previous);
-        let child = previous.with_component(rest, value);
+        let child = previous.with_component(rest, value, storage);
 
         if child == *previous {
             return self.clone();

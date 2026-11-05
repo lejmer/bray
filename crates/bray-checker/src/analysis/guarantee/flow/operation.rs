@@ -17,7 +17,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         path: &bray_bound_tree::StoragePath,
     ) {
         if let Some(place) = crate::ExecutionPlace::storage_path(self.storage, path) {
-            state.assign(place, ExecutionCondition::Unknown);
+            state.assign(place, ExecutionCondition::Unknown, None);
         }
     }
 
@@ -417,7 +417,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.assign(
                 self.input_place(invocation)
                     .expect("completed input retains its place"),
-                result,
+                result, None
             );
 
             return;
@@ -454,7 +454,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .input_place(invocation)
                     .expect("completed protocol invocation retains its result slot");
 
-                state.assign(place, result.clone());
+                state.assign(place, result.clone(), None);
             }
 
             let result = self.complete_trusted_call(
@@ -472,7 +472,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.assign(
                     self.input_place(invocation)
                         .expect("completed protocol invocation retains its result slot"),
-                    result,
+                    result, None
                 );
             }
 
@@ -590,10 +590,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     if let Some(owner) = assignment_place
                         && *owner != place
                     {
-                        state.assign(owner.clone(), value.clone());
+                        state.assign(owner.clone(), value.clone(), None);
                     }
 
-                    state.assign(place, value);
+                    state.assign(place, value, None);
                 }
             }
             Some(BoundExpression::ControlTransfer(transfer))
@@ -680,7 +680,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .expect("checked pattern binding has an execution place");
 
             // Named and discarded owners retain the same committed value and cleanup evidence.
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
     }
 }
