@@ -158,7 +158,7 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
     };
 }
 
-trusted internal func take_acquired_attachment(
+internal func take_acquired_attachment(
     pos owner: bray.runtime.bootstrap.host.attachment.Owner?
 ) -> bray.runtime.bootstrap.host.attachment.Owner
     requires(owner matches ?_, trusted acquired_attachment_option(owner = &owner))

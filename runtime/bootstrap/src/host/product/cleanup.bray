@@ -63,12 +63,17 @@ internal struct AdmittedStatic
             _ = trusted drain_outcome(output);
         }
 
-        if let Asynchronous(_, frame, execution) = self.finalization
+        match consume self.finalization
         {
-            if frame != 0
+            case Asynchronous(_, frame, execution)
             {
-                trusted execution.discard(std.memory.address_of<NativeExecution>(&execution), frame);
+                if frame != 0
+                {
+                    trusted execution.discard(std.memory.address_of<NativeExecution>(&execution), frame);
+                }
             }
+            case None {}
+            case Synchronous(_) {}
         }
     }
 }

@@ -110,6 +110,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
 
     if std.memory.is_null<u8>(allocation)
     {
+        trusted finish_native_provider_option(provider);
         return 4;
     }
 
@@ -137,6 +138,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
                 align = std.memory.align_of<Domain>()
             );
 
+            trusted finish_native_provider_option(provider);
             return 4;
         }
     };
@@ -153,6 +155,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
             align = std.memory.align_of<Domain>()
         );
 
+        trusted finish_native_provider_option(provider);
         return 4;
     }
 

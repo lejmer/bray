@@ -11,9 +11,9 @@ pub(crate) fn storage_observation_path(
     target: &bray_bound_tree::StorageTarget,
 ) -> Option<bray_bound_tree::StoragePath> {
     if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
-        && !storage.storage_type(reference.root).is_some_and(|ty| {
-            matches!(values.type_data(ty).as_ref(), TypeData::Borrow { .. })
-        })
+        && !storage
+            .storage_type(reference.root)
+            .is_some_and(|ty| matches!(values.type_data(ty).as_ref(), TypeData::Borrow { .. }))
     {
         return None;
     }
