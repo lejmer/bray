@@ -65,6 +65,10 @@ fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
 
     for role in [
         RuntimeAbiRole::RootExecution,
+        RuntimeAbiRole::InactiveFrameBroadcast,
+        RuntimeAbiRole::InactiveFrameResolution,
+        RuntimeAbiRole::ActivationCallback,
+        RuntimeAbiRole::ActivationActionReadiness,
         RuntimeAbiRole::RootCancellationRequest,
         RuntimeAbiRole::RootTerminalObservation,
         RuntimeAbiRole::RootCompletionResolution,

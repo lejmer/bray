@@ -1861,11 +1861,11 @@ macro_rules! runtime_role_catalog {
                 effects: [TransferCleanupIncident]
             }
             ActivationCallback {
-                "Contain one native producer callback within its Bray activation.", "activation_callback",
+                "Invoke one producer through its complete Bray activation context.", "activation_callback",
                 native: (ACTIVATION_CALLBACK_SYMBOL = "bray_runtime_activation_callback", [ActivationInvocation] -> ActivationInvocation),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.invoke_task"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
             }
@@ -1873,7 +1873,7 @@ macro_rules! runtime_role_catalog {
                 "Check a synchronous described action against its retained caller execution context.", "activation_action_readiness",
                 native: (ACTIVATION_ACTION_READINESS_SYMBOL = "bray_runtime_activation_action_readiness", [ActivationInvocation] -> ActivationInvocation),
                 call_hook: (), compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.action_readiness"), host_control: false,
                 capabilities: [CooperativeExecution], effects: []
             }
             InactiveFrameBroadcast {

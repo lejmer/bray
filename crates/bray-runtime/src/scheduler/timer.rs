@@ -5,7 +5,7 @@ use bray_runtime_abi::NativeEventCallback;
 
 use super::contract::SchedulerError;
 use super::deadline::{self, BrayDeadlines};
-use super::engine::{Scheduler, SchedulerData, TaskWakeHandle};
+use super::engine::{Scheduler, SchedulerData, TaskWakeHandle, WakeOwner};
 use crate::event::NativeCallback;
 
 impl Scheduler {
@@ -15,42 +15,37 @@ impl Scheduler {
         duration: Duration,
         wake: &TaskWakeHandle,
     ) -> Result<TimerRegistration, SchedulerError> {
-        if !Weak::ptr_eq(&wake.scheduler, &Arc::downgrade(&self.data)) {
-            return Err(SchedulerError::UnknownTask(wake.task));
+        let (task, registration, scheduler) = match &wake.owner {
+            WakeOwner::Scheduler { task, registration, scheduler } => (task, registration, scheduler),
+            WakeOwner::Native(cancellation) => {
+                return Err(SchedulerError::UnknownTask(crate::TaskId::from_bray_handle(
+                    cancellation.native_reference().task(),
+                )));
+            }
+        };
+
+        if !Weak::ptr_eq(scheduler, &Arc::downgrade(&self.data)) {
+            return Err(SchedulerError::UnknownTask(*task));
         }
 
-        let (native, cancellation) = {
+        // The timer callback retains the same cancellation owner until its
+        // committed wake or withdrawal, independently of this registry lookup.
+        let cancellation = {
             let state = self.lock_state()?;
 
-            let task = state
+            state
                 .tasks
-                .get(&wake.task)
-                .filter(|task| task.registration == wake.registration)
-                .ok_or(SchedulerError::UnknownTask(wake.task))?;
-
-            (task.native.clone(), task.cancellation.clone())
+                .get(task)
+                .filter(|task| task.registration == *registration)
+                .ok_or(SchedulerError::UnknownTask(*task))?
+                .cancellation
+                .clone()
         };
 
         let deadline = deadline::deadline_after(duration)?;
-
-        let resources = if native.is_none() {
-            Some(
-                NativeCallback::task(cancellation, wake.clone())
-                    .map_err(SchedulerError::TimerResources)?,
-            )
-        } else {
-            None
-        };
-
-        let descriptor = native.as_ref().map_or_else(
-            || {
-                resources
-                    .as_ref()
-                    .expect("host task admits callback resources")
-                    .retain_timer()
-            },
-            |native| native.callback.retain_timer(),
-        );
+        let resources = NativeCallback::task(cancellation, wake.clone())
+            .map_err(SchedulerError::TimerResources)?;
+        let descriptor = resources.retain_timer();
 
         // Source admission invokes no callbacks. Serialize publication with task
         // retirement so no deadline can be published after its scope is withdrawn.
@@ -60,13 +55,13 @@ impl Scheduler {
 
             if !state
                 .tasks
-                .get(&wake.task)
-                .is_some_and(|task| task.registration == wake.registration)
+                .get(task)
+                .is_some_and(|task| task.registration == *registration)
             {
-                return Err(SchedulerError::UnknownTask(wake.task));
+                return Err(SchedulerError::UnknownTask(*task));
             }
 
-            deadlines.register(deadline, wake.registration, &descriptor)
+            deadlines.register(deadline, *registration, &descriptor)
         })();
 
         self.finish_registration(result, descriptor)
