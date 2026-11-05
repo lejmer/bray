@@ -420,9 +420,13 @@ trusted internal func discard_backing(pos backing: bray.runtime.bootstrap.schedu
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
 {
-    if backing matches bray.runtime.bootstrap.scheduler.Backing.Execution(_)
+    if backing.execution matches ?_
     {
         _ = trusted release_pin(trusted bray.runtime.bootstrap.scheduler.take_execution_backing(backing));
+    }
+    else
+    {
+        trusted bray.runtime.bootstrap.scheduler.release_external_backing(backing);
     }
 }
 

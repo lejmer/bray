@@ -97,7 +97,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     )
     ensures(trusted view_owned(owner = &selected.acquisition))
 {
-    let provider = match consume create_native_provider(&configuration)
+    let provider = match consume trusted create_native_provider(&configuration)
     {
         case Ok(value) { yield value; }
         case Error(status) { return status; }

@@ -56,7 +56,7 @@ internal func create(
     )
 {
     if !trusted bray.runtime.bootstrap.scheduler.worker_admission(
-        trusted bray.runtime.bootstrap.scheduler.backing_scheduler(&backing)
+        trusted bray.runtime.bootstrap.scheduler.backing_queue(&backing)
     )
     {
         let rejected: (bray.runtime.bootstrap.scheduler.Backing, u32) = (backing, 4);
@@ -204,8 +204,7 @@ trusted internal func domain(pos owner: &Reference) -> &Domain
     ensures(
         trusted retained(owner = &owner.marker),
         trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
-        (result.backing matches bray.runtime.bootstrap.scheduler.Backing.Retired ||
-            trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing))
+        trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing)
     )
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
@@ -354,9 +353,9 @@ trusted internal func destroy_reference(pos owner: Reference)
                 bytes = result.2.bytes,
                 align = result.2.align
             ),
-            result.0 matches bray.runtime.bootstrap.scheduler.Backing.Retired ||
-                (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.0) &&
-                trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0))
+            trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.0),
+            trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0),
+            result.0.execution matches none
         )
         uses(raw_memory)
     {
@@ -364,9 +363,9 @@ trusted internal func destroy_reference(pos owner: Reference)
             requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
             ensures(
                 trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
-                result.backing matches bray.runtime.bootstrap.scheduler.Backing.Retired ||
-                    (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing) &&
-                    trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing)),
+                trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing),
+                trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing),
+                result.backing.execution matches none,
                 trusted core.memory.owned_allocation(
                     pointer = std.memory.byte_address<Domain>(owner.pointer),
                     bytes = std.memory.stride_of<Domain>(),
@@ -429,12 +428,7 @@ trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtim
 {
     let backing = &(trusted domain(owner)).backing;
 
-    if backing matches bray.runtime.bootstrap.scheduler.Backing.Retired
-    {
-        trusted core.target.abort();
-    }
-
-    return trusted bray.runtime.bootstrap.scheduler.backing_scheduler(backing);
+    return trusted bray.runtime.bootstrap.scheduler.backing_queue(backing);
 }
 
 trusted internal func execution_reference(pos owner: &Reference) -> &bray.runtime.bootstrap.execution.Reference
@@ -443,7 +437,7 @@ trusted internal func execution_reference(pos owner: &Reference) -> &bray.runtim
 {
     let backing = &(trusted domain(owner)).backing;
 
-    if !(backing matches bray.runtime.bootstrap.scheduler.Backing.Execution(_))
+    if !(backing.execution matches ?_)
     {
         trusted core.target.abort();
     }
@@ -486,7 +480,7 @@ trusted internal func take_execution_backing(
     )
     uses(raw_memory, unchecked_init, intrinsic)
 {
-    let pointer = std.memory.address_of<bray.runtime.bootstrap.scheduler.Backing>(&(trusted domain(owner)).backing);
+    let pointer = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(&(trusted domain(owner)).backing.execution);
 
     let take = trusted lambda(
         pos context: usize,
@@ -495,8 +489,8 @@ trusted internal func take_execution_backing(
         pos scope: DataPointer<DataPointer<Scope>>,
         pos argument: u64,
         pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Backing>
-    ) -> bray.runtime.bootstrap.scheduler.Backing
+        pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+    ) -> bray.runtime.bootstrap.execution.Reference?
         requires(
             trusted retained(owner = &owner.marker),
             trusted callback_authorized(
@@ -509,37 +503,37 @@ trusted internal func take_execution_backing(
             )
         )
         ensures(
-            trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result),
-            trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result)
+            trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result),
+            result matches ?_
         )
         uses(raw_memory, unchecked_init, intrinsic)
     {
         let permit = trusted lambda(
             pos owner: &Reference,
-            pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Backing>
+            pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
         )
             requires(trusted retained(owner = &owner.marker))
             ensures(
-                trusted core.memory.valid_read<bray.runtime.bootstrap.scheduler.Backing>(pointer = pointer, count = 1),
-                trusted core.memory.valid_write<bray.runtime.bootstrap.scheduler.Backing>(pointer = pointer, count = 1),
-                trusted core.memory.initialized_as<bray.runtime.bootstrap.scheduler.Backing>(pointer = pointer),
-                trusted core.memory.aligned_for<bray.runtime.bootstrap.scheduler.Backing>(pointer = pointer)
+                trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+                trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+                trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+                trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
             )
             executes(pure, total) {};
 
         trusted permit(owner, pointer);
 
-        let backing = trusted std.memory.read<bray.runtime.bootstrap.scheduler.Backing>(pointer);
+        let backing = trusted std.memory.read<(bray.runtime.bootstrap.execution.Reference?)>(pointer);
 
-        trusted std.memory.write<bray.runtime.bootstrap.scheduler.Backing>(
+        trusted std.memory.write<(bray.runtime.bootstrap.execution.Reference?)>(
             pointer,
-            bray.runtime.bootstrap.scheduler.Backing.Retired
+            none
         );
 
         return backing;
     };
 
-    return trusted bray.runtime.bootstrap.scheduler.take_execution_backing(
+    return trusted bray.runtime.bootstrap.execution.take_pin(
         trusted take(context, owner, pool, scope, argument, outcome, pointer)
     );
 }

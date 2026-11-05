@@ -35,11 +35,11 @@ trusted internal func native_timeout_prepare(
         return status;
     }
 
-    let workers = trusted ensure_workers(&owner.execution);
+    let worker_status = trusted ensure_workers(&owner.execution);
 
-    if workers != 0
+    if worker_status != 0
     {
-        return workers;
+        return worker_status;
     }
 
     let demanded = trusted demand_lane(
