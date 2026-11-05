@@ -12,14 +12,9 @@ use crate::native::RetainedRuntime;
 
 static NEXT_RESOURCE: AtomicUsize = AtomicUsize::new(1);
 static RESOURCES: OnceLock<Mutex<BTreeMap<usize, Option<RetainedRuntime>>>> = OnceLock::new();
-static FRAMES: OnceLock<Mutex<BTreeMap<usize, crate::TaskAdmission>>> = OnceLock::new();
 
 fn resources() -> &'static Mutex<BTreeMap<usize, Option<RetainedRuntime>>> {
     RESOURCES.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
-fn frames() -> &'static Mutex<BTreeMap<usize, crate::TaskAdmission>> {
-    FRAMES.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
 pub(super) fn runtime(resource: usize) -> Option<RetainedRuntime> {
@@ -125,59 +120,48 @@ extern "C" fn with_cleanup(
     }
 }
 
-extern "C" fn admit(output: &mut usize) -> NativeRuntimeStatus {
+extern "C" fn admit(execution: &NativeProductExecution, output: &mut usize) -> NativeRuntimeStatus {
     *output = 0;
-
-    let admission = match crate::TaskAdmission::new() {
+    let owner = runtime(execution.resource).expect("asynchronous product cleanup retains its Source execution");
+    let admitted = crate::native::with_cleanup_runtime(&owner, || {
+        crate::native::implementation::bray_runtime_task_allocation()
+    });
+    let (admission, status) = match admitted {
         Ok(admission) => admission,
-        Err(error) => return admission_failure(error),
+        Err(status) => return status,
     };
+    let Some(task) = admission.task() else { return admission.status(); };
 
-    let Ok(identity) = usize::try_from(admission.id.raw()) else {
-        return NativeRuntimeStatus::IDENTITY_EXHAUSTED;
-    };
+    // Entry retirement cannot revoke the independently admitted source claim.
+    if !status.is_success() { crate::native::record_cleanup_failure(1); }
 
-    frames()
-        .lock()
-        .expect("admitted finalizer storage remains available")
-        .insert(identity, admission);
-
-    *output = identity;
-
+    *output = usize::try_from(task.raw()).expect("native product admission retains its Source task word");
     NativeRuntimeStatus::SUCCESS
 }
 
-pub(super) const fn admission_failure(error: crate::TaskStartError) -> NativeRuntimeStatus {
-    match error {
-        crate::TaskStartError::IdentityExhausted => NativeRuntimeStatus::IDENTITY_EXHAUSTED,
-        crate::TaskStartError::OutgoingStorageUnavailable => {
-            NativeRuntimeStatus::OUTGOING_STORAGE_UNAVAILABLE
-        }
-    }
+extern "C" fn discard(execution: &NativeProductExecution, admission: usize) {
+    let owner = runtime(execution.resource).expect("unused product admission retains its Source execution");
+    let task = bray_runtime_abi::NativeTaskHandle::new(admission as u64).expect("Source issued this nonzero claim");
+    let (status, retired) = crate::native::with_cleanup_runtime(&owner, || {
+        crate::native::implementation::bray_runtime_task_destruction(task)
+    }).expect("the product's retained cleanup context releases its unused admission");
+
+    assert!(status.is_success(), "formation rollback consumes its unstarted Source claim once");
+    if !retired.is_success() { crate::native::record_cleanup_failure(1); }
 }
 
-fn take_frame(identity: usize) -> crate::TaskAdmission {
-    frames()
-        .lock()
-        .expect("admitted finalizer storage remains available")
-        .remove(&identity)
-        .expect("Bray consumes each admitted finalizer frame exactly once")
-}
-
-extern "C" fn discard(identity: usize) {
-    drop(take_frame(identity));
-}
-
-extern "C" fn finalize(identity: usize, finalizer: NativeStaticFinalizer) -> usize {
-    let incidents = super::cleanup::run_asynchronous_finalizer(take_frame(identity), finalizer);
-    let mut count: usize = 0;
+extern "C" fn finalize(execution: &NativeProductExecution, admission: usize, finalizer: NativeStaticFinalizer) -> usize {
+    let owner = runtime(execution.resource).expect("product finalization retains its Source execution");
+    let task = bray_runtime_abi::NativeTaskHandle::new(admission as u64).expect("Source issued this nonzero claim");
+    let (incidents, retired) = crate::native::with_cleanup_runtime(&owner, || {
+        super::cleanup::run_asynchronous_finalizer(task, finalizer)
+    }).expect("the selected product cleanup context drives its admitted finalizer");
+    let mut count: usize = usize::from(!retired.is_success());
 
     for incident in incidents.into_iter().flatten() {
         count += 1;
-
         let _ = incident.report();
     }
-
     count
 }
 

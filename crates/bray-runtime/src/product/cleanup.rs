@@ -5,7 +5,7 @@ use bray_runtime_abi::{
 use crate::incident::OwnedCleanupIncident as CleanupIncident;
 
 pub(super) fn run_asynchronous_finalizer(
-    admission: crate::TaskAdmission,
+    admission: bray_runtime_abi::NativeTaskHandle,
     finalizer: NativeStaticFinalizer,
 ) -> [Option<CleanupIncident>; 4] {
     let mut frame = NativeInactiveFrame::empty();
@@ -18,11 +18,17 @@ pub(super) fn run_asynchronous_finalizer(
     let incident = CleanupIncident::outcome(published);
 
     match started {
-        _ if incident.is_some() => [incident, None, None, None],
+        _ if incident.is_some() => {
+            assert!(crate::native::implementation::bray_runtime_task_destruction(admission).is_success(), "failed factory execution releases its unstarted Source claim");
+            [incident, None, None, None]
+        },
         NativeStaticFinalizerStatus::SUCCESS => {
             crate::native::run_static_finalizer(admission, frame, finalizer.resolve())
         }
-        _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
+        _ => {
+            assert!(crate::native::implementation::bray_runtime_task_destruction(admission).is_success(), "rejected factory execution releases its unstarted Source claim");
+            [Some(CleanupIncident::runtime_failure()), None, None, None]
+        },
     }
 }
 

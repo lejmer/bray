@@ -68,7 +68,7 @@ trusted internal func registration_slot_locked(
                         {
                             case None { yield 0; }
                             case Synchronous(_) { yield 1; }
-                            case Asynchronous(_, _, _, _) { yield 2; }
+                            case Asynchronous(_, _, _) { yield 2; }
                         };
 
                         return if mode == execution
