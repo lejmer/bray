@@ -21,6 +21,12 @@ pub(super) struct OwnedReturn {
     transfers: DependencyOwnedResult<StorageProjection>,
 }
 
+impl OwnedReturn {
+    pub(super) fn excludes(&self, path: &[StorageProjection]) -> bool {
+        activity(&self.value, path, &self.assumptions).0 == Some(false)
+    }
+}
+
 impl super::check::TrustedChecks {
     pub(super) fn collect_owned_return<C: CheckerRequestContext + ?Sized>(
         &mut self,
@@ -218,7 +224,7 @@ impl super::check::TrustedChecks {
 }
 
 /// An inactive alternative owns no payload and imposes no input-identity requirement.
-fn activity(
+pub(super) fn activity(
     result: &ExecutionCondition,
     path: &[StorageProjection],
     assumptions: &BTreeSet<(ExecutionCondition, bool)>,

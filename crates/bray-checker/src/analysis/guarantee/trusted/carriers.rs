@@ -92,14 +92,14 @@ impl super::check::TrustedChecks {
             .trusted_contracts()
             .is_some_and(|inputs| inputs.infer_result_witnesses)
         {
-            collect_inferred(request, state, &owners, &mut self.inferred);
+            collect_inferred(request, state, result, &owners, &self.owned_returns, &mut self.inferred);
         }
     }
 
     pub(in crate::analysis) fn result_carriers<C: crate::CheckerRequestContext + ?Sized>(
         &self,
         request: crate::CheckerUnitView<'_, C>,
-    ) -> Vec<DependencyWitnessCarrier> {
+    ) -> Vec<DependencyWitnessCarrier<StorageProjection>> {
         let mut result = self
             .inferred
             .iter()
@@ -113,7 +113,7 @@ impl super::check::TrustedChecks {
                     && let Some(term) = portable(request, condition)
                 {
                     result.extend(paths.iter().flatten().map(|path| {
-                        DependencyWitnessCarrier::new(term, portable_path(request, path))
+                        DependencyWitnessCarrier::new(term, path.iter().copied())
                     }));
                 }
             }
@@ -123,7 +123,7 @@ impl super::check::TrustedChecks {
     }
 }
 
-pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
+pub(in crate::analysis) fn portable<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     condition: &ExecutionCondition,
 ) -> Option<bray_symbols::ConstantTermId> {
@@ -144,8 +144,10 @@ pub(super) fn portable<C: crate::CheckerRequestContext + ?Sized>(
 fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     state: &ExecutionState,
+    returned: &ExecutionCondition,
     owners: &BTreeMap<ExecutionCondition, Vec<StorageProjection>>,
-    previous: &mut Option<BTreeSet<DependencyWitnessCarrier>>,
+    exits: &[super::owned::OwnedReturn],
+    previous: &mut Option<BTreeSet<DependencyWitnessCarrier<StorageProjection>>>,
 ) {
     let mut identities = None;
     let mut result = BTreeSet::new();
@@ -190,14 +192,20 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             if let Some(term) = portable(request, &condition) {
                 result.insert(DependencyWitnessCarrier::new(
                     term,
-                    portable_path(request, path),
+                    path.iter().copied(),
                 ));
             }
         }
     }
 
     match previous {
-        Some(previous) => previous.retain(|carrier| result.contains(carrier)),
+        Some(previous) => {
+            // An inactive payload imposes no promise. Every exit that can carry
+            // this owner must still support the same current condition.
+            previous.retain(|carrier| result.contains(carrier)
+                || super::owned::activity(returned, carrier.path(), &state.assumptions).0 == Some(false));
+            previous.extend(result.into_iter().filter(|carrier| exits.iter().all(|exit| exit.excludes(carrier.path()))));
+        }
         None => *previous = Some(result),
     }
 }
@@ -363,7 +371,7 @@ fn returned_owners(
 }
 
 /// Convert complete storage paths only when publishing portable carrier contracts.
-fn portable_path<C: crate::CheckerRequestContext + ?Sized>(
+pub(in crate::analysis) fn portable_path<C: crate::CheckerRequestContext + ?Sized>(
     request: crate::CheckerUnitView<'_, C>,
     path: &[StorageProjection],
 ) -> Vec<DependencyProjection> {
