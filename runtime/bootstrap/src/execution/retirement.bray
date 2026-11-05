@@ -67,21 +67,31 @@ trusted internal func take_context_resources(pos mut owner: Context, pos identit
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
     executes(total)
-    uses(unchecked_init, intrinsic)
+    uses(raw_memory, intrinsic)
 {
-    let prepare = trusted lambda(pos owner: &Context)
+    let attachment = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.attachment.Owner?)>(&owner.attachment);
+    let previous = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&owner.previous);
+    let prepare = trusted lambda(
+        pos owner: &Context,
+        pos attachment: DataPointer<(bray.runtime.bootstrap.host.attachment.Owner?)>,
+        pos previous: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
+    )
         requires(trusted context_owned(owner = owner))
         ensures(
-            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.host.attachment.Owner?)>(storage = &owner.attachment),
-            trusted core.memory.uninit_initialized<(bray.runtime.bootstrap.host.ExecutionOwner?)>(storage = &owner.previous)
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = attachment, count = 1),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = attachment),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = attachment),
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = previous, count = 1),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = previous),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = previous)
         )
         executes(pure, total) {};
 
-    trusted prepare(&owner);
+    trusted prepare(&owner, attachment, previous);
 
     return (
-        trusted std.memory.move_initialized<(bray.runtime.bootstrap.host.attachment.Owner?)>(&mut owner.attachment),
-        trusted std.memory.move_initialized<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&mut owner.previous)
+        trusted std.memory.read<(bray.runtime.bootstrap.host.attachment.Owner?)>(attachment),
+        trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(previous)
     );
 }
 

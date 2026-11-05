@@ -12,6 +12,7 @@ mod export;
 #[cfg(test)]
 mod fixtures;
 mod host;
+pub(crate) use host::record_cleanup_failure;
 #[doc(hidden)]
 pub mod implementation;
 mod outgoing;
@@ -25,7 +26,7 @@ pub(crate) mod workers;
 
 pub(crate) use state::{
     NativeRuntimeCore, RetainedRuntime, RuntimeRetirement, retain_current_runtime, retain_runtime,
-    retain_timeout_runtime,
+    with_cleanup_runtime,
 };
 pub(crate) use static_finalizer::{run_static_finalizer, with_static_cleanup_context};
 pub(crate) use task::NativeTaskServices;

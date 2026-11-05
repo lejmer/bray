@@ -23,7 +23,13 @@ trusted internal func deadlines_startup() -> u32
         return 1;
     }
 
-    let owner = trusted bound_execution(&selected);
+    return trusted ensure_deadlines(trusted bound_execution(&selected));
+}
+
+trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execution.Reference) -> u32
+    requires(blocking_execution(), trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted retained(owner = owner))
+{
     let value = trusted domain(owner);
 
     if core.atomic.load<usize, 1>(&value.owners) == 0

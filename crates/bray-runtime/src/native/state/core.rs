@@ -877,32 +877,6 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     Ok(retained)
 }
 
-pub(crate) fn retain_timeout_runtime() -> Result<RetainedRuntime, crate::RunTimeoutError> {
-    if current_runtime().is_none() {
-        let status = initialize(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
-
-        if !status.is_success() {
-            return Err(crate::RunTimeoutError::Runtime(status));
-        }
-    }
-
-    let retained = retain_current_runtime()
-        .map_err(crate::RunTimeoutError::Runtime)?
-        .expect("timeout demand establishes the current runtime");
-
-    if let Err(failure) = retained
-        .core
-        .workers
-        .demand_workload(&retained.core, ExecutionWorkload::Cooperative)
-    {
-        retained.release();
-
-        return Err(crate::RunTimeoutError::Worker(failure));
-    }
-
-    Ok(retained)
-}
-
 pub(in crate::native) fn bind_worker(
     core: Arc<NativeRuntimeCore>,
     scope: bray_runtime_abi::NativeWorkerScope,

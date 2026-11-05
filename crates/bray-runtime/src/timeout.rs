@@ -5,6 +5,24 @@ use bray_runtime_abi::NativeRuntimeStatus;
 use crate::event::NativeCallback;
 use crate::{RootCancellationHandle, SchedulerError, TimerRegistration};
 
+#[expect(unsafe_code, reason = "timeout operations borrow the complete retained Source execution owner")]
+unsafe extern "C" {
+    safe fn bray_runtime_execution_timeout_preparation(
+        owner: &crate::native::RetainedRuntime,
+        failure: &mut bray_runtime_abi::NativeWorkerFailure,
+    ) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_timeout_registration(
+        owner: &crate::native::RetainedRuntime,
+        deadline: u64,
+        callback: &bray_runtime_abi::NativeEventCallback,
+        identity: &mut u64,
+    ) -> u32;
+    safe fn bray_runtime_execution_timeout_withdrawal(
+        owner: &crate::native::RetainedRuntime,
+        identity: u64,
+    ) -> u32;
+}
+
 /// Failure to retain the shared runtime or admit a run's cancellation deadline.
 #[derive(Debug)]
 pub enum RunTimeoutError {
@@ -25,15 +43,71 @@ pub fn register_run_timeout(
     cancellation: &RootCancellationHandle,
 ) -> Result<TimerRegistration, RunTimeoutError> {
     let deadline = crate::scheduler::deadline_after(duration).map_err(RunTimeoutError::Deadline)?;
-    let runtime = crate::native::retain_timeout_runtime()?;
-    let scheduler = runtime.core.scheduler().clone();
-
+    let runtime = crate::native::retain_runtime().map_err(RunTimeoutError::Runtime)?;
     let resources = NativeCallback::timeout(cancellation.clone(), runtime)
         .map_err(RunTimeoutError::Callback)?;
+    let descriptor = resources.retain_timer();
+    let owner = NativeCallback::resources(descriptor.context);
+    let crate::event::Resources::Timeout { runtime, .. } = owner.as_ref() else {
+        unreachable!("timeout admission retains its execution owner");
+    };
 
-    scheduler
-        .register_callback(deadline, resources.retain_timer())
-        .map_err(RunTimeoutError::Deadline)
+    let registered = crate::native::with_cleanup_runtime(runtime, || {
+        let mut failure = bray_runtime_abi::NativeWorkerFailure::default();
+        let status = bray_runtime_execution_timeout_preparation(runtime, &mut failure);
+
+        if failure.stage != 0 {
+            return Err(RunTimeoutError::Worker(failure));
+        }
+
+        if !status.is_success() {
+            return Err(RunTimeoutError::Runtime(status));
+        }
+
+        let mut identity = 0;
+        let status = bray_runtime_execution_timeout_registration(runtime, deadline, &descriptor, &mut identity);
+
+        crate::scheduler::deadline_registration_result(status, identity).map_err(RunTimeoutError::Deadline)
+    });
+
+    match registered {
+        Ok((Ok(identity), status)) => {
+            let registration = TimerRegistration::execution(identity, owner);
+
+            if status.is_success() {
+                Ok(registration)
+            } else {
+                drop(registration);
+
+                Err(RunTimeoutError::Runtime(status))
+            }
+        }
+        rejected => {
+            let released = (descriptor.call)(descriptor.context, 0);
+
+            assert!(released.is_success(), "rejected timeout releases its callback descriptor once");
+
+            match rejected {
+                Ok((Err(error), status)) => {
+                    if !status.is_success() {
+                        crate::native::record_cleanup_failure(1);
+                    }
+
+                    Err(error)
+                }
+                Err(status) => Err(RunTimeoutError::Runtime(status)),
+                Ok((Ok(_), _)) => unreachable!("successful registration transfers the descriptor"),
+            }
+        }
+    }
+}
+
+pub(crate) fn withdraw(runtime: &crate::native::RetainedRuntime, identity: u64) {
+    // This resource owner remains live through descriptor release. Withdrawal
+    // needs no new driver or attachment and cannot fail admission during Drop.
+    let removed = bray_runtime_execution_timeout_withdrawal(runtime, identity);
+
+    assert!(removed <= 1, "Source withdraws a deadline or observes its committed delivery");
 }
 
 #[cfg(test)]

@@ -7,14 +7,15 @@ mod owner;
 pub(in crate::native) use core::with_task_services;
 
 pub(super) use binding::runtime_failure;
-pub(super) use owner::{native_configuration, with_cleanup_runtime};
+pub(super) use owner::native_configuration;
+pub(crate) use owner::with_cleanup_runtime;
 #[cfg(test)]
 pub(super) use core::current_task as current_native_task;
 #[cfg(test)]
 pub(crate) use core::test_runtime_isolation;
 #[cfg(test)]
 pub(super) use core::with_current_task;
-pub(crate) use core::{RuntimeRetirement, retain_timeout_runtime};
+pub(crate) use core::RuntimeRetirement;
 pub(crate) use owner::{RetainedRuntime, retain_current_runtime, retain_runtime};
 pub(super) use core::{
     bind_worker, current_reference_address, current_runtime, current_services, initialize,

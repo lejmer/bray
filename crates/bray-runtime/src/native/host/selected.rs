@@ -155,7 +155,7 @@ pub(in crate::native) fn record_returned_error() -> NativeRuntimeStatus {
     })
 }
 
-pub(in crate::native) fn record_cleanup_failure(count: usize) {
+pub(crate) fn record_cleanup_failure(count: usize) {
     if let Some(callbacks) = callbacks() {
         (callbacks.record_cleanup_failure)(count);
     }
