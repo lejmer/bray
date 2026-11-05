@@ -149,7 +149,6 @@ unsafe extern "C" {
         state: &mut crate::shutdown::CleanupReportState,
     );
 
-
     pub(crate) safe fn bray_runtime_cleanup_incident_consumer(
         incident: &mut bray_runtime_abi::NativeCleanupIncident,
         reporting: u32,

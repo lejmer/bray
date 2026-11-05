@@ -171,10 +171,12 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     relation.entry().unwrap_or_else(|| relation.exit())
                 };
 
-                if relation
-                    .entry()
-                    .is_none_or(|entry| self.lifecycle_paths.contains_key(&(lifecycle.call.callable, entry.clone())))
-                    && let Some((ty, _)) = self.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone()))
+                if relation.entry().is_none_or(|entry| {
+                    self.lifecycle_paths
+                        .contains_key(&(lifecycle.call.callable, entry.clone()))
+                }) && let Some((ty, _)) = self
+                    .lifecycle_paths
+                    .get(&(lifecycle.call.callable, subject.clone()))
                     && let Some(reference) =
                         crate::dependency::prepare_reference(request, relation, *ty)?
                 {

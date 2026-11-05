@@ -471,7 +471,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<Vec<Effect>> {
         let (fields, elements) = self.input.raw_buffers.get(&ty)?;
 
-        let targets = memory.owned_regions(receiver, bray_bound_tree::StorageProjection::ProductField(fields.pointer))?;
+        let targets = memory.owned_regions(
+            receiver,
+            bray_bound_tree::StorageProjection::ProductField(fields.pointer),
+        )?;
         let has_backing = !targets.is_empty();
 
         let mut effects = targets
@@ -572,10 +575,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some((ty, prepared)) = self.input.lifecycle_paths.get(&(
-                    call.lifecycle.call.callable,
-                    subject.clone(),
-                )) else {
+                let Some((ty, prepared)) = self
+                    .input
+                    .lifecycle_paths
+                    .get(&(call.lifecycle.call.callable, subject.clone()))
+                else {
                     continue;
                 };
 
@@ -585,7 +589,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(location) = memory.reference_location(receiver.clone(), prepared, None) else {
+                let Some(location) = memory.reference_location(receiver.clone(), prepared, None)
+                else {
                     continue;
                 };
 
@@ -600,7 +605,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 observations.insert(
                     StoragePath {
                         root: path.root,
-                        projections: path.projections.iter().chain(prepared.projections()).copied().collect(),
+                        projections: path
+                            .projections
+                            .iter()
+                            .chain(prepared.projections())
+                            .copied()
+                            .collect(),
                     },
                     target.clone(),
                 );

@@ -95,7 +95,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
 
-
         for (root, markers) in &self.input.footprint.identities {
             if matches!(
                 self.storage.identity(*root),

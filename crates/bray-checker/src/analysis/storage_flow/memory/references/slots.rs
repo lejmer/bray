@@ -19,9 +19,9 @@ impl State {
     pub(in crate::analysis::storage_flow) fn observed_references(
         &self,
     ) -> impl Iterator<Item = (&Target, &BTreeSet<Target>, bool)> {
-        self.values.iter().map(|(location, references)| {
-            (location, &references.targets, references.unknown)
-        })
+        self.values
+            .iter()
+            .map(|(location, references)| (location, &references.targets, references.unknown))
     }
 
     pub(in crate::analysis::storage_flow) fn contained_regions<'a>(
@@ -35,7 +35,8 @@ impl State {
     }
 
     pub(in crate::analysis::storage_flow) fn raw_exposed_regions(&self) -> BTreeSet<Target> {
-        self.contents.iter()
+        self.contents
+            .iter()
             // A callee can publish an address without forming it in this caller.
             .filter(|(_, contents)| contents.exposed || contents.escaped)
             .map(|(target, _)| exposure_region(target))
@@ -169,9 +170,10 @@ impl State {
             }
 
             let reference_free = self.contents.get(&target).is_some_and(|contents| {
-                !contents.exposed && contents.storage_type.is_some_and(|ty| {
-                    self.complete_reference_types.get(&ty) == Some(&true)
-                })
+                !contents.exposed
+                    && contents
+                        .storage_type
+                        .is_some_and(|ty| self.complete_reference_types.get(&ty) == Some(&true))
             });
 
             for (slot, references) in &self.values {

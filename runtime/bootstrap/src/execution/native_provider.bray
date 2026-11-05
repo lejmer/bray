@@ -41,15 +41,10 @@ internal struct NativeProviderScope
     storage: Uninit<[u64; 16]>;
     finish: NativeProviderFinish;
 
-    trusted destruct()
-        requires(trusted native_provider_owned(owner = &self))
-    {
-        trusted finish_native_provider(&self);
-    }
 }
 
-trusted internal func finish_native_provider(pos owner: &NativeProviderScope)
-    requires(trusted native_provider_owned(owner = owner))
+trusted internal func finish_native_provider(pos owner: NativeProviderScope)
+    requires(trusted native_provider_owned(owner = &owner))
     uses(foreign_call)
 {
     let output = trusted lambda(pos owner: &NativeProviderScope) -> DataPointer<[u64; 16]>
@@ -60,7 +55,19 @@ trusted internal func finish_native_provider(pos owner: &NativeProviderScope)
         return std.memory.uninit_pointer<[u64; 16]>(&owner.storage);
     };
 
-    trusted owner.finish(trusted output(owner));
+    trusted owner.finish(trusted output(&owner));
+}
+
+// Context formation owns this scope until installation. Rejected formation and
+// driver retirement both consume the complete native owner through this boundary.
+trusted internal func finish_native_provider_option(pos owner: NativeProviderScope?)
+    requires(trusted native_provider_option_owned(owner = &owner))
+{
+    match consume owner
+    {
+        case ?scope { trusted finish_native_provider(scope); }
+        case none {}
+    }
 }
 
 trusted internal func create_native_provider(pos configuration: &Configuration) -> Result<(NativeProviderScope?), u32>
