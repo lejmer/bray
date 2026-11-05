@@ -140,6 +140,9 @@ impl ExecutionPlace {
             bray_bound_tree::StorageIdentity::Parameter(parameter) => {
                 BoundReferenceTarget::Surface(parameter.into())
             }
+            bray_bound_tree::StorageIdentity::PredicateParameter(parameter) => {
+                BoundReferenceTarget::Surface(parameter.into())
+            }
             bray_bound_tree::StorageIdentity::Receiver(receiver) => {
                 BoundReferenceTarget::Surface(receiver.into())
             }

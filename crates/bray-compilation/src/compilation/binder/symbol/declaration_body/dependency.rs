@@ -74,6 +74,23 @@ fn portable_requirement(
                 (*kind).into(),
             )))
         }
+        BoundDependencyRequirement::Value { source, path, .. } => {
+            let Some(mut subject) = portable_subject(context, storage, *source)? else {
+                return Ok(None);
+            };
+
+            for projection in path.projections() {
+                let Some(projection) = portable_projection(*projection) else {
+                    return Ok(None);
+                };
+                subject.append_projection(projection);
+            }
+
+            Ok(Some(DependencyRequirement::direct(
+                subject.subject,
+                DependencyRequirementKind::ValueDependencies,
+            )))
+        }
         BoundDependencyRequirement::Guarded(guarded) => {
             let Some(guard) = portable_guard(context, storage, guarded.guard())? else {
                 return Ok(None);
@@ -221,33 +238,30 @@ fn portable_subject_with_projection_count(
         .iter()
         .take(projection_count)
     {
-        match *projection {
-            StorageProjection::ProductField(field) => {
-                subject.append_projection(DependencyProjection::ProductField(field));
-            }
-            StorageProjection::TupleElement(ordinal) => {
-                subject.append_projection(DependencyProjection::TupleElement(ordinal));
-            }
-            StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                subject.append_projection(DependencyProjection::UnionPayloadField(field));
-            }
-            StorageProjection::NullableValue => {
-                subject.append_projection(DependencyProjection::NullableValue);
-            }
-            StorageProjection::OwnedTarget => {
-                subject.append_projection(DependencyProjection::OwnedTarget);
-            }
-            StorageProjection::UninitPayload => {
-                subject.append_projection(DependencyProjection::UninitPayload);
-            }
-            StorageProjection::ElementFromStart(_)
-            | StorageProjection::ElementFromEnd(_)
-            | StorageProjection::Element(_)
-            | StorageProjection::SliceRange { .. } => return Ok(None),
-        }
+        let Some(projection) = portable_projection(*projection) else {
+            return Ok(None);
+        };
+        subject.append_projection(projection);
     }
 
     Ok(Some(subject))
+}
+
+fn portable_projection(projection: StorageProjection) -> Option<DependencyProjection> {
+    Some(match projection {
+        StorageProjection::ProductField(field) => DependencyProjection::ProductField(field),
+        StorageProjection::TupleElement(ordinal) => DependencyProjection::TupleElement(ordinal),
+        StorageProjection::ActiveUnionPayloadField { field, .. } => {
+            DependencyProjection::UnionPayloadField(field)
+        }
+        StorageProjection::NullableValue => DependencyProjection::NullableValue,
+        StorageProjection::OwnedTarget => DependencyProjection::OwnedTarget,
+        StorageProjection::UninitPayload => DependencyProjection::UninitPayload,
+        StorageProjection::ElementFromStart(_)
+        | StorageProjection::ElementFromEnd(_)
+        | StorageProjection::Element(_)
+        | StorageProjection::SliceRange { .. } => return None,
+    })
 }
 
 fn portable_storage_identity(

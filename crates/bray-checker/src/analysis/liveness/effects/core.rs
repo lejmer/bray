@@ -30,8 +30,10 @@ pub(crate) struct OperationEffects {
     pub(in crate::analysis::liveness) owner_dependencies:
         BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
     exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
-    pub(super) report_owner_inputs:
-        BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<bray_bound_tree::StorageIdentityId>>,
+    pub(super) value_requirements: BTreeMap<
+        bray_bound_tree::BoundExecutionSite,
+        BTreeSet<bray_bound_tree::BoundDependencyRequirement>,
+    >,
     pub(super) value_inputs: ValueInputs,
     pub(in crate::analysis::liveness) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
@@ -62,7 +64,7 @@ impl OperationEffects {
         let selections = semantics.selections();
 
         effects.value_inputs = value_inputs;
-        effects.add_selected_call_dependencies(selections, storage, dependencies);
+        effects.add_selected_call_dependencies(request, selections, storage, dependencies);
 
         for (expression, source) in effects.value_inputs.deferred_sources() {
             let completed = dependencies
@@ -72,10 +74,20 @@ impl OperationEffects {
                 .expect("known lazy producer has its checked completion contract");
 
             effects
+                .value_requirements
+                .entry(expression.into())
+                .or_default()
+                .extend(completed.requirements().iter().cloned());
+
+            effects
                 .owner_dependencies
                 .entry(expression.into())
                 .or_default()
-                .extend(dependency_subjects(completed.requirements(), storage));
+                .extend(dependency_subjects(
+                    request,
+                    completed.requirements(),
+                    storage,
+                ));
         }
 
         effects.retain_report_dependencies(
@@ -373,17 +385,23 @@ impl OperationEffects {
         }
     }
 
-    fn add_selected_call_dependencies(
+    fn add_selected_call_dependencies<C: CheckerRequestContext + ?Sized>(
         &mut self,
+        request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) {
         for (occurrence, contracts) in dependencies.calls() {
+            self.value_requirements
+                .entry(*occurrence)
+                .or_default()
+                .extend(contracts.result().requirements().iter().cloned());
             let mut invocation =
-                dependency_subjects(contracts.invocation().requirements(), storage);
+                dependency_subjects(request, contracts.invocation().requirements(), storage);
 
-            let mut returned = dependency_subjects(contracts.result().requirements(), storage);
+            let mut returned =
+                dependency_subjects(request, contracts.result().requirements(), storage);
 
             if let Some(SemanticSelection::Call(call)) = occurrence
                 .expression()
@@ -419,7 +437,12 @@ impl OperationEffects {
                 .extend(returned);
 
             if let Some(deferred) = contracts.deferred() {
-                collect_dependency_subjects(deferred.requirements(), storage, &mut invocation);
+                collect_dependency_subjects(
+                    request,
+                    deferred.requirements(),
+                    storage,
+                    &mut invocation,
+                );
             }
 
             self.universe.extend(invocation.iter().copied());

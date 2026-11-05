@@ -26,7 +26,7 @@ trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runt
 
     trusted bray.runtime.bootstrap.host.enter_attachment_execution(&mut withdrawn);
 
-    let (status, returned) = bray.runtime.bootstrap.host.exchange_attachment_execution(withdrawn);
+    let (status, returned) = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(withdrawn);
 
     if status != 0
     {
@@ -36,7 +36,7 @@ trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runt
     return returned;
 }
 
-internal func take_retiring_resources(
+trusted internal func take_retiring_resources(
     pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
     pos identity: u64
 ) -> (bray.runtime.bootstrap.host.attachment.Owner?, bray.runtime.bootstrap.host.ExecutionOwner?)
@@ -159,7 +159,7 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
 {
-    let (attachment, previous) = take_retiring_resources(&owner, identity);
+    let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
     let incidents = trusted prepare_retirement(&owner);
     let remaining = retire_driver_resources(attachment, previous, identity);
 

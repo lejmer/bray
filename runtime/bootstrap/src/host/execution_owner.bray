@@ -10,7 +10,7 @@ using internal bray.runtime.bootstrap;
 
 // Exchange whole, thread-bound execution owners on the actual current
 // attachment. Their acquisition or OS-entry scope keeps that attachment live.
-internal func exchange_attachment_execution(pos execution: ExecutionOwner?) -> (u32, ExecutionOwner?)
+trusted internal func exchange_attachment_execution(pos execution: ExecutionOwner?) -> (u32, ExecutionOwner?)
     requires((execution matches none || trusted execution_option_owned(owner = &execution)))
     ensures((result.1 matches none || trusted execution_option_owned(owner = &result.1)))
     when(execution matches ?_)
