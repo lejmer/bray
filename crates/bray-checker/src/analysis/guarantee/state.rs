@@ -51,6 +51,7 @@ pub(super) fn update_parent_observations(
     observations: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     place: &crate::ExecutionPlace,
     value: &ExecutionCondition,
+    storage: Option<&[bray_bound_tree::StorageProjection]>,
 ) {
     for length in 0..place.projections.len() {
         let mut parent = place.clone();
@@ -58,7 +59,7 @@ pub(super) fn update_parent_observations(
         parent.projections = place.projections[..length].into();
 
         if let Some(snapshot) = observations.get_mut(&parent) {
-            *snapshot = snapshot.with_component(&place.projections[length..], value.clone());
+            *snapshot = snapshot.with_component(&place.projections[length..], value.clone(), storage);
         }
     }
 }
@@ -431,7 +432,7 @@ impl ExecutionState {
         // Ordered paths visit parents before children. Keep containing snapshots
         // consistent with surviving fields before a later whole-value capture.
         for (place, value) in updated_places {
-            update_parent_observations(&mut self.current, &place, &value);
+            update_parent_observations(&mut self.current, &place, &value, None);
         }
     }
 
@@ -624,7 +625,7 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition) {
+    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition, storage: Option<&[bray_bound_tree::StorageProjection]>) {
         let replaced = self
             .current
             .range(place.clone()..)
@@ -636,7 +637,7 @@ impl ExecutionState {
             self.current.remove(&observed);
         }
 
-        update_parent_observations(&mut self.current, &place, &value);
+        update_parent_observations(&mut self.current, &place, &value, storage);
 
         self.current.insert(place, value);
     }
@@ -1175,7 +1176,7 @@ mod tests {
         assert_eq!(current.clone().project(marker), unchanged);
         assert_eq!(current.project(payload), ExecutionCondition::Unknown);
 
-        state.assign(place, old.clone());
+        state.assign(place, old.clone(), None);
 
         assert!(!state.is_witness(&old));
         assert!(!state.trusted_assumptions.contains(&(old, true)));

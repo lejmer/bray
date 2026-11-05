@@ -491,10 +491,10 @@ mod tests {
         let mut left = ExecutionState::default();
         let mut right = ExecutionState::default();
 
-        left.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))));
-        left.assign(marker_place.clone(), shared.clone());
-        right.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))));
-        right.assign(marker_place.clone(), shared.clone());
+        left.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))), None);
+        left.assign(marker_place.clone(), shared.clone(), None);
+        right.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))), None);
+        right.assign(marker_place.clone(), shared.clone(), None);
 
         let mut merged = Some(left);
 

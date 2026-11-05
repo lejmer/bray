@@ -4689,3 +4689,52 @@ fn independent_witness_survives_a_released_production_guard_in_a_loop() {
     );
 }
 
+
+#[test]
+fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
+    for (operation, valid) in [("", true), ("replace(&mut owner);", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; pointer: DataPointer<u8>; }}
+            union Backing {{ Empty; Owned(pos owner: Owner); }}
+            trusted predicate live(owner: &Marker);
+            const func backing_owner(pos backing: &Backing) -> &Owner
+                requires(backing matches Backing.Owned(_))
+                executes(pure, total)
+            {{
+                return match backing
+                {{
+                    case Backing.Owned(value) {{ yield &value; }}
+                    case Backing.Empty {{ panic("empty backing has no owner"); }}
+                }};
+            }}
+            predicate retained(owner: &Backing) = owner matches Backing.Owned(_) && live(&backing_owner(owner).marker);
+            extern trusted func native_allocate() -> DataPointer<u8>
+                ensures(trusted core.memory.owned_allocation(pointer = result, bytes = 1, align = 1));
+            trusted func allocate(pos owner: &Backing) -> DataPointer<u8>
+                requires(trusted retained(owner))
+                ensures(trusted retained(owner), trusted core.memory.owned_allocation(pointer = result, bytes = 1, align = 1))
+            {{
+                return trusted native_allocate();
+            }}
+            extern func replace(pos owner: &mut Backing);
+            func consume_owner(pos owner: Backing) requires(trusted retained(&owner)) {{}}
+            trusted func caller(pos mut owner: Backing) requires(trusted retained(&owner)) uses(manual_alloc)
+            {{
+                let allocation = trusted allocate(&owner);
+                {operation}
+                consume_owner(owner);
+                trusted core.memory.deallocate(allocation, bytes = 1, align = 1);
+            }}
+            "#,
+        );
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+    }
+}

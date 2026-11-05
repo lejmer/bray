@@ -394,7 +394,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             value
         };
 
-        state.assign(place, value);
+        state.assign(place, value, None);
     }
 
     fn observed_default(

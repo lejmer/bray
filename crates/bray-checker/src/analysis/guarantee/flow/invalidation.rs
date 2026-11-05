@@ -356,13 +356,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         paths: &BTreeSet<bray_bound_tree::StoragePath>,
     ) -> (
-        BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
         BTreeSet<ExecutionCondition>,
     ) {
         let values = paths
             .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()))
-            .filter_map(|place| place.value_in(&state.current).map(|value| (place, value)))
+            .flat_map(|path| self.storage_places(state, path.clone()).into_iter().map(move |place| (place, path.clone())))
+            .filter_map(|(place, path)| place.value_in(&state.current).map(|value| (place, (value, path))))
             .collect();
 
         let snapshots = paths
@@ -435,7 +435,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.current.clear();
 
         for place in roots {
-            if let Some(value) = retained.remove(&place) {
+            if let Some((value, _)) = retained.remove(&place) {
                 // A whole stable root needs no intermediate post-state or reconstruction.
                 state.current.insert(place, value);
                 continue;
@@ -457,11 +457,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 },
             );
 
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
 
-        for (place, value) in retained {
-            state.assign(place, value);
+        for (place, (value, path)) in retained {
+            state.assign(place, value, Some(&path.projections));
         }
     }
 
@@ -701,12 +701,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     }
                 });
 
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
 
         // Restore unchanged components before refreshing aliases to the new snapshot.
-        for (place, value) in stable_places {
-            state.assign(place, value);
+        for (place, (value, path)) in stable_places {
+            state.assign(place, value, Some(&path.projections));
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
@@ -746,7 +746,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .collect::<Vec<_>>();
 
         for (place, value) in aliases {
-            state.assign(place, value);
+            state.assign(place, value, None);
         }
     }
 }

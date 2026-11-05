@@ -360,7 +360,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         };
 
-        state.assign(place, value);
+        state.assign(place, value, None);
     }
 
     pub(in crate::analysis) fn task_invocations(

@@ -254,9 +254,9 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
         let path = [first, nested];
         let value = original.clone().component(first).component(nested);
 
-        assert_eq!(original.with_component(&path, value), original);
+        assert_eq!(original.with_component(&path, value, None), original);
 
-        let changed = original.with_component(&path, ExecutionCondition::Boolean(true));
+        let changed = original.with_component(&path, ExecutionCondition::Boolean(true), None);
 
         assert_ne!(changed, original);
 
@@ -265,14 +265,14 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
             ExecutionCondition::Boolean(true)
         );
 
-        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false));
-        let expected = original.with_component(&path, ExecutionCondition::Boolean(false));
+        let updated = changed.with_component(&path, ExecutionCondition::Boolean(false), None);
+        let expected = original.with_component(&path, ExecutionCondition::Boolean(false), None);
 
         assert_eq!(updated, expected);
 
         if first == ConstantProjectionKind::NullableValue {
             let payload = changed.component(first);
-            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false));
+            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false), None);
 
             assert_eq!(updated.present(), expected);
         }

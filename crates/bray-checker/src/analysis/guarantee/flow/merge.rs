@@ -219,7 +219,7 @@ fn join_observations<'a>(
     let mut joined_values = places.iter().cloned().collect::<BTreeMap<_, _>>();
 
     for (place, value) in &places {
-        super::super::state::update_parent_observations(&mut joined_values, place, value);
+        super::super::state::update_parent_observations(&mut joined_values, place, value, None);
     }
 
     if block.is_none() {
