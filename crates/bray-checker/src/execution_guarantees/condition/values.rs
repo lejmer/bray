@@ -242,7 +242,9 @@ impl ExecutionCondition {
             return payload.clone().borrowed();
         }
 
-        if self == Self::Unknown {
+        // This marks a live observation, not an additional dereference. Formal
+        // predicate substitution and runtime forwarding can reach the same view.
+        if matches!(self, Self::Unknown | Self::Borrowed(_)) {
             self
         } else {
             Self::Borrowed(Arc::new(self))

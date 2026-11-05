@@ -365,9 +365,9 @@ trusted internal func destroy_reference(pos owner: Reference)
         return (value.backing, value.state);
     };
 
-    let (backing, state) = trusted take(owner);
+    let (backing, owned_state) = trusted take(owner);
 
-    _ = state;
+    _ = owned_state;
 
     trusted bray.runtime.bootstrap.scheduler.release_external_backing(backing);
 }
