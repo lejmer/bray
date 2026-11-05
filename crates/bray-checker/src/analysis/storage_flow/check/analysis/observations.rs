@@ -379,10 +379,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             return;
         }
 
-        let Some(target) = target.observation_path() else {
-            return;
-        };
-
         // A preserved reference observes the target's updated components. Replacing
         // its whole snapshot would also revoke evidence about untouched siblings.
         // The target effects above already identify every changed component.
@@ -394,7 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        snapshots.insert(observed, target);
+        snapshots.insert(observed, target.clone());
     }
 
     pub(super) fn resolved_observations(
@@ -804,11 +800,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 if observed
                     .as_ref()
                     .is_some_and(|observed| observed.contains(mutation))
-                    && let Some(target) = mutation.observation_path()
                 {
-                    let target = observable_path(target.root, target.projections.iter().copied());
-
-                    snapshots.insert(path.clone(), target);
+                    snapshots.insert(path.clone(), mutation.clone());
                 }
 
                 changed.push(path);
