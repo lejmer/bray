@@ -32,7 +32,7 @@ internal struct Admission
 }
 
 // Native metadata callbacks, when selected, belong to the retained native host
-// provider for the execution lifetime. Source-only roots leave all three null.
+// provider for the execution lifetime. Source-only roots leave these hooks absent.
 trusted internal predicate configuration_owned(owner: &Acquisition);
 
 internal predicate native_configuration(owner: &Configuration) = configuration_owned(owner = &owner.acquisition);

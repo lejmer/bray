@@ -144,6 +144,7 @@ mod tests {
     static AWAITED_BLOCKING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
     static EVENT_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
     static EVENT_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static PENDING_CHILD_INCIDENT_RELEASES: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -281,26 +282,10 @@ mod tests {
             destination: &mut NativeFrameProgress,
             context: usize,
         ) {
-            let mut execution = bray_runtime_abi::NativeActivationExecution {
-                address: context,
-                identity: [7; 32],
-                state: 0,
-                requirements: movable_frame_state(context, 0, 0, 0),
-                origin: 0,
-            };
+            let lane = crate::context::current_task_execution_lane().expect("the root retains its selected lane");
 
-            assert_eq!(
-                super::super::activation::readiness(&execution),
-                NativeRuntimeStatus::SUCCESS.code(),
-            );
-
-            execution.requirements = movable_blocking_frame_state(context, 0, 0, 0);
-
-            assert_eq!(
-                super::super::activation::readiness(&execution),
-                NativeRuntimeStatus::PENDING.code(),
-            );
-
+            assert!(matches!(lane.placement(), crate::ExecutionLanePlacement::MainThread(_)));
+            assert_eq!(lane.workload(), crate::ExecutionWorkload::Cooperative);
             resume_frame(destination, context);
         }
 
@@ -578,6 +563,21 @@ mod tests {
 
     #[test]
     fn parent_cleanup_incident_uses_the_restored_parent_execution_origin() {
+        const CHILD: &str = "BRAY_TEST_PARENT_INCIDENT_ORIGIN";
+
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().expect("test executable exists"))
+                .args(["--exact", "native::export::tests::parent_cleanup_incident_uses_the_restored_parent_execution_origin", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .expect("incident output fixture starts");
+            let stderr = String::from_utf8(output.stderr).expect("incident metadata is UTF-8");
+
+            assert!(output.status.success(), "incident fixture failed: {stderr}");
+            assert_eq!(stderr.matches(&format!(" frame={} state=1", "07".repeat(32))).count(), 1, "{stderr}");
+            return;
+        }
+
         let _isolation = super::super::state::test_runtime_isolation();
 
         ORIGIN_PARENT_RESUMES.store(0, Ordering::Relaxed);
@@ -634,31 +634,7 @@ mod tests {
                 .is_success()
         );
 
-        let mut origin = None;
-
-        super::with_runtime(|runtime| {
-            runtime.cleanup_reports.drain(|incident| {
-                assert!(origin.replace(incident.origin()).is_none());
-            });
-        })
-        .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
-
-        let origin = origin.unwrap_or_else(|| panic!("parent cleanup must publish one incident"));
-
-        assert_eq!(
-            origin.frame(),
-            bray_runtime_model::ProtectedAsyncFrameId::new([7; 32])
-        );
-
-        assert_eq!(
-            origin.state(),
-            bray_runtime_model::ProtectedFrameStateId::new(1)
-        );
-
-        assert_eq!(
-            bray_runtime_task_destruction(task),
-            NativeRuntimeStatus::SUCCESS
-        );
+        assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
 
         assert_eq!(
             bray_runtime_task_event_destruction(event),
@@ -773,7 +749,15 @@ mod tests {
     fn cleanup_callback_failures_are_owned_until_host_drain() {
         let _isolation = super::super::state::test_runtime_isolation();
 
+        static RELEASED: AtomicUsize = AtomicUsize::new(0);
+        struct CleanupPayload;
+        impl Drop for CleanupPayload {
+            fn drop(&mut self) { RELEASED.fetch_add(1, Ordering::SeqCst); }
+        }
+        extern "C-unwind" fn fail_destruction(_: usize) { std::panic::panic_any(CleanupPayload); }
+
         for fail_completion in [false, true] {
+            RELEASED.store(0, Ordering::SeqCst);
             let frame = super::super::fixtures::admit(
                 0,
                 bray_runtime_abi::NativeActivationDescriptor {
@@ -801,7 +785,7 @@ mod tests {
                     } else {
                         ignore_completion_move
                     },
-                    destroy: panic_action,
+                    destroy: fail_destruction,
                 },
             );
 
@@ -818,27 +802,11 @@ mod tests {
             // attempts both broadcast and resolution before retiring the frame.
             assert_eq!(report.suppressed_count(), 2 * usize::from(!fail_completion));
 
-            assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
-                    .expect("fixture runtime must be active"),
-                0
-            );
-
+            assert_eq!(RELEASED.load(Ordering::SeqCst), 0);
             assert!(bray_runtime_root_completion_resolution(root).is_success());
-
-            assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
-                    .expect("fixture runtime must be active"),
-                1
-            );
-
+            assert_eq!(RELEASED.load(Ordering::SeqCst), 0);
             assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
-
-            assert_eq!(
-                super::with_runtime(|runtime| runtime.pending_cleanup_incidents())
-                    .expect("fixture runtime must be active"),
-                0
-            );
+            assert_eq!(RELEASED.load(Ordering::SeqCst), 1);
 
             assert!(report.consume(false).is_success());
             assert!(bray_runtime_execution_shutdown().is_success());
@@ -1133,15 +1101,8 @@ mod tests {
         extern "C" fn state(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
             QUERIES.fetch_add(1, Ordering::Relaxed);
 
-            let locked = super::super::state::with_runtime(|runtime| {
-                let task = runtime
-                    .allocate()
-                    .task()
-                    .expect("reentrant admission succeeds");
-
-                !runtime.destroy_task(task).is_success()
-            })
-            .expect("admission retains the native runtime");
+            let task = bray_runtime_task_allocation().task().expect("reentrant Source admission succeeds");
+            let locked = !bray_runtime_task_destruction(task).is_success();
 
             if locked {
                 LOCKED.fetch_add(1, Ordering::Relaxed);
@@ -1201,90 +1162,56 @@ mod tests {
     fn terminal_retirement_releases_reports_outside_the_registry_lock() {
         static RELEASED: AtomicUsize = AtomicUsize::new(0);
 
-        extern "C" fn release(_: usize, _: usize, _: &mut NativeRunOutcome) {
-            let unlocked =
-                super::super::state::with_runtime(|runtime| runtime.scheduler.snapshot().is_ok())
-                    .expect("retirement retains the runtime context");
+        extern "C" fn release(_: usize, _: usize, outcome: &mut NativeRunOutcome) {
+            let task = bray_runtime_task_allocation().task().expect("report release can reenter Source admission");
 
-            RELEASED.store(if unlocked { 1 } else { 2 }, Ordering::Relaxed);
+            assert!(bray_runtime_task_destruction(task).is_success());
+            RELEASED.fetch_add(1, Ordering::Relaxed);
+            *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
         }
 
-        let _isolation = super::super::state::test_runtime_isolation();
+        extern "C-unwind" fn body(output: &mut NativeFrameProgress, _: usize) {
+            *output = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+        }
 
-        RELEASED.store(0, Ordering::Relaxed);
-
-        assert!(
-            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
-                .is_success()
-        );
-
-        let task = bray_runtime_task_allocation()
-            .task()
-            .expect("task admission succeeds");
-
-        assert!(
-            start_test_task(
-                task,
-                protected_frame(8, resume_frame, ignore_completion_move, ignore_action)
-            )
-            .is_success()
-        );
-
-        assert!(bray_runtime_main_thread_lane_drive().is_success());
-
-        assert_eq!(
-            observe_task(task, ignore_wake, 0).state(),
-            NativeRunState::COMPLETED
-        );
-
-        super::super::state::with_runtime(|runtime| {
-            let task = runtime
-                .retained_task(task)
-                .expect("fixture `retained_task` call must succeed");
-
-            let mut admitted = crate::outgoing::OutgoingRecords::admit(1)
-                .expect("fixture outgoing records must admit the supplied values");
-
+        extern "C-unwind" fn incident(output: &mut NativeFrameProgress, _: usize, _: NativeFrameExit) {
             let primary = bray_runtime_abi::NativePanicPrimary::new(
                 bray_runtime_abi::NativePanicCause::ASSERTION,
                 bray_runtime_abi::NativeSourceAnchor::unavailable(),
                 bray_runtime_abi::NativePanicMessage::new(0, 0, None, Some(release)),
             );
 
-            let mut report = crate::RuntimePanic::from_native(crate::frame::native_report(primary));
+            *output = NativeFrameProgress::panicked(crate::frame::native_report(primary));
+        }
 
-            report.reserve_from(&mut admitted);
+        let _isolation = super::super::state::test_runtime_isolation();
 
-            let execution = task.execution_state();
+        RELEASED.store(0, Ordering::Relaxed);
+        assert!(bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1)).is_success());
 
-            runtime.cleanup_reports.transfer(
-                crate::CleanupIncidentProducer::Task(task.id()),
-                crate::CleanupIncidentOrigin::new(execution.frame(), execution.state()),
-                report,
-                &mut admitted,
-            );
-        })
-        .expect("fixture runtime must be active");
+        let task = bray_runtime_task_allocation().task().expect("the Source task is admitted");
+        let frame = super::super::fixtures::admit(0, bray_runtime_abi::NativeActivationDescriptor {
+            storage: bray_runtime_abi::NativeCleanupStorageShape::new([19; 32], 8, 8),
+            header: 0,
+            completion: 0,
+            completion_bytes: 0,
+            completion_align: 1,
+            states: 1,
+            state: movable_frame_state,
+            resume: body,
+            cancel: body,
+            broadcast: ignore_broadcast,
+            resolve: incident,
+            move_completion: ignore_completion_move,
+            destroy: ignore_action,
+        });
 
-        assert!(
-            super::super::fixtures::complete(task)
-                .is_success()
-        );
-
-        assert!(bray_runtime_task_destruction(task).is_success());
-
-        assert!(
-            super::super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-                .expect("fixture runtime must be active")
-                .is_success()
-        );
-
-        assert_eq!(
-            RELEASED.load(Ordering::Relaxed),
-            1,
-            "the release provider must observe an unlocked task table"
-        );
-
+        assert!(start_test_task(task, frame).is_success());
+        assert_eq!(super::super::fixtures::observe(task).state(), NativeRunState::COMPLETED);
+        assert!(super::super::fixtures::complete(task).is_success());
+        assert_eq!(RELEASED.load(Ordering::Relaxed), 0);
+        assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
+        assert_eq!(RELEASED.load(Ordering::Relaxed), 1, "the actual Source report releases outside its task and report locks");
         assert!(bray_runtime_execution_shutdown().is_success());
     }
 
@@ -1309,43 +1236,34 @@ mod tests {
             .expect("fixture native task handle must be valid");
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(
-                missing,
-                &frame,
+            bray_runtime_task_start(missing, NativeInactiveFrameTransfer::new(&frame).address(),
                 &mut bray_runtime_abi::NativeRunOutcome::new(
                     bray_runtime_abi::NativeRunState::COMPLETED,
                     0
                 )
-            ))
-            .expect("fixture runtime must be active"),
+            ),
             NativeRuntimeStatus::UNKNOWN_TASK
         );
 
         assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 0);
 
         assert!(
-            super::with_runtime(|runtime| runtime.start(
-                task,
-                &frame,
+            bray_runtime_task_start(task, NativeInactiveFrameTransfer::new(&frame).address(),
                 &mut bray_runtime_abi::NativeRunOutcome::new(
                     bray_runtime_abi::NativeRunState::COMPLETED,
                     0
                 )
-            ))
-            .expect("fixture runtime must be active")
+            )
             .is_success()
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.start(
-                task,
-                &frame,
+            bray_runtime_task_start(task, NativeInactiveFrameTransfer::new(&frame).address(),
                 &mut bray_runtime_abi::NativeRunOutcome::new(
                     bray_runtime_abi::NativeRunState::COMPLETED,
                     0
                 )
-            ))
-            .expect("fixture runtime must be active"),
+            ),
             NativeRuntimeStatus::INVALID_ARGUMENT
         );
 
@@ -1384,7 +1302,7 @@ mod tests {
         assert!(
             bray_runtime_task_start(
                 task,
-                frame,
+                NativeInactiveFrameTransfer::new(&frame).address(),
                 &mut bray_runtime_abi::NativeRunOutcome::new(
                     bray_runtime_abi::NativeRunState::COMPLETED,
                     0
@@ -1393,40 +1311,33 @@ mod tests {
             .is_success()
         );
 
-        let retained = super::super::state::with_runtime(|runtime| runtime.retained_task(task))
-            .expect("runtime remains active")
-            .expect("published task has native services");
+        let retained = super::super::fixtures::task(task);
 
         let returning_callback = std::sync::Arc::clone(&retained);
 
         assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
-            retained
-                .observe()
-                .expect("terminal payload transfers once")
-                .state(),
+            super::super::fixtures::poll(&retained).state(),
             NativeRunState::COMPLETED
         );
 
-        assert_eq!(
-            returning_callback.observe().err(),
-            Some(NativeRuntimeStatus::UNKNOWN_TASK)
-        );
+        let mut repeated = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+        assert_eq!(crate::report_provider::bray_runtime_task_control_observation(returning_callback.reference(), &mut repeated), NativeRuntimeStatus::UNKNOWN_TASK);
 
         assert!(
             super::super::fixtures::complete(task)
                 .is_success()
         );
 
-        assert!(bray_runtime_task_destruction(task).is_success());
 
         // Returning callbacks retain the actual Source cell after the public
         // owner and scheduler registration have both resolved.
-        assert_eq!(returning_callback.snapshot().phase, 4);
-        assert_eq!(returning_callback.snapshot().retired, 1);
+        assert_eq!(super::super::fixtures::snapshot(&returning_callback).phase, 4);
+        assert_eq!(super::super::fixtures::snapshot(&returning_callback).retired, 1);
         drop(retained);
-        assert_eq!(returning_callback.snapshot().phase, 4);
+        assert_eq!(super::super::fixtures::snapshot(&returning_callback).phase, 4);
         drop(returning_callback);
 
         let replacement = bray_runtime_task_allocation()
@@ -1454,41 +1365,29 @@ mod tests {
         }
 
         let _isolation = super::super::state::test_runtime_isolation();
-        let configuration = NativeRuntimeConfiguration::new(1, 1);
 
-        assert!(bray_runtime_main_thread_lane_startup(configuration).is_success());
+        DESTROYED.store(0, Ordering::Relaxed);
+        assert!(bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1)).is_success());
+
+        let occupied = bray_runtime_task_allocation().task().expect("the admitted task occupies the execution quota");
+
+        assert!(start_test_task(occupied, protected_frame(8, resume_frame, ignore_completion_move, ignore_action)).is_success());
 
         let frame = protected_frame(8, resume_frame, ignore_completion_move, destroy);
+        let mut rejected = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+        let start = bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame).address(), &mut rejected);
 
-        let start = bray_runtime_root_execution(
-            NativeInactiveFrameTransfer::new(&frame),
-            NativeRuntimeConfiguration::new(0, 1),
-            &mut bray_runtime_abi::NativeRunOutcome::new(
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                0,
-            ),
-        );
-
-        assert_eq!(start.status(), NativeRuntimeStatus::INVALID_ARGUMENT);
+        assert_eq!(start.status(), NativeRuntimeStatus::RUNTIME_FAILURE);
         assert!(start.root().is_none());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
+        assert!(bray_runtime_main_thread_lane_drive().is_success());
+        assert_eq!(super::super::fixtures::observe(occupied).state(), NativeRunState::COMPLETED);
+        assert!(super::super::fixtures::complete(occupied).is_success());
 
-        let root = bray_runtime_root_execution(
-            NativeInactiveFrameTransfer::new(&frame),
-            configuration,
-            &mut bray_runtime_abi::NativeRunOutcome::new(
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                0,
-            ),
-        )
-        .root()
-        .expect("fixture `root` call must succeed");
+        let root = bray_runtime_root_execution(NativeInactiveFrameTransfer::new(&frame).address(), &mut rejected)
+            .root().expect("the same inactive owner transfers after quota becomes available");
 
-        assert_eq!(
-            bray_runtime_root_terminal_observation(root).state(),
-            NativeRunState::COMPLETED
-        );
-
+        assert_eq!(bray_runtime_root_terminal_observation(root).state(), NativeRunState::COMPLETED);
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
         assert!(bray_runtime_root_completion_resolution(root).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
@@ -1741,6 +1640,7 @@ mod tests {
     fn parent_failure_cleans_a_suspended_child_and_preserves_its_incident() {
         let _isolation = super::super::state::test_runtime_isolation();
 
+        PENDING_CHILD_INCIDENT_RELEASES.store(0, Ordering::Relaxed);
         PENDING_CHILD_RESUMES.store(0, Ordering::Relaxed);
         PENDING_CHILD_BROADCASTS.store(0, Ordering::Relaxed);
         PENDING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
@@ -1776,15 +1676,9 @@ mod tests {
                 .raw() as usize
         );
 
-        assert_eq!(
-            super::with_runtime(|runtime| runtime.pending_cleanup_incidents()),
-            Ok(1)
-        );
-
-        assert_eq!(
-            super::with_runtime(|runtime| runtime.discard_cleanup_incidents()),
-            Ok(1)
-        );
+        assert_eq!(PENDING_CHILD_INCIDENT_RELEASES.load(Ordering::Relaxed), 0);
+        assert!(super::bray_runtime_cleanup_incident_reporting().is_success());
+        assert_eq!(PENDING_CHILD_INCIDENT_RELEASES.load(Ordering::Relaxed), 1);
 
         assert_eq!(
             bray_runtime_root_completion_resolution(root),
@@ -1969,9 +1863,7 @@ mod tests {
         assert_eq!(COMBINED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.scheduler.task_count())
-                .expect("the runtime remains active")
-                .expect("the registration count remains available"),
+            crate::event::NativeCallback::task_count(),
             1
         );
 
@@ -2377,29 +2269,20 @@ mod tests {
         let child = move_rejected_child(0);
         let rejection = crate::outgoing::tests::reject_admission();
 
-        let rejected = super::with_runtime(|runtime| {
-            runtime.compose_awaited(
-                &child,
-                u32::MAX,
-                super::super::fixtures::destination(),
-                bray_runtime_abi::NativeFrameComposition::Completion,
-            )
-        })
-        .expect("fixture runtime must be active");
+        let parent = crate::current_task_execution_context().expect("composition retains its actual task");
+        let owner = parent.native_owner().expect("native callback retains Source resources");
+        let ready: for<'a> extern "C" fn(&mut bray_runtime_abi::NativeActivationInvocation<'a>) = super::bray_runtime_activation_action_readiness;
+        let rejected = crate::report_provider::bray_runtime_task_control_composition(
+            owner.reference(), &child, u32::MAX, 0, super::super::fixtures::destination(), 0, ready,
+        );
 
         assert_eq!(rejected, NativeRuntimeStatus::INVALID_ARGUMENT);
         assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 1);
         assert_eq!(REJECTED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 0);
 
-        let accepted = super::with_runtime(|runtime| {
-            runtime.compose_awaited(
-                &child,
-                1,
-                super::super::fixtures::destination(),
-                bray_runtime_abi::NativeFrameComposition::Completion,
-            )
-        })
-        .expect("fixture runtime must be active");
+        let accepted = crate::report_provider::bray_runtime_task_control_composition(
+            owner.reference(), &child, 1, 0, super::super::fixtures::destination(), 0, ready,
+        );
 
         assert_eq!(accepted, NativeRuntimeStatus::SUCCESS);
         drop(rejection);
@@ -2552,7 +2435,11 @@ mod tests {
             Ordering::Relaxed,
         );
 
-        panic!("suspended child broadcast failed");
+        struct ChildCleanupFailure;
+        impl Drop for ChildCleanupFailure {
+            fn drop(&mut self) { PENDING_CHILD_INCIDENT_RELEASES.fetch_add(1, Ordering::Relaxed); }
+        }
+        std::panic::panic_any(ChildCleanupFailure);
     }
 
     extern "C" fn move_origin_child(event: usize) -> NativeInactiveFrame {

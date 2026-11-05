@@ -90,7 +90,7 @@ unsafe extern "C" {
         origin: u64,
         destination: usize,
         disposition: u8,
-        ready: extern "C" fn(&bray_runtime_abi::NativeActivationExecution) -> u32,
+        ready: for<'a> extern "C" fn(&mut bray_runtime_abi::NativeActivationInvocation<'a>),
     ) -> bray_runtime_abi::NativeRuntimeStatus;
 
     #[cfg(test)]

@@ -258,10 +258,7 @@ mod tests {
     }
 
     extern "C-unwind" fn observe_context(main: usize, outcome: &mut NativeRunOutcome) {
-        assert_eq!(
-            super::super::super::state::with_runtime(|_| ()),
-            Err(bray_runtime_abi::NativeRuntimeStatus::NOT_INITIALIZED)
-        );
+        assert!(super::super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_none());
 
         assert_eq!(crate::current_run_cancellation_requested(), main != 0);
         assert!(crate::context::current_task_output().is_some());
