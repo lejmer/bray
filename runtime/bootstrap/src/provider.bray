@@ -55,7 +55,9 @@ trusted internal func resident_reference() -> Reference
 {
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition {},
+        acquisition = bray.runtime.bootstrap.host.Acquisition
+        {
+        },
         context = 0,
         callbacks = std.memory.null<Callbacks>()
     };

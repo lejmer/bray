@@ -1,6 +1,4 @@
-use bray_runtime_abi::{
-    NativeActivationExecution, NativeFrameState, NativeLaneRequirements,
-};
+use bray_runtime_abi::{NativeActivationExecution, NativeFrameState, NativeLaneRequirements};
 use bray_runtime_model::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAffinity,
     ProtectedFrameStateDescriptor, ProtectedFrameStateId,

@@ -14,16 +14,30 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
 internal callable CloseRoot = @abi(c) trusted func(pos owner: Owner) -> Reference
-    requires(trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution), trusted service_owner(owner = &owner), blocking_execution())
+    requires(
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted service_owner(owner = &owner),
+        blocking_execution()
+    )
     ensures(trusted retained(owner = &result), trusted pinned(owner = &result));
 
 trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> Binding
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution), trusted service_owner(owner = &owner), trusted pinned(owner = &owner.execution))
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution),
+        trusted service_owner(owner = &owner),
+        trusted pinned(owner = &owner.execution)
+    )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted kernel_binding(owner = &result))
     uses(layout_reinterpret, raw_memory)
 {
     let root: CloseRoot = close_owner_binding;
-    let address = trusted std.memory.function.reinterpret<BindingClose, CloseRoot>(trusted std.memory.function_address<CloseRoot>(root));
+
+    let address = trusted std.memory.function.reinterpret<BindingClose, CloseRoot>(
+        trusted std.memory.function_address<CloseRoot>(root)
+    );
 
     // The C entry belongs to this actual retained native driver. Its cleanup
     // root permits internal blocking without changing a task's selected lane.
@@ -36,14 +50,28 @@ trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> B
 
     let close = trusted std.memory.callable_from_pointer<BindingClose>(address);
 
-    return { execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution)), close = close, release = release_pin_binding, suspend = suspend_binding, resume = trusted resume_operation() };
+    return
+    {
+        execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution)),
+        close = close,
+        release = release_pin_binding,
+        suspend = suspend_binding,
+        resume = trusted resume_operation()
+    };
 }
 
 trusted internal func pin_binding(pos owner: bray.runtime.bootstrap.execution.Reference) -> Binding
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = &owner), trusted pinned(owner = &owner))
     ensures(trusted kernel_binding(owner = &result))
 {
-    return { execution = owner, close = none, release = release_pin_binding, suspend = suspend_binding, resume = trusted resume_operation() };
+    return
+    {
+        execution = owner,
+        close = none,
+        release = release_pin_binding,
+        suspend = suspend_binding,
+        resume = trusted resume_operation()
+    };
 }
 
 // The entry owns this exact driver through callback return. Keep call-entry
@@ -51,7 +79,8 @@ trusted internal func pin_binding(pos owner: bray.runtime.bootstrap.execution.Re
 trusted internal func binding_driver(pos context: DataPointer<Context>) -> Current
     requires(trusted driver_binding_entry(context = context))
     ensures(
-        trusted view_owned(owner = &result.acquisition), result.status == 0,
+        trusted view_owned(owner = &result.acquisition),
+        result.status == 0,
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -77,12 +106,25 @@ trusted internal func binding_driver(pos context: DataPointer<Context>) -> Curre
     let value = trusted std.memory.borrow_from<Context, DataPointer<Context>>(&context, context);
 
     trusted acquire_view(value);
-    return { acquisition = Acquisition {}, pointer = context, status = 0 };
+
+    return
+    {
+        acquisition = Acquisition
+        {
+        },
+        pointer = context,
+        status = 0
+    };
 }
 
 @abi(c)
 trusted internal func close_owner_binding(pos owner: Owner) -> Reference
-    requires(blocking_execution(), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution), trusted service_owner(owner = &owner))
+    requires(
+        blocking_execution(),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted service_owner(owner = &owner)
+    )
     ensures(trusted retained(owner = &result), trusted pinned(owner = &result))
 {
     let selected = trusted current();
@@ -95,14 +137,25 @@ trusted internal func close_owner_binding(pos owner: Owner) -> Reference
     return trusted close_owner(&selected, owner);
 }
 
-trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> bray.runtime.bootstrap.execution.Reference
-    requires(blocking_execution(),
+trusted internal func close_owner(
+    pos selected: &Current,
+    pos owner: Owner
+) -> bray.runtime.bootstrap.execution.Reference
+    requires(
+        blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
-        trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution), trusted service_owner(owner = &owner), trusted pinned(owner = &owner.execution),
-        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution),
+        trusted service_owner(owner = &owner),
+        trusted pinned(owner = &owner.execution),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = &result), trusted pinned(owner = &result))
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted retained(owner = &result),
+        trusted pinned(owner = &result)
+    )
     uses(foreign_call, raw_memory)
 {
     let value = trusted domain(&owner.execution);
@@ -118,7 +171,17 @@ trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> b
         let service = trusted workers(&owner.execution);
         let deferred = selected.status == 0 && trusted must_defer_shutdown(selected) && service matches ?_;
 
-        core.atomic.store<u32, 2>(&value.completion, if deferred { yield 2; } else { yield 1; });
+        core.atomic.store<u32, 2>(
+            &value.completion,
+            if deferred
+            {
+                yield 2;
+            }
+            else
+            {
+                yield 1;
+            }
+        );
 
         if let ?pool = service
         {
@@ -140,8 +203,10 @@ trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> b
 // execution resources after that owner's root and cleanup obligations resolve.
 trusted internal func finish_services(pos owner: &bray.runtime.bootstrap.execution.Reference, pos completion: u32)
     requires(
-        trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access()
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     uses(foreign_call, intrinsic)
@@ -181,6 +246,7 @@ trusted internal func release_pin_binding(pos owner: Reference) -> u32
     }
 
     let value = trusted domain(&owner);
+
     let incidents = if core.atomic.load<u32, 1>(&value.completion) == 3
     {
         yield trusted drain_reports(&owner);
@@ -195,8 +261,10 @@ trusted internal func release_pin_binding(pos owner: Reference) -> u32
 
 trusted internal func release_pin(pos owner: bray.runtime.bootstrap.execution.Reference) -> u32
     requires(
-        trusted bray.runtime.bootstrap.execution.retained(owner = &owner), trusted pinned(owner = &owner),
-        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.execution.retained(owner = &owner),
+        trusted pinned(owner = &owner),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     uses(foreign_call, intrinsic)
@@ -254,7 +322,11 @@ trusted internal func destroy_domain(pos owner: Reference)
             trusted std.sync.once.valid(&result.2.prepared.instance),
             trusted std.sync.spin_lock.valid(&result.3.prepared.instance),
             trusted std.sync.spin_lock.valid(&result.4.prepared.instance),
-            trusted core.memory.owned_allocation(pointer = result.5.pointer, bytes = result.5.bytes, align = result.5.align),
+            trusted core.memory.owned_allocation(
+                pointer = result.5.pointer,
+                bytes = result.5.bytes,
+                align = result.5.align
+            ),
             trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.0),
             trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.0)
         )
@@ -269,7 +341,11 @@ trusted internal func destroy_domain(pos owner: Reference)
                 trusted std.sync.spin_lock.valid(&result.reports.prepared.instance),
                 trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.scheduler),
                 trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.scheduler),
-                trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
+                trusted core.memory.owned_allocation(
+                    pointer = std.memory.byte_address<Domain>(owner.pointer),
+                    bytes = std.memory.stride_of<Domain>(),
+                    align = std.memory.align_of<Domain>()
+                )
             )
             uses(raw_memory)
         {
@@ -279,7 +355,11 @@ trusted internal func destroy_domain(pos owner: Reference)
                     trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
                     trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
                     trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
-                    trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
+                    trusted core.memory.owned_allocation(
+                        pointer = std.memory.byte_address<Domain>(owner.pointer),
+                        bytes = std.memory.stride_of<Domain>(),
+                        align = std.memory.align_of<Domain>()
+                    )
                 )
                 executes(pure, total) {};
 
@@ -297,11 +377,21 @@ trusted internal func destroy_domain(pos owner: Reference)
         };
 
         return (
-            trusted std.memory.read<bray.runtime.bootstrap.scheduler.Reference>(std.memory.address_of<bray.runtime.bootstrap.scheduler.Reference>(&value.scheduler)),
-            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(&value.workers)),
-            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(&value.deadlines)),
-            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(&value.failure)),
-            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(&value.reports)),
+            trusted std.memory.read<bray.runtime.bootstrap.scheduler.Reference>(
+                std.memory.address_of<bray.runtime.bootstrap.scheduler.Reference>(&value.scheduler)
+            ),
+            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
+                std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(&value.workers)
+            ),
+            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
+                std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(&value.deadlines)
+            ),
+            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(
+                std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(&value.failure)
+            ),
+            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(&value.reports)
+            ),
             allocation
         );
     };
@@ -314,6 +404,7 @@ trusted internal func destroy_domain(pos owner: Reference)
     _ = deadline_cell;
     _ = failure_state;
     _ = retired_reports;
+
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(queue_owner);
     trusted bray.runtime.bootstrap.host.release_execution_domain();
 }
@@ -321,7 +412,13 @@ trusted internal func destroy_domain(pos owner: Reference)
 // Rejected service construction returns the actual ownership context. Only
 // the execution case transfers a pin, and this operation retires that pin.
 trusted internal func discard_backing(pos backing: bray.runtime.bootstrap.scheduler.Backing)
-    requires(trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &backing), trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &backing), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &backing),
+        trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &backing),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
     if backing matches bray.runtime.bootstrap.scheduler.Backing.Execution(_)
     {
@@ -355,7 +452,13 @@ trusted internal func release_task_pin(pos owner: Reference?) -> u32
 
     let take = trusted lambda(pos owner: Reference?) -> Reference
         requires(trusted optional_pin(owner = &owner), owner matches ?_)
-        ensures(trusted retained(owner = &result), trusted pinned(owner = &result), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        ensures(
+            trusted retained(owner = &result),
+            trusted pinned(owner = &result),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
     {
         return match consume owner
         {
@@ -371,5 +474,6 @@ trusted internal func release_task_pin(pos owner: Reference?) -> u32
     // Task storage can outlive its driver, whose release drains every incident
     // before retiring its own pin. Storage retirement invokes no producer.
     assert(incidents == 0, "task storage retirement follows driver incident draining");
+
     return 0;
 }

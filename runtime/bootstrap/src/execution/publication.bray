@@ -9,17 +9,27 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
 trusted internal func install_previous(pos owner: &Current, pos previous: bray.runtime.bootstrap.host.ExecutionOwner?)
-    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0, (previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous)))
+    requires(
+        trusted view_owned(owner = &owner.acquisition),
+        owner.status == 0,
+        (previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous))
+    )
     ensures(trusted view_owned(owner = &owner.acquisition))
     uses(raw_memory, unchecked_init)
 {
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&value.previous);
 
-    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>)
+    let permit = trusted lambda(
+        pos owner: &Current,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
+    )
         requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
         ensures(
-            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(
+                pointer = pointer,
+                count = 1
+            ),
             trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer)
         )
         executes(pure, total) {};
@@ -30,18 +40,27 @@ trusted internal func install_previous(pos owner: &Current, pos previous: bray.r
 
 trusted internal func take_previous(pos owner: &Current) -> bray.runtime.bootstrap.host.ExecutionOwner?
     requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
-    ensures(trusted view_owned(owner = &owner.acquisition), (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result)))
+    ensures(
+        trusted view_owned(owner = &owner.acquisition),
+        (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result))
+    )
     uses(raw_memory, unchecked_init, intrinsic)
 {
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&value.previous);
 
-    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>)
+    let permit = trusted lambda(
+        pos owner: &Current,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
+    )
         requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
         ensures(
             trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
             trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
-            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(
+                pointer = pointer,
+                count = 1
+            ),
             trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer)
         )
         executes(pure, total) {};
@@ -56,7 +75,9 @@ trusted internal func take_previous(pos owner: &Current) -> bray.runtime.bootstr
 
 // On failure the complete unpublished owner returns to the caller. Its view is
 // gone before the caller retires the context and finishes its attachment.
-trusted internal func publish_driver(pos execution: bray.runtime.bootstrap.host.ExecutionOwner) -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
+trusted internal func publish_driver(
+    pos execution: bray.runtime.bootstrap.host.ExecutionOwner
+) -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &execution))
     ensures((result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)))
     uses(intrinsic)
@@ -93,7 +114,11 @@ trusted internal func publish_driver(pos execution: bray.runtime.bootstrap.host.
 trusted internal func commit_driver(pos allocation: DataPointer<u8>, pos value: Context) -> u32
     requires(
         trusted context_owned(owner = &value),
-        trusted core.memory.owned_allocation(pointer = allocation, bytes = std.memory.stride_of<Context>(), align = std.memory.align_of<Context>()),
+        trusted core.memory.owned_allocation(
+            pointer = allocation,
+            bytes = std.memory.stride_of<Context>(),
+            align = std.memory.align_of<Context>()
+        ),
         trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Context>())
     )
 {

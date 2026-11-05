@@ -932,8 +932,9 @@ where
             })
             .unwrap_or_default();
 
-        let marker_exposure = (!escaped.is_empty() && !self.input.footprint.borrowed_identities.is_empty())
-            .then(|| state.memory.raw_exposed_regions());
+        let marker_exposure = (!escaped.is_empty()
+            && !self.input.footprint.borrowed_identities.is_empty())
+        .then(|| state.memory.raw_exposed_regions());
 
         if preserve_normal_storage {
             // Opaque effects can reach the whole exposed allocation on abnormal return.
@@ -971,25 +972,7 @@ where
             .flatten();
 
         if let Some(invalidation) = &mut invalidation {
-            self.preserve_borrowed_values(state, &state.memory, invalidation);
-
-            if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
-                self.preserve_store_values(&state.memory, invalidation, true, *contents);
-            }
-
-            if let Some(operation) = occurrence.expression().and_then(|expression| self.memory.operation(expression)) {
-                use bray_bound_tree::CheckedMemoryOperationKind as Operation;
-
-                let pointee = match operation.kind() {
-                    Operation::Write { pointee } | Operation::Copy { pointee, .. } | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
-                    Operation::UninitWrite { element } => Some(*element),
-                    _ => None,
-                };
-
-                if pointee.is_some_and(|pointee| self.input.footprint.marker_free_store(pointee)) {
-                    self.preserve_store_values(&state.memory, invalidation, false, true);
-                }
-            }
+            self.preserve_operation_values(state, kind, invalidation);
         }
 
         if !completing {
@@ -1082,6 +1065,40 @@ where
         );
 
         state.refinements = refinements;
+    }
+
+    fn preserve_operation_values(
+        &self,
+        state: &StorageFlowState,
+        kind: AnalysisOperationKind,
+        invalidation: &mut bray_bound_tree::StorageInvalidation,
+    ) {
+        let occurrence = kind.occurrence();
+
+        self.preserve_borrowed_values(state, &state.memory, invalidation);
+
+        if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
+            self.preserve_store_values(&state.memory, invalidation, true, *contents);
+        }
+
+        if let Some(operation) = occurrence
+            .expression()
+            .and_then(|expression| self.memory.operation(expression))
+        {
+            use bray_bound_tree::CheckedMemoryOperationKind as Operation;
+
+            let pointee = match operation.kind() {
+                Operation::Write { pointee }
+                | Operation::Copy { pointee, .. }
+                | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
+                Operation::UninitWrite { element } => Some(*element),
+                _ => None,
+            };
+
+            if pointee.is_some_and(|pointee| self.input.footprint.marker_free_store(pointee)) {
+                self.preserve_store_values(&state.memory, invalidation, false, true);
+            }
+        }
     }
 
     fn apply_invocation_inputs(

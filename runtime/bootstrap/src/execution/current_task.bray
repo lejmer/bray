@@ -43,7 +43,9 @@ trusted internal func current_task(pos selected: &Current) -> (&bray.runtime.boo
     return trusted std.memory.borrow_from<bray.runtime.bootstrap.task.Reference, Current>(selected, pointer);
 }
 
-trusted internal func take_task_view(pos owner: &((&bray.runtime.bootstrap.task.Reference)?)) -> &bray.runtime.bootstrap.task.Reference
+trusted internal func take_task_view(
+    pos owner: &((&bray.runtime.bootstrap.task.Reference)?)
+) -> &bray.runtime.bootstrap.task.Reference
     requires(owner matches ?_, trusted current_task_view(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.task.retained(owner = result))
     executes(pure, total)
@@ -69,7 +71,19 @@ trusted internal func selected_lane(pos selected: &Current) -> bray.runtime.boot
     let lane = core.atomic.load<u32, 0>(&value.lane);
     let placement = lane >> 4;
 
-    return { placement = placement, workload = lane & 0xf, thread = if placement == 0 { yield 0; } else { yield value.thread; } };
+    return
+    {
+        placement = placement,
+        workload = lane & 0xf,
+        thread = if placement == 0
+        {
+            yield 0;
+        }
+        else
+        {
+            yield value.thread;
+        }
+    };
 }
 
 // The caller retains this reference on its dispatch stack. The context stores
@@ -80,16 +94,26 @@ trusted internal func dispatch_task(
     pos task: bray.runtime.bootstrap.task.Reference,
     pos registration: u64,
     pos lane: bray.runtime.bootstrap.scheduler.Lane
-) -> (bray.runtime.bootstrap.task.Reference, (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32))
+) -> (
+        bray.runtime.bootstrap.task.Reference,
+        (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32)
+    )
     requires(
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted bray.runtime.bootstrap.task.retained(owner = &task),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = &task),
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
-        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
-    ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.task.retained(owner = &result.0), trusted bray.runtime.bootstrap.task.owned_reference(owner = &result.0))
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = &result.0),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result.0)
+    )
     uses(intrinsic)
 {
     let reference = &task;
@@ -105,10 +129,15 @@ trusted internal func dispatch_task(
     let services = trusted dispatch_services(execution_owner);
     let claim = trusted bray.runtime.bootstrap.task.acquire_dispatch(reference, services, failure.stage != 0);
     let active_reference = trusted bray.runtime.bootstrap.task.dispatch_reference(&claim);
-    let address = trusted core.target.expose_address<bray.runtime.bootstrap.task.Reference>(std.memory.address_of<bray.runtime.bootstrap.task.Reference>(active_reference));
+
+    let address = trusted core.target.expose_address<bray.runtime.bootstrap.task.Reference>(
+        std.memory.address_of<bray.runtime.bootstrap.task.Reference>(active_reference)
+    );
+
     let previous_task = core.atomic.exchange<usize, 0>(&value.task, address);
     let previous_registration = core.atomic.exchange<u64, 0>(&value.registration, registration);
     let previous_lane = core.atomic.exchange<u32, 0>(&value.lane, (lane.placement << 4) | lane.workload);
+
     let returned = if claim.active
     {
         yield trusted bray.runtime.bootstrap.task.advance_dispatch(&claim, &mut failure);
@@ -136,7 +165,9 @@ trusted internal func dispatch_task(
 
 // Borrow the actual driver, queue owner and retained task throughout this cell
 // observation. No permission or ownership changes when failure state is read.
-trusted internal func task_failure(pos reference: &bray.runtime.bootstrap.task.Reference) -> bray.runtime.bootstrap.worker.Failure
+trusted internal func task_failure(
+    pos reference: &bray.runtime.bootstrap.task.Reference
+) -> bray.runtime.bootstrap.worker.Failure
     requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
     ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
     when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
@@ -148,5 +179,10 @@ trusted internal func task_failure(pos reference: &bray.runtime.bootstrap.task.R
     let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
     let failure = trusted guard.get().failure;
 
-    return { stage = failure.stage, category = failure.category, native_code = failure.native_code };
+    return
+    {
+        stage = failure.stage,
+        category = failure.category,
+        native_code = failure.native_code
+    };
 }

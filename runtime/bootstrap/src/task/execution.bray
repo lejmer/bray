@@ -81,7 +81,6 @@ trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: 
 {
     let reference = trusted borrow_reference(&pointer);
 
-
     let value =
     {
         let mut guard = trusted lock_cell(reference);
@@ -177,7 +176,12 @@ trusted internal func release_dispatch(pos owner: Dispatch, pos failure: &bray.r
 
         let control = trusted guard.get();
 
-        control.failure = { stage = failure.stage, category = failure.category, native_code = failure.native_code };
+        control.failure =
+        {
+            stage = failure.stage,
+            category = failure.category,
+            native_code = failure.native_code
+        };
 
         if trusted end_dispatch(control)
         {
@@ -276,4 +280,3 @@ trusted internal func dispatch_services(pos owner: &Dispatch) -> &Services
 {
     return owner.services;
 }
-

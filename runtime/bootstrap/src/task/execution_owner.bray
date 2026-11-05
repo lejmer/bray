@@ -6,8 +6,16 @@ using core.target;
 using std.memory;
 using internal bray.runtime.bootstrap.execution;
 
-trusted internal func attach_execution(pos reference: &Reference, pos execution: bray.runtime.bootstrap.execution.Reference)
-    requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference), trusted bray.runtime.bootstrap.execution.retained(owner = &execution), trusted bray.runtime.bootstrap.execution.pinned(owner = &execution))
+trusted internal func attach_execution(
+    pos reference: &Reference,
+    pos execution: bray.runtime.bootstrap.execution.Reference
+)
+    requires(
+        trusted retained(owner = reference),
+        trusted resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.execution.retained(owner = &execution),
+        trusted bray.runtime.bootstrap.execution.pinned(owner = &execution)
+    )
     ensures(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
     when(trusted owned_reference(owner = reference))
     {
@@ -17,11 +25,18 @@ trusted internal func attach_execution(pos reference: &Reference, pos execution:
 {
     let slot = trusted cell(reference);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
-    let permit = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>)
+
+    let permit = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+    )
         requires(trusted retained(owner = owner), trusted resolution_owner(owner = owner))
         ensures(
             trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
-            trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(
+                pointer = pointer,
+                count = 1
+            ),
             trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
             trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
         )
@@ -64,7 +79,11 @@ trusted internal func execution_reference(pos reference: &Reference) -> &bray.ru
 {
     let slot = trusted cell(reference);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
-    let permit = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>)
+
+    let permit = trusted lambda(
+        pos owner: &Reference,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+    )
         requires(trusted retained(owner = owner))
         ensures(
             trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
@@ -80,7 +99,10 @@ trusted internal func execution_reference(pos reference: &Reference) -> &bray.ru
 
     trusted permit(reference, pointer);
 
-    let owner = trusted std.memory.borrow_from<(bray.runtime.bootstrap.execution.Reference?), Reference>(reference, pointer);
+    let owner = trusted std.memory.borrow_from<(bray.runtime.bootstrap.execution.Reference?), Reference>(
+        reference,
+        pointer
+    );
 
     return match owner
     {

@@ -208,8 +208,12 @@ trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos regist
     trusted withdraw_registration(&owner, registration);
 }
 
-
-trusted internal func wake_registration(pos owner: &Reference, pos registration: u64, pos cause: u32, pos now: u64) -> u32
+trusted internal func wake_registration(
+    pos owner: &Reference,
+    pos registration: u64,
+    pos cause: u32,
+    pos now: u64
+) -> u32
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
 {
@@ -258,7 +262,6 @@ trusted internal func wake_registration(pos owner: &Reference, pos registration:
 
     return 1;
 }
-
 
 trusted internal func withdraw_registration(pos owner: &Reference, pos registration: u64)
     requires(trusted retained(owner = owner))

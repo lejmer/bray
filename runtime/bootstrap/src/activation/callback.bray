@@ -64,17 +64,11 @@ trusted internal predicate returned(owner: &CallAcquisition);
 // Both callbacks borrow the same Source-owned call. Admission changes only its
 // status, while invocation fills the independently retained output slots.
 internal callable Ready = @abi(c) trusted func(pos pointer: DataPointer<Invocation>)
-    requires(
-        trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted native_invocation(pointer = pointer)
-    )
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted native_invocation(pointer = pointer))
     ensures(trusted native_invocation(pointer = pointer));
 
 internal callable Invoke = @abi(c) trusted func(pos pointer: DataPointer<Invocation>)
-    requires(
-        trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted native_invocation(pointer = pointer),
-    )
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted native_invocation(pointer = pointer))
     ensures(trusted native_invocation_returned(pointer = pointer));
 
 // Source retains the whole invocation on its stack while the native adapter
@@ -99,7 +93,12 @@ trusted internal func prepare_invocation(
     pos progress: &mut bray.runtime.bootstrap.activation.Progress,
     pos records: &mut bray.runtime.bootstrap.ReportRecords
 ) -> Invocation
-    requires(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor), operation < 6, operation != 3 || argument < 7, operation != 5 || description matches ?_)
+    requires(
+        trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+        operation < 6,
+        operation != 3 || argument < 7,
+        operation != 5 || description matches ?_
+    )
     ensures(
         trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
         trusted authorized(owner = &result.acquisition),
@@ -111,18 +110,28 @@ trusted internal func prepare_invocation(
     {
         let header = trusted bray.runtime.bootstrap.activation.execution.access(cursor);
 
-        yield (header.context, trusted core.target.expose_address<bray.runtime.bootstrap.activation.Descriptor>(header.descriptor));
+        yield (
+            header.context,
+            trusted core.target.expose_address<bray.runtime.bootstrap.activation.Descriptor>(header.descriptor)
+        );
     };
 
     let descriptor = match description
     {
         case ?value { yield std.memory.address_of<bray.runtime.bootstrap.activation.Descriptor>(&value); }
-        case none { yield trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Descriptor>(address = address); }
+        case none
+        {
+            yield trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Descriptor>(
+                address = address
+            );
+        }
     };
 
     return
     {
-        acquisition = CallAcquisition {},
+        acquisition = CallAcquisition
+        {
+        },
         execution = std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(execution),
         descriptor = descriptor,
         context = context,
@@ -158,13 +167,20 @@ trusted internal predicate native_invocation_returned(pointer: DataPointer<Invoc
 
 trusted internal func native_pointer(pos owner: &mut Invocation) -> DataPointer<Invocation>
     requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
-    ensures(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition), trusted native_invocation(pointer = result))
+    ensures(
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition),
+        trusted native_invocation(pointer = result)
+    )
     executes(pure, total)
 {
     return std.memory.address_of_mut<Invocation>(owner);
 }
 
-trusted internal func borrow_invocation(pos input: &mut DataPointer<Invocation>, pos pointer: DataPointer<Invocation>) -> &mut Invocation
+trusted internal func borrow_invocation(
+    pos input: &mut DataPointer<Invocation>,
+    pos pointer: DataPointer<Invocation>
+) -> &mut Invocation
     requires(trusted native_invocation(pointer = pointer))
     ensures(trusted authorized(owner = &result.acquisition), trusted outputs_owned(owner = &result.acquisition))
     executes(pure, total)
@@ -190,17 +206,21 @@ trusted internal func borrow_invocation(pos input: &mut DataPointer<Invocation>,
 }
 
 trusted internal func admit(pos callback: Ready, pos owner: &mut Invocation)
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition)
+    )
     ensures(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
     uses(foreign_call)
 {
     trusted callback(trusted native_pointer(owner));
 }
 
-trusted internal func invoke(pos callback: Invoke, pos mut owner: Invocation) -> (
-        bray.runtime.bootstrap.activation.Progress,
-        bray.runtime.bootstrap.ReportRecords
-    )
+trusted internal func invoke(
+    pos callback: Invoke,
+    pos mut owner: Invocation
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted authorized(owner = &owner.acquisition),
@@ -216,17 +236,20 @@ trusted internal func invoke(pos callback: Invoke, pos mut owner: Invocation) ->
 // The foreign callback ends its borrowed entry before Source consumes outputs
 // from the same invocation, including after a frame-consuming operation.
 trusted internal func execute_callback(pos callback: Invoke, pos owner: &mut Invocation)
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted authorized(owner = &owner.acquisition),
+        trusted outputs_owned(owner = &owner.acquisition)
+    )
     ensures(trusted returned(owner = &owner.acquisition))
     uses(foreign_call)
 {
     trusted callback(trusted native_pointer(owner));
 }
 
-trusted internal func take_returned(pos owner: Invocation) -> (
-        bray.runtime.bootstrap.activation.Progress,
-        bray.runtime.bootstrap.ReportRecords
-    )
+trusted internal func take_returned(
+    pos owner: Invocation
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.ReportRecords)
     requires(trusted returned(owner = &owner.acquisition))
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
     uses(raw_memory, intrinsic)
@@ -234,7 +257,10 @@ trusted internal func take_returned(pos owner: Invocation) -> (
     let readable = trusted lambda(pos call: &Invocation)
         requires(trusted returned(owner = &call.acquisition))
         ensures(
-            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Progress>(pointer = call.progress, count = 1),
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Progress>(
+                pointer = call.progress,
+                count = 1
+            ),
             trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Progress>(pointer = call.progress),
             trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Progress>(pointer = call.progress),
             trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = call.records, count = 1),
@@ -306,7 +332,10 @@ internal func resumable(pos operation: Operation) -> bool
     return match operation
     {
         case Resume | Cancel { yield true; }
-        case Resolve(cleanup_exit) { yield !(cleanup_exit matches Exit.RetainedDestruction | Exit.SynchronousDisposal); }
+        case Resolve(cleanup_exit)
+        {
+            yield !(cleanup_exit matches Exit.RetainedDestruction | Exit.SynchronousDisposal);
+        }
         case Broadcast | Move(_) | Destroy { yield false; }
     };
 }
@@ -320,17 +349,38 @@ trusted internal func execution(pos owner: &Invocation) -> &bray.runtime.bootstr
     let permit = trusted lambda(pos owner: &Invocation)
         requires(trusted authorized(owner = &owner.acquisition))
         ensures(
-            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution, count = 1),
-            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.shared_alias_valid<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution),
-            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.requirements.Execution>(pointer = owner.execution)
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution,
+                count = 1
+            ),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.shared_alias_valid<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            ),
+            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.requirements.Execution>(
+                pointer = owner.execution
+            )
         )
         executes(pure, total) {};
 
     trusted permit(owner);
-    return trusted std.memory.borrow_from<bray.runtime.bootstrap.activation.requirements.Execution, Invocation>(owner, owner.execution);
+
+    return trusted std.memory.borrow_from<bray.runtime.bootstrap.activation.requirements.Execution, Invocation>(
+        owner,
+        owner.execution
+    );
 }

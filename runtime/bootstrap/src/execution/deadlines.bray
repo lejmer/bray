@@ -9,7 +9,11 @@ using internal bray.runtime.bootstrap.deadline;
 
 @abi(c)
 trusted internal func deadlines_startup() -> u32
-    requires(blocking_execution(), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     let selected = trusted current();
 
@@ -27,7 +31,11 @@ trusted internal func deadlines_startup() -> u32
 }
 
 trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execution.Reference) -> u32
-    requires(blocking_execution(), trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        blocking_execution(),
+        trusted retained(owner = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     ensures(trusted retained(owner = owner))
 {
     let value = trusted domain(owner);
@@ -49,6 +57,7 @@ trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execut
                 case Ok(service)
                 {
                     _ = trusted attempt.publish(service);
+
                     return 0;
                 }
                 case Error((rejected, status))

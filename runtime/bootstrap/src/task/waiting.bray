@@ -16,7 +16,6 @@ trusted internal func request_retirement(pos pointer: DataPointer<Reference>) ->
 {
     let reference = trusted borrow_resolution_reference(&pointer);
 
-
     return retire_reference(reference);
 }
 

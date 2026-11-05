@@ -298,7 +298,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.propagate_result(state, expression);
         }
 
-        if let Some(AnalysisRefinement::CaughtResult { expression, succeeded }) = edge.refinement() {
+        if let Some(AnalysisRefinement::CaughtResult {
+            expression,
+            succeeded,
+        }) = edge.refinement()
+        {
             self.complete_caught_result(state, expression, !succeeded);
         }
 

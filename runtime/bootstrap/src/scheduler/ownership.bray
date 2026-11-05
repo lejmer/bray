@@ -21,7 +21,11 @@ internal const func optional_reference(pos owner: &(Reference?)) -> &Reference
 // cannot create an independent queue-storage lifetime.
 trusted internal func retain_reference(pos owner: &Reference) -> Reference
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner), trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    ensures(
+        trusted retained(owner = owner),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result)
+    )
     uses(intrinsic)
 {
     let value = trusted domain(owner);
@@ -34,11 +38,21 @@ trusted internal func retain_reference(pos owner: &Reference) -> Reference
             trusted core.target.abort();
         }
 
-        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(&value.references, expected = count, desired = count + 1);
+        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.references,
+            expected = count,
+            desired = count + 1
+        );
 
         if acquired
         {
-            return { acquisition = bray.runtime.bootstrap.host.Acquisition {}, pointer = owner.pointer };
+            return
+            {
+                acquisition = bray.runtime.bootstrap.host.Acquisition
+                {
+                },
+                pointer = owner.pointer
+            };
         }
 
         count = previous;
@@ -49,12 +63,20 @@ trusted internal func retain_reference(pos owner: &Reference) -> Reference
 // carries retirement permission, while the consumed count claim has ended.
 trusted internal func release_reference(pos reference: Reference) -> Reference?
     requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
-    ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(owner = optional_reference(&result))))
+    ensures(
+        result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(
+            owner = optional_reference(&result)
+        ))
+    )
     uses(intrinsic)
 {
     let transition = trusted lambda(pos reference: Reference) -> Reference?
         requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
-        ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(owner = optional_reference(&result))))
+        ensures(
+            result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(
+                owner = optional_reference(&result)
+            ))
+        )
         uses(intrinsic)
     {
         let previous = core.atomic.fetch_sub<usize, 3>(&(trusted domain(&reference)).references, 1);
@@ -66,7 +88,13 @@ trusted internal func release_reference(pos reference: Reference) -> Reference?
 
         if previous == 1
         {
-            return { acquisition = bray.runtime.bootstrap.host.Acquisition {}, pointer = reference.pointer };
+            return
+            {
+                acquisition = bray.runtime.bootstrap.host.Acquisition
+                {
+                },
+                pointer = reference.pointer
+            };
         }
 
         return none;

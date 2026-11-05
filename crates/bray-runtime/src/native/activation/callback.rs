@@ -1,8 +1,8 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
-    NativeActivationInvocation, NativeActivationOperation, NativeFrameProgress, NativeFrameProgressKind,
-    NativeReportRecords,
+    NativeActivationInvocation, NativeActivationOperation, NativeFrameProgress,
+    NativeFrameProgressKind, NativeReportRecords,
 };
 
 use crate::{RuntimePanic, outgoing::OutgoingRecords};
@@ -68,12 +68,13 @@ pub extern "C" fn bray_runtime_activation_callback_admission(
 fn bray_runtime_activation_callback(invocation: &mut NativeActivationInvocation<'_>) {
     let execution = invocation.execution;
 
-    if invocation.operation.is_resumable() || crate::context::current_task_execution_lane().is_some() {
+    if invocation.operation.is_resumable()
+        || crate::context::current_task_execution_lane().is_some()
+    {
         super::execution::with_execution(execution, || invoke_producer(invocation));
     } else {
         invoke_producer(invocation);
     }
-
 }
 
 // Source owns callback entry and restoration. Native dispatch lends the same
@@ -86,7 +87,9 @@ pub(in crate::native) fn invoke_producer(invocation: &mut NativeActivationInvoca
     let records = &mut *invocation.records;
 
     let initial = match selected {
-        NativeActivationOperation::Resume | NativeActivationOperation::Cancel => NativeFrameProgressKind::RUNTIME_FAILURE,
+        NativeActivationOperation::Resume | NativeActivationOperation::Cancel => {
+            NativeFrameProgressKind::RUNTIME_FAILURE
+        }
         _ => NativeFrameProgressKind::COMPLETED,
     };
 
@@ -96,21 +99,20 @@ pub(in crate::native) fn invoke_producer(invocation: &mut NativeActivationInvoca
     *destination = NativeFrameProgress::new(initial, 0, 0);
 
     // Only producer execution may unwind into an owned source report.
-    invoke(destination, &mut outgoing, |destination| {
-        match selected {
-                NativeActivationOperation::Resume => (descriptor.resume)(destination, context),
-                NativeActivationOperation::Cancel => (descriptor.cancel)(destination, context),
-                NativeActivationOperation::Broadcast => (descriptor.broadcast)(destination, context),
-                NativeActivationOperation::Resolve(exit) => (descriptor.resolve)(destination, context, exit),
-                NativeActivationOperation::Move(address) => (descriptor.move_completion)(context, address),
-                NativeActivationOperation::Destroy => (descriptor.destroy)(context),
+    invoke(destination, &mut outgoing, |destination| match selected {
+        NativeActivationOperation::Resume => (descriptor.resume)(destination, context),
+        NativeActivationOperation::Cancel => (descriptor.cancel)(destination, context),
+        NativeActivationOperation::Broadcast => (descriptor.broadcast)(destination, context),
+        NativeActivationOperation::Resolve(exit) => {
+            (descriptor.resolve)(destination, context, exit)
         }
+        NativeActivationOperation::Move(address) => (descriptor.move_completion)(context, address),
+        NativeActivationOperation::Destroy => (descriptor.destroy)(context),
     });
 
     let (head, tail, count) = outgoing.into_parts();
 
     *records = NativeReportRecords { head, tail, count };
-
 }
 
 #[cfg(test)]
@@ -123,9 +125,10 @@ mod tests {
 
     use crate::{RuntimePanic, outgoing::OutgoingRecords};
     use bray_runtime_abi::{
-        NativeActivationDescriptor, NativeActivationInvocation, NativeActivationOperation, NativeCleanupStorageShape, NativeFrameAffinity,
-        NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeFrameState,
-        NativeLaneRequirements, NativeReportRecords, NativeRuntimeStatus,
+        NativeActivationDescriptor, NativeActivationInvocation, NativeActivationOperation,
+        NativeCleanupStorageShape, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
+        NativeFrameProgressKind, NativeFrameState, NativeLaneRequirements, NativeReportRecords,
+        NativeRuntimeStatus,
     };
 
     thread_local! {
@@ -315,12 +318,19 @@ mod tests {
         let mut observed = Vec::new();
 
         crate::context::with_task_execution_context(native_context, || {
-            for operation in [NativeActivationOperation::Resume, NativeActivationOperation::Cancel, NativeActivationOperation::Broadcast, NativeActivationOperation::Resolve(NativeFrameExit::PANICKED), NativeActivationOperation::Move(37), NativeActivationOperation::Destroy] {
+            for operation in [
+                NativeActivationOperation::Resume,
+                NativeActivationOperation::Cancel,
+                NativeActivationOperation::Broadcast,
+                NativeActivationOperation::Resolve(NativeFrameExit::PANICKED),
+                NativeActivationOperation::Move(37),
+                NativeActivationOperation::Destroy,
+            ] {
                 let mut progress =
                     NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
                 super::bray_runtime_activation_callback(&mut NativeActivationInvocation {
-                admission: 0,
+                    admission: 0,
                     execution: &execution,
                     descriptor: &descriptor,
                     context: 17,
@@ -372,7 +382,13 @@ mod tests {
 
         CALLS.with_borrow_mut(Vec::clear);
 
-        for operation in [NativeActivationOperation::Broadcast, NativeActivationOperation::Resolve(NativeFrameExit::RETAINED_DESTRUCTION), NativeActivationOperation::Resolve(NativeFrameExit::SYNCHRONOUS_DISPOSAL), NativeActivationOperation::Move(37), NativeActivationOperation::Destroy] {
+        for operation in [
+            NativeActivationOperation::Broadcast,
+            NativeActivationOperation::Resolve(NativeFrameExit::RETAINED_DESTRUCTION),
+            NativeActivationOperation::Resolve(NativeFrameExit::SYNCHRONOUS_DISPOSAL),
+            NativeActivationOperation::Move(37),
+            NativeActivationOperation::Destroy,
+        ] {
             let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
             super::bray_runtime_activation_callback(&mut NativeActivationInvocation {

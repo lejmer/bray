@@ -145,7 +145,9 @@ pub(super) fn constructed_condition(
             if operation.kind()
                 == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray =>
         {
-            let [operand] = operation.runtime_operands() else { return None; };
+            let [operand] = operation.runtime_operands() else {
+                return None;
+            };
 
             let ty = semantics.types().expression(expression)?.ty();
 

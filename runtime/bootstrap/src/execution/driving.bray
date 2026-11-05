@@ -11,7 +11,12 @@ using internal bray.runtime.bootstrap.task;
 
 @abi(c)
 trusted internal func main_drive() -> u32
-    requires(blocking_execution(), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
     let selected = trusted current();
 
@@ -43,7 +48,9 @@ trusted internal func main_drive() -> u32
     return 0;
 }
 
-trusted internal func pending_storage(pos selected: &Current) -> DataPointer<(bray.runtime.bootstrap.scheduler.Observation?)>
+trusted internal func pending_storage(
+    pos selected: &Current
+) -> DataPointer<(bray.runtime.bootstrap.scheduler.Observation?)>
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(
         trusted view_owned(owner = &selected.acquisition),
@@ -54,12 +61,15 @@ trusted internal func pending_storage(pos selected: &Current) -> DataPointer<(br
     )
     executes(pure, total)
 {
-    return std.memory.uninit_pointer<(bray.runtime.bootstrap.scheduler.Observation?)>(&(trusted context(selected)).pending);
+    return std.memory.uninit_pointer<(bray.runtime.bootstrap.scheduler.Observation?)>(
+        &(trusted context(selected)).pending
+    );
 }
 
 trusted internal func acquire_ready(pos selected: &Current, pos owner: &Reference) -> bool
     requires(
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted retained(owner = owner),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
@@ -74,7 +84,12 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
     }
 
     let value = trusted context(selected);
-    let ready = match consume bray.runtime.bootstrap.scheduler.acquire(trusted scheduler_reference(owner), value.thread, value.lanes)
+
+    let ready = match consume bray.runtime.bootstrap.scheduler.acquire(
+        trusted scheduler_reference(owner),
+        value.thread,
+        value.lanes
+    )
     {
         case ?observation { yield observation; }
         case none { return false; }
@@ -82,13 +97,20 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
 
     let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
 
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected), pending);
+    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(
+        trusted pending_storage(selected),
+        pending
+    );
+
     return true;
 }
 
 // Consume this driver's pending queue claim while borrowing the actual queue
 // owner. Neither context is transferred by clearing the observation slot.
-trusted internal func take_ready(pos selected: &Current, pos owner: &Reference) -> bray.runtime.bootstrap.scheduler.Observation
+trusted internal func take_ready(
+    pos selected: &Current,
+    pos owner: &Reference
+) -> bray.runtime.bootstrap.scheduler.Observation
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted retained(owner = owner))
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
     uses(raw_memory, unchecked_init, intrinsic)
@@ -106,10 +128,13 @@ trusted internal func take_ready(pos selected: &Current, pos owner: &Reference) 
 }
 
 trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Reference)
-    requires(blocking_execution(), 
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
@@ -134,8 +159,8 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
         {
             trusted core.target.abort();
         }
-    }
-    // A resolved frame keeps its registration until its source owner releases
+    } // A resolved frame keeps its registration until its source owner releases
+
     // the result. This releases the executing queue slot without losing wakes.
     let lane = if kind == 0
     {
@@ -154,6 +179,7 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
             {
                 trusted record_task_failure(&dispatched, failure);
                 trusted retain_ready_driver(trusted context(selected), owner, ready.registration);
+
                 _ = trusted wake_reference(&dispatched, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
 
                 let (recovery, recovery_status) = trusted select_lane(owner, ready.registration, &execution, none);
@@ -174,25 +200,52 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
         yield ready.lane;
     };
 
-    trusted release_ready(owner, ready.registration, lane, if kind == 0 && progress.kind == 5 { yield bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT; } else { yield 0; });
+    trusted release_ready(
+        owner,
+        ready.registration,
+        lane,
+        if kind == 0 && progress.kind == 5
+        {
+            yield bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT;
+        }
+        else
+        {
+            yield 0;
+        }
+    );
+
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(dispatched);
 }
 
-trusted internal func release_ready(pos owner: &bray.runtime.bootstrap.execution.Reference, pos registration: u64, pos lane: bray.runtime.bootstrap.scheduler.Lane, pos cause: u32)
+trusted internal func release_ready(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos registration: u64,
+    pos lane: bray.runtime.bootstrap.scheduler.Lane,
+    pos cause: u32
+)
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
 {
-    if trusted bray.runtime.bootstrap.scheduler.release_registration(trusted scheduler_reference(owner), registration, lane, cause, 0) != 0
+    if trusted bray.runtime.bootstrap.scheduler.release_registration(
+        trusted scheduler_reference(owner),
+        registration,
+        lane,
+        cause,
+        0
+    ) != 0
     {
         trusted core.target.abort();
     }
 }
 
 trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
-    requires(blocking_execution(), 
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+    requires(
+        blocking_execution(),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted view_owned(owner = &selected.acquisition))
@@ -210,12 +263,20 @@ trusted internal func wait_ready(pos selected: &Current, pos owner: &Reference)
         return;
     }
 
-    trusted bray.runtime.bootstrap.scheduler.park_reference(trusted scheduler_reference(owner), group, trusted deadline_wait(owner, 1000));
+    trusted bray.runtime.bootstrap.scheduler.park_reference(
+        trusted scheduler_reference(owner),
+        group,
+        trusted deadline_wait(owner, 1000)
+    );
+
     trusted bray.runtime.bootstrap.scheduler.withdraw_parking(trusted scheduler_reference(owner), group);
 }
 
 trusted internal func poll_deadlines(pos owner: &bray.runtime.bootstrap.execution.Reference)
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.entry.native_entry())
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     uses(foreign_call)
 {
@@ -235,7 +296,10 @@ trusted internal func poll_deadlines(pos owner: &bray.runtime.bootstrap.executio
 }
 
 trusted internal func deadline_wait(pos owner: &bray.runtime.bootstrap.execution.Reference, pos maximum: u32) -> u32
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.entry.native_entry())
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
 {
     if trusted execution_failure(owner).stage != 0
@@ -255,9 +319,13 @@ trusted internal func deadline_wait(pos owner: &bray.runtime.bootstrap.execution
     return maximum;
 }
 
-trusted internal func destroy_reference(pos selected: &Current, pos reference: &bray.runtime.bootstrap.task.Reference) -> u32
+trusted internal func destroy_reference(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference
+) -> u32
     requires(
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.owned_reference(owner = reference),
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
@@ -293,7 +361,6 @@ trusted internal func destroy_reference(pos selected: &Current, pos reference: &
         yield (registration, metadata);
     };
 
-
     if registration != 0
     {
         trusted withdraw_registration(execution, registration);
@@ -303,7 +370,11 @@ trusted internal func destroy_reference(pos selected: &Current, pos reference: &
     return 0;
 }
 
-trusted internal func retain_ready_driver(pos driver: &Context, pos owner: &bray.runtime.bootstrap.execution.Reference, pos registration: u64)
+trusted internal func retain_ready_driver(
+    pos driver: &Context,
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos registration: u64
+)
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     uses(layout_reinterpret)
@@ -311,8 +382,11 @@ trusted internal func retain_ready_driver(pos driver: &Context, pos owner: &bray
     let scope = trusted std.memory.reinterpret<bray.runtime.bootstrap.worker.Scope, u8>(driver.worker);
     let slot = std.memory.address_of<DataPointer<bray.runtime.bootstrap.worker.Scope>>(&scope);
 
-    let authorize = trusted lambda(pos driver: &Context, pos slot: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>)
-        
+    let authorize = trusted lambda(
+        pos driver: &Context,
+        pos slot: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>
+    )
+
         ensures(trusted bray.runtime.bootstrap.scheduler.driver_entry(scope = slot))
         executes(pure, total) {};
 

@@ -279,7 +279,10 @@ pub trait CheckerRequestContext: Sync {
     fn storage_member_type(
         &self,
         member: AnySymbolId,
-    ) -> CheckerQueryResult<Arc<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>, Self::UpstreamError>;
+    ) -> CheckerQueryResult<
+        Arc<DiagnosticResult<bray_symbols::TypeExpressionTemplate>>,
+        Self::UpstreamError,
+    >;
 
     /// Returns compiler-known symbols available for the current target.
     fn available_compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;

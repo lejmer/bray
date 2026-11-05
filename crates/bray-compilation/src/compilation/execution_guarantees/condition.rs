@@ -842,13 +842,26 @@ mod tests {
             ("let result: (&Owner)? = owner; return result;", true),
             ("let result: (&Owner)? = lend(owner); return result;", true),
             ("return trusted project(owner, other);", true),
-            ("let stored: (&Owner)? = other; if let ?value = stored { return trusted project(owner, value); } return none;", true),
-            ("if let ?value = fetch(owner) { return trusted project(owner, value); } return none;", true),
-            ("let issue = trusted lambda(pos owner: &Owner, pos stored: &Owner) -> &Owner requires(trusted held(owner = &owner.acquisition)) ensures(trusted held(owner = &result.acquisition)) executes(pure, total) { return stored; }; return trusted issue(owner, other);", true),
+            (
+                "let stored: (&Owner)? = other; if let ?value = stored { return trusted project(owner, value); } return none;",
+                true,
+            ),
+            (
+                "if let ?value = fetch(owner) { return trusted project(owner, value); } return none;",
+                true,
+            ),
+            (
+                "let issue = trusted lambda(pos owner: &Owner, pos stored: &Owner) -> &Owner requires(trusted held(owner = &owner.acquisition)) ensures(trusted held(owner = &result.acquisition)) executes(pure, total) { return stored; }; return trusted issue(owner, other);",
+                true,
+            ),
             ("return other;", false),
-            ("let fabricated: Owner = { acquisition = Marker {}, pointer = owner.pointer }; return &fabricated;", false),
+            (
+                "let fabricated: Owner = { acquisition = Marker {}, pointer = owner.pointer }; return &fabricated;",
+                false,
+            ),
         ] {
-            let source = format!(r#"
+            let source = format!(
+                r#"
                 trusted module app;
                 using core.memory;
                 struct Marker {{}}
@@ -890,12 +903,20 @@ mod tests {
                     ensures(result matches none || trusted held(owner = marker(&result)))
                     ensures(result matches none || trusted held(owner = &contained(&result).acquisition))
                 {{ {body} }}
-            "#);
+            "#
+            );
+
             let app = compilation(&source);
-            let checked = app.lowered_unit(source_function_body_key(&app, "forward"))
+
+            let checked = app
+                .lowered_unit(source_function_body_key(&app, "forward"))
                 .expect("borrowed owner forwarding has a checked body");
 
-            assert_eq!(!checked.diagnostics().has_errors(), valid, "{body}: {checked:#?}");
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{body}: {checked:#?}"
+            );
         }
     }
 
@@ -905,7 +926,8 @@ mod tests {
             ("change();", true),
             ("replace(core.memory.address_of<u64>(owner));", false),
         ] {
-            let source = format!(r#"
+            let source = format!(
+                r#"
                 trusted module app;
                 using core.memory;
                 trusted predicate held(owner: &u64);
@@ -919,12 +941,20 @@ mod tests {
                     {operation}
                     trusted observe(owner);
                 }}
-            "#);
+            "#
+            );
+
             let app = compilation(&source);
-            let checked = app.lowered_unit(source_function_body_key(&app, "forward"))
+
+            let checked = app
+                .lowered_unit(source_function_body_key(&app, "forward"))
                 .expect("shared-slot forwarding has a checked body");
 
-            assert_eq!(!checked.diagnostics().has_errors(), valid, "{operation}: {checked:#?}");
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{operation}: {checked:#?}"
+            );
         }
     }
 

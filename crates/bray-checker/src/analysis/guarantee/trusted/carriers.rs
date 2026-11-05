@@ -92,7 +92,14 @@ impl super::check::TrustedChecks {
             .trusted_contracts()
             .is_some_and(|inputs| inputs.infer_result_witnesses)
         {
-            collect_inferred(request, state, result, &owners, &self.owned_returns, &mut self.inferred);
+            collect_inferred(
+                request,
+                state,
+                result,
+                &owners,
+                &self.owned_returns,
+                &mut self.inferred,
+            );
         }
     }
 
@@ -112,9 +119,12 @@ impl super::check::TrustedChecks {
                 if paths.as_ref().is_some_and(|paths| !paths.is_empty())
                     && let Some(term) = portable(request, condition)
                 {
-                    result.extend(paths.iter().flatten().map(|path| {
-                        DependencyWitnessCarrier::new(term, path.iter().copied())
-                    }));
+                    result.extend(
+                        paths
+                            .iter()
+                            .flatten()
+                            .map(|path| DependencyWitnessCarrier::new(term, path.iter().copied())),
+                    );
                 }
             }
         }
@@ -190,10 +200,7 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
             let condition = condition.with_joined_values(identities, identities);
 
             if let Some(term) = portable(request, &condition) {
-                result.insert(DependencyWitnessCarrier::new(
-                    term,
-                    path.iter().copied(),
-                ));
+                result.insert(DependencyWitnessCarrier::new(term, path.iter().copied()));
             }
         }
     }
@@ -202,8 +209,12 @@ fn collect_inferred<C: crate::CheckerRequestContext + ?Sized>(
         Some(previous) => {
             // An inactive payload imposes no promise. Every exit that can carry
             // this owner must still support the same current condition.
-            previous.retain(|carrier| result.contains(carrier)
-                || super::owned::activity(returned, carrier.path(), &state.assumptions).0 == Some(false));
+            previous.retain(|carrier| {
+                result.contains(carrier)
+                    || super::owned::activity(returned, carrier.path(), &state.assumptions).0
+                        == Some(false)
+            });
+
             for carrier in result {
                 if !previous.contains(&carrier)
                     && exits.iter().all(|exit| exit.excludes(carrier.path()))
@@ -446,7 +457,8 @@ impl ExecutionState {
                 continue;
             }
 
-            let owners = self.owned_witnesses(entry.owned_arguments())
+            let owners = self
+                .owned_witnesses(entry.owned_arguments())
                 .filter(|(_, witness)| witness.has_guards())
                 .map(|(owner, _)| owner.clone())
                 .collect::<BTreeSet<_>>();

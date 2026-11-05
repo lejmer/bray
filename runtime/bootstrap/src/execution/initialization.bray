@@ -12,7 +12,11 @@ using internal bray.runtime.bootstrap.scheduler;
 
 @abi(c)
 trusted internal func main_startup(pos configuration: Configuration) -> u32
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry(), trusted native_configuration(owner = &configuration))
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.native_main_entry(),
+        trusted native_configuration(owner = &configuration)
+    )
 {
     let driver = trusted driver_startup();
 
@@ -84,7 +88,13 @@ trusted internal func startup(pos configuration: Configuration) -> u32
 }
 
 trusted internal func create_execution(pos selected: &Current, pos configuration: Configuration) -> u32
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted native_configuration(owner = &configuration), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted native_configuration(owner = &configuration),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     ensures(trusted view_owned(owner = &selected.acquisition))
 {
     let provider = match consume create_native_provider(&configuration)
@@ -93,7 +103,10 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         case Error(status) { return status; }
     };
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Domain>(),
+        align = std.memory.align_of<Domain>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {
@@ -101,12 +114,29 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     }
 
     let active = trusted context(selected);
-    let scheduler = match consume bray.runtime.bootstrap.scheduler.create(configuration.capabilities, if active.driver.placement == 3 { yield active.thread; } else { yield 0; }, configuration.tasks)
+
+    let scheduler = match consume bray.runtime.bootstrap.scheduler.create(
+        configuration.capabilities,
+        if active.driver.placement == 3
+        {
+            yield active.thread;
+        }
+        else
+        {
+            yield 0;
+        },
+        configuration.tasks
+    )
     {
         case ?value { yield value; }
         case none
         {
-            trusted bray.runtime.bootstrap.heap.deallocate_bytes(allocation, std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+            trusted bray.runtime.bootstrap.heap.deallocate_bytes(
+                allocation,
+                std.memory.stride_of<Domain>(),
+                align = std.memory.align_of<Domain>()
+            );
+
             return 4;
         }
     };
@@ -116,7 +146,13 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     if identity == 0 || !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
     {
         trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
-        trusted bray.runtime.bootstrap.heap.deallocate_bytes(allocation, std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+
+        trusted bray.runtime.bootstrap.heap.deallocate_bytes(
+            allocation,
+            std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        );
+
         return 4;
     }
 

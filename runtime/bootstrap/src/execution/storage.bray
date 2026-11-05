@@ -20,18 +20,36 @@ trusted internal func initialize_domain(
     pos configuration: Configuration
 ) -> Owner
     requires(
-        trusted core.memory.owned_allocation(pointer = allocation, bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>()),
+        trusted core.memory.owned_allocation(
+            pointer = allocation,
+            bytes = std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        ),
         trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>()),
         trusted bray.runtime.bootstrap.scheduler.retained(owner = &scheduler),
         trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &scheduler),
         trusted native_configuration(owner = &configuration)
     )
-    ensures(trusted retained(owner = &result.execution), trusted service_owner(owner = &result), trusted pinned(owner = &result.execution))
+    ensures(
+        trusted retained(owner = &result.execution),
+        trusted service_owner(owner = &result),
+        trusted pinned(owner = &result.execution)
+    )
     uses(raw_memory, unchecked_init)
 {
     let typed = trusted lambda(pos allocation: DataPointer<u8>) -> DataPointer<Domain>
-        requires(trusted core.memory.owned_allocation(pointer = allocation, bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>()), trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>()))
-        ensures(trusted core.memory.valid_write<Domain>(pointer = result, count = 1), trusted core.memory.aligned_for<Domain>(pointer = result))
+        requires(
+            trusted core.memory.owned_allocation(
+                pointer = allocation,
+                bytes = std.memory.stride_of<Domain>(),
+                align = std.memory.align_of<Domain>()
+            ),
+            trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
+        )
+        ensures(
+            trusted core.memory.valid_write<Domain>(pointer = result, count = 1),
+            trusted core.memory.aligned_for<Domain>(pointer = result)
+        )
         uses(layout_reinterpret)
     {
         return trusted std.memory.reinterpret<Domain, u8>(allocation);
@@ -39,7 +57,8 @@ trusted internal func initialize_domain(
 
     let pointer = trusted typed(allocation);
 
-    trusted std.memory.write<Domain>(pointer,
+    trusted std.memory.write<Domain>(
+        pointer,
         {
             scheduler = scheduler,
             identity = identity,
@@ -50,14 +69,33 @@ trusted internal func initialize_domain(
             completion = core.atomic.initialize<u32>(0),
             workers = trusted std.sync.Once<bray.runtime.bootstrap.worker.Reference>.empty(),
             deadlines = trusted std.sync.Once<bray.runtime.bootstrap.deadline.Reference>.empty(),
-            failure = trusted std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>(bray.runtime.bootstrap.worker.no_failure()),
+            failure = trusted std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>(
+                bray.runtime.bootstrap.worker.no_failure()
+            ),
             reports = trusted std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>(
-                { next_ordinal = 1, incidents = bray.runtime.bootstrap.empty_records(), pending_count = 0, draining = 0 }
+                {
+                    next_ordinal = 1,
+                    incidents = bray.runtime.bootstrap.empty_records(),
+                    pending_count = 0,
+                    draining = 0
+                }
             )
         }
     );
 
-    return { acquisition = Acquisition {}, execution = { acquisition = Acquisition {}, pointer = pointer } };
+    return
+    {
+        acquisition = Acquisition
+        {
+        },
+        execution =
+        {
+            acquisition = Acquisition
+            {
+            },
+            pointer = pointer
+        }
+    };
 }
 
 trusted internal func domain(pos owner: &Reference) -> &Domain
@@ -99,9 +137,15 @@ trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtim
     return &(trusted domain(owner)).scheduler;
 }
 
-trusted internal func pin(pos owner: &bray.runtime.bootstrap.execution.Reference) -> bray.runtime.bootstrap.execution.Reference
+trusted internal func pin(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> bray.runtime.bootstrap.execution.Reference
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.execution.retained(owner = &result), trusted pinned(owner = &result))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retained(owner = &result),
+        trusted pinned(owner = &result)
+    )
     uses(intrinsic)
 {
     let value = trusted domain(owner);
@@ -114,20 +158,35 @@ trusted internal func pin(pos owner: &bray.runtime.bootstrap.execution.Reference
             trusted core.target.abort();
         }
 
-        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(&value.pins, expected = count, desired = count + 1);
+        let (previous, acquired) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.pins,
+            expected = count,
+            desired = count + 1
+        );
 
         if acquired
         {
-            return { acquisition = Acquisition {}, pointer = owner.pointer };
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                pointer = owner.pointer
+            };
         }
 
         count = previous;
     }
 }
 
-trusted internal func dispatch_services(pos owner: &bray.runtime.bootstrap.execution.Reference) -> &bray.runtime.bootstrap.task.Services
+trusted internal func dispatch_services(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> &bray.runtime.bootstrap.task.Services
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.task.native_services(owner = result))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.native_services(owner = result)
+    )
     executes(pure, total)
 {
     return &(trusted domain(owner)).task_services;
@@ -144,7 +203,11 @@ trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Ref
 {
     let permit = trusted lambda(pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(pointer = pointer))
-        ensures(trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1), trusted core.memory.initialized_as<Reference>(pointer = pointer), trusted core.memory.aligned_for<Reference>(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.aligned_for<Reference>(pointer = pointer)
+        )
         executes(pure, total) {};
 
     trusted permit(pointer);

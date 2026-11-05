@@ -100,12 +100,14 @@ pub(crate) fn expression_condition(
         return condition;
     }
 
-    if let Some(condition) = conversion_condition(expression, bound, semantics, values, &mut |source| {
-        expression_condition(
-            unit, semantics, values, literals, patterns, current, evaluated, source, budget,
-            predicates,
-        )
-    }) {
+    if let Some(condition) =
+        conversion_condition(expression, bound, semantics, values, &mut |source| {
+            expression_condition(
+                unit, semantics, values, literals, patterns, current, evaluated, source, budget,
+                predicates,
+            )
+        })
+    {
         return condition;
     }
 

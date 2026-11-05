@@ -348,12 +348,21 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
         ("trusted predicate held(owner: &Owner);", "owner"),
         ("trusted predicate held(owner: &Token);", "&owner.token"),
     ] {
-        let retirement_subject = if subject == "owner" { "&owner" } else { subject };
+        let retirement_subject = if subject == "owner" {
+            "&owner"
+        } else {
+            subject
+        };
+
         for (body, valid) in [
             ("trusted owner.bind(owner);", true),
-            ("let fake: Owner = { token = Token {}, bind = owner.bind, retire = owner.retire }; trusted fake.bind(&fake);", false),
+            (
+                "let fake: Owner = { token = Token {}, bind = owner.bind, retire = owner.retire }; trusted fake.bind(&fake);",
+                false,
+            ),
         ] {
-            let source = format!(r#"
+            let source = format!(
+                r#"
                 trusted module app;
                 struct Token {{}}
                 {predicate}
@@ -367,21 +376,36 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
                     requires(trusted held(owner = {subject}))
                     ensures(trusted held(owner = {subject}))
                 {{ {body} }}
-            "#);
+            "#
+            );
+
             let application = compilation(&source);
             let diagnostics = application.check_diagnostics();
-            assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
             if !valid {
-                assert_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+                assert_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
             }
         }
     }
 
     for (body, valid) in [
         ("let retire = owner.retire; trusted retire(owner);", true),
-        ("let fake: Owner = { retire = owner.retire }; trusted fake.retire(fake);", false),
+        (
+            "let fake: Owner = { retire = owner.retire }; trusted fake.retire(fake);",
+            false,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             trusted predicate held(owner: &Owner);
             callable Retire = trusted func(pos owner: Owner)
@@ -390,12 +414,23 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
             trusted func caller(pos owner: Owner)
                 requires(trusted held(owner = &owner))
             {{ {body} }}
-        "#);
+        "#
+        );
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+
         if !valid {
-            assert_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+            assert_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
         }
     }
 }
@@ -404,15 +439,35 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
 fn caught_results_preserve_only_the_successful_owner() {
     for (body, valid) in [
         ("let value = acquire(); forward(value);", true),
-        ("let caught = catch acquire(); match consume caught { case Ok(value) { forward(value); } case Error(_) {} }", true),
-        ("let caught = catch { yield acquire(); }; match consume caught { case Ok(value) { forward(value); } case Error(_) {} }", true),
-        ("let outer = catch catch acquire(); match consume outer { case Ok(inner) { match consume inner { case Ok(value) { forward(value); } case Error(_) {} } } case Error(_) {} }", true),
-        ("let caught = catch acquire(); let value = match consume caught { case Ok(value) { yield value; } case Error(_) { return; } }; forward(value);", true),
-        ("let caught = catch acquire(); match consume caught { case Ok(_) { let fake: Guard = { active = true }; forward(fake); } case Error(_) {} }", false),
-        ("let caught = catch acquire(); match consume caught { case Ok(_) {} case Error(_) { let fake: Guard = { active = true }; forward(fake); } }", false),
+        (
+            "let caught = catch acquire(); match consume caught { case Ok(value) { forward(value); } case Error(_) {} }",
+            true,
+        ),
+        (
+            "let caught = catch { yield acquire(); }; match consume caught { case Ok(value) { forward(value); } case Error(_) {} }",
+            true,
+        ),
+        (
+            "let outer = catch catch acquire(); match consume outer { case Ok(inner) { match consume inner { case Ok(value) { forward(value); } case Error(_) {} } } case Error(_) {} }",
+            true,
+        ),
+        (
+            "let caught = catch acquire(); let value = match consume caught { case Ok(value) { yield value; } case Error(_) { return; } }; forward(value);",
+            true,
+        ),
+        (
+            "let caught = catch acquire(); match consume caught { case Ok(_) { let fake: Guard = { active = true }; forward(fake); } case Error(_) {} }",
+            false,
+        ),
+        (
+            "let caught = catch acquire(); match consume caught { case Ok(_) {} case Error(_) { let fake: Guard = { active = true }; forward(fake); } }",
+            false,
+        ),
     ] {
         let body = body.replace("acquire()", "acquire(fail)");
-        let source = format!(r#"
+
+        let source = format!(
+            r#"
             trusted module app;
             struct Guard {{ active: bool; }}
             trusted predicate held(owner: &(Guard?));
@@ -421,10 +476,17 @@ fn caught_results_preserve_only_the_successful_owner() {
             {{ if fail {{ panic("acquisition failed"); }} let owner: Guard = {{ active = true }}; return owner; }}
             func forward(pos owner: Guard?) requires(trusted held(owner = &owner)) {{}}
             func caller(pos fail: bool) {{ {body} }}
-        "#);
+        "#
+        );
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -2074,6 +2136,7 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
             }
         }
     "#;
+
     let application = compilation(source);
     let diagnostics = application.check_diagnostics();
 
@@ -2085,7 +2148,11 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
     for (pointee, value, valid) in [
         ("u32", "1", true),
         ("(u32?)", "none", true),
-        ("Payload", "Payload { marker = Marker {}, value = 1 }", false),
+        (
+            "Payload",
+            "Payload { marker = Marker {}, value = 1 }",
+            false,
+        ),
     ] {
         let source = format!(
             r#"
@@ -2124,7 +2191,11 @@ fn typed_data_writes_preserve_borrowed_ownership_markers() {
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
@@ -4689,7 +4760,6 @@ fn independent_witness_survives_a_released_production_guard_in_a_loop() {
     );
 }
 
-
 #[test]
 fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
     for (operation, valid) in [("", true), ("replace(&mut owner);", false)] {
@@ -4732,10 +4802,15 @@ fn forwarding_a_union_owner_preserves_the_checked_payload_projection() {
             }}
             "#,
         );
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -4776,9 +4851,14 @@ fn returned_owner_facts_follow_only_the_active_result_payload() {
             }}
             "#,
         );
+
         let application = compilation(&source);
         let diagnostics = application.check_diagnostics();
 
-        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
     }
 }

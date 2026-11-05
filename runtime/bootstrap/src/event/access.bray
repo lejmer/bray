@@ -18,6 +18,7 @@ trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &R
     uses(raw_memory, unchecked_alias)
 {
     let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+
     let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(owner = owner))
         ensures(

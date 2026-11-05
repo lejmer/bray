@@ -24,7 +24,11 @@ trusted internal func acquisition(
 
     if let ?selected = trusted acquire_ready(reference, lanes)
     {
-        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.scheduler.Observation>(output, selected);
+        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.scheduler.Observation>(
+            output,
+            selected
+        );
+
         return 1;
     }
 
@@ -74,7 +78,6 @@ trusted internal func notify_reference(pos reference: &Reference)
     ensures(trusted retained(owner = &reference.marker))
     uses(raw_memory)
 {
-
     {
         let mut guard = trusted lock(reference);
         let state = trusted locked_state(reference, &mut guard);

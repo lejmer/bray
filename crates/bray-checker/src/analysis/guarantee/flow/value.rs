@@ -411,12 +411,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         call: &bray_bound_tree::SelectedCall,
     ) -> ExecutionCondition {
         if call.evaluates_defaults() {
-            self.invocation_value(state, bray_bound_tree::BoundExecutionSite::CallInput {
-                expression,
-                ordinal: bray_symbols::SymbolOrdinal::new(0),
-            })
+            self.invocation_value(
+                state,
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal: bray_symbols::SymbolOrdinal::new(0),
+                },
+            )
         } else {
-            self.value(state, call.receiver().expect("selected receiver operation retains its receiver").expression())
+            self.value(
+                state,
+                call.receiver()
+                    .expect("selected receiver operation retains its receiver")
+                    .expression(),
+            )
         }
     }
 

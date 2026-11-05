@@ -95,7 +95,9 @@ trusted internal func form_state(
 
     return
     {
-        acquisition = Marker {},
+        acquisition = Marker
+        {
+        },
         lease = owner.lease,
         layout = owner.input.layout,
         glue = owner.input.glue,
@@ -164,8 +166,10 @@ trusted internal func take_state_reference(pos owner: &mut State) -> bray.runtim
     return trusted std.memory.replace_value<bray.runtime.bootstrap.task.Reference>(
         &mut owner.reference,
         {
-            acquisition = bray.runtime.bootstrap.task.Marker {},
-                pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
+            pointer = std.memory.null<bray.runtime.bootstrap.task.Slot>(),
             runtime = 0,
             handle = 0
         }

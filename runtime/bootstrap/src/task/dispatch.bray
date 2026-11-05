@@ -24,7 +24,8 @@ trusted internal func dispatch(
     pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 ) -> u32
     requires(
-        trusted reference_slot(owner = &pointer), trusted service_slot(owner = &service_pointer),
+        trusted reference_slot(owner = &pointer),
+        trusted service_slot(owner = &service_pointer),
         trusted dispatch_failure(pointer = failure_pointer),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -34,6 +35,7 @@ trusted internal func dispatch(
 {
     let reference = trusted borrow_reference(&pointer);
     let services = trusted borrow_services(&service_pointer);
+
     let permit = trusted lambda(pos pointer: DataPointer<bray.runtime.bootstrap.worker.Failure>)
         requires(trusted dispatch_failure(pointer = pointer))
         ensures(
@@ -44,6 +46,7 @@ trusted internal func dispatch(
         executes(pure, total) {};
 
     trusted permit(failure_pointer);
+
     let mut failure = trusted std.memory.read<bray.runtime.bootstrap.worker.Failure>(failure_pointer);
     let claim = trusted acquire_dispatch(reference, services, failure.stage != 0);
 
@@ -53,11 +56,23 @@ trusted internal func dispatch(
     }
 
     let (returned, final_execution, kind) = trusted advance_dispatch(&claim, &mut failure);
+
     trusted release_dispatch(claim, &failure);
 
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(failure_pointer, failure);
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(progress, returned);
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.requirements.Execution>(execution, final_execution);
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(
+        failure_pointer,
+        failure
+    );
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.activation.Progress>(
+        progress,
+        returned
+    );
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<
+        bray.runtime.bootstrap.activation.requirements.Execution
+    >(execution, final_execution);
+
     return kind;
 }
 
@@ -248,7 +263,7 @@ trusted internal func advance_dispatch(
             return (yielded(initial.execution.state), initial.execution, status);
         }
 
-                return (bray.runtime.bootstrap.activation.empty_progress(), initial.execution, 3);
+        return (bray.runtime.bootstrap.activation.empty_progress(), initial.execution, 3);
     }
 
     let mut transitions: usize = 0;
@@ -277,7 +292,7 @@ trusted internal func advance_dispatch(
 
             let returned = trusted complete_dispatch(owner, execution, progress, failure);
 
-                        return (returned, execution, 1);
+            return (returned, execution, 1);
         }
 
         let cancellation = trusted dispatch_cancellation(owner);
@@ -298,14 +313,14 @@ trusted internal func advance_dispatch(
         }
 
         trusted suspend_dispatch(owner, execution);
-                return (progress, execution, 0);
+        return (progress, execution, 0);
     }
 
     let cancellation = trusted dispatch_cancellation(owner);
     let execution = trusted frame_snapshot(owner, cancellation);
 
     trusted suspend_dispatch(owner, execution);
-        return (yielded(execution.state), execution, 0);
+    return (yielded(execution.state), execution, 0);
 }
 
 trusted internal func snapshot_dispatch(pos owner: &Dispatch) -> Snapshot

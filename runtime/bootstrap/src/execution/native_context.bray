@@ -10,12 +10,18 @@ using internal bray.runtime.bootstrap.activation.callback;
 
 // Native context admission transfers the actual task storage reference. Its
 // cell retains execution backing until the last callback or requester releases.
-internal callable AdmitContext = @abi(c) trusted func(pos task: bray.runtime.bootstrap.task.Reference, pos root: u32) -> u32
-    requires(trusted bray.runtime.bootstrap.task.retained(owner = &task), trusted bray.runtime.bootstrap.task.owned_reference(owner = &task));
+internal callable AdmitContext = @abi(c) trusted func(pos task: bray.runtime.bootstrap.task.Reference, pos root: u32) ->
+    u32
+    requires(
+        trusted bray.runtime.bootstrap.task.retained(owner = &task),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &task)
+    );
 
 internal callable ReleaseContext = @abi(c) trusted func(pos context: usize);
 
-trusted internal func native_invocation(pos owner: &Reference) -> bray.runtime.bootstrap.activation.callback.NativeInvoke?
+trusted internal func native_invocation(
+    pos owner: &Reference
+) -> bray.runtime.bootstrap.activation.callback.NativeInvoke?
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
     uses(layout_reinterpret)
@@ -27,10 +33,20 @@ trusted internal func native_invocation(pos owner: &Reference) -> bray.runtime.b
         return none;
     }
 
-    let address = trusted std.memory.function.from_data<bray.runtime.bootstrap.activation.callback.NativeInvoke>(configuration.invoke);
-    let permit = trusted lambda(pos owner: &Reference, pos address: FunctionPointer<bray.runtime.bootstrap.activation.callback.NativeInvoke>)
+    let address = trusted std.memory.function.from_data<bray.runtime.bootstrap.activation.callback.NativeInvoke>(
+        configuration.invoke
+    );
+
+    let permit = trusted lambda(
+        pos owner: &Reference,
+        pos address: FunctionPointer<bray.runtime.bootstrap.activation.callback.NativeInvoke>
+    )
         requires(trusted retained(owner = owner))
-        ensures(trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.NativeInvoke>(pointer = address))
+        ensures(
+            trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.NativeInvoke>(
+                pointer = address
+            )
+        )
         executes(pure, total) {};
 
     trusted permit(owner, address);
@@ -50,6 +66,7 @@ trusted internal func context_admission(pos owner: &Reference) -> AdmitContext?
     }
 
     let address = trusted std.memory.function.from_data<AdmitContext>(configuration.admit_context);
+
     let permit = trusted lambda(pos owner: &Reference, pos address: FunctionPointer<AdmitContext>)
         requires(trusted retained(owner = owner))
         ensures(trusted core.memory.callable_address_valid<AdmitContext>(pointer = address))
@@ -77,6 +94,7 @@ trusted internal func release_context(pos owner: &Reference, pos metadata: usize
     }
 
     let address = trusted std.memory.function.from_data<ReleaseContext>(configuration.release_context);
+
     let permit = trusted lambda(pos owner: &Reference, pos address: FunctionPointer<ReleaseContext>)
         requires(trusted retained(owner = owner))
         ensures(trusted core.memory.callable_address_valid<ReleaseContext>(pointer = address))

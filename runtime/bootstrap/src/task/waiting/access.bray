@@ -10,7 +10,8 @@ trusted internal func wait_entry_access(
 ) -> bray.runtime.bootstrap.host.HostLease
     requires(trusted retained(owner = child), trusted retained(owner = parent))
     ensures(
-        trusted retained(owner = child), trusted retained(owner = parent),
+        trusted retained(owner = child),
+        trusted retained(owner = parent),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
     )
@@ -49,7 +50,8 @@ trusted internal func wait_coordinates(
     pos lease: &bray.runtime.bootstrap.host.HostLease
 ) -> (u32, (u64, u64, u64)?)
     requires(
-        trusted retained(owner = child), trusted retained(owner = parent),
+        trusted retained(owner = child),
+        trusted retained(owner = parent),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
     )

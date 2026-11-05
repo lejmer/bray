@@ -128,7 +128,8 @@ trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Fa
 
             yield if available != 0
             {
-                let select = trusted lambda(pos owner: &Reference, pos state: &State, pos workload: u32) -> WorkerReference
+                let select = trusted lambda(pos owner: &Reference, pos state: &State, pos workload: u32) ->
+                    WorkerReference
                     requires(trusted retained(owner = &owner.marker))
                     ensures(trusted retained(owner = &owner.marker), trusted retained_worker(owner = &result.marker))
                     uses(intrinsic)
@@ -149,7 +150,13 @@ trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Fa
 
                             if workers[0].workload == workload
                             {
-                                return { marker = Marker {}, pointer = std.memory.pointer<Worker>(&rows[index]) };
+                                return
+                                {
+                                    marker = Marker
+                                    {
+                                    },
+                                    pointer = std.memory.pointer<Worker>(&rows[index])
+                                };
                             }
                         }
                     }
@@ -285,10 +292,7 @@ trusted internal func ensure(pos reference: &Reference, pos workload: u32) -> Fa
                             };
                         }
                     }
-                    case FormationChoice.Existing(row)
-                    {
-                        break trusted await_worker(&row);
-                    }
+                    case FormationChoice.Existing(row) { break trusted await_worker(&row); }
                     case FormationChoice.Created(formation) { break trusted create_worker(formation); }
                 }
             }

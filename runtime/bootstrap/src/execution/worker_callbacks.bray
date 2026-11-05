@@ -19,7 +19,17 @@ trusted internal func worker_callback(
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
-    requires(operation != 4 || blocking_execution(), trusted bray.runtime.bootstrap.worker.callback_authorized(context = context, operation = operation, pool = &pool, scope = scope, argument = argument, outcome = outcome))
+    requires(
+        operation != 4 || blocking_execution(),
+        trusted bray.runtime.bootstrap.worker.callback_authorized(
+            context = context,
+            operation = operation,
+            pool = &pool,
+            scope = scope,
+            argument = argument,
+            outcome = outcome
+        )
+    )
     ensures(
         trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
@@ -29,14 +39,33 @@ trusted internal func worker_callback(
     )
     uses(raw_memory, unchecked_init)
 {
-    let reference = trusted bray.runtime.bootstrap.worker.callback_pool(context, operation, &pool, scope, argument, outcome);
+    let reference = trusted bray.runtime.bootstrap.worker.callback_pool(
+        context,
+        operation,
+        &pool,
+        scope,
+        argument,
+        outcome
+    );
+
     let owner = trusted bray.runtime.bootstrap.worker.execution_reference(reference);
+
     let status: u32 = match operation
     {
         case 0 { yield trusted core.target.abort(); }
         case 1
         {
-            _ = trusted release_pin(trusted bray.runtime.bootstrap.worker.take_execution_backing(context, reference, &pool, scope, argument, outcome));
+            _ = trusted release_pin(
+                trusted bray.runtime.bootstrap.worker.take_execution_backing(
+                    context,
+                    reference,
+                    &pool,
+                    scope,
+                    argument,
+                    outcome
+                )
+            );
+
             yield 0;
         }
         case 2
@@ -65,7 +94,15 @@ trusted internal func worker_callback(
             }
 
             trusted poll_deadlines(owner);
-            yield if trusted acquire_worker_ready(actual, &selected) { yield 1; } else { yield 0; };
+
+            yield if trusted acquire_worker_ready(actual, &selected)
+            {
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            };
         }
         case 4
         {
@@ -92,13 +129,11 @@ trusted internal func worker_callback(
 
             yield 0;
         }
-        case 6
-        {
-            yield trusted deadline_wait(owner, 1000);
-        }
+        case 6 { yield trusted deadline_wait(owner, 1000); }
         case 7
         {
             let incoming = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome);
+
             let failure: bray.runtime.bootstrap.worker.Failure =
             {
                 stage = incoming.report.worker_stage,
@@ -134,18 +169,38 @@ trusted internal func worker_callback(
         case _ { yield trusted core.target.abort(); }
     };
 
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(outcome,
-        { state = 0, payload = 0, report = bray.runtime.bootstrap.empty_panic_report() }
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+        outcome,
+        {
+            state = 0,
+            payload = 0,
+            report = bray.runtime.bootstrap.empty_panic_report()
+        }
     );
+
     return status;
 }
 
-trusted internal func acquire_worker_ready(pos scope: &bray.runtime.bootstrap.worker.Scope, pos selected: &Current) -> bool
-    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &selected.acquisition))
+trusted internal func acquire_worker_ready(
+    pos scope: &bray.runtime.bootstrap.worker.Scope,
+    pos selected: &Current
+) -> bool
+    requires(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted view_owned(owner = &selected.acquisition)
+    )
     uses(raw_memory, unchecked_init)
 {
-    let ready = match consume trusted bray.runtime.bootstrap.worker.acquire_ready(scope, (trusted context(selected)).lanes)
+    let ready = match consume trusted bray.runtime.bootstrap.worker.acquire_ready(
+        scope,
+        (trusted context(selected)).lanes
+    )
     {
         case ?value { yield value; }
         case none { return false; }
@@ -153,16 +208,31 @@ trusted internal func acquire_worker_ready(pos scope: &bray.runtime.bootstrap.wo
 
     let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
 
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected), pending);
+    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(
+        trusted pending_storage(selected),
+        pending
+    );
+
     return true;
 }
 
-trusted internal func record_worker_failure(pos selected: &Current, pos owner: &Reference, pos failure: bray.runtime.bootstrap.worker.Failure)
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+trusted internal func record_worker_failure(
+    pos selected: &Current,
+    pos owner: &Reference,
+    pos failure: bray.runtime.bootstrap.worker.Failure
+)
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted retained(owner = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     ensures(trusted view_owned(owner = &selected.acquisition))
     uses(raw_memory)
 {
-    let ready = match trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected))
+    let ready = match trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(
+        trusted pending_storage(selected)
+    )
     {
         case ?value { yield value; }
         case none { yield trusted core.target.abort(); }

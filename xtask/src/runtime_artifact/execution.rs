@@ -100,7 +100,11 @@ pub(super) fn smoke_test(
             .with_native_link_inputs(
                 matches!(
                     name,
-                    "ordinary-finalization" | "scoped-cleanup" | "operation-cleanup" | "task-observation-retained-error" | "task-start-rejection"
+                    "ordinary-finalization"
+                        | "scoped-cleanup"
+                        | "operation-cleanup"
+                        | "task-observation-retained-error"
+                        | "task-start-rejection"
                 )
                 .then(|| probe.clone()),
             ),
@@ -146,7 +150,8 @@ pub(super) fn smoke_test(
             // Development deliberately preserves unused linked content. Optional
             // service omission is a property of the final release executable.
             if configuration == BuildConfiguration::Release {
-                let symbols = fs::read_to_string(&map).map_err(|error| CommandError::read(&map, error))?;
+                let symbols =
+                    fs::read_to_string(&map).map_err(|error| CommandError::read(&map, error))?;
 
                 super::smoke::audit_link_symbols(
                     &symbols,
@@ -154,9 +159,11 @@ pub(super) fn smoke_test(
                     &[
                         bray_runtime_abi::symbols::DEADLINE_CREATION_SYMBOL,
                         bray_runtime_abi::symbols::DEADLINE_DISPATCH_SYMBOL,
-                        bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow.native_symbol(),
+                        bray_runtime_interface::PlatformServiceRole::ClockMonotonicNow
+                            .native_symbol(),
                     ],
-                ).map_err(CommandError::EntrySmoke)?;
+                )
+                .map_err(CommandError::EntrySmoke)?;
             }
 
             let destination = crate::native_product::managed_destination(&output)

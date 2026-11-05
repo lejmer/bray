@@ -16,7 +16,11 @@ using internal bray.runtime.bootstrap.activation.callback;
 // consumers install the two lifetime operations for their execution domain.
 // A driver alone never references scheduler creation or task retirement code.
 internal callable BindingClose = @abi(c) trusted func(pos owner: Owner) -> Reference
-    requires(trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution), trusted service_owner(owner = &owner))
+    requires(
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted service_owner(owner = &owner)
+    )
     ensures(trusted retained(owner = &result), trusted pinned(owner = &result));
 
 internal callable BindingRelease = @abi(c) trusted func(pos owner: Reference) -> u32
@@ -125,13 +129,27 @@ trusted internal func current() -> Current
         case Ok(value) { yield value; }
         case Error(status)
         {
-            return { acquisition = Acquisition {}, pointer = std.memory.null<Context>(), status = status };
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                pointer = std.memory.null<Context>(),
+                status = status
+            };
         }
     };
 
     if std.memory.is_null<u8>(address)
     {
-        return { acquisition = Acquisition {}, pointer = std.memory.null<Context>(), status = 1 };
+        return
+        {
+            acquisition = Acquisition
+            {
+            },
+            pointer = std.memory.null<Context>(),
+            status = 1
+        };
     }
 
     let pointer = trusted std.memory.reinterpret<Context, u8>(address);
@@ -156,14 +174,27 @@ trusted internal func current() -> Current
     let value = trusted std.memory.borrow_from<Context, DataPointer<Context>>(&pointer, pointer);
 
     let entered = trusted lambda(pos value: &Context)
-        ensures(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        ensures(
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
         executes(pure, total) {};
 
     // Only an established Root, worker or cleanup owner publishes a Context in
     // this native-thread slot. The counted view retains its actual entry epoch.
     trusted acquire_view(value);
+
     trusted entered(value);
-    return { acquisition = Acquisition {}, pointer = pointer, status = 0 };
+
+    return
+    {
+        acquisition = Acquisition
+        {
+        },
+        pointer = pointer,
+        status = 0
+    };
 }
 
 trusted internal func context(pos owner: &Current) -> &Context

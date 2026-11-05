@@ -248,7 +248,12 @@ impl Compilation {
                     // Native bodies cannot unwind through the call boundary, but
                     // ordinary caller-side requirements can still fail before entry.
                     return self.unwind_requirements(
-                        callable.phase_behaviors().invocation().predicate_requirements().iter().copied(),
+                        callable
+                            .phase_behaviors()
+                            .invocation()
+                            .predicate_requirements()
+                            .iter()
+                            .copied(),
                         entry,
                     );
                 }
@@ -345,7 +350,10 @@ impl Compilation {
     ) -> Result<UnwindBehavior, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        for predicate in requirements.into_iter().filter(|predicate| !predicate.is_trusted()) {
+        for predicate in requirements
+            .into_iter()
+            .filter(|predicate| !predicate.is_trusted())
+        {
             let condition = predicate
                 .condition()
                 .map(|term| bray_checker::execution_condition_from_term(values, term, &[]))
@@ -713,6 +721,7 @@ mod tests {
         ] {
             let compilation = compilation(&format!("module example; {declarations}"));
             let key = source_function_body_key(&compilation, "invoke");
+
             let result = compilation
                 .unwind_behavior(key, &compilation.state.cancellation)
                 .expect("native invocation must retain its admission and body contracts");
@@ -722,7 +731,13 @@ mod tests {
                 "{declarations}: {:?}",
                 result.result().diagnostics()
             );
-            assert_eq!(result.result().value().may_unwind(), expected, "{declarations}");
+
+            assert_eq!(
+                result.result().value().may_unwind(),
+                expected,
+                "{declarations}"
+            );
+
             assert_eq!(
                 result.result().value().current_run_cancellation(),
                 bray_symbols::CurrentRunCancellation::NotEntered,

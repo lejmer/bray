@@ -672,7 +672,10 @@ mod tests {
             (CallableAbi::Bray, &[][..], true, false),
         ] {
             let signature = CodegenCallableSignature::new(
-                parameters.iter().copied().map(|parameter| CodegenParameterMapping::direct(parameter, None, [])),
+                parameters
+                    .iter()
+                    .copied()
+                    .map(|parameter| CodegenParameterMapping::direct(parameter, None, [])),
                 CodegenResultMapping::direct(u32, None, []),
                 abi,
                 false,
@@ -718,37 +721,42 @@ mod tests {
             .expect("fixture unary representation must resolve")
             .expect("successful fixture query must contain its expected result");
 
-        for role in [RuntimeAbiRole::ReportRecordAppend, RuntimeAbiRole::ActivationCallback, RuntimeAbiRole::ActivationActionReadiness] {
-        for (parameter, result, expected) in [
-            (pointer, CodegenResultMapping::Void, true),
-            (usize, CodegenResultMapping::Void, false),
-            (
-                pointer,
-                CodegenResultMapping::direct(usize, None, []),
-                false,
-            ),
+        for role in [
+            RuntimeAbiRole::ReportRecordAppend,
+            RuntimeAbiRole::ActivationCallback,
+            RuntimeAbiRole::ActivationActionReadiness,
         ] {
-            let signature = CodegenCallableSignature::new(
-                std::iter::once(CodegenParameterMapping::direct(parameter, None, [])).chain(
-                    (role == RuntimeAbiRole::ReportRecordAppend).then(|| CodegenParameterMapping::direct(pointer, None, []))
+            for (parameter, result, expected) in [
+                (pointer, CodegenResultMapping::Void, true),
+                (usize, CodegenResultMapping::Void, false),
+                (
+                    pointer,
+                    CodegenResultMapping::direct(usize, None, []),
+                    false,
                 ),
-                result,
-                CallableAbi::C,
-                false,
-            );
+            ] {
+                let signature = CodegenCallableSignature::new(
+                    std::iter::once(CodegenParameterMapping::direct(parameter, None, [])).chain(
+                        (role == RuntimeAbiRole::ReportRecordAppend)
+                            .then(|| CodegenParameterMapping::direct(pointer, None, [])),
+                    ),
+                    result,
+                    CallableAbi::C,
+                    false,
+                );
 
-            assert_eq!(
-                runtime_source_signature_matches(
-                    &compilation,
-                    role,
-                    &signature,
-                    &CancellationToken::new(),
-                    &mut bray_diagnostics::DiagnosticBag::new(),
-                )
-                .expect("fixture runtime signature must be checked"),
-                Some(expected)
-            );
-        }
+                assert_eq!(
+                    runtime_source_signature_matches(
+                        &compilation,
+                        role,
+                        &signature,
+                        &CancellationToken::new(),
+                        &mut bray_diagnostics::DiagnosticBag::new(),
+                    )
+                    .expect("fixture runtime signature must be checked"),
+                    Some(expected)
+                );
+            }
         }
     }
 

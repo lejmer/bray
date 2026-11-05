@@ -1,7 +1,7 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap.host.product;
 
-internal const ABI_VERSION: u32 = 2;
+internal const ABI_VERSION: u32 = 3;
 
 @copy
 internal union Phase

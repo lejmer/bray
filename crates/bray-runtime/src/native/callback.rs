@@ -53,13 +53,16 @@ fn execute_callback_boundary(
     let mut published = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
 
     let thread = super::bridge::Scope::enter();
+
     let execution = thread
         .as_ref()
         .map_err(|status| *status)
         .and_then(|_| super::scope::Scope::enter(true));
 
     let outcome = match (&thread, &execution) {
-        (Ok(_), Ok(_)) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
+        (Ok(_), Ok(_))
+            if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() =>
+        {
             execute_synchronous_root(
                 || {
                     published = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
@@ -93,6 +96,7 @@ fn execute_callback_boundary(
     let execution_incidents = execution
         .map(|scope| usize::from(!scope.finish().is_success()))
         .unwrap_or(0);
+
     let cleanup_incidents = execution_incidents + thread.map_or(0, super::bridge::Scope::finish);
 
     if cleanup_incidents != 0 {
@@ -108,9 +112,7 @@ fn execute_callback_boundary(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::{
-        NativeRunOutcome, NativeRunState, NativeThreadOperationCallback,
-    };
+    use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeThreadOperationCallback};
 
     use super::{bray_runtime_native_thread_execution, execute_native_thread};
 
@@ -153,14 +155,14 @@ mod tests {
         crate::context::with_native_thread_cancellation(cancellation_requested, 0, || {
             crate::context::with_run_cancellation_context(cancellation, || {
                 crate::context::with_task_output(output, || {
-                        let outcome = execute(assert_independent_native_task, 0);
+                    let outcome = execute(assert_independent_native_task, 0);
 
-                        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-                        assert!(crate::current_task_execution_context().is_none());
-                        assert!(crate::current_run_cancellation_requested());
+                    assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                    assert!(crate::current_task_execution_context().is_none());
+                    assert!(crate::current_run_cancellation_requested());
 
-                        #[cfg(feature = "test-output")]
-                        assert!(crate::context::current_task_output().is_some());
+                    #[cfg(feature = "test-output")]
+                    assert!(crate::context::current_task_output().is_some());
                 });
             });
         });

@@ -497,6 +497,7 @@ fn admit(descriptor: &ActivationDescriptor) -> InactiveFrame {
 
 fn start_root(descriptor: &ActivationDescriptor) -> RootHandle {
     assert!(bray_runtime_initialization() == Status::SUCCESS);
+
     assert!(bray_runtime_main_thread_lane_startup(Configuration {
         task_capacity: 8,
         timer_capacity: 8,

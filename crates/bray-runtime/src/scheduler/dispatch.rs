@@ -222,9 +222,8 @@ impl ReadyTask {
             execution.origin().unwrap_or(binding.origin),
         )?;
 
-        let cancellation = u32::from(
-            binding.cancellation.recheck_dispatch(),
-        ) * native::cause(TaskWakeCause::Cancellation);
+        let cancellation = u32::from(binding.cancellation.recheck_dispatch())
+            * native::cause(TaskWakeCause::Cancellation);
 
         let previous = std::mem::replace(&mut binding.execution, execution);
 

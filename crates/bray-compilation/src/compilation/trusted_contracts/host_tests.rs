@@ -11,11 +11,25 @@ fn production_buffer_views_keep_nested_allocations_bounded() {
     for name in ["slot_at", "record"] {
         let key = source_function_body_key(&compilation, name);
 
-        let flow = compilation.storage_flow(key).expect("production getter retains its storage analysis");
+        let flow = compilation
+            .storage_flow(key)
+            .expect("production getter retains its storage analysis");
 
-        assert!(!flow.diagnostics().has_errors(), "{name}: {:?}", flow.diagnostics());
+        assert!(
+            !flow.diagnostics().has_errors(),
+            "{name}: {:?}",
+            flow.diagnostics()
+        );
+
         assert!(!flow.value().is_recovered(), "{name}: {:?}", flow.value());
-        assert!(flow.value().dependencies().preserves_storage_on_normal_return(), "{name}: {:?}", flow.value().dependencies());
+
+        assert!(
+            flow.value()
+                .dependencies()
+                .preserves_storage_on_normal_return(),
+            "{name}: {:?}",
+            flow.value().dependencies()
+        );
     }
 }
 
@@ -2548,9 +2562,14 @@ fn activation_deferred_retirement_preserves_dispatch_ownership() {
 #[test]
 #[ignore = "tier:proof"]
 fn activation_callback_requires_one_exact_authorized_invocation() {
-    let authorized = "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition)";
+    let authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition)";
+
     let outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)";
-    let other_authorized = "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
+
+    let other_authorized =
+        "trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &other.acquisition)";
+
     let other_outputs = "trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &other.acquisition)";
     let invoke = "_ = trusted callback(owner);";
 
@@ -2657,6 +2676,7 @@ fn driver_view_keeps_its_source_acquisition_with_the_complete_owner() {
         );
 
         let compilation = production_host_compilation(&caller);
+
         let lowered = compilation
             .lowered_unit(source_function_body_key(&compilation, "production_probe"))
             .expect("fixture callable must lower successfully");

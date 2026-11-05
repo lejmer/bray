@@ -1,7 +1,6 @@
 use crate::{
-    NativeActivationExecution, NativeCleanupStorageShape,
-    NativeFrameState, NativeInactiveFrame, NativeReportRecords,
-    NativeRunOutcome, NativeTaskHandle, NativeValueCleanupCallback,
+    NativeActivationExecution, NativeCleanupStorageShape, NativeFrameState, NativeInactiveFrame,
+    NativeReportRecords, NativeRunOutcome, NativeTaskHandle, NativeValueCleanupCallback,
 };
 
 /// Constructs one typed cleanup frame without executing its body. The caller
@@ -110,7 +109,6 @@ pub struct NativeTaskDispatchServices {
     pub wake: extern "C" fn(&NativeTaskReference, u32) -> u32,
     /// Withdraws the suspended native wait when Source abandons ordinary work.
     pub cancel_wait: extern "C" fn(),
-
 }
 
 #[cfg(test)]

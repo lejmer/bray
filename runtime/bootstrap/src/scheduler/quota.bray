@@ -25,7 +25,6 @@ trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos 
     return trusted acquire_slot(&owner, registration);
 }
 
-
 trusted internal func release_slot(pos owner: &Reference, pos registration: u64) -> u32
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -65,7 +64,6 @@ trusted internal func release_slot(pos owner: &Reference, pos registration: u64)
     trusted notify(value, notifications);
     return 1;
 }
-
 
 trusted internal func acquire_slot(pos owner: &Reference, pos registration: u64) -> u32
     requires(trusted retained(owner = owner))

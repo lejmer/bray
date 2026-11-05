@@ -546,7 +546,16 @@ where
 
         self.catches.pop();
         self.storage.replace_report_boundary(parent);
-        self.push_edge(completion, join, AnalysisEdgeKind::Sequential, Some(AnalysisRefinement::CaughtResult { expression: id, succeeded: true }));
+
+        self.push_edge(
+            completion,
+            join,
+            AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::CaughtResult {
+                expression: id,
+                succeeded: true,
+            }),
+        );
 
         Some(Some(join))
     }

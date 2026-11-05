@@ -16,9 +16,8 @@ internal union Backing
 
 trusted internal predicate backing_storage_retained(owner: &Backing);
 
-internal predicate backing_retained(owner: &Backing) =
-    (owner matches Backing.External(_) || owner matches Backing.Execution(_))
-    && backing_storage_retained(owner = owner);
+internal predicate backing_retained(owner: &Backing) = (owner matches Backing.External(_) || owner matches
+    Backing.Execution(_)) && backing_storage_retained(owner = owner);
 
 // This claim belongs to the complete Backing. Its constructors and consuming
 // transfers preserve the actual queue count or execution pin it owns.
@@ -52,7 +51,10 @@ trusted internal func external_backing(pos owner: Reference) -> Backing
 }
 
 trusted internal func execution_backing(pos owner: bray.runtime.bootstrap.execution.Reference) -> Backing
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = &owner), trusted bray.runtime.bootstrap.execution.pinned(owner = &owner))
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = &owner),
+        trusted bray.runtime.bootstrap.execution.pinned(owner = &owner)
+    )
     ensures(trusted backing_retained(owner = &result), trusted backing_owned(owner = &result))
 {
     return Backing.Execution(owner);
@@ -67,7 +69,10 @@ trusted internal func backing_scheduler(pos owner: &Backing) -> &Reference
     {
         case Backing.External(selected_queue) { yield &selected_queue; }
         case Backing.Retired { yield trusted core.target.abort(); }
-        case Backing.Execution(_) { yield trusted bray.runtime.bootstrap.execution.scheduler_reference(backing_execution(owner)); }
+        case Backing.Execution(_)
+        {
+            yield trusted bray.runtime.bootstrap.execution.scheduler_reference(backing_execution(owner));
+        }
     };
 }
 
@@ -95,12 +100,17 @@ trusted internal const func backing_execution(pos owner: &Backing) -> &bray.runt
 // retired service has no execution pin to transfer.
 trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime.bootstrap.execution.Reference
     requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = &result), trusted bray.runtime.bootstrap.execution.pinned(owner = &result))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = &result),
+        trusted bray.runtime.bootstrap.execution.pinned(owner = &result)
+    )
     uses(raw_memory)
 {
     if owner matches Backing.Execution(_)
     {
-        return trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(backing_execution(&owner)));
+        return trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(
+            std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(backing_execution(&owner))
+        );
     }
 
     return trusted core.target.abort();
@@ -109,7 +119,11 @@ trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime
 // Execution services transfer their pin before retiring their allocation.
 // Native services own a separate queue count and release that actual owner.
 trusted internal func release_external_backing(pos owner: Backing)
-    requires(owner matches Backing.Retired || (trusted backing_retained(owner = &owner) && trusted backing_owned(owner = &owner)))
+    requires(
+        owner matches Backing.Retired || (trusted backing_retained(owner = &owner) && trusted backing_owned(
+            owner = &owner
+        ))
+    )
 {
     if owner matches Backing.Retired
     {
@@ -117,7 +131,11 @@ trusted internal func release_external_backing(pos owner: Backing)
     }
 
     let take = trusted lambda(pos owner: Backing) -> Reference
-        requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner), owner matches Backing.External(_))
+        requires(
+            trusted backing_retained(owner = &owner),
+            trusted backing_owned(owner = &owner),
+            owner matches Backing.External(_)
+        )
         ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
         uses(raw_memory)
     {

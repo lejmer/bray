@@ -87,7 +87,9 @@ pub(crate) fn runtime_attributes(
         for kind in signature.parameters() {
             if matches!(
                 kind,
-                RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration
+                RuntimeAbiType::InactiveFrame
+                    | RuntimeAbiType::PanicReport
+                    | RuntimeAbiType::Configuration
             ) {
                 let value = runtime_value_type(context, target, *kind)
                     .expect("indirect aggregate parameter has a native layout");
@@ -164,7 +166,12 @@ fn parameter_is_indirect(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
 fn expands_parameter(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     target.machine().architecture() == TargetArchitecture::X86_64
         && !uses_microsoft_x64_abi(target)
-        && !matches!(kind, RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration)
+        && !matches!(
+            kind,
+            RuntimeAbiType::InactiveFrame
+                | RuntimeAbiType::PanicReport
+                | RuntimeAbiType::Configuration
+        )
         && aggregate_is_indirect(kind)
 }
 
@@ -885,7 +892,8 @@ mod tests {
                 | NativeTarget::Aarch64MacOs => vec![context.i64_type().into()],
             };
 
-            expected_root_parameters.push(context.ptr_type(inkwell::AddressSpace::default()).into());
+            expected_root_parameters
+                .push(context.ptr_type(inkwell::AddressSpace::default()).into());
 
             assert_eq!(progress.get_return_type(), None, "{native:?}");
 

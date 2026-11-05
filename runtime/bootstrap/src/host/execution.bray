@@ -56,12 +56,20 @@ trusted internal func prepare_execution_storage() -> u32
     {
         if storage.execution_key matches ?_
         {
-            return if core.atomic.load<u64, 1>(&synchronization.execution_key) != 0 { yield 0; } else { yield 4; };
+            return if core.atomic.load<u64, 1>(&synchronization.execution_key) != 0
+            {
+                yield 0;
+            }
+            else
+            {
+                yield 4;
+            };
         }
 
         // This platform operation neither allocates Bray values nor invokes
         // callbacks. Serialize creation here, without speculative spare keys.
         let mut key: u64 = 0;
+
         let created = trusted internal std.thread.platform_thread_storage_create(
             trusted bray.runtime.bootstrap.thread.destruction.context_destructor_address(),
             std.memory.address_of_mut<u64>(&mut key)
@@ -111,7 +119,10 @@ trusted internal func execution_context(pos replacement: DataPointer<u8>?) -> Re
     return result;
 }
 
-trusted internal func execution_context_key(pos key: u64, pos replacement: DataPointer<u8>?) -> Result<DataPointer<u8>, u32>
+trusted internal func execution_context_key(
+    pos key: u64,
+    pos replacement: DataPointer<u8>?
+) -> Result<DataPointer<u8>, u32>
     uses(raw_memory, unchecked_init)
 {
     if key == 0
@@ -128,7 +139,11 @@ trusted internal func execution_context_key(pos key: u64, pos replacement: DataP
     }
 
     let mut previous: DataPointer<u8> = std.memory.null<u8>();
-    let loaded = trusted internal std.thread.platform_thread_storage_load(key - 1, std.memory.address_of_mut<DataPointer<u8>>(&mut previous));
+
+    let loaded = trusted internal std.thread.platform_thread_storage_load(
+        key - 1,
+        std.memory.address_of_mut<DataPointer<u8>>(&mut previous)
+    );
 
     if loaded.category != 0
     {

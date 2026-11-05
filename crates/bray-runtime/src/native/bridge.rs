@@ -52,7 +52,13 @@ extern "C" fn control(operation: u32) -> u32 {
             0
         }
         3 if !super::host::active() => 0,
-        3 => if super::host::finish().is_ok() { 1 } else { NativeRuntimeStatus::RUNTIME_FAILURE.code() + 1 },
+        3 => {
+            if super::host::finish().is_ok() {
+                1
+            } else {
+                NativeRuntimeStatus::RUNTIME_FAILURE.code() + 1
+            }
+        }
         _ => panic!("unknown execution control operation {operation}"),
     }
 }
@@ -96,12 +102,16 @@ pub(crate) struct Scope {
 
 impl Scope {
     fn empty() -> Self {
-        Self { attachment: None, _thread: PhantomData }
+        Self {
+            attachment: None,
+            _thread: PhantomData,
+        }
     }
 
     pub(crate) fn enter() -> Result<Self, NativeRuntimeStatus> {
         let attachment = RuntimeThreadScope::enter_or_reuse()?;
         let thread = attachment.runtime().id();
+
         let retained = PROVIDER.with(|provider| {
             let mut provider = provider.borrow_mut();
 
@@ -109,16 +119,24 @@ impl Scope {
                 return false;
             };
 
-            assert_eq!(provider.thread, thread, "the native provider belongs to this live exact-thread epoch");
+            assert_eq!(
+                provider.thread, thread,
+                "the native provider belongs to this live exact-thread epoch"
+            );
 
-            provider.scopes = provider.scopes.checked_add(1).expect("live provider scope count fits its native word");
+            provider.scopes = provider
+                .scopes
+                .checked_add(1)
+                .expect("live provider scope count fits its native word");
 
             true
         });
 
         if !retained {
             let mut previous = Callbacks::default();
-            let status = bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
+
+            let status =
+                bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
 
             if status != 0 {
                 if attachment.finish() != 0 {
@@ -129,13 +147,23 @@ impl Scope {
             }
 
             PROVIDER.with(|provider| {
-                let replaced = provider.borrow_mut().replace(Provider { thread, previous, scopes: 1 });
+                let replaced = provider.borrow_mut().replace(Provider {
+                    thread,
+                    previous,
+                    scopes: 1,
+                });
 
-                assert!(replaced.is_none(), "provider registration publishes once before callbacks can reenter");
+                assert!(
+                    replaced.is_none(),
+                    "provider registration publishes once before callbacks can reenter"
+                );
             });
         }
 
-        Ok(Self { attachment: Some(attachment), _thread: PhantomData })
+        Ok(Self {
+            attachment: Some(attachment),
+            _thread: PhantomData,
+        })
     }
 
     pub(crate) fn finish(mut self) -> usize {
@@ -148,18 +176,33 @@ impl Scope {
         };
 
         let thread = attachment.runtime().id();
+
         // No provider-table borrow crosses attachment cleanup. It can retire a
         // Source context that holds another scope for this same provider.
         let failures = attachment.finish();
+
         let retired = PROVIDER.with(|provider| {
             let mut provider = provider.borrow_mut();
-            let current = provider.as_mut().expect("every live scope retains its provider registration");
 
-            assert_eq!(current.thread, thread, "retirement resolves the provider from its acquired epoch");
+            let current = provider
+                .as_mut()
+                .expect("every live scope retains its provider registration");
 
-            current.scopes = current.scopes.checked_sub(1).expect("each scope releases its provider claim once");
+            assert_eq!(
+                current.thread, thread,
+                "retirement resolves the provider from its acquired epoch"
+            );
 
-            if current.scopes == 0 { provider.take() } else { None }
+            current.scopes = current
+                .scopes
+                .checked_sub(1)
+                .expect("each scope releases its provider claim once");
+
+            if current.scopes == 0 {
+                provider.take()
+            } else {
+                None
+            }
         });
 
         let Some(provider) = retired else {
@@ -169,10 +212,23 @@ impl Scope {
         if crate::bootstrap::current_runtime_thread().is_some() {
             let mut replaced = Callbacks::default();
 
-            assert_eq!(bray_runtime_entry_context_registration(&provider.previous, &mut replaced), 0, "the last provider scope restores its original callbacks");
-            assert_eq!(replaced, Callbacks::selected(), "the retained provider remains installed through every scope");
+            assert_eq!(
+                bray_runtime_entry_context_registration(&provider.previous, &mut replaced),
+                0,
+                "the last provider scope restores its original callbacks"
+            );
+
+            assert_eq!(
+                replaced,
+                Callbacks::selected(),
+                "the retained provider remains installed through every scope"
+            );
         } else {
-            assert_eq!(provider.previous, Callbacks::default(), "the last attachment cannot retire a retained outer provider");
+            assert_eq!(
+                provider.previous,
+                Callbacks::default(),
+                "the last attachment cannot retire a retained outer provider"
+            );
         }
 
         failures
@@ -181,9 +237,19 @@ impl Scope {
 
 // Source owns aligned opaque storage for the complete Rust scope. The callbacks
 // share its actual private type, initialize it once, and consume it on that thread.
-#[expect(improper_ctypes_definitions, reason = "only this provider interprets its opaque scope storage")]
-pub(in crate::native) extern "C" fn enter_provider(output: &mut MaybeUninit<Scope>, bytes: usize, align: usize) -> u32 {
-    assert!(bytes >= size_of::<Scope>() && align >= align_of::<Scope>(), "Source provider storage satisfies the native scope layout");
+#[expect(
+    improper_ctypes_definitions,
+    reason = "only this provider interprets its opaque scope storage"
+)]
+pub(in crate::native) extern "C" fn enter_provider(
+    output: &mut MaybeUninit<Scope>,
+    bytes: usize,
+    align: usize,
+) -> u32 {
+    assert!(
+        bytes >= size_of::<Scope>() && align >= align_of::<Scope>(),
+        "Source provider storage satisfies the native scope layout"
+    );
 
     if crate::bootstrap::current_runtime_thread().is_none() {
         return NativeRuntimeStatus::NOT_INITIALIZED.code();
@@ -199,12 +265,18 @@ pub(in crate::native) extern "C" fn enter_provider(output: &mut MaybeUninit<Scop
     }
 }
 
-#[expect(improper_ctypes_definitions, reason = "the successful entry initialized this same provider-owned scope type")]
+#[expect(
+    improper_ctypes_definitions,
+    reason = "the successful entry initialized this same provider-owned scope type"
+)]
 pub(in crate::native) extern "C" fn finish_provider(scope: &mut Scope) {
     let acquired = std::mem::replace(scope, Scope::empty());
     let incidents = acquired.finish();
 
-    assert_eq!(incidents, 0, "a Source-owned scope borrows its existing attachment through retirement");
+    assert_eq!(
+        incidents, 0,
+        "a Source-owned scope borrows its existing attachment through retirement"
+    );
 }
 
 impl Drop for Scope {
@@ -338,14 +410,14 @@ mod tests {
         assert!(cancellation.request());
 
         crate::context::with_run_cancellation_context(cancellation, || {
-                let mut outcome = NativeRunOutcome::new(NativeRunState::RUNTIME_FAILURE, 4);
-                let status = super::invoke(continuation, std::ptr::null(), 41, 1, &mut outcome);
+            let mut outcome = NativeRunOutcome::new(NativeRunState::RUNTIME_FAILURE, 4);
+            let status = super::invoke(continuation, std::ptr::null(), 41, 1, &mut outcome);
 
-                assert_eq!(status, 5);
-                assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-                assert_eq!(outcome.payload(), 73);
-                assert!(crate::current_task_execution_context().is_none());
-                assert!(crate::current_run_cancellation_requested());
+            assert_eq!(status, 5);
+            assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+            assert_eq!(outcome.payload(), 73);
+            assert!(crate::current_task_execution_context().is_none());
+            assert!(crate::current_run_cancellation_requested());
         });
     }
 }

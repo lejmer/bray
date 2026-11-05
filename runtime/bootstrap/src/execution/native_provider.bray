@@ -10,7 +10,8 @@ trusted internal predicate native_provider_output(pointer: DataPointer<[u64; 16]
 trusted internal predicate native_provider_storage(pointer: DataPointer<[u64; 16]>);
 trusted internal predicate native_provider_owned(owner: &NativeProviderScope);
 
-internal predicate native_provider_option_owned(owner: &(NativeProviderScope?)) = owner matches none || native_provider_owned(owner = native_provider_value(owner));
+internal predicate native_provider_option_owned(owner: &(NativeProviderScope?)) =
+    owner matches none || native_provider_owned(owner = native_provider_value(owner));
 
 internal const func native_provider_value(pos owner: &(NativeProviderScope?)) -> &NativeProviderScope
     requires(owner matches ?_)
@@ -86,7 +87,9 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
         executes(pure, total)
         uses(intrinsic, layout_reinterpret)
     {
-        return trusted std.memory.function.from_data<NativeProviderEnter>(trusted core.target.from_exposed_address<u8>(address = configuration.scope_enter));
+        return trusted std.memory.function.from_data<NativeProviderEnter>(
+            trusted core.target.from_exposed_address<u8>(address = configuration.scope_enter)
+        );
     };
 
     let finish_address = trusted lambda(pos configuration: &Configuration) -> FunctionPointer<NativeProviderFinish>
@@ -95,7 +98,9 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
         executes(pure, total)
         uses(intrinsic, layout_reinterpret)
     {
-        return trusted std.memory.function.from_data<NativeProviderFinish>(trusted core.target.from_exposed_address<u8>(address = configuration.scope_finish));
+        return trusted std.memory.function.from_data<NativeProviderFinish>(
+            trusted core.target.from_exposed_address<u8>(address = configuration.scope_finish)
+        );
     };
 
     let enter = trusted std.memory.callable_from_pointer<NativeProviderEnter>(trusted enter_address(configuration));
@@ -108,7 +113,11 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
         return std.memory.uninit_pointer_mut<[u64; 16]>(storage);
     };
 
-    let status = trusted enter(trusted output(&mut storage), std.memory.stride_of<[u64; 16]>(), std.memory.align_of<[u64; 16]>());
+    let status = trusted enter(
+        trusted output(&mut storage),
+        std.memory.stride_of<[u64; 16]>(),
+        std.memory.align_of<[u64; 16]>()
+    );
 
     if status != 0
     {
@@ -116,7 +125,11 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
     }
 
     let scope: NativeProviderScope = { storage = storage, finish = finish };
-    let initialized = trusted lambda(pos configuration: &Configuration, pos scope: &NativeProviderScope, pos status: u32)
+    let initialized = trusted lambda(
+        pos configuration: &Configuration,
+        pos scope: &NativeProviderScope,
+        pos status: u32
+    )
         requires(trusted native_configuration(owner = configuration), status == 0)
         ensures(trusted native_provider_owned(owner = scope))
         executes(pure, total) {};
@@ -126,7 +139,11 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
 }
 
 trusted internal func install_native_provider(pos selected: &Current, pos provider: NativeProviderScope?)
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted native_provider_option_owned(owner = &provider))
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted native_provider_option_owned(owner = &provider)
+    )
     ensures(trusted view_owned(owner = &selected.acquisition))
     uses(raw_memory, unchecked_alias, intrinsic)
 {
@@ -160,14 +177,22 @@ trusted internal func install_native_provider(pos selected: &Current, pos provid
     trusted std.memory.write<(NativeProviderScope?)>(pointer, provider);
 }
 
-trusted internal func take_native_provider(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> NativeProviderScope?
+trusted internal func take_native_provider(
+    pos owner: &bray.runtime.bootstrap.host.ExecutionOwner
+) -> NativeProviderScope?
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner), trusted native_provider_option_owned(owner = &result))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted native_provider_option_owned(owner = &result)
+    )
     uses(raw_memory)
 {
     let selected = trusted borrow_execution(owner);
     let pointer = std.memory.uninit_pointer<(NativeProviderScope?)>(&(trusted context(&selected)).provider);
-    let access = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos pointer: DataPointer<(NativeProviderScope?)>)
+    let access = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+        pos pointer: DataPointer<(NativeProviderScope?)>
+    )
         requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
         ensures(
             trusted core.memory.valid_read<(NativeProviderScope?)>(pointer = pointer, count = 1),

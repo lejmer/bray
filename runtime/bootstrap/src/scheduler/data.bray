@@ -173,8 +173,17 @@ internal func empty_observation() -> Observation
 {
     return
     {
-        task = 0, registration = 0,
-        lane = { placement = 0, workload = 0, thread = 0 },
-        phase = 0, cause = 0, wakes = 0, queued_at = 0
+        task = 0,
+        registration = 0,
+        lane =
+        {
+            placement = 0,
+            workload = 0,
+            thread = 0
+        },
+        phase = 0,
+        cause = 0,
+        wakes = 0,
+        queued_at = 0
     };
 }

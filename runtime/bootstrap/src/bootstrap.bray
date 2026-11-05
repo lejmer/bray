@@ -84,4 +84,3 @@ trusted internal func structured_shutdown() -> u32
 
     return STATUS_SUCCESS;
 }
-

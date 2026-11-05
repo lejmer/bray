@@ -5,18 +5,22 @@ use bray_runtime_abi::{
 };
 use bray_runtime_model::ProtectedFrameStateId;
 
-use crate::event::{NativeCallback, Resources};
 use crate::TaskExecutionContext;
+use crate::event::{NativeCallback, Resources};
 
 /// Transfers one Source storage reference into its native callback owner.
 pub extern "C" fn bray_runtime_execution_context_admission(
     reference: NativeTaskReference,
     root: u32,
 ) -> u32 {
-    assert!(root <= 1, "Source admission identifies a root or child call");
+    assert!(
+        root <= 1,
+        "Source admission identifies a root or child call"
+    );
 
     catch_unwind(AssertUnwindSafe(|| {
         let cancellation = crate::CancellationContext::native(reference);
+
         let output_context = if root != 0 {
             super::super::host::with_output(crate::context::current_task_output)
         } else {
@@ -55,6 +59,7 @@ pub extern "C" fn bray_runtime_execution_invocation(
     crate::context::with_independent_execution_context(|| {
         if invocation.operation.is_resumable() {
             let owner = owner.expect("resumable native callbacks retain their admitted task");
+
             let context = TaskExecutionContext::source(
                 owner,
                 ProtectedFrameStateId::new(invocation.execution.state),
@@ -65,9 +70,13 @@ pub extern "C" fn bray_runtime_execution_invocation(
                 super::super::activation::invoke_producer(invocation);
             });
         } else if let Some(owner) = owner.as_ref() {
-            with_disposal_resources(owner, || super::super::activation::invoke_producer(invocation));
+            with_disposal_resources(owner, || {
+                super::super::activation::invoke_producer(invocation)
+            });
         } else {
-            super::super::host::with_output(|| super::super::activation::invoke_producer(invocation));
+            super::super::host::with_output(|| {
+                super::super::activation::invoke_producer(invocation)
+            });
         }
     });
 }

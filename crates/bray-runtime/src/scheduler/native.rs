@@ -136,7 +136,9 @@ pub(super) fn bray_runtime_scheduler_creation(
 }
 
 pub(super) fn close_deadlines(reference: &NativeSchedulerReference) {
-    crate::context::with_independent_execution_context(|| bray_runtime_deadline_closure_native(reference));
+    crate::context::with_independent_execution_context(|| {
+        bray_runtime_deadline_closure_native(reference)
+    });
 }
 
 pub(super) fn bray_runtime_scheduler_destruction(reference: &NativeSchedulerReference) {
@@ -353,7 +355,13 @@ impl BrayScheduler {
         };
 
         let mut lane = NativeSchedulerLane::default();
-        let status = bray_runtime_scheduler_selection(&self.reference, registration.map_or(0, |(_, token)| token), &requirements, &mut lane);
+
+        let status = bray_runtime_scheduler_selection(
+            &self.reference,
+            registration.map_or(0, |(_, token)| token),
+            &requirements,
+            &mut lane,
+        );
 
         let capability = match status {
             0 => return Ok(from_native(lane)),
@@ -363,7 +371,13 @@ impl BrayScheduler {
             4 => RuntimeCapability::ComputeLanes,
             5 => RuntimeCapability::MainThreadLane,
             6 => return Err(ExecutionLaneSelectionError::ConflictingAffinity.into()),
-            7 => return Err(SchedulerError::UnknownTask(registration.expect("only a registered lane query can observe retirement").0)),
+            7 => {
+                return Err(SchedulerError::UnknownTask(
+                    registration
+                        .expect("only a registered lane query can observe retirement")
+                        .0,
+                ));
+            }
             _ => panic!("Bray lane selection returned unknown status {status}"),
         };
 

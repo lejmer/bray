@@ -12,12 +12,23 @@ using internal bray.runtime.bootstrap.heap;
 
 trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope) -> Context
     requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
-    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted context_owned(owner = &result))
+    ensures(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted context_owned(owner = &result)
+    )
 {
     let value = scope;
 
     let workload = (trusted bray.runtime.bootstrap.worker.worker(scope)).workload;
-    let lanes: u32 = 0xff0 | 1 | (1 << workload) | if workload == 1 { yield 8; } else { yield 0; };
+
+    let lanes: u32 = 0xff0 | 1 | (1 << workload) | if workload == 1
+    {
+        yield 8;
+    }
+    else
+    {
+        yield 0;
+    };
 
     return
     {
@@ -28,9 +39,16 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
         phase = core.atomic.initialize<u32>(1),
         views = core.atomic.initialize<usize>(0),
         thread = value.attachment,
-        driver = { placement = 1, workload = 3, thread = value.attachment },
+        driver =
+        {
+            placement = 1,
+            workload = 3,
+            thread = value.attachment
+        },
         lanes = lanes,
-        worker = std.memory.byte_address<bray.runtime.bootstrap.worker.Scope>(std.memory.address_of<bray.runtime.bootstrap.worker.Scope>(scope)),
+        worker = std.memory.byte_address<bray.runtime.bootstrap.worker.Scope>(
+            std.memory.address_of<bray.runtime.bootstrap.worker.Scope>(scope)
+        ),
         task = core.atomic.initialize<usize>(0),
         registration = core.atomic.initialize<u64>(0),
         lane = core.atomic.initialize<u32>(0),
@@ -39,9 +57,18 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
     };
 }
 
-trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope, pos owner: &bray.runtime.bootstrap.execution.Reference) -> bray.runtime.bootstrap.worker.Failure
-    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+trusted internal func create_worker_context(
+    pos scope: &bray.runtime.bootstrap.worker.Scope,
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> bray.runtime.bootstrap.worker.Failure
+    requires(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner)
+    )
     uses(intrinsic)
 {
     let authorize = trusted lambda(pos scope: &bray.runtime.bootstrap.worker.Scope)
@@ -55,20 +82,41 @@ trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.w
 
     if status != 0
     {
-        return { stage = 5, category = status, native_code = 0 };
+        return
+        {
+            stage = 5,
+            category = status,
+            native_code = 0
+        };
     }
 
     let provider = match consume create_native_provider(&(trusted domain(owner)).configuration)
     {
         case Ok(value) { yield value; }
-        case Error(failure) { return { stage = 10, category = failure, native_code = 0 }; }
+        case Error(failure)
+        {
+            return
+            {
+                stage = 10,
+                category = failure,
+                native_code = 0
+            };
+        }
     };
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Context>(),
+        align = std.memory.align_of<Context>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {
-        return { stage = 6, category = 1, native_code = 0 };
+        return
+        {
+            stage = 6,
+            category = 1,
+            native_code = 0
+        };
     }
 
     let execution = trusted initialize_context(allocation, trusted worker_context(scope));
@@ -79,7 +127,13 @@ trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.w
         case Error(binding_status)
         {
             _ = trusted bray.runtime.bootstrap.host.retire_execution(execution, 0);
-            return { stage = 7, category = binding_status, native_code = 0 };
+
+            return
+            {
+                stage = 7,
+                category = binding_status,
+                native_code = 0
+            };
         }
         case Ok(previous)
         {
@@ -109,12 +163,19 @@ trusted internal func must_defer_shutdown(pos selected: &Current) -> bool
 {
     let value = trusted context(selected);
 
-    return !std.memory.is_null<u8>(value.worker) || core.atomic.load<usize, 0>(&value.task) != 0 || core.atomic.load<usize, 0>(&value.invocation) != 0;
+    return !std.memory.is_null<u8>(value.worker) || core.atomic.load<usize, 0>(&value.task) != 0 || core.atomic.load<
+        usize,
+        0
+    >(&value.invocation) != 0;
 }
 
 trusted internal func worker_current(pos scope: &bray.runtime.bootstrap.worker.Scope) -> Current
     requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
-    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &result.acquisition), result.status == 0)
+    ensures(
+        trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
+        trusted view_owned(owner = &result.acquisition),
+        result.status == 0
+    )
 {
     let execution = trusted bray.runtime.bootstrap.worker.scope_execution(scope);
 

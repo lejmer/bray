@@ -12,22 +12,36 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) {
         use crate::analysis::storage_flow::memory::Target;
 
-        if matches!(occurrence, bray_bound_tree::BoundExecutionSite::CallInput { .. })
-            || contracts.owned_result().is_empty()
+        if matches!(
+            occurrence,
+            bray_bound_tree::BoundExecutionSite::CallInput { .. }
+        ) || contracts.owned_result().is_empty()
         {
             return;
         }
 
         // Opaque frames carry producer state without ordinary reference fields.
         // Follow the same checked owning-return paths as the execution domain.
-        let selection = self.execution.semantics.selections()
-            .expression(occurrence.expression().expect("owned return has its invocation"))
+        let selection = self
+            .execution
+            .semantics
+            .selections()
+            .expression(
+                occurrence
+                    .expression()
+                    .expect("owned return has its invocation"),
+            )
             .expect("owned return retains its selected invocation");
 
         let transfers = contracts.owned_result().transfers().filter_map(|transfer| {
-            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
-                self.request.semantic_values(), transfer.input(), contracts.input_count(),
-            ).expect("checked ownership source decodes in the same store") else {
+            let crate::ExecutionCondition::Input(input) =
+                crate::execution_condition_from_type_term(
+                    self.request.semantic_values(),
+                    transfer.input(),
+                    contracts.input_count(),
+                )
+                .expect("checked ownership source decodes in the same store")
+            else {
                 unreachable!("checked ownership source contains only input projections");
             };
 
@@ -35,12 +49,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 unreachable!("checked ownership source names a receiver-first input");
             };
 
-            let root = selection.invocation_input_root(occurrence, ordinal)
+            let root = selection
+                .invocation_input_root(occurrence, ordinal)
                 .expect("owned return retains its actual input");
 
             let source = self.invocation_place(occurrence, root)?;
-            let input = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
-            let mut output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            let input =
+                crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+
+            let mut output =
+                crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             // Default-call slots already contain adapted values. Other invocations
             // name the actual source storage, before nullable wrapping.
@@ -62,7 +81,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 &[]
             };
 
-            Some((Target::storage(source).project(input), Target::storage(destination.clone()).project(&output)))
+            Some((
+                Target::storage(source).project(input),
+                Target::storage(destination.clone()).project(&output),
+            ))
         });
 
         state.memory.stage_deferred_values(occurrence, transfers);
@@ -312,7 +334,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .chain(presence.then_some(None))
         {
             let condition = match projection {
-                None if !matches!(self.request.semantic_values().type_data(ty).as_ref(), TypeData::Nullable(_)) => None,
+                None if !matches!(
+                    self.request.semantic_values().type_data(ty).as_ref(),
+                    TypeData::Nullable(_)
+                ) =>
+                {
+                    None
+                }
                 Some(StorageProjection::NullableValue) | None => {
                     assert!(
                         matches!(

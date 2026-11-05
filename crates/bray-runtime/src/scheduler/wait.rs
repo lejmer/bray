@@ -47,7 +47,10 @@ impl Scheduler {
 
             let timer_remaining = self.timer_remaining()?;
 
-            let wait_deadline = match (deadline.map(|deadline| deadline.remaining()), timer_remaining) {
+            let wait_deadline = match (
+                deadline.map(|deadline| deadline.remaining()),
+                timer_remaining,
+            ) {
                 (Some(first), Some(second)) => Some(first.min(second)),
                 (deadline, None) | (None, deadline) => deadline,
             };

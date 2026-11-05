@@ -262,7 +262,7 @@ static int exercise_host(
 
     if (
         !observation_is(formed, 0, 1) ||
-        descriptor->abi_version != 2
+        descriptor->abi_version != 3
     )
         return 40;
 
@@ -285,7 +285,7 @@ static int exercise_host(
         const static_host_entry* entry = &entry_value;
 
         if (
-            entry->abi_version != 2 ||
+            entry->abi_version != 3 ||
             entry->order != index
         )
             return 43;

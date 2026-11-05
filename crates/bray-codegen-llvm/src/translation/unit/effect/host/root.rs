@@ -217,18 +217,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?;
 
         let start = self
-            .invoke_native_runtime(
-                runtime,
-                &[frame_transfer.into(), outcome.into()],
-            )?
+            .invoke_native_runtime(runtime, &[frame_transfer.into(), outcome.into()])?
             .and_then(|value| match value {
                 BasicValueEnum::StructValue(value) => Some(value),
                 _ => None,
             })
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        let status = crate::translation::unit::support::extract_value(&self.builder, start.into(), 0)?
-            .into_int_value();
+        let status =
+            crate::translation::unit::support::extract_value(&self.builder, start.into(), 0)?
+                .into_int_value();
 
         let accepted = llvm(self.builder.build_int_compare(
             IntPredicate::EQ,
@@ -237,10 +235,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "root.frame.transferred",
         ))?;
 
-        let rejected = self.types.context().append_basic_block(self.function, "root.frame.rejected");
-        let joined = self.types.context().append_basic_block(self.function, "root.frame.finished");
+        let rejected = self
+            .types
+            .context()
+            .append_basic_block(self.function, "root.frame.rejected");
 
-        llvm(self.builder.build_conditional_branch(accepted, joined, rejected))?;
+        let joined = self
+            .types
+            .context()
+            .append_basic_block(self.function, "root.frame.finished");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(accepted, joined, rejected),
+        )?;
+
         self.builder.position_at_end(rejected);
 
         // Root startup takes the inactive frame only on success. A rejected

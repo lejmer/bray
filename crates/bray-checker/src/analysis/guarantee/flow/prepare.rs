@@ -80,41 +80,47 @@ pub(crate) fn prepare_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
 ) -> ExecutionFlowDomain<'a, 'view, C> {
     let spatial_predicates: BTreeSet<_> = request
-            .trusted_contracts()
-            .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
-            .into_iter()
-            .flat_map(|_| {
-                [
-                    "ValidRead",
-                    "ValidWrite",
-                    "AlignedFor",
-                    "DeviceValidRead",
-                    "DeviceValidWrite",
-                    "DeviceAlignedFor",
-                ]
-            })
-            .filter_map(|name| {
-                let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
-                    .expect("closed spatial predicate key must be valid");
+        .trusted_contracts()
+        .filter(|contracts| !contracts.requirements.is_empty() || !contracts.calls.is_empty())
+        .into_iter()
+        .flat_map(|_| {
+            [
+                "ValidRead",
+                "ValidWrite",
+                "AlignedFor",
+                "DeviceValidRead",
+                "DeviceValidWrite",
+                "DeviceAlignedFor",
+            ]
+        })
+        .filter_map(|name| {
+            let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(name)
+                .expect("closed spatial predicate key must be valid");
 
-                request
-                    .context()
-                    .available_compiler_known_symbols()
-                    .provider()
-                    .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
-                    .map(Into::into)
-            })
-            .collect();
+            request
+                .context()
+                .available_compiler_known_symbols()
+                .provider()
+                .declaration_symbol::<bray_symbols::PredicateSymbolId>(&key)
+                .map(Into::into)
+        })
+        .collect();
+
     let owned_allocation = request
-            .context()
-            .available_compiler_known_symbols()
-            .provider()
-            .declaration_symbol::<bray_symbols::PredicateSymbolId>(
-                &bray_compiler_known::CompilerKnownDeclarationKey::try_new("OwnedAllocation")
-                    .expect("closed allocation predicate key must be valid"),
-            )
-            .map(Into::into);
-    let content_predicates = spatial_predicates.iter().copied().chain(owned_allocation).collect();
+        .context()
+        .available_compiler_known_symbols()
+        .provider()
+        .declaration_symbol::<bray_symbols::PredicateSymbolId>(
+            &bray_compiler_known::CompilerKnownDeclarationKey::try_new("OwnedAllocation")
+                .expect("closed allocation predicate key must be valid"),
+        )
+        .map(Into::into);
+
+    let content_predicates = spatial_predicates
+        .iter()
+        .copied()
+        .chain(owned_allocation)
+        .collect();
 
     ExecutionFlowDomain {
         dependencies,

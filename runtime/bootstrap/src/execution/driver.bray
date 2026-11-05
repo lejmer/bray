@@ -12,11 +12,21 @@ using internal bray.runtime.bootstrap.heap;
 
 @abi(c)
 trusted internal func driver_startup() -> u32
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry())
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.native_main_entry()
+    )
 {
     let prepare = trusted lambda()
-        requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry())
-        ensures(trusted bray.runtime.bootstrap.host.attachment.native_acquisition(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        requires(
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.native_main_entry()
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
         executes(pure, total) {};
 
     trusted prepare();
@@ -60,7 +70,10 @@ trusted internal func driver_startup() -> u32
         return prepared;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Context>(),
+        align = std.memory.align_of<Context>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {
@@ -69,7 +82,6 @@ trusted internal func driver_startup() -> u32
 
     return trusted commit_driver(allocation, trusted root_context(attachment));
 }
-
 
 // Return an inactive owner only after the scoped view used to withdraw it ends.
 trusted internal func withdraw_current_driver() -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
@@ -80,7 +92,17 @@ trusted internal func withdraw_current_driver() -> (u32, bray.runtime.bootstrap.
 
     if previous.status != 0
     {
-        return (if previous.status == 1 { yield 0; } else { yield previous.status; }, none);
+        return (
+            if previous.status == 1
+            {
+                yield 0;
+            }
+            else
+            {
+                yield previous.status;
+            },
+            none
+        );
     }
 
     let status = trusted driver_start_status(&previous);
@@ -137,7 +159,10 @@ trusted internal func origin_driver_startup() -> u32
         return prepared;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Context>(),
+        align = std.memory.align_of<Context>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {

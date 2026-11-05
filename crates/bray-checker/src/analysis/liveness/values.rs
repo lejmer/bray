@@ -136,9 +136,17 @@ fn transfers(
                 Some(AnalysisRefinement::PatternOutcome { subject, .. }) => {
                     transfer.generated.insert(subject);
                 }
-                Some(AnalysisRefinement::CaughtResult { expression, succeeded }) => {
+                Some(AnalysisRefinement::CaughtResult {
+                    expression,
+                    succeeded,
+                }) => {
                     if succeeded {
-                        transfer.generated.extend(unit.view().expression(expression).expect("catch edge retains its expression").child_expressions());
+                        transfer.generated.extend(
+                            unit.view()
+                                .expression(expression)
+                                .expect("catch edge retains its expression")
+                                .child_expressions(),
+                        );
                     }
                 }
                 // Invocation operands remain live through the sibling admission continuation.

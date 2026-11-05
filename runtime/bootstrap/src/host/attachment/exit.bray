@@ -24,7 +24,6 @@ internal struct AttachmentExit
     identity: u64;
     native_thread: u64;
     mut cleanup: AttachmentCleanup?;
-
 }
 
 // Finish the selected closing owner explicitly. The caller retains its native
@@ -144,11 +143,7 @@ trusted internal func complete_attachment_exit(pos owner: AttachmentExit) -> u32
     let mut retired_domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>? = none;
 
     {
-        let completed: AttachmentRetirement = trusted retire(
-            owner.identity,
-            owner.native_thread,
-            &mut retired_domains
-        );
+        let completed: AttachmentRetirement = trusted retire(owner.identity, owner.native_thread, &mut retired_domains);
     }
 
     return incidents;
@@ -214,10 +209,7 @@ internal struct AttachmentSlot
 
 trusted internal predicate retained_attachment_exit(slot: &AttachmentSlot, lease: &HostLease);
 
-trusted internal func take_attachment_exit(
-    pos lease: &HostLease,
-    pos slot: &AttachmentSlot
-) -> AttachmentExit
+trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &AttachmentSlot) -> AttachmentExit
     requires(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
@@ -573,10 +565,7 @@ trusted internal func cleanup_attachment_domains(
 
     if callback_key != 0
     {
-        let status = trusted internal std.thread.platform_thread_storage_store(
-            callback_key - 1,
-            std.memory.null<u8>()
-        );
+        let status = trusted internal std.thread.platform_thread_storage_store(callback_key - 1, std.memory.null<u8>());
 
         if status.category != 0
         {
@@ -586,10 +575,7 @@ trusted internal func cleanup_attachment_domains(
 
     if context_key != 0
     {
-        let status = trusted internal std.thread.platform_thread_storage_store(
-            context_key - 1,
-            std.memory.null<u8>()
-        );
+        let status = trusted internal std.thread.platform_thread_storage_store(context_key - 1, std.memory.null<u8>());
 
         if status.category != 0
         {

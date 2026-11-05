@@ -40,25 +40,48 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 *guard
             } else {
                 let guard = self.result_path_condition(carrier.path(), true)?;
+
                 guards.insert(carrier.path().to_vec(), guard);
+
                 guard
             };
 
             let condition = if let Some(guard) = guard {
-                let inputs = self.request.trusted_contracts().expect("returned witness retains formal inputs");
-                let decode = |term| crate::execution_condition_from_type_term(self.request.semantic_values(), term, inputs.inputs.len())
-                    .expect("checked returned witness decodes in the same store");
+                let inputs = self
+                    .request
+                    .trusted_contracts()
+                    .expect("returned witness retains formal inputs");
+
+                let decode = |term| {
+                    crate::execution_condition_from_type_term(
+                        self.request.semantic_values(),
+                        term,
+                        inputs.inputs.len(),
+                    )
+                    .expect("checked returned witness decodes in the same store")
+                };
+
                 let condition = crate::ExecutionCondition::operation(
                     bray_bound_tree::BoundOperator::LogicalOr,
-                    vec![crate::ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalNot, vec![decode(guard)]), decode(carrier.guarantee())],
+                    vec![
+                        crate::ExecutionCondition::operation(
+                            bray_bound_tree::BoundOperator::LogicalNot,
+                            vec![decode(guard)],
+                        ),
+                        decode(carrier.guarantee()),
+                    ],
                 );
+
                 crate::analysis::guarantee::portable_carrier(self.request, &condition)
                     .expect("guarded returned witness retains its portable inputs")
             } else {
                 carrier.guarantee()
             };
 
-            published.push(bray_symbols::DependencyWitnessCarrier::new(condition, crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path())));
+            published.push(bray_symbols::DependencyWitnessCarrier::new(
+                condition,
+                crate::analysis::guarantee::portable_carrier_path(self.request, carrier.path()),
+            ));
         }
 
         let observed_result = self.trusted.observed_result.flatten();
@@ -240,7 +263,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 Some((path, false))
             }
-            Origin::Storage(_) | Origin::Allocation(_) | Origin::Returned { .. }
+            Origin::Storage(_)
+            | Origin::Allocation(_)
+            | Origin::Returned { .. }
             | Origin::Static { .. } => None,
         };
 

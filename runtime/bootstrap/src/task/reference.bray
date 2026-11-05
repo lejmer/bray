@@ -89,8 +89,10 @@ trusted internal func retain_locked(
     {
         return
         {
-            acquisition = bray.runtime.bootstrap.task.Marker {},
-                pointer = std.memory.address_of<Slot>(slot),
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
+            pointer = std.memory.address_of<Slot>(slot),
             runtime = runtime,
             handle = handle
         };
@@ -169,6 +171,7 @@ trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &R
     uses(raw_memory, unchecked_alias)
 {
     let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+
     let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(owner = owner))
         ensures(
@@ -257,7 +260,11 @@ trusted internal func lock_cell(pos owner: &Reference) -> std.sync.SpinLockGuard
 // from the already admitted slot, without another external runtime/handle check.
 trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner), trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    ensures(
+        trusted retained(owner = owner),
+        trusted retained(owner = &result),
+        trusted owned_reference(owner = &result)
+    )
     when(trusted owned_reference(owner = owner))
     {
         ensures(trusted owned_reference(owner = owner))
@@ -293,8 +300,10 @@ trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
     {
         return
         {
-            acquisition = bray.runtime.bootstrap.task.Marker {},
-                pointer = std.memory.address_of<Slot>(slot),
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
+            pointer = std.memory.address_of<Slot>(slot),
             runtime = runtime,
             handle = handle
         };

@@ -122,9 +122,9 @@ impl ExecutionCondition {
     /// Traverses containing value observations and captured frame identities.
     pub(crate) fn ownership_ancestors(&self) -> impl Iterator<Item = &Self> {
         std::iter::successors(Some(self.owner_identity()), |value| match value {
-            Self::Projection(_, parent) | Self::Tagged(_, parent) | Self::CapturedInput { owner: parent, .. } => {
-                Some(parent.owner_identity())
-            }
+            Self::Projection(_, parent)
+            | Self::Tagged(_, parent)
+            | Self::CapturedInput { owner: parent, .. } => Some(parent.owner_identity()),
             _ => None,
         })
     }
@@ -432,7 +432,10 @@ impl Set {
 
     fn indexed_path(
         value: &ExecutionCondition,
-    ) -> Option<(ExecutionCondition, Vec<bray_symbols::ConstantProjectionKind>)> {
+    ) -> Option<(
+        ExecutionCondition,
+        Vec<bray_symbols::ConstantProjectionKind>,
+    )> {
         match value {
             // Retaining a borrow preserves that view and its projections. It
             // cannot retain or retire the referent's ownership on its own.

@@ -115,7 +115,11 @@ trusted internal func selection(
     return status;
 }
 
-trusted internal func select(pos owner: &Reference, pos registration: u64, pos requirements: Requirements) -> (Lane, u32)
+trusted internal func select(
+    pos owner: &Reference,
+    pos registration: u64,
+    pos requirements: Requirements
+) -> (Lane, u32)
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
 {
@@ -135,7 +139,8 @@ trusted internal func select(pos owner: &Reference, pos registration: u64, pos r
 
         if let ?driver = trusted entry(state, index).driver
         {
-            if (driver.workload & lane.workload) == lane.workload && (lane.placement == 0 || lane.thread == driver.thread) && (lane.placement != 3 || driver.placement == 3)
+            if (driver.workload & lane.workload) == lane.workload && (lane.placement == 0 || lane.thread ==
+                driver.thread) && (lane.placement != 3 || driver.placement == 3)
             {
                 lane =
                 {

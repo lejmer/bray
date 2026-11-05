@@ -8,7 +8,6 @@ using std.numeric;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
-
 using internal bray.runtime.bootstrap.execution;
 using internal bray.runtime.bootstrap.scheduler;
 
@@ -44,13 +43,13 @@ trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execut
         let (unused, metadata, execution) = trusted retire_runtime_slot(owner, index);
 
         _ = trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
+
         trusted bray.runtime.bootstrap.execution.release_context(owner, metadata);
 
         _ = trusted bray.runtime.bootstrap.consume_record_values(unused, 0);
 
         index += 1;
     }
-
 }
 
 trusted internal func retire_runtime_slot(
@@ -58,7 +57,10 @@ trusted internal func retire_runtime_slot(
     pos index: usize
 ) -> (bray.runtime.bootstrap.ReportRecords, usize, bray.runtime.bootstrap.execution.Reference?)
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.2))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.2)
+    )
     uses(intrinsic)
 {
     let lease = trusted bray.runtime.bootstrap.host.host_access();
@@ -93,8 +95,10 @@ trusted internal func retire_runtime_slot(
     {
         return
         {
-            acquisition = bray.runtime.bootstrap.task.Marker {},
-                pointer = std.memory.address_of<Slot>(slot),
+            acquisition = bray.runtime.bootstrap.task.Marker
+            {
+            },
+            pointer = std.memory.address_of<Slot>(slot),
             runtime = slot.runtime,
             handle = (std.numeric.truncate_to<u64, u32>(slot.generation) << 32) | std.numeric.truncate_to<u64, usize>(
                 index

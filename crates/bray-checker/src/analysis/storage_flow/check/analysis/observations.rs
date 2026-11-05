@@ -99,8 +99,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             if matches!(
                 self.storage.identity(*root),
                 Some(bray_bound_tree::StorageIdentity::Static(_))
-            ) && !exposed.iter().any(|raw| memory.target_relationship(raw, &Target::storage(StoragePath::root(*root))) != StorageRelationship::Disjoint)
-            {
+            ) && !exposed.iter().any(|raw| {
+                memory.target_relationship(raw, &Target::storage(StoragePath::root(*root)))
+                    != StorageRelationship::Disjoint
+            }) {
                 stable_descriptors.insert(StoragePath::root(*root));
                 stable_values.extend(markers.iter().cloned());
             }
@@ -112,13 +114,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let location = match reference.access_id(self.storage) {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
                 Some(access) => self.input.reference_target(memory, self.storage, access),
-                None if reference.projections.is_empty() || self.storage.identity(reference.root)
-                    .is_some_and(|identity| identity.is_invocation_owned(self.storage.kind())) =>
-                    Some(Target::storage(reference.clone())),
+                None if reference.projections.is_empty()
+                    || self
+                        .storage
+                        .identity(reference.root)
+                        .is_some_and(|identity| {
+                            identity.is_invocation_owned(self.storage.kind())
+                        }) =>
+                {
+                    Some(Target::storage(reference.clone()))
+                }
                 None => None,
             };
 
-            let Some(targets) = location.and_then(|location| memory.value_targets(&location)) else {
+            let Some(targets) = location.and_then(|location| memory.value_targets(&location))
+            else {
                 continue;
             };
 
@@ -133,16 +143,20 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
-                        let target = target.project(&marker.projections[reference.projections.len()..]);
+                        let target =
+                            target.project(&marker.projections[reference.projections.len()..]);
 
                         match &target.origin {
                             // These referents have stable identities, but no
                             // freshness claim that could exclude an exposed alias.
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
-                            | bray_bound_tree::StorageOrigin::Static { .. } => !visible_exposure.iter().any(|raw| {
-                                memory.target_relationship(raw, &target) != StorageRelationship::Disjoint
-                            }),
+                            | bray_bound_tree::StorageOrigin::Static { .. } => {
+                                !visible_exposure.iter().any(|raw| {
+                                    memory.target_relationship(raw, &target)
+                                        != StorageRelationship::Disjoint
+                                })
+                            }
                             _ => target
                                 .storage_path()
                                 .is_some_and(|path| stable_values.contains(path)),
@@ -195,9 +209,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let protected_referent = memory.borrow_targets(*borrow).is_some_and(|targets| {
                 !targets.is_empty()
                     && targets.iter().all(|target| {
-                        matches!(target.origin, bray_bound_tree::StorageOrigin::Entry { .. }
-                            | bray_bound_tree::StorageOrigin::Returned { .. }
-                            | bray_bound_tree::StorageOrigin::Static { .. })
+                        matches!(
+                            target.origin,
+                            bray_bound_tree::StorageOrigin::Entry { .. }
+                                | bray_bound_tree::StorageOrigin::Returned { .. }
+                                | bray_bound_tree::StorageOrigin::Static { .. }
+                        )
                     })
             });
 
@@ -210,9 +227,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // An address formed from this borrow can be used by native code to replace
                 // its allocation. The temporary borrow does not bound that opaque effect.
                 if memory.borrow_regions(*borrow).is_none_or(|targets| {
-                    targets.iter().any(|target| exposed.iter().any(|raw| {
-                        memory.target_relationship(raw, target) != StorageRelationship::Disjoint
-                    }))
+                    targets.iter().any(|target| {
+                        exposed.iter().any(|raw| {
+                            memory.target_relationship(raw, target) != StorageRelationship::Disjoint
+                        })
+                    })
                 }) {
                     continue;
                 }
@@ -234,7 +253,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .range(path.clone()..)
                     .take_while(|value| path.contains(value))
                     .chain(
-                        self.input.footprint
+                        self.input
+                            .footprint
                             .borrowed_identities
                             .get(path)
                             .into_iter()
@@ -287,21 +307,29 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let exposed = memory.raw_exposed_regions();
 
         if tags {
-        // Tag-free stores run no replacement cleanup. Inexact aliasing
-        // cannot turn one into a variant replacement.
-        stable_descriptors.extend(
-            self.input.footprint
-                .discriminants
-                .iter()
-                .filter(|(root, _)| {
-                    let target = self.storage.root_access(**root)
-                        .and_then(|access| self.input.reference_target(memory, self.storage, access))
-                        .unwrap_or_else(|| Target::storage(StoragePath::root(**root)));
+            // Tag-free stores run no replacement cleanup. Inexact aliasing
+            // cannot turn one into a variant replacement.
+            stable_descriptors.extend(
+                self.input
+                    .footprint
+                    .discriminants
+                    .iter()
+                    .filter(|(root, _)| {
+                        let target = self
+                            .storage
+                            .root_access(**root)
+                            .and_then(|access| {
+                                self.input.reference_target(memory, self.storage, access)
+                            })
+                            .unwrap_or_else(|| Target::storage(StoragePath::root(**root)));
 
-                    !exposed.iter().any(|raw| memory.target_relationship(raw, &target) != StorageRelationship::Disjoint)
-                })
-                .flat_map(|(_, paths)| paths.iter().cloned()),
-        );
+                        !exposed.iter().any(|raw| {
+                            memory.target_relationship(raw, &target)
+                                != StorageRelationship::Disjoint
+                        })
+                    })
+                    .flat_map(|(_, paths)| paths.iter().cloned()),
+            );
         }
 
         if contents {
@@ -469,7 +497,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> StorageInvalidation {
         if receiver.is_none()
             && effects.is_none_or(|effects| {
-                effects.iter().any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
+                effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
             })
         {
             return StorageInvalidation::unknown();

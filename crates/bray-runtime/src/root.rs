@@ -111,8 +111,7 @@ pub(crate) fn contain_callback<T>(
 #[cfg(test)]
 mod tests {
     use super::{
-        RootCancellationSource, execute_synchronous_root,
-        propagate_current_run_cancellation,
+        RootCancellationSource, execute_synchronous_root, propagate_current_run_cancellation,
     };
     use crate::{RunOutcome, current_run_cancellation_observable};
 
@@ -192,5 +191,4 @@ mod tests {
             Some(RootCancellationSource::Timeout)
         );
     }
-
 }

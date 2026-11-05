@@ -33,7 +33,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let context = self.types.context();
         let usize = crate::native::pointer_integer_type(context, self.request.target());
-        let pointer = context.ptr_type(inkwell::AddressSpace::default()).const_null();
+
+        let pointer = context
+            .ptr_type(inkwell::AddressSpace::default())
+            .const_null();
+
         let capacity = host
             .capacity_limits()
             .tasks()
@@ -41,17 +45,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         // Local and migratable placement are queue capabilities. Actual worker
         // service demand remains separate from these scalar selection bits.
-        let capabilities = host.runtime_capabilities().iter().fold(7, |bits, capability| {
-            bits | match capability {
-                RuntimeCapability::CooperativeExecution => 1,
-                RuntimeCapability::LocalLanes => 2,
-                RuntimeCapability::MigratableLanes => 4,
-                RuntimeCapability::BlockingLanes => 8,
-                RuntimeCapability::ComputeLanes => 16,
-                RuntimeCapability::MainThreadLane => 32,
-                RuntimeCapability::PerformanceObservation | RuntimeCapability::Reactor => 0,
-            }
-        });
+        let capabilities = host
+            .runtime_capabilities()
+            .iter()
+            .fold(7, |bits, capability| {
+                bits | match capability {
+                    RuntimeCapability::CooperativeExecution => 1,
+                    RuntimeCapability::LocalLanes => 2,
+                    RuntimeCapability::MigratableLanes => 4,
+                    RuntimeCapability::BlockingLanes => 8,
+                    RuntimeCapability::ComputeLanes => 16,
+                    RuntimeCapability::MainThreadLane => 32,
+                    RuntimeCapability::PerformanceObservation | RuntimeCapability::Reactor => 0,
+                }
+            });
 
         crate::native::runtime_configuration_type(context, self.request.target())
             .const_named_struct(&[
@@ -64,7 +71,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 usize.const_zero().into(),
                 usize.const_zero().into(),
             ])
-
     }
 
     fn require_initialization(&mut self, status: IntValue<'context>) -> Result<(), CodegenFailure> {
@@ -85,17 +91,28 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "runtime.already_initialized",
         ))?;
 
-        let ready = llvm(self.builder.build_or(initialized, existing, "runtime.ready"))?;
+        let ready = llvm(
+            self.builder
+                .build_or(initialized, existing, "runtime.ready"),
+        )?;
+
         let context = self.types.context();
         let continuation = context.append_basic_block(self.function, "runtime.ready");
         let failure = context.append_basic_block(self.function, "runtime.initialization.failed");
 
-        llvm(self.builder.build_conditional_branch(ready, continuation, failure))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(ready, continuation, failure),
+        )?;
+
         self.builder.position_at_end(failure);
 
         // No task or product entry has published yet. Retire accepted execution
         // services before releasing their common host and report backing.
-        for role in [RuntimeAbiRole::ExecutionShutdown, RuntimeAbiRole::StructuredShutdown] {
+        for role in [
+            RuntimeAbiRole::ExecutionShutdown,
+            RuntimeAbiRole::StructuredShutdown,
+        ] {
             let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
                 unreachable!("runtime initialization retains its executable host");
             };

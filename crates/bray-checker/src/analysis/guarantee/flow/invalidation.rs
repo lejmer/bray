@@ -361,8 +361,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) {
         let values = paths
             .iter()
-            .flat_map(|path| self.storage_places(state, path.clone()).into_iter().map(move |place| (place, path.clone())))
-            .filter_map(|(place, path)| place.value_in(&state.current).map(|value| (place, (value, path))))
+            .flat_map(|path| {
+                self.storage_places(state, path.clone())
+                    .into_iter()
+                    .map(move |place| (place, path.clone()))
+            })
+            .filter_map(|(place, path)| {
+                place
+                    .value_in(&state.current)
+                    .map(|value| (place, (value, path)))
+            })
             .collect();
 
         let snapshots = paths
@@ -572,42 +580,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
         }
 
-        // Storage aliasing conservatively groups specializations by declaration. Revoke
-        // each selected instance affected by that storage path, without merging identities.
-        let mut changed_static = |path: &bray_bound_tree::StoragePath| {
-            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
-                self.storage.identity(path.root)
-            else {
-                return;
-            };
-
-            for place in state.current.keys().filter(|place| {
-                place.projections.is_empty() && place.selected_static() == Some(declaration)
-            }) {
-                changed_places.insert(
-                    place
-                        .clone()
-                        .project(&path.projections)
-                        .unwrap_or_else(|| place.clone()),
-                );
-            }
-        };
-
-        match invalidation {
-            StorageInvalidation::Observed {
-                accesses,
-                referents,
-                ..
-            } => {
-                accesses
-                    .values()
-                    .flatten()
-                    .chain(referents)
-                    .for_each(&mut changed_static);
-            }
-            StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
-            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
-        }
+        self.extend_static_changes(state, invalidation, &mut changed_places);
 
         // Disjoint values already retain their complete snapshot. Reconstructing
         // their fields can erase a joined variant or revive old loop inputs.
@@ -710,19 +683,75 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            self.observe_references(state, snapshots.iter().map(|(path, target)| (path, target.clone())));
+            self.observe_references(
+                state,
+                snapshots
+                    .iter()
+                    .map(|(path, target)| (path, target.clone())),
+            );
         }
     }
+    fn extend_static_changes(
+        &self,
+        state: &ExecutionState,
+        invalidation: &StorageInvalidation,
+        changed_places: &mut BTreeSet<crate::ExecutionPlace>,
+    ) {
+        // Storage aliasing conservatively groups specializations by declaration. Revoke
+        // each selected instance affected by that storage path, without merging identities.
+        let mut changed_static = |path: &bray_bound_tree::StoragePath| {
+            let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
+                self.storage.identity(path.root)
+            else {
+                return;
+            };
+
+            for place in state.current.keys().filter(|place| {
+                place.projections.is_empty() && place.selected_static() == Some(declaration)
+            }) {
+                changed_places.insert(
+                    place
+                        .clone()
+                        .project(&path.projections)
+                        .unwrap_or_else(|| place.clone()),
+                );
+            }
+        };
+
+        match invalidation {
+            StorageInvalidation::Observed {
+                accesses,
+                referents,
+                ..
+            } => {
+                accesses
+                    .values()
+                    .flatten()
+                    .chain(referents)
+                    .for_each(&mut changed_static);
+            }
+            StorageInvalidation::Paths(paths) => paths.iter().for_each(&mut changed_static),
+            StorageInvalidation::All { .. } => unreachable!("global invalidation handled above"),
+        }
+    }
+
     pub(in crate::analysis) fn observe_references<'a>(
         &self,
         state: &mut ExecutionState,
-        observations: impl IntoIterator<Item = (&'a bray_bound_tree::StoragePath, bray_bound_tree::StoragePath)>,
+        observations: impl IntoIterator<
+            Item = (
+                &'a bray_bound_tree::StoragePath,
+                bray_bound_tree::StoragePath,
+            ),
+        >,
     ) {
         // Read all targets before assigning aliases, so map order cannot change the result.
         let aliases = observations
             .into_iter()
             .filter_map(|(path, target)| {
-                if *path == target { return None; }
+                if *path == target {
+                    return None;
+                }
 
                 let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
                 let target = crate::ExecutionPlace::storage_path(self.storage, &target)?;

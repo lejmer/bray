@@ -65,6 +65,7 @@ trusted internal func wait_terminal(pos owner: &Invocation) -> u32
     }
 
     let parent = trusted bray.runtime.bootstrap.execution.take_task_view(&task);
+
     return trusted bray.runtime.bootstrap.task.wait_references(trusted task_reference(owner), parent, 0);
 }
 
@@ -231,4 +232,3 @@ trusted internal func poll(pos owner: &mut Invocation) -> bray.runtime.bootstrap
 
     return progress(1, payload = (trusted read_state(&owner)).result);
 }
-

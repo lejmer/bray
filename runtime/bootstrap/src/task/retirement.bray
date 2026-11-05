@@ -63,6 +63,7 @@ trusted internal func read_disposing_reference(pos owner: &DataPointer<Reference
     uses(raw_memory)
 {
     let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+
     let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(owner = owner), trusted reference_disposal(owner = owner))
         ensures(
@@ -109,6 +110,7 @@ trusted internal func dispose_reference(pos reference: Reference) -> u32
     let (control, execution) = retired;
 
     _ = control;
+
     return trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
 }
 
@@ -184,15 +186,31 @@ trusted internal func take_released(
 
     let retired = trusted materialize(storage);
 
-    let take_execution = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos slot: &mut Slot) -> bray.runtime.bootstrap.execution.Reference?
+    let take_execution = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos slot: &mut Slot) ->
+        bray.runtime.bootstrap.execution.Reference?
         requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
         ensures(trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result))
         uses(raw_memory, unchecked_init)
     {
         let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
-        let permit = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>)
+
+        let permit = trusted lambda(
+            pos lease: &bray.runtime.bootstrap.host.HostLease,
+            pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>
+        )
             requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
-            ensures(trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1), trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1), trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer), trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer))
+            ensures(
+                trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(
+                    pointer = pointer,
+                    count = 1
+                ),
+                trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(
+                    pointer = pointer,
+                    count = 1
+                ),
+                trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
+                trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
+            )
             executes(pure, total) {};
 
         trusted permit(lease, pointer);

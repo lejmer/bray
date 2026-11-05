@@ -2365,6 +2365,7 @@ fn moving_raw_contents_preserves_allocation_ownership_until_deallocation() {
             }}
             "#,
         );
+
         let compilation = compilation(&source);
 
         assert_eq!(
@@ -4467,7 +4468,12 @@ fn default_mutation_retires_authority_before_the_selected_call_entry() {
 
 #[test]
 fn repeated_array_witness_copies_use_the_checked_extent() {
-    for (count, extent, valid) in [("ONE", 1, true), ("one()", 1, true), ("TWO", 2, false), ("two()", 2, false)] {
+    for (count, extent, valid) in [
+        ("ONE", 1, true),
+        ("one()", 1, true),
+        ("TWO", 2, false),
+        ("two()", 2, false),
+    ] {
         let compilation = compilation(&format!(
             r#"
             trusted module app;
@@ -4510,11 +4516,17 @@ fn repeated_array_witness_copies_use_the_checked_extent() {
             "#
         ));
 
-        assert_eq!(!compilation.check_diagnostics().has_errors(), valid, "{count}: {:#?}", compilation.check_diagnostics());
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{count}: {:#?}",
+            compilation.check_diagnostics()
+        );
 
         if !valid {
             bray_testing::assert_goal_state_diagnostic_kind(
-                compilation.check_diagnostics(), DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
             );
         }
     }

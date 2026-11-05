@@ -57,7 +57,9 @@ impl Compilation {
                 requires_native_product_host(runtime.role())
                     && !executable_host
                         .and_then(|host| host.role_binding(runtime.role()))
-                        .is_some_and(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering)
+                        .is_some_and(|binding| {
+                            binding.implementation() == RuntimeRoleImplementation::CompilerLowering
+                        })
             });
 
         if entries.is_empty() && native_statics.is_empty() && !foreign_entry && !publishes_value {
@@ -324,6 +326,7 @@ impl Compilation {
                 RuntimeAbiRole::ActivationCallback,
                 RuntimeAbiRole::ActivationActionReadiness,
             ]);
+
             runtime_roles.insert(RuntimeAbiRole::MainThreadLaneStartup);
             runtime_roles.insert(RuntimeAbiRole::MainThreadLaneDrive);
             runtime_roles.extend(RuntimeAbiRole::host_controls());
@@ -562,11 +565,14 @@ pub(super) fn publishes_native_report(role: RuntimeAbiRole) -> bool {
 }
 
 fn requires_native_product_host(role: RuntimeAbiRole) -> bool {
-    publishes_native_report(role) || role.contract().effects().iter().any(|effect| matches!(
-        effect,
-        bray_runtime_interface::RuntimeRoleContractEffect::ReportPanic
-            | bray_runtime_interface::RuntimeRoleContractEffect::ReportEntryFailure
-    ))
+    publishes_native_report(role)
+        || role.contract().effects().iter().any(|effect| {
+            matches!(
+                effect,
+                bray_runtime_interface::RuntimeRoleContractEffect::ReportPanic
+                    | bray_runtime_interface::RuntimeRoleContractEffect::ReportEntryFailure
+            )
+        })
 }
 
 pub(super) fn native_static_host_entries(

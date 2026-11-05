@@ -314,10 +314,20 @@ impl CheckerRequestContext for TestCheckerContext {
     fn storage_member_type(
         &self,
         member: AnySymbolId,
-    ) -> CheckerQueryResult<std::sync::Arc<bray_diagnostics::DiagnosticResult<bray_symbols::TypeExpressionTemplate>>> {
+    ) -> CheckerQueryResult<
+        std::sync::Arc<bray_diagnostics::DiagnosticResult<bray_symbols::TypeExpressionTemplate>>,
+    > {
         match member {
-            AnySymbolId::StructField(field) => self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<bray_symbols::StructFieldTypeQuery>::new(field)),
-            AnySymbolId::UnionPayloadField(field) => self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<bray_symbols::UnionPayloadFieldTypeQuery>::new(field)),
+            AnySymbolId::StructField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::StructFieldTypeQuery,
+                >::new(field))
+            }
+            AnySymbolId::UnionPayloadField(field) => {
+                self.resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                    bray_symbols::UnionPayloadFieldTypeQuery,
+                >::new(field))
+            }
             _ => panic!("storage member type requires a checked field: {member:?}"),
         }
     }

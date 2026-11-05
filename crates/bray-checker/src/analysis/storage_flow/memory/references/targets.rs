@@ -134,11 +134,16 @@ impl State {
         };
 
         if references.is_exact() {
-            let target = references.targets.first().expect("exact reference has one target");
+            let target = references
+                .targets
+                .first()
+                .expect("exact reference has one target");
 
             // A checked borrow may interpret a differently typed region. Keep
             // its provenance without making the view that region's declaration.
-            references.inexact = self.contents.get(target)
+            references.inexact = self
+                .contents
+                .get(target)
                 .and_then(|contents| contents.storage_type)
                 .is_some_and(|declared| declared != ty);
         }

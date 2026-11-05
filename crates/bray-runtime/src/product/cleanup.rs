@@ -19,16 +19,26 @@ pub(super) fn run_asynchronous_finalizer(
 
     match started {
         _ if incident.is_some() => {
-            assert!(crate::native::implementation::bray_runtime_task_destruction(admission).is_success(), "failed factory execution releases its unstarted Source claim");
+            assert!(
+                crate::native::implementation::bray_runtime_task_destruction(admission)
+                    .is_success(),
+                "failed factory execution releases its unstarted Source claim"
+            );
+
             [incident, None, None, None]
-        },
+        }
         NativeStaticFinalizerStatus::SUCCESS => {
             crate::native::run_static_finalizer(admission, frame, finalizer.resolve())
         }
         _ => {
-            assert!(crate::native::implementation::bray_runtime_task_destruction(admission).is_success(), "rejected factory execution releases its unstarted Source claim");
+            assert!(
+                crate::native::implementation::bray_runtime_task_destruction(admission)
+                    .is_success(),
+                "rejected factory execution releases its unstarted Source claim"
+            );
+
             [Some(CleanupIncident::runtime_failure()), None, None, None]
-        },
+        }
     }
 }
 

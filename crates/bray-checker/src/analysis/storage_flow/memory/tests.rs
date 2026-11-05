@@ -2116,18 +2116,42 @@ fn returned_references_snapshot_previously_published_inline_storage() {
     state.stage_returned_reference(calls[0].into(), first_slot.clone(), first, error_type(), []);
     state.complete_transition(calls[0].into());
 
-    let before = state.value_targets(&first_slot).expect("returned reference has its origin")[0].clone();
+    let before = state
+        .value_targets(&first_slot)
+        .expect("returned reference has its origin")[0]
+        .clone();
 
     state.escape_regions(BTreeSet::from([allocation.clone()]));
 
-    state.stage_returned_reference(calls[1].into(), second_slot.clone(), second, error_type(), []);
+    state.stage_returned_reference(
+        calls[1].into(),
+        second_slot.clone(),
+        second,
+        error_type(),
+        [],
+    );
+
     state.complete_transition(calls[1].into());
 
-    let after = state.value_targets(&second_slot).expect("returned reference has its origin")[0].clone();
+    let after = state
+        .value_targets(&second_slot)
+        .expect("returned reference has its origin")[0]
+        .clone();
 
-    assert_eq!(state.target_relationship(&before, &allocation), StorageRelationship::Disjoint);
-    assert_eq!(state.target_relationship(&after, &allocation), StorageRelationship::PotentiallyOverlapping);
-    assert_eq!(state.target_relationship(&before, &after), StorageRelationship::PotentiallyOverlapping);
+    assert_eq!(
+        state.target_relationship(&before, &allocation),
+        StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        state.target_relationship(&after, &allocation),
+        StorageRelationship::PotentiallyOverlapping
+    );
+
+    assert_eq!(
+        state.target_relationship(&before, &after),
+        StorageRelationship::PotentiallyOverlapping
+    );
 }
 
 #[test]
@@ -2145,16 +2169,37 @@ fn bounded_owned_views_keep_alternative_regions_without_exact_pointer_identity()
 
     let destination = Target::storage(view);
 
-    state.owned_region(&owners, destination.clone(), error_type(), BUFFER_POINTER, true);
+    state.owned_region(
+        &owners,
+        destination.clone(),
+        error_type(),
+        BUFFER_POINTER,
+        true,
+    );
 
-    let regions = state.referenced_regions(&destination).expect("bounded view retains both possible allocations");
+    let regions = state
+        .referenced_regions(&destination)
+        .expect("bounded view retains both possible allocations");
 
     assert_eq!(regions.len(), 2);
     assert!(state.value_targets(&destination).is_none());
 
-    state.owned_region(&owners[..1], destination.clone(), error_type(), BUFFER_POINTER, true);
+    state.owned_region(
+        &owners[..1],
+        destination.clone(),
+        error_type(),
+        BUFFER_POINTER,
+        true,
+    );
 
-    assert_eq!(state.referenced_regions(&destination).expect("bounded view retains its allocation").len(), 1);
+    assert_eq!(
+        state
+            .referenced_regions(&destination)
+            .expect("bounded view retains its allocation")
+            .len(),
+        1
+    );
+
     assert!(state.value_targets(&destination).is_none());
 }
 
@@ -2171,7 +2216,14 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
         previous: false,
     };
 
-    state.owned_region(&[header.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[header.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer.clone()), pointer.clone());
 
     let regions = state
@@ -2203,7 +2255,15 @@ fn owned_regions_keep_headers_disjoint_and_survive_owner_moves_without_exact_off
     );
 
     state.transfer_value(&header, moved.clone());
-    state.owned_region(&[Target::storage(moved)], Target::storage(other.clone()), error_type(), BUFFER_POINTER, false);
+
+    state.owned_region(
+        &[Target::storage(moved)],
+        Target::storage(other.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(other.clone()), other.clone());
 
     assert_eq!(
@@ -2249,7 +2309,14 @@ fn displaced_regions_require_a_known_allocation_boundary() {
 
     let owner = Target::storage(storage);
 
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer), displaced.clone());
 
     assert_eq!(
@@ -2369,7 +2436,13 @@ fn incoming_aliases_can_reach_allocations_under_invocation_owned_headers() {
         previous: false,
     };
 
-    state.owned_region(&[header.clone()], Target::storage(pointer.clone()), error_type(), BUFFER_POINTER, false);
+    state.owned_region(
+        &[header.clone()],
+        Target::storage(pointer.clone()),
+        error_type(),
+        BUFFER_POINTER,
+        false,
+    );
 
     let region = state
         .referenced_regions(&Target::storage(pointer))
@@ -3037,15 +3110,23 @@ fn null_join_retains_bounds_without_exact_identity_or_initialization() {
 fn raw_exposure_of_an_entry_referent_revokes_its_shared_protection() {
     let ([parameter, pointer, ..], origins, capability) = borrowed_places();
 
-    let field = bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
+    let field =
+        bray_bound_tree::StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
-    for reference in [parameter.clone(), Place { root: parameter.root, projections: [field].into() }] {
+    for reference in [
+        parameter.clone(),
+        Place {
+            root: parameter.root,
+            projections: [field].into(),
+        },
+    ] {
         let ty = error_type();
         let mut state = State::default();
 
         state.begin_entry_borrow(capability, reference, ty);
 
-        let target = state.borrow_target(capability, ty)
+        let target = state
+            .borrow_target(capability, ty)
             .expect("fixture entry borrow retains its physical reference identity");
 
         state.stage_address(
@@ -3100,10 +3181,15 @@ fn returned_references_capture_external_exposure_when_they_are_created() {
     state.stage_returned_references(call, [(later_result.clone(), error_type())], []);
     state.complete_transition(call);
 
-    let later = state.value_target(&Target::storage(later_result), error_type())
+    let later = state
+        .value_target(&Target::storage(later_result), error_type())
         .expect("a later opaque reference retains the current exposure bound");
 
-    assert_ne!(state.target_relationship(&later, &local), bray_bound_tree::StorageRelationship::Disjoint);
+    assert_ne!(
+        state.target_relationship(&later, &local),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
     assert!(state.effect_origins(&later).any(|target| target == &local));
 }
 
@@ -3116,23 +3202,34 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
 
     state.observe_reference(slot.clone(), reference.clone(), error_type(), []);
 
-    let original = state.value_target(&slot, error_type())
+    let original = state
+        .value_target(&slot, error_type())
         .expect("the first read retains an established reference");
 
-    state.stage_address(origins[0].into(), original.clone(), Target::storage(pointer), error_type(),
-        bray_symbols::DependencyReferenceKind::Address);
+    state.stage_address(
+        origins[0].into(),
+        original.clone(),
+        Target::storage(pointer),
+        error_type(),
+        bray_symbols::DependencyReferenceKind::Address,
+    );
 
     state.observe_reference(slot.clone(), reference, error_type(), []);
 
-    let current = state.value_target(&slot, error_type())
+    let current = state
+        .value_target(&slot, error_type())
         .expect("the repeated read retains a current reference");
 
     let exposed = state.raw_exposed_regions();
 
     assert!(exposed.iter().any(|target| target.previous));
 
-    assert!(exposed.iter().any(|target|
-        state.target_relationship(target, &current) != bray_bound_tree::StorageRelationship::Disjoint));
+    assert!(
+        exposed
+            .iter()
+            .any(|target| state.target_relationship(target, &current)
+                != bray_bound_tree::StorageRelationship::Disjoint)
+    );
 }
 
 #[test]
@@ -3394,23 +3491,48 @@ fn opaque_owned_values_keep_their_backing_identity_without_claiming_initializati
 
     state.stage_unknown(call, owner.clone());
     state.complete_transition(call);
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), ty, BUFFER_POINTER, false);
 
-    let regions = state.owned_regions(&owner, BUFFER_POINTER)
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        ty,
+        BUFFER_POINTER,
+        false,
+    );
+
+    let regions = state
+        .owned_regions(&owner, BUFFER_POINTER)
         .expect("an owning value retains its physical backing region");
 
     assert_eq!(regions.len(), 1);
-    assert_eq!(state.target_relationship(&owner, &regions[0]), bray_bound_tree::StorageRelationship::Disjoint);
+
+    assert_eq!(
+        state.target_relationship(&owner, &regions[0]),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
     assert!(!state.initialized(&regions[0], ty));
 
     state.stage_value(call, &owner, moved.clone());
     state.stage_null(call, owner.clone());
     state.complete_transition(call);
 
-    assert_eq!(state.owned_regions(&moved, BUFFER_POINTER), Some(regions.clone()));
-    assert_eq!(state.owned_regions(&owner, BUFFER_POINTER), Some(Vec::new()));
+    assert_eq!(
+        state.owned_regions(&moved, BUFFER_POINTER),
+        Some(regions.clone())
+    );
+
+    assert_eq!(
+        state.owned_regions(&owner, BUFFER_POINTER),
+        Some(Vec::new())
+    );
+
     assert!(!state.initialized(&regions[0], ty));
-    assert_eq!(state.referenced_regions(&Target::storage(pointer)), Some(regions));
+
+    assert_eq!(
+        state.referenced_regions(&Target::storage(pointer)),
+        Some(regions)
+    );
 }
 
 #[test]
@@ -3422,7 +3544,14 @@ fn bounded_address_views_preserve_the_allocation_type_without_initializing_the_r
     let mut state = State::default();
     let owner = Target::storage(owner);
 
-    state.owned_region(&[owner.clone()], Target::storage(pointer.clone()), region_type, BUFFER_POINTER, false);
+    state.owned_region(
+        &[owner.clone()],
+        Target::storage(pointer.clone()),
+        region_type,
+        BUFFER_POINTER,
+        false,
+    );
+
     state.offset(&Target::storage(pointer.clone()), pointer.clone());
     state.expose_address(&pointer, view_type, origins[0]);
 
@@ -3452,7 +3581,14 @@ fn exact_address_views_reject_a_conflicting_declared_storage_type() {
     let view_type = crate::test_support::nullable_type(region_type);
     let mut state = State::default();
 
-    state.owned_region(&[Target::storage(owner)], Target::storage(pointer.clone()), region_type, BUFFER_POINTER, false);
+    state.owned_region(
+        &[Target::storage(owner)],
+        Target::storage(pointer.clone()),
+        region_type,
+        BUFFER_POINTER,
+        false,
+    );
+
     state.expose_address(&pointer, view_type, origins[0]);
 }
 
@@ -3501,7 +3637,10 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
 
     state.escape_targets([owner.clone()]);
 
-    assert_eq!(state.target_relationship(&target, &owner), bray_bound_tree::StorageRelationship::Disjoint);
+    assert_eq!(
+        state.target_relationship(&target, &owner),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
 
     assert!(!state.initialized(&destination, view_type));
 
@@ -3682,19 +3821,44 @@ fn fresh_allocation_publication_follows_only_the_references_stored_in_it() {
 
     memory.entry_reference(input.clone());
 
-    let entry = memory.value_targets(&Target::storage(input.clone())).unwrap()[0].clone();
+    let entry = memory
+        .value_targets(&Target::storage(input.clone()))
+        .unwrap()[0]
+        .clone();
+
     let allocation = memory.fresh(owner, origins[0]);
 
-    assert_eq!(allocation.relationship(&entry), bray_bound_tree::StorageRelationship::Disjoint);
-    assert_eq!(entry.relationship(&allocation), bray_bound_tree::StorageRelationship::Disjoint);
-    assert_eq!(memory.escaped_regions([allocation.clone()]), BTreeSet::from([allocation.clone()]));
+    assert_eq!(
+        allocation.relationship(&entry),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        entry.relationship(&allocation),
+        bray_bound_tree::StorageRelationship::Disjoint
+    );
+
+    assert_eq!(
+        memory.escaped_regions([allocation.clone()]),
+        BTreeSet::from([allocation.clone()])
+    );
 
     let call = origins[1].into();
 
-    memory.stage_value(call, &Target::storage(input), allocation.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))]));
+    memory.stage_value(
+        call,
+        &Target::storage(input),
+        allocation.project(&[StorageProjection::TupleElement(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]),
+    );
+
     memory.complete_transition(call);
 
-    assert_eq!(memory.escaped_regions([allocation.clone()]), BTreeSet::from([allocation, entry]));
+    assert_eq!(
+        memory.escaped_regions([allocation.clone()]),
+        BTreeSet::from([allocation, entry])
+    );
 }
 
 #[test]
@@ -3706,41 +3870,94 @@ fn typed_scalar_publication_does_not_load_aliased_pointer_slots() {
     let mut memory = State::default();
 
     memory.complete_reference_types = Arc::new([(scalar, true), (container, false)].into());
-    memory.entry_reference_at(left.clone(), 1, Target::storage(left.clone()), Some(container));
-    memory.entry_reference_at(right.clone(), 1, Target::storage(right.clone()), Some(container));
+
+    memory.entry_reference_at(
+        left.clone(),
+        1,
+        Target::storage(left.clone()),
+        Some(container),
+    );
+
+    memory.entry_reference_at(
+        right.clone(),
+        1,
+        Target::storage(right.clone()),
+        Some(container),
+    );
 
     let left = memory.value_targets(&Target::storage(left)).unwrap()[0].clone();
     let right = memory.value_targets(&Target::storage(right)).unwrap()[0].clone();
     let allocation = memory.fresh(owner.clone(), origins[0]);
     let call = origins[1].into();
 
-    memory.stage_value(call, &Target::storage(owner.clone()), left.project(&[
-        StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0))
-    ]));
+    memory.stage_value(
+        call,
+        &Target::storage(owner.clone()),
+        left.project(&[StorageProjection::TupleElement(
+            bray_symbols::SymbolOrdinal::new(0),
+        )]),
+    );
 
     memory.complete_transition(call);
 
     // Aliased pointer-containing inputs still expose newly stored allocations.
-    assert!(memory.escaped_regions([right.clone()]).contains(&allocation));
+    assert!(
+        memory
+            .escaped_regions([right.clone()])
+            .contains(&allocation)
+    );
 
-    let word = right.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(1))]);
+    let word = right.project(&[StorageProjection::TupleElement(
+        bray_symbols::SymbolOrdinal::new(1),
+    )]);
 
-    memory.contents.entry(word.clone()).or_default().storage_type = Some(scalar);
-    assert_eq!(memory.escaped_regions([word.clone()]), BTreeSet::from([word.clone()]));
+    memory
+        .contents
+        .entry(word.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
+    assert_eq!(
+        memory.escaped_regions([word.clone()]),
+        BTreeSet::from([word.clone()])
+    );
 
     // Known stored references remain authoritative across typed layout views.
     let call = origins[2].into();
 
     memory.stage_value(call, &Target::storage(owner), word.clone());
     memory.complete_transition(call);
-    memory.contents.entry(word.clone()).or_default().storage_type = Some(scalar);
+
+    memory
+        .contents
+        .entry(word.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
     assert!(memory.escaped_regions([word]).contains(&allocation));
 
     // Explicit raw exposure retains conservative allocation reachability.
-    let other = right.project(&[StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(2))]);
+    let other = right.project(&[StorageProjection::TupleElement(
+        bray_symbols::SymbolOrdinal::new(2),
+    )]);
 
-    memory.contents.entry(other.clone()).or_default().storage_type = Some(scalar);
-    assert_eq!(memory.escaped_regions([other.clone()]), BTreeSet::from([other.clone()]));
-    memory.point_at(other.clone(), raw, scalar, bray_symbols::DependencyReferenceKind::Address);
+    memory
+        .contents
+        .entry(other.clone())
+        .or_default()
+        .storage_type = Some(scalar);
+
+    assert_eq!(
+        memory.escaped_regions([other.clone()]),
+        BTreeSet::from([other.clone()])
+    );
+
+    memory.point_at(
+        other.clone(),
+        raw,
+        scalar,
+        bray_symbols::DependencyReferenceKind::Address,
+    );
+
     assert!(memory.escaped_regions([other]).contains(&allocation));
 }

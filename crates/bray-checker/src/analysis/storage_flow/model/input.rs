@@ -165,7 +165,8 @@ impl StorageFlowInput {
             })
             .map(bray_bound_tree::StoragePath::root);
 
-        let opaque_values = footprint.identities
+        let opaque_values = footprint
+            .identities
             .values()
             .chain(footprint.scalars.values())
             .flatten()
@@ -174,18 +175,16 @@ impl StorageFlowInput {
 
         let opaque_candidates = owned_descriptors
             .chain(
-                footprint.identities
+                footprint
+                    .identities
                     .keys()
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),
             )
+            .chain(footprint.borrowed_identities.keys().cloned())
             .chain(
-                footprint.borrowed_identities
-                    .keys()
-                    .cloned(),
-            )
-            .chain(
-                footprint.discriminants
+                footprint
+                    .discriminants
                     .keys()
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),

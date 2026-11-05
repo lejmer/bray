@@ -124,7 +124,6 @@ trusted internal func read_lane(pos pointer: DataPointer<Lane>) -> Lane
     return trusted std.memory.read<Lane>(pointer);
 }
 
-
 internal func acquire(pos owner: &Reference, pos thread: u64, pos lanes: u32) -> Observation?
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -187,7 +186,13 @@ internal func acquire(pos owner: &Reference, pos thread: u64, pos lanes: u32) ->
     return selected;
 }
 
-trusted internal func release_registration(pos owner: &Reference, pos registration: u64, pos lane: Lane, pos cancellation: u32, pos now: u64) -> u32
+trusted internal func release_registration(
+    pos owner: &Reference,
+    pos registration: u64,
+    pos lane: Lane,
+    pos cancellation: u32,
+    pos now: u64
+) -> u32
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
     uses(intrinsic)

@@ -6,14 +6,26 @@ use bray_bound_tree::{
 use bray_symbols::TypeId;
 
 impl State {
-    pub(in crate::analysis::storage_flow) fn observe_effect_types(&mut self, effects: &[super::Effect]) {
+    pub(in crate::analysis::storage_flow) fn observe_effect_types(
+        &mut self,
+        effects: &[super::Effect],
+    ) {
         for effect in effects {
-            if let super::Effect::Mutation(target, bray_symbols::DependencyMutationKind::Replace(ty)) = effect
-                && target.projections().contains(&bray_bound_tree::StorageProjection::OwnedTarget)
+            if let super::Effect::Mutation(
+                target,
+                bray_symbols::DependencyMutationKind::Replace(ty),
+            ) = effect
+                && target
+                    .projections()
+                    .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
             {
                 // A checked owning-region write retains its backing element type,
                 // without establishing initialized contents or retyping known storage.
-                self.contents.entry(target.clone()).or_default().storage_type.get_or_insert(*ty);
+                self.contents
+                    .entry(target.clone())
+                    .or_default()
+                    .storage_type
+                    .get_or_insert(*ty);
             }
         }
     }
@@ -153,7 +165,11 @@ impl State {
 
                 for (slot, mut contents) in transfer.payloads {
                     contents.initialized.clear();
-                    self.contents.entry(slot.clone()).or_default().merge(&contents, &slot);
+
+                    self.contents
+                        .entry(slot.clone())
+                        .or_default()
+                        .merge(&contents, &slot);
                 }
 
                 super::references::merge_deferred(&mut self.deferred, &transfer.deferred);

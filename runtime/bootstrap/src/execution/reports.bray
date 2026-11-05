@@ -33,33 +33,64 @@ trusted internal func report_incidents() -> u32
     return 0;
 }
 
-trusted internal func lock_reports(pos owner: &bray.runtime.bootstrap.execution.Reference) -> std.sync.SpinLockGuard<bray.runtime.bootstrap.report.sink.State>
+trusted internal func lock_reports(
+    pos owner: &bray.runtime.bootstrap.execution.Reference
+) -> std.sync.SpinLockGuard<bray.runtime.bootstrap.report.sink.State>
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted std.sync.spin_lock.acquired(&result.acquisition))
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted std.sync.spin_lock.acquired(&result.acquisition)
+    )
     uses(raw_memory, unchecked_alias)
 {
     let value = trusted domain(owner);
     let pointer = std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(&value.reports);
 
-    let permit = trusted lambda(pos owner: &bray.runtime.bootstrap.execution.Reference, pos pointer: DataPointer<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>)
+    let permit = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.execution.Reference,
+        pos pointer: DataPointer<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>
+    )
         requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
         ensures(
-            trusted core.memory.valid_read<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer, count = 1),
-            trusted core.memory.initialized_as<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.aligned_for<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.shared_alias_valid<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.epoch_current<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.synchronized_access<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.movement_stable<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer),
-            trusted core.memory.finalization_pending<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(pointer = pointer)
+            trusted core.memory.valid_read<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer,
+                count = 1
+            ),
+            trusted core.memory.initialized_as<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.aligned_for<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.shared_alias_valid<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.epoch_current<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.synchronized_access<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.movement_stable<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            ),
+            trusted core.memory.finalization_pending<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(
+                pointer = pointer
+            )
         )
         executes(pure, total) {};
 
     trusted permit(owner, pointer);
 
-    let protected = trusted std.memory.borrow_from<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>, Reference>(owner, pointer);
+    let protected = trusted std.memory.borrow_from<
+        std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>,
+        Reference
+    >(owner, pointer);
 
-    let initialized = trusted lambda(pos owner: &bray.runtime.bootstrap.execution.Reference, pos protected: &std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>)
+    let initialized = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.execution.Reference,
+        pos protected: &std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>
+    )
         requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
         ensures(trusted std.sync.spin_lock.valid(&protected.prepared.instance))
         executes(pure, total) {};
@@ -68,7 +99,9 @@ trusted internal func lock_reports(pos owner: &bray.runtime.bootstrap.execution.
     return trusted protected.lock();
 }
 
-trusted internal func report_state(pos guard: &mut std.sync.SpinLockGuard<bray.runtime.bootstrap.report.sink.State>) -> DataPointer<bray.runtime.bootstrap.report.sink.State>
+trusted internal func report_state(
+    pos guard: &mut std.sync.SpinLockGuard<bray.runtime.bootstrap.report.sink.State>
+) -> DataPointer<bray.runtime.bootstrap.report.sink.State>
     requires(trusted std.sync.spin_lock.acquired(&guard.acquisition))
     ensures(
         trusted std.sync.spin_lock.acquired(&guard.acquisition),
@@ -83,8 +116,15 @@ trusted internal func report_state(pos guard: &mut std.sync.SpinLockGuard<bray.r
     return std.memory.address_of_mut<bray.runtime.bootstrap.report.sink.State>(trusted guard.get());
 }
 
-trusted internal func transfer_reports(pos owner: &bray.runtime.bootstrap.execution.Reference, pos records: &mut bray.runtime.bootstrap.ReportRecords, pos metadata: bray.runtime.bootstrap.ReportSegment)
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+trusted internal func transfer_reports(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos records: &mut bray.runtime.bootstrap.ReportRecords,
+    pos metadata: bray.runtime.bootstrap.ReportSegment
+)
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
 {
     if records.count == 0
@@ -103,7 +143,10 @@ trusted internal func transfer_reports(pos owner: &bray.runtime.bootstrap.execut
 }
 
 trusted internal func drain_reports(pos owner: &bray.runtime.bootstrap.execution.Reference) -> u32
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     when(trusted retiring(owner = owner))
     {
@@ -128,7 +171,10 @@ trusted internal func drain_reports(pos owner: &bray.runtime.bootstrap.execution
         {
             let mut guard = trusted lock_reports(owner);
 
-            if trusted bray.runtime.bootstrap.report.sink.take(trusted report_state(&mut guard), std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut batch)) == 0
+            if trusted bray.runtime.bootstrap.report.sink.take(
+                trusted report_state(&mut guard),
+                std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut batch)
+            ) == 0
             {
                 return count;
             }
@@ -138,7 +184,14 @@ trusted internal func drain_reports(pos owner: &bray.runtime.bootstrap.execution
         // Reentrant incident transfers join the next batch of this same drain.
         while batch.count != 0
         {
-            let mut metadata: bray.runtime.bootstrap.ReportSegment = { ordinal = 0, task = 0, frame = [0; 32], state = 0 };
+            let mut metadata: bray.runtime.bootstrap.ReportSegment =
+            {
+                ordinal = 0,
+                task = 0,
+                frame = [0; 32],
+                state = 0
+            };
+
             let mut segment = bray.runtime.bootstrap.empty_records();
 
             trusted bray.runtime.bootstrap.report_segment_take(
@@ -149,6 +202,7 @@ trusted internal func drain_reports(pos owner: &bray.runtime.bootstrap.execution
 
             _ = trusted bray.runtime.bootstrap.report.output.segment(&metadata);
             _ = trusted bray.runtime.bootstrap.consume_record_values(segment, 1);
+
             count += 1;
         }
     }

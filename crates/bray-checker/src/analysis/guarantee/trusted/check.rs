@@ -25,7 +25,9 @@ pub(in crate::analysis) struct TrustedChecks {
     pub(super) owned_returns: Vec<super::owned::OwnedReturn>,
     pub(super) owned_entry_conditions: BTreeSet<(ExecutionCondition, bool)>,
     pub(in crate::analysis) observed_result: Option<Option<bray_symbols::ConstantTermId>>,
-    pub(super) inferred: Option<BTreeSet<bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>>>,
+    pub(super) inferred: Option<
+        BTreeSet<bray_symbols::DependencyWitnessCarrier<bray_bound_tree::StorageProjection>>,
+    >,
     pub(super) carriers: Vec<Option<BTreeSet<Vec<bray_bound_tree::StorageProjection>>>>,
 }
 
@@ -145,11 +147,16 @@ impl TrustedChecks {
             && let [value] = bound.runtime_operands()
             && state.is_witness(&domain.value(state, *value))
         {
-            let ty = domain.semantics.types().expression(expression)
-                .expect("checked repetition retains its type").ty();
+            let ty = domain
+                .semantics
+                .types()
+                .expression(expression)
+                .expect("checked repetition retains its type")
+                .ty();
 
-            let singleton = crate::constant::known_array_length(domain.request.semantic_values(), ty)
-                .is_some_and(|count| count <= 1);
+            let singleton =
+                crate::constant::known_array_length(domain.request.semantic_values(), ty)
+                    .is_some_and(|count| count <= 1);
 
             if !singleton {
                 self.transfers.insert(expression);

@@ -140,12 +140,21 @@ trusted internal func retired_allocation(pos owner: Reference) -> std.memory.Raw
 {
     let claim = trusted lambda(pos owner: &Reference, pos pointer: DataPointer<u8>)
         requires(trusted final_reference(owner = owner))
-        ensures(trusted core.memory.owned_allocation(pointer = pointer, bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>()))
+        ensures(
+            trusted core.memory.owned_allocation(
+                pointer = pointer,
+                bytes = std.memory.stride_of<Domain>(),
+                align = std.memory.align_of<Domain>()
+            )
+        )
         executes(pure, total) {};
 
-    let pointer = std.memory.byte_address<Domain>(trusted core.target.from_exposed_address<Domain>(address = owner.address));
+    let pointer = std.memory.byte_address<Domain>(
+        trusted core.target.from_exposed_address<Domain>(address = owner.address)
+    );
 
     trusted claim(&owner, pointer);
+
     return
     {
         pointer = pointer,
@@ -172,6 +181,7 @@ trusted internal func read_owned_reference(pos input: &DataPointer<Reference>) -
     uses(raw_memory)
 {
     let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(input));
+
     let permit = trusted lambda(pos input: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(owner = input), trusted release_entry(pointer = input))
         ensures(

@@ -26,9 +26,17 @@ internal callable CleanupContext = @abi(c) trusted func(
 
 // The caller retains this complete service record and its acquired resource
 // through reentrant admission, rollback and finalizer execution.
-internal predicate execution_slot(pointer: DataPointer<NativeExecution>) = core.memory.valid_read<NativeExecution>(pointer = pointer, count = 1) && core.memory.aligned_for<NativeExecution>(pointer = pointer) && core.memory.initialized_as<NativeExecution>(pointer = pointer) && core.memory.shared_alias_valid<NativeExecution>(pointer = pointer);
+internal predicate execution_slot(pointer: DataPointer<NativeExecution>) = core.memory.valid_read<NativeExecution>(
+    pointer = pointer,
+    count = 1
+) && core.memory.aligned_for<NativeExecution>(pointer = pointer) && core.memory.initialized_as<NativeExecution>(
+    pointer = pointer
+) && core.memory.shared_alias_valid<NativeExecution>(pointer = pointer);
 
-internal callable FrameAdmission = @abi(c) trusted func(pos execution: DataPointer<NativeExecution>, pos destination: DataPointer<usize>) -> u32
+internal callable FrameAdmission = @abi(c) trusted func(
+    pos execution: DataPointer<NativeExecution>,
+    pos destination: DataPointer<usize>
+) -> u32
     requires(
         trusted native_host(),
         execution_slot(pointer = execution),
@@ -46,7 +54,11 @@ internal callable FrameDiscard = @abi(c) trusted func(pos execution: DataPointer
     requires(trusted native_host(), execution_slot(pointer = execution))
     ensures(execution_slot(pointer = execution));
 
-internal callable AsyncFinalizer = @abi(c) trusted func(pos execution: DataPointer<NativeExecution>, pos admission: usize, pos finalizer: Finalizer) -> usize
+internal callable AsyncFinalizer = @abi(c) trusted func(
+    pos execution: DataPointer<NativeExecution>,
+    pos admission: usize,
+    pos finalizer: Finalizer
+) -> usize
     requires(trusted native_host(), execution_slot(pointer = execution))
     ensures(execution_slot(pointer = execution));
 

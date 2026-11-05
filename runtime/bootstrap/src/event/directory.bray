@@ -177,7 +177,12 @@ trusted internal func lookup(pos runtime: u64, pos identity: usize, pos remove: 
 
 // Shutdown advances through the existing directory once, including across
 // callback-driven removals. Closing runtimes reject new event publication.
-trusted internal func lookup_from(pos runtime: u64, pos identity: usize, pos remove: bool, pos cursor: usize) -> (Reference?, usize)
+trusted internal func lookup_from(
+    pos runtime: u64,
+    pos identity: usize,
+    pos remove: bool,
+    pos cursor: usize
+) -> (Reference?, usize)
     ensures(trusted optional_reference(owner = &result.0))
     uses(raw_memory)
 {
@@ -244,10 +249,7 @@ trusted internal func retain_entry(
     {
         return match entry.owner
         {
-            case ?owner
-            {
-                yield &owner;
-            }
+            case ?owner { yield &owner; }
             case none { yield trusted core.target.abort(); }
         };
     };

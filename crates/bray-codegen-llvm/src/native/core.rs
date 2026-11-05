@@ -155,7 +155,6 @@ pub(crate) fn runtime_indirect_result_type<'context>(
             | RuntimeAbiType::RunOutcome
             | RuntimeAbiType::FrameProgress
             | RuntimeAbiType::InactiveFrame
-           
     ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
     {
         runtime_value_type(context, target, result)
@@ -369,7 +368,19 @@ pub(crate) fn runtime_configuration_type<'context>(
 
     let pointer = context.ptr_type(AddressSpace::default());
 
-    context.struct_type(&[usize.into(), usize.into(), context.i32_type().into(), pointer.into(), pointer.into(), pointer.into(), usize.into(), usize.into()], false)
+    context.struct_type(
+        &[
+            usize.into(),
+            usize.into(),
+            context.i32_type().into(),
+            pointer.into(),
+            pointer.into(),
+            pointer.into(),
+            usize.into(),
+            usize.into(),
+        ],
+        false,
+    )
 }
 
 pub(super) fn frame_state_type(context: &Context) -> StructType<'_> {
@@ -446,7 +457,6 @@ pub(super) fn aggregate_is_indirect(kind: RuntimeAbiType) -> bool {
             | RuntimeAbiType::TaskAllocation
             | RuntimeAbiType::InactiveFrame
             | RuntimeAbiType::FrameProgress
-           
     )
 }
 
@@ -634,12 +644,9 @@ mod tests {
         )
         .expect("native cancellation signature exists");
 
-        let state = super::runtime_function_type(
-            &context,
-            &target,
-            RuntimeAbiRole::TaskObservationQuery,
-        )
-        .expect("native state signature exists");
+        let state =
+            super::runtime_function_type(&context, &target, RuntimeAbiRole::TaskObservationQuery)
+                .expect("native state signature exists");
 
         assert_eq!(
             cancellation.get_return_type(),

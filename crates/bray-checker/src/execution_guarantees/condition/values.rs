@@ -118,8 +118,10 @@ impl ExecutionCondition {
         {
             // The nullable owns a borrow value, not the reached witness carrier.
             // Retain that distinction when the same view is stored or forwarded.
-            let value = if matches!(values.type_data(source).as_ref(), bray_symbols::TypeData::Borrow { .. })
-                && !matches!(self, Self::Borrowed(_))
+            let value = if matches!(
+                values.type_data(source).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            ) && !matches!(self, Self::Borrowed(_))
             {
                 self.borrowed()
             } else {
@@ -216,12 +218,17 @@ impl ExecutionCondition {
             Self::Unknown => Self::Unknown,
             payload @ Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _) => {
                 if let Some(snapshot) = payload.nullable_payload_snapshot()
-                    && (matches!(snapshot, Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _))
-                        || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue))) {
+                    && (matches!(
+                        snapshot,
+                        Self::Projection(bray_symbols::ConstantProjectionKind::NullableValue, _)
+                    ) || matches!(snapshot, Self::Input(place) if place.projections.last() == Some(&bray_symbols::ConstantProjectionKind::NullableValue)))
+                {
                     return snapshot.clone().present();
                 }
 
-                let Self::Projection(_, value) = payload else { unreachable!() };
+                let Self::Projection(_, value) = payload else {
+                    unreachable!()
+                };
 
                 value.as_ref().clone()
             }
@@ -478,7 +485,9 @@ impl ExecutionCondition {
                     )
                 });
 
-                let Some(projection) = projection else { return Self::Unknown; };
+                let Some(projection) = projection else {
+                    return Self::Unknown;
+                };
 
                 *projection
             }

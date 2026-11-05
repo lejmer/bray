@@ -539,7 +539,11 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
         // Logical clauses observe their enclosing context. Keep aggregate
         // observations correlated with it instead of classifying escaping
         // owned values, which would demand unrelated member contracts.
-        if matches!(request.view().kind(), bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::PredicateDefinition) {
+        if matches!(
+            request.view().kind(),
+            bray_bound_tree::BoundUnitKind::ContractClause
+                | bray_bound_tree::BoundUnitKind::PredicateDefinition
+        ) {
             return Ok(false);
         }
 
