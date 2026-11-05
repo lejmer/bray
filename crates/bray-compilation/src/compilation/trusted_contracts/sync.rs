@@ -343,6 +343,44 @@ fn nullable_acquisition_contract_follows_the_present_owner() {
 }
 
 #[test]
+fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
+    for (body, valid) in [
+        ("return owner;", true),
+        ("let stored: (&Owner)? = owner; return stored;", true),
+        ("return lend(owner);", true),
+        ("return other;", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Owner {{ acquisition: Marker; }}
+            trusted predicate held(owner: &Marker);
+            extern func lend(pos owner: &Owner) -> &Owner
+                requires(trusted held(owner = &owner.acquisition))
+                ensures(trusted held(owner = &result.acquisition));
+            const func marker(pos owner: &((&Owner)?)) -> &Marker
+                requires(owner matches ?_)
+                executes(pure, total)
+            {{
+                return match owner {{
+                    case ?value {{ yield &value.acquisition; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+            func forward(pos owner: &Owner, pos other: &Owner) -> (&Owner)?
+                requires(trusted held(owner = &owner.acquisition))
+                ensures(result matches none || trusted held(owner = marker(&result)))
+            {{ {body} }}
+        "#);
+        let application = compilation(&source);
+        let checked = application.lowered_unit(source_function_body_key(&application, "forward"))
+            .expect("nullable borrowed witness retains its checked body");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {checked:#?}");
+    }
+}
+
+#[test]
 fn callable_fields_borrow_their_owning_context_in_contracts() {
     for (predicate, subject) in [
         ("trusted predicate held(owner: &Owner);", "owner"),

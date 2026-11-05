@@ -3,7 +3,10 @@ use crate::CheckerRequestContext;
 use crate::analysis::storage_flow::memory::{Origin, Place, ReferenceBounds};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::{dependency_projection, dependency_projections};
-use bray_symbols::{DependencySubjectRoot, TypeData};
+use bray_symbols::{
+    ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, DependencySubjectRoot,
+    TypeData,
+};
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn collect_exit_references(
@@ -47,33 +50,23 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             let condition = if let Some(guard) = guard {
-                let inputs = self
-                    .request
-                    .trusted_contracts()
-                    .expect("returned witness retains formal inputs");
+                // Both terms already retain their checked portable subjects.
+                // Compose them directly rather than reconstructing local places.
+                let values = self.request.semantic_values();
+                let inactive = values
+                    .intern_constant_term(ConstantTermData::Unary {
+                        operation: ConstantUnaryOperation::LogicalNot,
+                        operand: guard,
+                    })
+                    .expect("a checked result guard belongs to this semantic store");
 
-                let decode = |term| {
-                    crate::execution_condition_from_type_term(
-                        self.request.semantic_values(),
-                        term,
-                        inputs.inputs.len(),
-                    )
-                    .expect("checked returned witness decodes in the same store")
-                };
-
-                let condition = crate::ExecutionCondition::operation(
-                    bray_bound_tree::BoundOperator::LogicalOr,
-                    vec![
-                        crate::ExecutionCondition::operation(
-                            bray_bound_tree::BoundOperator::LogicalNot,
-                            vec![decode(guard)],
-                        ),
-                        decode(carrier.guarantee()),
-                    ],
-                );
-
-                crate::analysis::guarantee::portable_carrier(self.request, &condition)
-                    .expect("guarded returned witness retains its portable inputs")
+                values
+                    .intern_constant_term(ConstantTermData::Binary {
+                        operation: ConstantBinaryOperation::LogicalOr,
+                        left: inactive,
+                        right: carrier.guarantee(),
+                    })
+                    .expect("checked returned witness terms belong to this semantic store")
             } else {
                 carrier.guarantee()
             };

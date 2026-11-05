@@ -66,9 +66,12 @@ trusted internal func finish_native_provider(pos owner: &NativeProviderScope)
     trusted owner.finish(trusted output(owner));
 }
 
-internal func create_native_provider(pos configuration: &Configuration) -> Result<(NativeProviderScope?), u32>
+trusted internal func create_native_provider(pos configuration: &Configuration) -> Result<(NativeProviderScope?), u32>
     requires(trusted native_configuration(owner = configuration))
-    ensures(trusted native_configuration(owner = configuration))
+    ensures(
+        trusted native_configuration(owner = configuration),
+        result matches Error(_) || trusted native_provider_option_owned(owner = created_native_provider(&result))
+    )
     uses(intrinsic, foreign_call, layout_reinterpret)
 {
     if configuration.scope_enter == 0 && configuration.scope_finish == 0
@@ -84,7 +87,6 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
     let enter_address = trusted lambda(pos configuration: &Configuration) -> FunctionPointer<NativeProviderEnter>
         requires(trusted native_configuration(owner = configuration), configuration.scope_enter != 0)
         ensures(trusted core.memory.callable_address_valid<NativeProviderEnter>(pointer = result))
-        executes(pure, total)
         uses(intrinsic, layout_reinterpret)
     {
         return trusted std.memory.function.from_data<NativeProviderEnter>(
@@ -95,7 +97,6 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
     let finish_address = trusted lambda(pos configuration: &Configuration) -> FunctionPointer<NativeProviderFinish>
         requires(trusted native_configuration(owner = configuration), configuration.scope_finish != 0)
         ensures(trusted core.memory.callable_address_valid<NativeProviderFinish>(pointer = result))
-        executes(pure, total)
         uses(intrinsic, layout_reinterpret)
     {
         return trusted std.memory.function.from_data<NativeProviderFinish>(
@@ -125,7 +126,7 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
     }
 
     let scope: NativeProviderScope = { storage = storage, finish = finish };
-    let initialized = trusted lambda(
+    let publish_scope = trusted lambda(
         pos configuration: &Configuration,
         pos scope: &NativeProviderScope,
         pos status: u32
@@ -134,8 +135,21 @@ internal func create_native_provider(pos configuration: &Configuration) -> Resul
         ensures(trusted native_provider_owned(owner = scope))
         executes(pure, total) {};
 
-    trusted initialized(configuration, &scope, status);
+    trusted publish_scope(configuration, &scope, status);
     return Ok(scope);
+}
+
+internal const func created_native_provider(
+    pos owner: &Result<(NativeProviderScope?), u32>
+) -> &(NativeProviderScope?)
+    requires(owner matches Ok(_))
+    executes(pure, total)
+{
+    return match owner
+    {
+        case Ok(scope) { yield &scope; }
+        case Error(_) { panic("missing admitted native provider"); }
+    };
 }
 
 trusted internal func install_native_provider(pos selected: &Current, pos provider: NativeProviderScope?)

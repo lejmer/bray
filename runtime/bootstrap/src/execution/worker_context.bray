@@ -90,7 +90,7 @@ trusted internal func create_worker_context(
         };
     }
 
-    let provider = match consume create_native_provider(&(trusted domain(owner)).configuration)
+    let provider = match consume trusted create_native_provider(&(trusted domain(owner)).configuration)
     {
         case Ok(value) { yield value; }
         case Error(failure)
