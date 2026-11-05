@@ -20,6 +20,17 @@ internal predicate backing_retained(owner: &Backing) = (owner matches Backing.Ex
 // external value owns an independent queue-storage count.
 internal predicate backing_owned(owner: &Backing) = (owner matches Backing.External(_) && owned_reference(owner = backing_queue(owner))) || (owner matches Backing.Execution(_) && bray.runtime.bootstrap.execution.pinned(owner = backing_execution(owner)));
 
+internal const func rejected_backing<T>(pos value: &Result<T, (Backing, u32)>) -> &Backing
+    requires(value matches Error(_))
+    executes(pure, total)
+{
+    return match value
+    {
+        case Error((owner, _)) { yield &owner; }
+        case Ok(_) { panic("successful service creation has no rejected backing"); }
+    };
+}
+
 internal const func backing_queue(pos owner: &Backing) -> &Reference
     requires(owner matches Backing.External(_))
     executes(pure, total)
@@ -76,29 +87,38 @@ internal const func backing_execution(pos owner: &Backing) -> &bray.runtime.boot
 trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime.bootstrap.execution.Reference
     requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = &result), trusted bray.runtime.bootstrap.execution.pinned(owner = &result))
-    uses(intrinsic)
+    uses(raw_memory)
 {
-    return match consume owner
+    if owner matches Backing.Execution(_)
     {
-        case Backing.Execution(execution)
-        {
-            yield execution;
-        }
-        case Backing.External(_) { yield trusted core.target.abort(); }
-        case Backing.Retired { yield trusted core.target.abort(); }
-    };
+        return trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(backing_execution(&owner)));
+    }
+
+    return trusted core.target.abort();
 }
 
 // Execution services transfer their pin before retiring their allocation.
 // Native services own a separate queue count and release that actual owner.
 trusted internal func release_external_backing(pos owner: Backing)
     requires(owner matches Backing.Retired || (trusted backing_retained(owner = &owner) && trusted backing_owned(owner = &owner)))
-    uses(intrinsic)
 {
-    match consume owner
+    if owner matches Backing.Retired
     {
-        case Backing.External(queue_owner) { trusted destroy_reference(queue_owner); }
-        case Backing.Retired {}
-        case Backing.Execution(_) { trusted core.target.abort(); }
+        return;
     }
+
+    let take = trusted lambda(pos owner: Backing) -> Reference
+        requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner), owner matches Backing.External(_))
+        ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+        uses(raw_memory)
+    {
+        return trusted std.memory.read<Reference>(std.memory.address_of<Reference>(backing_queue(&owner)));
+    };
+
+    if !(owner matches Backing.External(_))
+    {
+        trusted core.target.abort();
+    }
+
+    trusted destroy_reference(trusted take(owner));
 }

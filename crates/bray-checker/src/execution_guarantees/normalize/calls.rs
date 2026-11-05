@@ -129,8 +129,14 @@ pub(crate) fn selected_call_condition(
             .expect("pointer projection has its single input");
     }
 
-    if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
+    let borrowed_arguments = |budget: &mut usize| {
         let mut arguments = arguments(budget);
+
+        if let Some(receiver) = call.receiver()
+            && matches!(values.type_data(receiver.target_type()).as_ref(), bray_symbols::TypeData::Borrow { .. })
+        {
+            arguments[0] = arguments[0].clone().borrowed();
+        }
 
         for input in call.arguments() {
             let (ordinal, ty) = match input {
@@ -153,7 +159,11 @@ pub(crate) fn selected_call_condition(
             }
         }
 
-        return predicate_condition(values, predicates, predicate, arguments, budget);
+        arguments
+    };
+
+    if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
+        return predicate_condition(values, predicates, predicate, borrowed_arguments(budget), budget);
     }
 
     let observed_intrinsic = matches!(
@@ -164,7 +174,9 @@ pub(crate) fn selected_call_condition(
     if let Some(callable) = call.resolution().declaration_source()
         && (observed_intrinsic || call.constness() == bray_symbols::CallableConstness::Constant)
     {
-        let mut arguments = arguments(budget);
+        // Predicate terms and runtime observations use the same selected borrow
+        // inputs. A reference value must not become a different const-call key.
+        let mut arguments = borrowed_arguments(budget);
 
         if matches!(
             call.implementation_hook(),

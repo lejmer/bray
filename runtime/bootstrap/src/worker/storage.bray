@@ -47,6 +47,11 @@ internal func create(
     pos callback: Callback
 ) -> Result<Reference, (bray.runtime.bootstrap.scheduler.Backing, u32)>
     requires(trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &backing), trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &backing), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(
+        result matches Error(_) || trusted retained(owner = &created_reference(&result).marker),
+        result matches Ok(_) || trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = bray.runtime.bootstrap.scheduler.rejected_backing<Reference>(&result)),
+        result matches Ok(_) || trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = bray.runtime.bootstrap.scheduler.rejected_backing<Reference>(&result))
+    )
 {
     if !trusted bray.runtime.bootstrap.scheduler.worker_admission(trusted bray.runtime.bootstrap.scheduler.backing_scheduler(&backing))
     {
@@ -55,7 +60,7 @@ internal func create(
         return Error(rejected);
     }
 
-    let allocation = trusted allocate_domain(trusted bray.runtime.bootstrap.scheduler.backing_scheduler(&backing));
+    let allocation = trusted allocate_domain(&backing);
 
     if std.memory.is_null<u8>(allocation)
     {
@@ -67,10 +72,22 @@ internal func create(
     return Ok(trusted initialize(allocation, backing, callback));
 }
 
-trusted internal func allocate_domain(pos scheduler: &bray.runtime.bootstrap.scheduler.Reference) -> DataPointer<u8>
-    requires(trusted bray.runtime.bootstrap.scheduler.retained(owner = scheduler))
+internal const func created_reference(pos value: &Result<Reference, (bray.runtime.bootstrap.scheduler.Backing, u32)>) -> &Reference
+    requires(value matches Ok(_))
+    executes(pure, total)
+{
+    return match value
+    {
+        case Ok(owner) { yield &owner; }
+        case Error(_) { panic("rejected service creation has no worker owner"); }
+    };
+}
+
+trusted internal func allocate_domain(pos backing: &bray.runtime.bootstrap.scheduler.Backing) -> DataPointer<u8>
+    requires(trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = backing), trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = backing))
     ensures(
-        trusted bray.runtime.bootstrap.scheduler.retained(owner = scheduler),
+        trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = backing),
+        trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = backing),
         std.memory.is_null<u8>(result) || trusted core.memory.owned_allocation(
             pointer = result,
             bytes = std.memory.stride_of<Domain>(),
@@ -323,46 +340,36 @@ trusted internal func destroy_reference(pos owner: Reference)
 
 
     // Only the actual retiring reference can transfer allocation ownership.
-    let take = trusted lambda(pos owner: &Reference) -> Domain
-        requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
+    let take = trusted lambda(pos owner: Reference) -> (bray.runtime.bootstrap.scheduler.Backing, std.sync.SpinLock<State>)
+        requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
         ensures(
-            trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
-            result.backing matches bray.runtime.bootstrap.scheduler.Backing.Retired || (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing) && trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing)),
-            trusted core.memory.owned_allocation(
-                pointer = std.memory.byte_address<Domain>(owner.pointer),
-                bytes = std.memory.stride_of<Domain>(),
-                align = std.memory.align_of<Domain>()
-            )
+            trusted std.sync.spin_lock.valid(&result.1.prepared.instance),
+            result.0 matches bray.runtime.bootstrap.scheduler.Backing.Retired || (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.0) && trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0))
         )
         uses(raw_memory)
     {
         let permit = trusted lambda(pos owner: &Reference)
-            requires(trusted retained(owner = &owner.marker))
+            requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
             ensures(
                 trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
                 trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
-                trusted core.memory.initialized_as<Domain>(pointer = owner.pointer)
+                trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
+                trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
             )
             executes(pure, total) {};
 
-        trusted permit(owner);
-        return trusted std.memory.read<Domain>(owner.pointer);
+        trusted permit(&owner);
+        let value = trusted std.memory.read<Domain>(owner.pointer);
+
+        trusted bray.runtime.bootstrap.heap.deallocate_bytes(std.memory.byte_address<Domain>(owner.pointer), std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+        return (value.backing, value.state);
     };
 
-    let backing =
-    {
-        let value = trusted take(&owner);
+    let (backing, state) = trusted take(owner);
 
-        yield value.backing;
-    };
+    _ = state;
 
     trusted bray.runtime.bootstrap.scheduler.release_external_backing(backing);
-
-    trusted bray.runtime.bootstrap.heap.deallocate_bytes(
-        std.memory.byte_address<Domain>(owner.pointer),
-        std.memory.stride_of<Domain>(),
-        align = std.memory.align_of<Domain>()
-    );
 }
 
 trusted internal func scheduler_reference(pos owner: &Reference) -> &bray.runtime.bootstrap.scheduler.Reference
