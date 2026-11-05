@@ -145,6 +145,10 @@ trusted internal func perform(
 trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
     requires(trusted retained(owner = &owner.marker), operation != 4, operation == 0 || operation == 1 || operation == 8)
     ensures(trusted retained(owner = &owner.marker))
+    when(trusted retiring(owner = owner))
+    {
+        ensures(trusted retiring(owner = owner))
+    }
 {
     let value = trusted domain(owner);
     let input = std.memory.address_of<Reference>(owner);

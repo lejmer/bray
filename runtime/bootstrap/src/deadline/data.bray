@@ -45,7 +45,9 @@ trusted internal predicate storage_retained(owner: &Marker);
 
 internal predicate retained(owner: &Reference) = storage_retained(owner = &owner.acquisition);
 
-trusted internal predicate retiring(owner: &Reference);
+trusted internal predicate retirement_owned(owner: &Marker);
+
+internal predicate retiring(owner: &Reference) = retirement_owned(owner = &owner.acquisition);
 
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 

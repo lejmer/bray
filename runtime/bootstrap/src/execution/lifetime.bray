@@ -245,7 +245,8 @@ trusted internal func destroy_domain(pos owner: Reference)
         std.sync.Once<bray.runtime.bootstrap.worker.Reference>,
         std.sync.Once<bray.runtime.bootstrap.deadline.Reference>,
         std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>,
-        std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>
+        std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>,
+        std.memory.RawAllocation
     )
         requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
         ensures(
@@ -253,29 +254,61 @@ trusted internal func destroy_domain(pos owner: Reference)
             trusted std.sync.once.valid(&result.2.prepared.instance),
             trusted std.sync.spin_lock.valid(&result.3.prepared.instance),
             trusted std.sync.spin_lock.valid(&result.4.prepared.instance),
+            trusted core.memory.owned_allocation(pointer = result.5.pointer, bytes = result.5.bytes, align = result.5.align),
             trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.0),
             trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.0)
         )
         uses(raw_memory)
     {
-        let permit = trusted lambda(pos owner: &Reference)
+        let take_storage = trusted lambda(pos owner: &Reference) -> Domain
             requires(trusted retained(owner = owner), trusted retiring(owner = owner))
             ensures(
-                trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
-                trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
-                trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
+                trusted std.sync.once.valid(&result.workers.prepared.instance),
+                trusted std.sync.once.valid(&result.deadlines.prepared.instance),
+                trusted std.sync.spin_lock.valid(&result.failure.prepared.instance),
+                trusted std.sync.spin_lock.valid(&result.reports.prepared.instance),
+                trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.scheduler),
+                trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.scheduler),
                 trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
             )
-            executes(pure, total) {};
+            uses(raw_memory)
+        {
+            let permit = trusted lambda(pos owner: &Reference)
+                requires(trusted retained(owner = owner), trusted retiring(owner = owner))
+                ensures(
+                    trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
+                    trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
+                    trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
+                    trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
+                )
+                executes(pure, total) {};
 
-        trusted permit(&owner);
-        let value = trusted std.memory.read<Domain>(owner.pointer);
+            trusted permit(owner);
+            return trusted std.memory.read<Domain>(owner.pointer);
+        };
 
-        trusted bray.runtime.bootstrap.heap.deallocate_bytes(std.memory.byte_address<Domain>(owner.pointer), std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
-        return (value.scheduler, value.workers, value.deadlines, value.failure, value.reports);
+        let value = trusted take_storage(&owner);
+
+        let allocation: std.memory.RawAllocation =
+        {
+            pointer = std.memory.byte_address<Domain>(owner.pointer),
+            bytes = std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        };
+
+        return (
+            trusted std.memory.read<bray.runtime.bootstrap.scheduler.Reference>(std.memory.address_of<bray.runtime.bootstrap.scheduler.Reference>(&value.scheduler)),
+            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(&value.workers)),
+            trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(std.memory.address_of<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(&value.deadlines)),
+            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>>(&value.failure)),
+            trusted std.memory.read<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(std.memory.address_of<std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>>(&value.reports)),
+            allocation
+        );
     };
 
-    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports) = trusted take(owner);
+    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports, allocation) = trusted take(owner);
+
+    _ = allocation;
 
     _ = worker_cell;
     _ = deadline_cell;

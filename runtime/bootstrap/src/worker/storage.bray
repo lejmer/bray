@@ -340,32 +340,57 @@ trusted internal func destroy_reference(pos owner: Reference)
 
 
     // Only the actual retiring reference can transfer allocation ownership.
-    let take = trusted lambda(pos owner: Reference) -> (bray.runtime.bootstrap.scheduler.Backing, std.sync.SpinLock<State>)
+    let take = trusted lambda(pos owner: Reference) -> (bray.runtime.bootstrap.scheduler.Backing, std.sync.SpinLock<State>, std.memory.RawAllocation)
         requires(trusted retained(owner = &owner.marker), trusted retiring(owner = &owner))
         ensures(
             trusted std.sync.spin_lock.valid(&result.1.prepared.instance),
+            trusted core.memory.owned_allocation(pointer = result.2.pointer, bytes = result.2.bytes, align = result.2.align),
             result.0 matches bray.runtime.bootstrap.scheduler.Backing.Retired || (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.0) && trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0))
         )
         uses(raw_memory)
     {
-        let permit = trusted lambda(pos owner: &Reference)
+        let take_storage = trusted lambda(pos owner: &Reference) -> Domain
             requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
             ensures(
-                trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
-                trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
-                trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
+                trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
+                result.backing matches bray.runtime.bootstrap.scheduler.Backing.Retired || (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing) && trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing)),
                 trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
             )
-            executes(pure, total) {};
+            uses(raw_memory)
+        {
+            let permit = trusted lambda(pos owner: &Reference)
+                requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
+                ensures(
+                    trusted core.memory.valid_read<Domain>(pointer = owner.pointer, count = 1),
+                    trusted core.memory.aligned_for<Domain>(pointer = owner.pointer),
+                    trusted core.memory.initialized_as<Domain>(pointer = owner.pointer),
+                    trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
+                )
+                executes(pure, total) {};
 
-        trusted permit(&owner);
-        let value = trusted std.memory.read<Domain>(owner.pointer);
+            trusted permit(owner);
+            return trusted std.memory.read<Domain>(owner.pointer);
+        };
 
-        trusted bray.runtime.bootstrap.heap.deallocate_bytes(std.memory.byte_address<Domain>(owner.pointer), std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
-        return (value.backing, value.state);
+        let value = trusted take_storage(&owner);
+
+        let allocation: std.memory.RawAllocation =
+        {
+            pointer = std.memory.byte_address<Domain>(owner.pointer),
+            bytes = std.memory.stride_of<Domain>(),
+            align = std.memory.align_of<Domain>()
+        };
+
+        return (
+            trusted std.memory.read<bray.runtime.bootstrap.scheduler.Backing>(std.memory.address_of<bray.runtime.bootstrap.scheduler.Backing>(&value.backing)),
+            trusted std.memory.read<std.sync.SpinLock<State>>(std.memory.address_of<std.sync.SpinLock<State>>(&value.state)),
+            allocation
+        );
     };
 
-    let (backing, owned_state) = trusted take(owner);
+    let (backing, owned_state, allocation) = trusted take(owner);
+
+    _ = allocation;
 
     _ = owned_state;
 

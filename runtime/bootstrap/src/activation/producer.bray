@@ -155,6 +155,5 @@ trusted internal func execute_native(pos owner: &mut Invocation, pos callback: N
     ensures(trusted returned(owner = &owner.acquisition))
     uses(foreign_call)
 {
-    let pointer = trusted native_pointer(owner);
-    trusted callback(pointer, metadata, lane);
+    trusted callback(trusted native_pointer(owner), metadata, lane);
 }
