@@ -176,8 +176,15 @@ impl Footprint {
             );
 
             let pointee = match operation.kind() {
-                Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
-                | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
+                Operation::Read {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Move,
+                }
+                | Operation::VolatileRead {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Move,
+                    ..
+                }
                 | Operation::Write { pointee }
                 | Operation::Copy { pointee, .. }
                 | Operation::VolatileWrite { pointee, .. } => *pointee,
@@ -219,7 +226,10 @@ impl Footprint {
         self.shapes.get(&ty).is_some_and(|shape| {
             shape.is_reference_free()
                 && shape.observations.iter().all(|(_, observation)| {
-                    matches!(observation, Observation::Scalar | Observation::Discriminant | Observation::Address)
+                    matches!(
+                        observation,
+                        Observation::Scalar | Observation::Discriminant | Observation::Address
+                    )
                 })
         })
     }

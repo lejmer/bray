@@ -630,7 +630,11 @@ mod tests {
         let right = super::StorageInvalidation::Observed {
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![second.clone()])].into(),
-            snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone())), (alias, crate::StorageTarget::storage(second.clone()))].into(),
+            snapshots: [
+                (first.clone(), crate::StorageTarget::storage(first.clone())),
+                (alias, crate::StorageTarget::storage(second.clone())),
+            ]
+            .into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into(),

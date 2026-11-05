@@ -1088,8 +1088,15 @@ where
             use bray_bound_tree::CheckedMemoryOperationKind as Operation;
 
             let pointee = match operation.kind() {
-                Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
-                | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
+                Operation::Read {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Move,
+                }
+                | Operation::VolatileRead {
+                    pointee,
+                    kind: bray_bound_tree::MemoryReadKind::Move,
+                    ..
+                }
                 | Operation::Write { pointee }
                 | Operation::Copy { pointee, .. }
                 | Operation::VolatileWrite { pointee, .. } => Some(*pointee),

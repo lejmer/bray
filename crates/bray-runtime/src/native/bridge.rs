@@ -237,10 +237,6 @@ impl Scope {
 
 // Source owns aligned opaque storage for the complete Rust scope. The callbacks
 // share its actual private type, initialize it once, and consume it on that thread.
-#[expect(
-    improper_ctypes_definitions,
-    reason = "only this provider interprets its opaque scope storage"
-)]
 pub(in crate::native) extern "C" fn enter_provider(
     output: &mut MaybeUninit<Scope>,
     bytes: usize,
@@ -265,10 +261,6 @@ pub(in crate::native) extern "C" fn enter_provider(
     }
 }
 
-#[expect(
-    improper_ctypes_definitions,
-    reason = "the successful entry initialized this same provider-owned scope type"
-)]
 pub(in crate::native) extern "C" fn finish_provider(scope: &mut Scope) {
     let acquired = std::mem::replace(scope, Scope::empty());
     let incidents = acquired.finish();

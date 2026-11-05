@@ -9,10 +9,6 @@ using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.heap;
 
-trusted internal predicate execution_prepared(owner: &bray.runtime.bootstrap.host.ExecutionOwner);
-
-trusted internal predicate context_binding_released(owner: &Context);
-
 trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runtime.bootstrap.host.ExecutionOwner?
     requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
     ensures(
@@ -38,143 +34,62 @@ trusted internal func withdraw_inactive_driver(pos owner: &Current) -> bray.runt
     return withdrawn;
 }
 
-trusted internal func take_retiring_context(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Context
+internal func take_retiring_resources(
+    pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+    pos identity: u64
+) -> (bray.runtime.bootstrap.host.attachment.Owner?, bray.runtime.bootstrap.host.ExecutionOwner?)
     requires(
         trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        trusted execution_prepared(owner = owner)
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
     ensures(
-        trusted context_owned(owner = &result),
-        trusted context_binding_released(owner = &result),
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted acquired_attachment_option(owner = &result.0),
+        result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
+    uses(intrinsic)
+{
+    let selected = trusted borrow_execution(owner);
+
+    if !trusted driver_idle(&selected)
+    {
+        trusted core.target.abort();
+    }
+
+    if identity != 0
+    {
+        let value = trusted context(&selected);
+
+        if value.thread != identity
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    _ = trusted begin_driver_close(&selected);
+
+    // Move each remaining obligation out of its actual context slot. Both take
+    // operations replace the slot with none and preserve the counted view.
+    let attachment = trusted take_driver_attachment(&selected);
+    let previous = trusted take_previous(&selected);
+
+    return (attachment, previous);
+}
+
+trusted internal func prepare_retirement(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
         trusted core.memory.owned_allocation(
             pointer = owner.resource,
             bytes = std.memory.stride_of<Context>(),
             align = std.memory.align_of<Context>()
         )
     )
-    uses(raw_memory, layout_reinterpret, intrinsic)
-{
-    let pointer = trusted std.memory.reinterpret<Context, u8>(owner.resource);
-
-    let permit = trusted lambda(
-        pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
-        pos pointer: DataPointer<Context>
-    )
-        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-        ensures(
-            trusted core.memory.valid_read<Context>(pointer = pointer, count = 1),
-            trusted core.memory.initialized_as<Context>(pointer = pointer),
-            trusted core.memory.aligned_for<Context>(pointer = pointer)
-        )
-        executes(pure, total) {};
-
-    trusted permit(owner, pointer);
-    return trusted std.memory.read<Context>(pointer);
-}
-
-trusted internal func take_context_resources(
-    pos owner: &Context,
-    pos identity: u64
-) -> (bray.runtime.bootstrap.host.attachment.Owner?, bray.runtime.bootstrap.host.ExecutionOwner?)
-    requires(
-        trusted context_owned(owner = owner),
-        trusted context_binding_released(owner = owner),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
-    ensures(
-        trusted acquired_attachment_option(owner = &result.0),
-        (result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
-    executes(total)
-    uses(raw_memory, intrinsic)
-{
-    let attachment = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.attachment.Owner?)>(&owner.attachment);
-    let previous = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&owner.previous);
-
-    let prepare = trusted lambda(
-        pos owner: &Context,
-        pos attachment: DataPointer<(bray.runtime.bootstrap.host.attachment.Owner?)>,
-        pos previous: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>
-    )
-        requires(trusted context_owned(owner = owner))
-        ensures(
-            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.attachment.Owner?)>(
-                pointer = attachment,
-                count = 1
-            ),
-            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = attachment),
-            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = attachment),
-            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(
-                pointer = previous,
-                count = 1
-            ),
-            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = previous),
-            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = previous)
-        )
-        executes(pure, total) {};
-
-    trusted prepare(owner, attachment, previous);
-
-    return (
-        trusted std.memory.read<(bray.runtime.bootstrap.host.attachment.Owner?)>(attachment),
-        trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(previous)
-    );
-}
-
-trusted internal func close_retiring_owner(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos identity: u64)
-    requires(
-        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
     uses(intrinsic)
 {
-    {
-        let selected = trusted borrow_execution(owner);
-
-        if !trusted driver_idle(&selected)
-        {
-            trusted core.target.abort();
-        }
-
-        if identity != 0
-        {
-            let value = trusted context(&selected);
-
-            if value.thread != identity
-            {
-                trusted core.target.abort();
-            }
-        }
-
-        _ = trusted begin_driver_close(&selected);
-        // Host attachment exit reaches this owner after exact-thread cleanup.
-        // A previously requested Main shutdown only marked the driver closing.
-    }
-
     trusted close_driver_binding(owner);
-}
-
-trusted internal func prepare_retirement(
-    pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
-    pos identity: u64
-) -> u32
-    requires(
-        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        trusted execution_prepared(owner = owner),
-        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
-    )
-    uses(intrinsic)
-{
-    trusted close_retiring_owner(owner, identity);
 
     // The actual binding retains native code until the exact-thread provider
     // scope has finished restoring its callbacks.
@@ -202,31 +117,17 @@ trusted internal func prepare_retirement(
     return incidents;
 }
 
-trusted internal func retire_context_resources(
-    pos value: Context,
-    pos allocation: &bray.runtime.bootstrap.host.ExecutionOwner,
+internal func retire_driver_resources(
+    pos attachment: bray.runtime.bootstrap.host.attachment.Owner?,
+    pos mut previous: bray.runtime.bootstrap.host.ExecutionOwner?,
     pos identity: u64
 ) -> u32
     requires(
-        trusted context_owned(owner = &value),
-        trusted context_binding_released(owner = &value),
-        trusted core.memory.owned_allocation(
-            pointer = allocation.resource,
-            bytes = std.memory.stride_of<Context>(),
-            align = std.memory.align_of<Context>()
-        ),
+        trusted acquired_attachment_option(owner = &attachment),
+        previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
-    ensures(
-        trusted core.memory.owned_allocation(
-            pointer = allocation.resource,
-            bytes = std.memory.stride_of<Context>(),
-            align = std.memory.align_of<Context>()
-        )
-    )
 {
-    let (attachment, mut previous) = trusted take_context_resources(&value, identity);
-
     if identity != 0
     {
         trusted disarm_driver_attachment(attachment);
@@ -255,9 +156,9 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
 {
-    let incidents = trusted prepare_retirement(&owner, identity);
-    let value = trusted take_retiring_context(&owner);
-    let remaining = trusted retire_context_resources(value, &owner, identity);
+    let (attachment, previous) = take_retiring_resources(&owner, identity);
+    let incidents = trusted prepare_retirement(&owner);
+    let remaining = retire_driver_resources(attachment, previous, identity);
 
     trusted bray.runtime.bootstrap.heap.deallocate_bytes(
         owner.resource,
