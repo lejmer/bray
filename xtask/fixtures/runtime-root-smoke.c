@@ -41,6 +41,20 @@ extern uint64_t bray_runtime_execution_owner_scope_enter(
     const RootOwner* owner
 );
 extern uint32_t bray_runtime_execution_scope_finish(void* storage);
+extern ActivationInvocation bray_runtime_activation_callback(ActivationInvocation invocation);
+extern ActivationInvocation bray_runtime_activation_action_readiness(ActivationInvocation invocation);
+extern void bray_runtime_inactive_frame_broadcast(
+    InactiveActivation* token,
+    ActivationInvocation (*invoke)(ActivationInvocation),
+    ActivationInvocation (*ready)(ActivationInvocation),
+    RunOutcome* outcome
+);
+extern void bray_runtime_inactive_frame_resolution(
+    InactiveActivation* token,
+    ActivationInvocation (*invoke)(ActivationInvocation),
+    ActivationInvocation (*ready)(ActivationInvocation),
+    RunOutcome* outcome
+);
 extern void bray_runtime_awaited_frame_composition(
     InactiveActivation frame,
     uint32_t state,
@@ -54,6 +68,7 @@ enum RootMode
     ROOT_PANICKED,
     ROOT_CANCELLED,
     ROOT_CHILD,
+    ROOT_REJECTED_BLOCKING,
 };
 
 typedef struct
@@ -92,13 +107,16 @@ static ActivationState root_state(
     uintptr_t argument
 )
 {
-    (void)context;
+    RootFrame* frame = (RootFrame*)context;
     (void)state;
     (void)operation;
     (void)argument;
     require_root_thread();
 
-    return (ActivationState){ .affinity = 2, .lanes = 4 };
+    return (ActivationState){
+        .affinity = 2,
+        .lanes = frame->mode == ROOT_REJECTED_BLOCKING ? 5 : 4,
+    };
 }
 
 static void root_resume(ActivationProgress* progress, uintptr_t context)
@@ -224,7 +242,7 @@ static int check_execution_roots(void)
     const RootConfiguration configuration = {
         .tasks = 1,
         .timers = 1,
-        .capabilities = 39,
+        .capabilities = 63,
     };
     const ActivationDescriptor descriptor = {
         .storage = { { 21 }, sizeof(RootFrame), _Alignof(RootFrame) },
@@ -267,6 +285,48 @@ static int check_execution_roots(void)
         bray_runtime_execution_owner_release(&duplicate, scope.storage) != 0 ||
         bray_runtime_execution_scope_finish(scope.storage) != 0
     )
+        return 249;
+
+    CleanupLease rejected_lease = { 0 };
+    ActivationRecords rejected_records = { 0 };
+    RunOutcome rejected_outcome = { 0 };
+
+    if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &rejected_lease) != 0)
+        return 249;
+
+    RootFrame* rejected_frame = bray_runtime_cleanup_storage_activation(&rejected_lease, &descriptor.storage);
+    InactiveActivation rejected_token = { rejected_lease, &descriptor };
+
+    if (rejected_frame == NULL)
+        return 249;
+
+    bray_runtime_activation_initialization(&rejected_token, (uintptr_t)rejected_frame, &rejected_records);
+    rejected_frame->mode = ROOT_REJECTED_BLOCKING;
+    rejected_frame->resumes = 0;
+
+    if (bray_runtime_activation_publication(&rejected_token) != 0)
+        return 249;
+
+    RootAdmission rejected = bray_runtime_root_execution((uintptr_t)&rejected_token, &rejected_outcome);
+    unsigned before_rejection_disposal = root_destructions;
+
+    if (rejected.status == 0 || rejected.task != 0 || rejected_frame->resumes != 0)
+        return 249;
+
+    bray_runtime_inactive_frame_broadcast(
+        &rejected_token,
+        bray_runtime_activation_callback,
+        bray_runtime_activation_action_readiness,
+        &rejected_outcome
+    );
+    bray_runtime_inactive_frame_resolution(
+        &rejected_token,
+        bray_runtime_activation_callback,
+        bray_runtime_activation_action_readiness,
+        &rejected_outcome
+    );
+
+    if (rejected_outcome.state != 0 || root_destructions != before_rejection_disposal + 1)
         return 249;
 
     for (enum RootMode mode = ROOT_SUCCESS; mode <= ROOT_CANCELLED; ++mode)

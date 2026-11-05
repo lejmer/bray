@@ -52,7 +52,7 @@ trusted internal func release_reference(pos reference: Reference) -> Reference?
     ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(owner = optional_reference(&result))))
     uses(intrinsic)
 {
-    let release = trusted lambda(pos reference: Reference) -> Reference?
+    let transition = trusted lambda(pos reference: Reference) -> Reference?
         requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
         ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted retiring(owner = optional_reference(&result))))
         uses(intrinsic)
@@ -72,5 +72,5 @@ trusted internal func release_reference(pos reference: Reference) -> Reference?
         return none;
     };
 
-    return trusted release(reference);
+    return trusted transition(reference);
 }

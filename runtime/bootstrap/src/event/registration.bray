@@ -120,50 +120,66 @@ trusted internal func publish_event_wait(
     )
     uses(intrinsic)
 {
-    let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
-    let mut mutation = trusted event_anchor(retained_event, lease);
-    let state = trusted event_state(lease, &mut mutation);
-    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
-    let mut entries = &mut host.tasks;
     let parent = owner.waiter.handle;
-    let slot = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, parent);
-
-    if slot.registration matches ?_
+    let (previous, immediate) =
     {
-        trusted core.target.abort();
-    }
+        let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
+        let mut mutation = trusted event_anchor(retained_event, lease);
+        let state = trusted event_state(lease, &mut mutation);
+        let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
+        let mut entries = &mut host.tasks;
+        let slot = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, parent);
 
-    if state.closed || state.generation != observed
+        if slot.registration matches ?_
+        {
+            trusted core.target.abort();
+        }
+
+        if state.closed || state.generation != observed
+        {
+            yield (0, true);
+        }
+        else
+        {
+            let previous = state.tail;
+
+            if previous == 0
+            {
+                state.head = parent;
+            }
+            else
+            {
+                let tail = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, previous);
+
+                if let ?registration = tail.registration
+                {
+                    registration.next = parent;
+                }
+                else
+                {
+                    trusted core.target.abort();
+                }
+            }
+
+            state.tail = parent;
+            yield (previous, false);
+        }
+    };
+
+    // End the borrow of the registration's event before transferring the whole
+    // owner. The same host lease still excludes delivery and withdrawal.
+    if immediate
     {
-        let immediate: bray.runtime.bootstrap.task.WaitRegistration? = owner;
-
-        return immediate;
+        return owner;
     }
 
     let mut wait = owner;
 
-    wait.previous = state.tail;
+    wait.previous = previous;
 
-    if state.tail == 0
-    {
-        state.head = parent;
-    }
-    else
-    {
-        let tail = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, state.tail);
+    let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
 
-        if let ?previous = tail.registration
-        {
-            previous.next = parent;
-        }
-        else
-        {
-            trusted core.target.abort();
-        }
-    }
-
-    state.tail = parent;
-    (trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, parent)).registration = wait;
+    (trusted bray.runtime.bootstrap.task.wait_slot(&mut host.tasks, parent)).registration = wait;
     return none;
 }
 

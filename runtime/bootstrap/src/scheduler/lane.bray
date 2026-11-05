@@ -144,6 +144,13 @@ trusted internal func select(pos owner: &Reference, pos registration: u64, pos r
                     thread = driver.thread
                 };
             }
+            else
+            {
+                // A retained driver is the execution binding, including a
+                // root's exact Main lane. An incompatible continuation cannot
+                // silently migrate away from the owner that must drive it.
+                return (lane, 4);
+            }
         }
     }
 

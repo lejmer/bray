@@ -4,6 +4,15 @@ trusted internal module bray.runtime.bootstrap.execution;
 using core.target;
 using internal bray.runtime.bootstrap;
 
+// The compiler task operation and native directory entry have distinct closed
+// role boundaries. Both use the same resident name and delivery transition.
+@abi(c)
+trusted internal func task_event_signal(pos identity: usize) -> u32
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    return trusted bray.runtime.bootstrap.event.signal(identity);
+}
+
 @abi(c)
 trusted internal func task_event_creation() -> usize
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
