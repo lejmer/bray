@@ -211,7 +211,6 @@ trusted internal func inspect(
             case none { return none; }
         };
 
-
         let mut result: Execution? = none;
 
         result = requirements;

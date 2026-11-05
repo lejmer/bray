@@ -60,6 +60,7 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     if attachment.status != 0
     {
         let row = trusted retained_worker_value(&descriptor.reference);
+
         core.atomic.store<u32, 0>(&row.failure_stage, 3);
         core.atomic.store<u32, 0>(&row.failure_category, attachment.status);
         core.atomic.store<u32, 2>(&row.startup, 2);
@@ -103,13 +104,20 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
 
     if published != 0
     {
-        let failure: Failure = { stage = 8, category = published, native_code = 0 };
+        let failure: Failure =
+        {
+            stage = 8,
+            category = published,
+            native_code = 0
+        };
 
         trusted startup_failure(&local, &failure);
         core.atomic.store<u32, 2>(&row.startup, 2);
         core.atomic.notify_all<u32>(&row.startup);
+
         _ = trusted bray.runtime.bootstrap.host.retire_execution(rejected, 0);
         _ = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
+
         return;
     }
 
@@ -123,8 +131,11 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
         // The provider records the leaf failure before returning rejection.
         // The installed attachment owner retires every accepted resource once.
         core.atomic.store<u32, 2>(&row.startup, 2);
+
         core.atomic.notify_all<u32>(&row.startup);
+
         _ = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);
+
         return;
     }
 
@@ -139,11 +150,8 @@ trusted internal func run_entry(pos context: DataPointer<u8>)
     if status != 0
     {
         trusted core.target.abort();
-    }
-
-    // Attachment exit has retired the scope, descriptor and optional context.
+    } // Attachment exit has retired the scope, descriptor and optional context.
     // No worker row, pool or scope access is valid after that boundary.
-
 }
 
 trusted internal func run(
@@ -225,7 +233,12 @@ trusted internal func run(
 
         argument = trusted invoke(scope, 6, argument) as u64;
 
-        trusted bray.runtime.bootstrap.scheduler.park_reference(scheduler, group, std.numeric.truncate_to<u32, u64>(argument));
+        trusted bray.runtime.bootstrap.scheduler.park_reference(
+            scheduler,
+            group,
+            std.numeric.truncate_to<u32, u64>(argument)
+        );
+
         trusted bray.runtime.bootstrap.scheduler.withdraw_parking(scheduler, group);
     }
 }

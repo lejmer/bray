@@ -1,5 +1,5 @@
 /// Current native execution contract, including the inline panic context layout.
-pub const EXECUTION_ABI_VERSION: crate::RuntimeAbiVersion = crate::RuntimeAbiVersion::new(1, 0);
+pub const EXECUTION_ABI_VERSION: crate::RuntimeAbiVersion = crate::RuntimeAbiVersion::new(2, 0);
 
 /// Value kind in the native execution-runtime callable contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

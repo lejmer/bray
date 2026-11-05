@@ -26,6 +26,7 @@ trusted internal func release_view(pos owner: &Current)
     uses(intrinsic)
 {
     let value = trusted view_context(owner);
+
     // Current owns exactly one counted view. Retirement checks the final count
     // before freeing, and this frequent destructor performs only its decrement.
     _ = core.atomic.fetch_sub<usize, 0>(&value.views, 1);
@@ -34,7 +35,10 @@ trusted internal func release_view(pos owner: &Current)
 // A view with a nonzero status can still pin a driver that has no async domain.
 // Its status controls API availability, independently of allocation lifetime.
 trusted internal func view_context(pos owner: &Current) -> &Context
-    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0 || !std.memory.is_null<Context>(owner.pointer))
+    requires(
+        trusted view_owned(owner = &owner.acquisition),
+        owner.status == 0 || !std.memory.is_null<Context>(owner.pointer)
+    )
     ensures(trusted view_owned(owner = &owner.acquisition))
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
@@ -42,7 +46,10 @@ trusted internal func view_context(pos owner: &Current) -> &Context
     let pointer = owner.pointer;
 
     let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<Context>)
-        requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0 || !std.memory.is_null<Context>(owner.pointer))
+        requires(
+            trusted view_owned(owner = &owner.acquisition),
+            owner.status == 0 || !std.memory.is_null<Context>(owner.pointer)
+        )
         ensures(
             trusted core.memory.valid_read<Context>(pointer = pointer, count = 1),
             trusted core.memory.initialized_as<Context>(pointer = pointer),
@@ -58,4 +65,3 @@ trusted internal func view_context(pos owner: &Current) -> &Context
     trusted permit(owner, pointer);
     return trusted std.memory.borrow_from<Context, Current>(owner, pointer);
 }
-

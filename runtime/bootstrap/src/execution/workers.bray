@@ -9,7 +9,13 @@ using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.scheduler;
 
 trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.execution.Reference) -> u32
-    requires(blocking_execution(), trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access(), trusted bray.runtime.bootstrap.entry.native_entry())
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        trusted bray.runtime.bootstrap.entry.native_entry()
+    )
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     uses(intrinsic)
 {
@@ -25,7 +31,12 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
         case none { return 0; }
         case ?attempt
         {
-            let callback: bray.runtime.bootstrap.worker.Callback = { context = 0, call = worker_callback };
+            let callback: bray.runtime.bootstrap.worker.Callback =
+            {
+                context = 0,
+                call = worker_callback
+            };
+
             let backing = trusted bray.runtime.bootstrap.scheduler.execution_backing(trusted pin(owner));
 
             match consume bray.runtime.bootstrap.worker.create(backing, callback)
@@ -33,6 +44,7 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
                 case Ok(service)
                 {
                     _ = trusted attempt.publish(service);
+
                     return 0;
                 }
                 case Error((rejected, status))
@@ -48,7 +60,12 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
 // The generated host selects this role before publishing user tasks.
 @abi(c)
 trusted internal func workers_startup() -> u32
-    requires(blocking_execution(), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        blocking_execution(),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
     let selected = trusted current();
 

@@ -48,8 +48,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         operation: &bray_bound_tree::CheckedMemoryOperation,
         destination: Option<Place>,
     ) -> MemoryOperationStatus {
-        let Some((_, fields, source)) = self.buffer_argument(state, operation, 0)
-        else {
+        let Some((_, fields, source)) = self.buffer_argument(state, operation, 0) else {
             return MemoryOperationStatus::Recovered;
         };
 
@@ -62,8 +61,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // Every view reaches the same allocation of the owner's element type.
             // A slice or spare-capacity view does not redeclare its backing storage.
-            state.memory.owned_region(&owners, Target::storage(result.clone()), fields.element,
-                bray_bound_tree::StorageProjection::ProductField(fields.pointer), inexact);
+            state.memory.owned_region(
+                &owners,
+                Target::storage(result.clone()),
+                fields.element,
+                bray_bound_tree::StorageProjection::ProductField(fields.pointer),
+                inexact,
+            );
 
             if matches!(
                 operation.kind(),
@@ -106,7 +110,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 effects.extend(
                     state
                         .memory
-                        .owned_regions(&owner, bray_bound_tree::StorageProjection::ProductField(fields.pointer))?
+                        .owned_regions(
+                            &owner,
+                            bray_bound_tree::StorageProjection::ProductField(fields.pointer),
+                        )?
                         .into_iter()
                         .map(|target| Effect::Mutation(target, kind)),
                 );
@@ -121,7 +128,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
         index: usize,
-    ) -> Option<(bray_symbols::TypeId, crate::representation::RawBufferFields, Source)> {
+    ) -> Option<(
+        bray_symbols::TypeId,
+        crate::representation::RawBufferFields,
+        Source,
+    )> {
         let argument = operation.arguments()[index];
 
         let ty = self.request.semantic_values().unborrowed_type(
@@ -147,16 +158,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &mut StorageFlowState,
         operation: &bray_bound_tree::CheckedMemoryOperation,
     ) -> Option<Vec<Effect>> {
-        use bray_symbols::DependencyMutationKind;
         use bray_bound_tree::StorageProjection;
+        use bray_symbols::DependencyMutationKind;
 
-        let relocate = matches!(operation.kind(), CheckedMemoryOperationKind::RawBufferRelocate { .. });
+        let relocate = matches!(
+            operation.kind(),
+            CheckedMemoryOperationKind::RawBufferRelocate { .. }
+        );
+
         let source_index = usize::from(!relocate);
         let destination_index = usize::from(relocate);
 
         let (_, fields, source) = self.buffer_argument(state, operation, source_index)?;
 
-        let (buffer_type, _, destination) = self.buffer_argument(state, operation, destination_index)?;
+        let (buffer_type, _, destination) =
+            self.buffer_argument(state, operation, destination_index)?;
 
         let sources = source.regions(&state.memory)?;
         let destinations = destination.regions(&state.memory)?;
@@ -165,15 +181,31 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // A recognized owning buffer has backing even when its returned descriptor
         // has opaque reference metadata. Keep its pointer field on that same region.
         for owner in sources.iter().chain(&destinations) {
-            state.memory.owned_region(std::slice::from_ref(owner), owner.project(&[
-                StorageProjection::ProductField(fields.pointer)
-            ]), fields.element, StorageProjection::ProductField(fields.pointer), !exact);
+            state.memory.owned_region(
+                std::slice::from_ref(owner),
+                owner.project(&[StorageProjection::ProductField(fields.pointer)]),
+                fields.element,
+                StorageProjection::ProductField(fields.pointer),
+                !exact,
+            );
         }
 
-        let source_regions = sources.iter().map(|owner| state.memory.owned_regions(owner, StorageProjection::ProductField(fields.pointer)))
+        let source_regions = sources
+            .iter()
+            .map(|owner| {
+                state
+                    .memory
+                    .owned_regions(owner, StorageProjection::ProductField(fields.pointer))
+            })
             .collect::<Option<Vec<_>>>()?;
 
-        let destination_regions = destinations.iter().map(|owner| state.memory.owned_regions(owner, StorageProjection::ProductField(fields.pointer)))
+        let destination_regions = destinations
+            .iter()
+            .map(|owner| {
+                state
+                    .memory
+                    .owned_regions(owner, StorageProjection::ProductField(fields.pointer))
+            })
             .collect::<Option<Vec<_>>>()?;
 
         let mut effects = Vec::new();
@@ -181,37 +213,71 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if relocate {
             for (owners, regions, kind) in [
                 (&sources, &source_regions, DependencyMutationKind::Consume),
-                (&destinations, &destination_regions, DependencyMutationKind::Replace(fields.element)),
+                (
+                    &destinations,
+                    &destination_regions,
+                    DependencyMutationKind::Replace(fields.element),
+                ),
             ] {
                 for owner in owners {
-                    effects.push(Effect::Mutation(owner.project(&[StorageProjection::ProductField(fields.initialized)]), DependencyMutationKind::Write));
+                    effects.push(Effect::Mutation(
+                        owner.project(&[StorageProjection::ProductField(fields.initialized)]),
+                        DependencyMutationKind::Write,
+                    ));
                 }
 
-                effects.extend(regions.iter().flatten().map(|target| Effect::Mutation(target.clone(), kind)));
+                effects.extend(
+                    regions
+                        .iter()
+                        .flatten()
+                        .map(|target| Effect::Mutation(target.clone(), kind)),
+                );
             }
         } else {
-            effects.extend(destinations.iter().map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Replace(buffer_type))));
-            effects.extend(sources.iter().map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Clear)));
+            effects.extend(destinations.iter().map(|target| {
+                Effect::Mutation(target.clone(), DependencyMutationKind::Replace(buffer_type))
+            }));
+
+            effects.extend(
+                sources
+                    .iter()
+                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Clear)),
+            );
         }
 
         // A transfer can publish its payload through the destination, never the
         // address of either buffer descriptor or its enclosing allocation.
-        if destinations.iter().any(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Write).may_retain_address(&state.memory)) {
-            effects.extend(source_regions.iter().flatten().map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Escape)));
+        if destinations.iter().any(|target| {
+            Effect::Mutation(target.clone(), DependencyMutationKind::Write)
+                .may_retain_address(&state.memory)
+        }) {
+            effects.extend(
+                source_regions
+                    .iter()
+                    .flatten()
+                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Escape)),
+            );
         }
 
         if exact && let ([source], [destination]) = (sources.as_slice(), destinations.as_slice()) {
             let call = operation.expression().into();
 
             if relocate {
-                if let ([source], [destination]) = (source_regions[0].as_slice(), destination_regions[0].as_slice()) {
+                if let ([source], [destination]) = (
+                    source_regions[0].as_slice(),
+                    destination_regions[0].as_slice(),
+                ) {
                     state.memory.stage_value(call, source, destination.clone());
                     state.memory.stage_null(call, source.clone());
                 }
             } else {
                 state.memory.stage_value(call, source, destination.clone());
                 state.memory.stage_null(call, source.clone());
-                state.memory.stage_null(call, source.project(&[StorageProjection::ProductField(fields.pointer)]));
+
+                state.memory.stage_null(
+                    call,
+                    source.project(&[StorageProjection::ProductField(fields.pointer)]),
+                );
             }
         }
 
@@ -231,22 +297,38 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut effects = Vec::new();
 
         for owner in &owners {
-            effects.push(Effect::Mutation(owner.clone(), DependencyMutationKind::Clear));
+            effects.push(Effect::Mutation(
+                owner.clone(),
+                DependencyMutationKind::Clear,
+            ));
 
-            effects.extend(state.memory.owned_regions(owner, bray_bound_tree::StorageProjection::ProductField(fields.pointer))?.into_iter()
-                .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire)));
+            effects.extend(
+                state
+                    .memory
+                    .owned_regions(
+                        owner,
+                        bray_bound_tree::StorageProjection::ProductField(fields.pointer),
+                    )?
+                    .into_iter()
+                    .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire)),
+            );
         }
 
         // Element cleanup belongs to the preceding lifecycle operation. This
         // storage release leaves one empty descriptor and no initialized backing.
-        if source.targets(&state.memory).is_some() && let [owner] = owners.as_slice() {
+        if source.targets(&state.memory).is_some()
+            && let [owner] = owners.as_slice()
+        {
             let call = operation.expression().into();
 
             state.memory.stage_null(call, owner.clone());
 
-            state.memory.stage_null(call, owner.project(&[
-                bray_bound_tree::StorageProjection::ProductField(fields.pointer)
-            ]));
+            state.memory.stage_null(
+                call,
+                owner.project(&[bray_bound_tree::StorageProjection::ProductField(
+                    fields.pointer,
+                )]),
+            );
         }
 
         Some(effects)

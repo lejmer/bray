@@ -399,9 +399,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // Mutation refreshes only current contents. The completion retains entry
         // layers and returned origins for consumers that can interpret them.
-        self.observe_references(state, observations.references().iter().filter_map(|(path, target)| {
-            target.observation_path().map(|target| (path, target))
-        }));
+        self.observe_references(
+            state,
+            observations
+                .references()
+                .iter()
+                .filter_map(|(path, target)| {
+                    target.observation_path().map(|target| (path, target))
+                }),
+        );
 
         if input {
             let invocation = operation.occurrence();
@@ -417,7 +423,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.assign(
                 self.input_place(invocation)
                     .expect("completed input retains its place"),
-                result, None
+                result,
+                None,
             );
 
             return;
@@ -472,7 +479,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.assign(
                     self.input_place(invocation)
                         .expect("completed protocol invocation retains its result slot"),
-                    result, None
+                    result,
+                    None,
                 );
             }
 
@@ -525,9 +533,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .or_else(|| (!assignment).then(|| machine_value.clone()).flatten())
             .unwrap_or_else(|| self.value(state, expression));
 
-        let transfer = self.started_future(state, expression)
+        let transfer = self
+            .started_future(state, expression)
             .filter(|_| value != ExecutionCondition::Unknown)
-            .map(|source| (source.owner_identity().clone(), value.owner_identity().clone()));
+            .map(|source| {
+                (
+                    source.owner_identity().clone(),
+                    value.owner_identity().clone(),
+                )
+            });
 
         state.expressions.insert(expression, value);
 

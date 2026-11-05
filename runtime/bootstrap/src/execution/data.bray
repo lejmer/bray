@@ -62,4 +62,3 @@ internal struct Domain
     failure: std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>;
     reports: std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>;
 }
-

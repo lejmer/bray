@@ -50,7 +50,8 @@ trusted internal func withdraw_wait(pos parent: &Reference, pos preserve_unready
 
         // Recovery retains a shielded event wait until delivery. Neither an
         // unready link nor committed delivery admits another producer callback.
-        if committed || (preserve_unready_event && registration.target matches WaitTarget.Event(_, _, _) | WaitTarget.ExecutionEvent(_, _))
+        if committed || (preserve_unready_event && registration.target matches WaitTarget.Event(_, _, _) |
+            WaitTarget.ExecutionEvent(_, _))
         {
             (trusted wait_slot(&mut entries, identity)).registration = registration;
             return false;

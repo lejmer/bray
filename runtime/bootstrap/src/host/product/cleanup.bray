@@ -213,7 +213,12 @@ trusted internal func clean_static(pos owner: &mut AdmittedStatic) -> usize
             let admitted = frame;
 
             frame = 0;
-            incidents = trusted execution.run_finalizer(std.memory.address_of<NativeExecution>(&execution), admitted, finalizer);
+
+            incidents = trusted execution.run_finalizer(
+                std.memory.address_of<NativeExecution>(&execution),
+                admitted,
+                finalizer
+            );
         }
     }
 

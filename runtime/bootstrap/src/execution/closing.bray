@@ -10,9 +10,14 @@ using internal bray.runtime.bootstrap.host;
 
 trusted internal predicate driver_closing(owner: &Current);
 
-internal predicate acquired_attachment_option(owner: &(bray.runtime.bootstrap.host.attachment.Owner?)) = owner matches none || (bray.runtime.bootstrap.host.attachment.acquired(owner = attachment_option(owner)) && attachment_option(owner).status == 0);
+internal predicate acquired_attachment_option(owner: &(bray.runtime.bootstrap.host.attachment.Owner?)) = owner matches
+    none || (bray.runtime.bootstrap.host.attachment.acquired(owner = attachment_option(owner)) && attachment_option(
+    owner
+).status == 0);
 
-internal const func attachment_option(pos owner: &(bray.runtime.bootstrap.host.attachment.Owner?)) -> &bray.runtime.bootstrap.host.attachment.Owner
+internal const func attachment_option(
+    pos owner: &(bray.runtime.bootstrap.host.attachment.Owner?)
+) -> &bray.runtime.bootstrap.host.attachment.Owner
     requires(owner matches ?_)
     executes(pure, total)
 {
@@ -25,7 +30,8 @@ internal const func attachment_option(pos owner: &(bray.runtime.bootstrap.host.a
 
 internal func context_idle(pos value: &Context) -> bool
 {
-    return core.atomic.load<usize, 0>(&value.views) == 1 && core.atomic.load<usize, 0>(&value.task) == 0 && core.atomic.load<usize, 0>(&value.invocation) == 0;
+    return core.atomic.load<usize, 0>(&value.views) == 1 && core.atomic.load<usize, 0>(&value.task) == 0 &&
+        core.atomic.load<usize, 0>(&value.invocation) == 0;
 }
 
 trusted internal func driver_idle(pos owner: &Current) -> bool
@@ -48,7 +54,14 @@ trusted internal func driver_start_status(pos owner: &Current) -> u32
         return 2;
     }
 
-    return if context_idle(value) { yield 0; } else { yield 3; };
+    return if context_idle(value)
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 3;
+    };
 }
 
 trusted internal func begin_driver_close(pos owner: &Current) -> bool
@@ -75,12 +88,21 @@ trusted internal func take_driver_attachment(pos owner: &Current) -> bray.runtim
     let value = trusted context(owner);
     let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.attachment.Owner?)>(&value.attachment);
 
-    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(bray.runtime.bootstrap.host.attachment.Owner?)>)
+    let permit = trusted lambda(
+        pos owner: &Current,
+        pos pointer: DataPointer<(bray.runtime.bootstrap.host.attachment.Owner?)>
+    )
         requires(trusted view_owned(owner = &owner.acquisition), trusted driver_closing(owner = owner))
         ensures(
-            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.attachment.Owner?)>(
+                pointer = pointer,
+                count = 1
+            ),
             trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = pointer),
-            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.attachment.Owner?)>(
+                pointer = pointer,
+                count = 1
+            ),
             trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.attachment.Owner?)>(pointer = pointer)
         )
         executes(pure, total) {};
@@ -116,6 +138,7 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
     let release = owner.release;
     let suspend = owner.suspend;
     let resume = owner.resume;
+
     let execution = if let ?close = owner.close
     {
         yield trusted close(trusted take_binding_owner(owner));
@@ -125,10 +148,19 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
         yield trusted take_binding_execution(owner);
     };
 
-    return { execution = execution, close = none, release = release, suspend = suspend, resume = resume };
+    return
+    {
+        execution = execution,
+        close = none,
+        release = release,
+        suspend = suspend,
+        resume = resume
+    };
 }
 
-trusted internal func take_acquired_attachment(pos owner: bray.runtime.bootstrap.host.attachment.Owner?) -> bray.runtime.bootstrap.host.attachment.Owner
+trusted internal func take_acquired_attachment(
+    pos owner: bray.runtime.bootstrap.host.attachment.Owner?
+) -> bray.runtime.bootstrap.host.attachment.Owner
     requires(owner matches ?_, trusted acquired_attachment_option(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &result), result.status == 0)
     executes(pure, total)

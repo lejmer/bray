@@ -11,7 +11,11 @@ using internal bray.runtime.bootstrap.host;
 // owner so startup can acknowledge failure before retiring its descriptor.
 trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
     requires(trusted scope_owned(owner = &owner.marker))
-    ensures(trusted scope_live(owner = &owner.marker), result.0 == 0 || result.1 matches ?_, result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1))
+    ensures(
+        trusted scope_live(owner = &owner.marker),
+        result.0 == 0 || result.1 matches ?_,
+        result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)
+    )
 {
     let acquire = trusted lambda(pos owner: &Scope) -> bray.runtime.bootstrap.host.ExecutionOwner
         requires(trusted scope_owned(owner = &owner.marker))
@@ -19,7 +23,9 @@ trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime
     {
         return
         {
-            acquisition = bray.runtime.bootstrap.host.Acquisition {},
+            acquisition = bray.runtime.bootstrap.host.Acquisition
+            {
+            },
             resource = std.memory.byte_address<Scope>(std.memory.address_of<Scope>(owner)),
             bind = enter_scope,
             retire = retire_scope
@@ -41,11 +47,18 @@ trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime
 // full host owner keeps its OS-entry storage live while the callback runs.
 trusted internal func owned_scope(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> &Scope
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner), trusted scope_live(owner = &result.marker), trusted native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted scope_live(owner = &result.marker),
+        trusted native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     executes(pure, total)
     uses(raw_memory, unchecked_alias, layout_reinterpret)
 {
     let pointer = trusted std.memory.reinterpret<Scope, u8>(owner.resource);
+
     let permit = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos pointer: DataPointer<Scope>)
         requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
         ensures(
@@ -65,7 +78,9 @@ trusted internal func owned_scope(pos owner: &bray.runtime.bootstrap.host.Execut
 }
 
 @abi(c)
-trusted internal func enter_scope(pos owner: bray.runtime.bootstrap.host.ExecutionOwner) -> bray.runtime.bootstrap.host.ExecutionOwner
+trusted internal func enter_scope(
+    pos owner: bray.runtime.bootstrap.host.ExecutionOwner
+) -> bray.runtime.bootstrap.host.ExecutionOwner
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = &result))
 {
@@ -75,7 +90,10 @@ trusted internal func enter_scope(pos owner: bray.runtime.bootstrap.host.Executi
 
 @abi(c)
 trusted internal func retire_scope(pos owner: bray.runtime.bootstrap.host.ExecutionOwner, pos identity: u64) -> u32
-    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner), identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit())
+    requires(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
+        identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
+    )
 {
     return trusted release_scope(owner);
 }

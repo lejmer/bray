@@ -41,7 +41,6 @@ trusted internal func observation(
 {
     let reference = trusted borrow_resolution_reference(&pointer);
 
-
     match consume observe_reference(reference)
     {
         case Ok(outcome)
@@ -80,7 +79,10 @@ trusted internal func observe_reference(pos reference: &Reference) -> Result<bra
 
 // This boundary consumes the actual terminal owner and initializes its native
 // destination. An address or an ordinary storage pin cannot publish this fact.
-trusted internal func publish_terminal(pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>, pos outcome: bray.runtime.bootstrap.ReportOutcome)
+trusted internal func publish_terminal(
+    pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos outcome: bray.runtime.bootstrap.ReportOutcome
+)
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted terminal_output(pointer = output))
     uses(intrinsic)
@@ -99,14 +101,17 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
 {
     let reference = trusted borrow_resolution_reference(&pointer);
 
-
     return trusted destroy_claim(reference);
 }
 
 // This cell transition retires the source-resolution claim. Its independent
 // storage reference remains owned by the caller throughout the transition.
 trusted internal func destroy_claim(pos reference: &Reference) -> u32
-    requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        trusted retained(owner = reference),
+        trusted resolution_owner(owner = reference),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     ensures(trusted retained(owner = reference))
     when(trusted owned_reference(owner = reference))
     {

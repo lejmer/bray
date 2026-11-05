@@ -4,7 +4,9 @@ use bray_runtime_abi::NativeTaskReference;
 
 use crate::{CancellationObservation, TaskWakeCause};
 
-use super::host::{CancellationWake, CancellationWakeRegistration, CancellationWakeRegistrationError, HostContext};
+use super::host::{
+    CancellationWake, CancellationWakeRegistration, CancellationWakeRegistrationError, HostContext,
+};
 use super::native::NativeCancellation;
 
 /// Shared cancellation authority for a host run or a retained Bray task.
@@ -22,11 +24,15 @@ enum State {
 impl CancellationContext {
     /// Creates an uncancelled host run.
     pub fn root() -> Self {
-        Self { state: State::Host(HostContext::root()) }
+        Self {
+            state: State::Host(HostContext::root()),
+        }
     }
 
     pub(crate) fn native(reference: NativeTaskReference) -> Self {
-        Self { state: State::Native(Arc::new(NativeCancellation { reference })) }
+        Self {
+            state: State::Native(Arc::new(NativeCancellation { reference })),
+        }
     }
 
     pub(crate) fn native_reference(&self) -> &NativeTaskReference {
@@ -46,8 +52,12 @@ impl CancellationContext {
     /// Creates a host child that observes its parent's cancellation requests.
     pub fn child(&self) -> Self {
         match &self.state {
-            State::Host(owner) => Self { state: State::Host(owner.child()) },
-            State::Native(_) => panic!("Bray tasks propagate through generated owned-task visitors"),
+            State::Host(owner) => Self {
+                state: State::Host(owner.child()),
+            },
+            State::Native(_) => {
+                panic!("Bray tasks propagate through generated owned-task visitors")
+            }
         }
     }
 
@@ -85,13 +95,17 @@ impl CancellationContext {
     pub fn shield(&self) -> CancellationShield {
         self.enter_shield();
 
-        CancellationShield { context: self.clone() }
+        CancellationShield {
+            context: self.clone(),
+        }
     }
 
     pub(crate) fn enter_shield(&self) {
         match &self.state {
             State::Host(owner) => owner.enter_shield(),
-            State::Native(owner) => { owner.operation(2); }
+            State::Native(owner) => {
+                owner.operation(2);
+            }
         }
     }
 
@@ -119,7 +133,9 @@ impl CancellationContext {
 }
 
 impl Default for CancellationContext {
-    fn default() -> Self { Self::root() }
+    fn default() -> Self {
+        Self::root()
+    }
 }
 
 /// Scoped suppression of ordinary cancellation delivery during cleanup.
@@ -129,5 +145,7 @@ pub struct CancellationShield {
 }
 
 impl Drop for CancellationShield {
-    fn drop(&mut self) { self.context.leave_shield(); }
+    fn drop(&mut self) {
+        self.context.leave_shield();
+    }
 }

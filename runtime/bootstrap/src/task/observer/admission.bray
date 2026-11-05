@@ -60,7 +60,9 @@ trusted internal func read_input(
 
     return
     {
-        acquisition = Marker {},
+        acquisition = Marker
+        {
+        },
         task = task,
         layout = trusted std.memory.read<bray.runtime.bootstrap.task.result.Layout>(layout),
         glue = trusted std.memory.read<Glue>(glue),

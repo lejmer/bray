@@ -27,7 +27,6 @@ mod task;
 mod workers_tests;
 
 pub(crate) use state::{
-    RetainedRuntime, retain_current_runtime, retain_runtime,
-    with_cleanup_runtime,
+    RetainedRuntime, retain_current_runtime, retain_runtime, with_cleanup_runtime,
 };
 pub(crate) use static_finalizer::{run_static_finalizer, with_static_cleanup_context};

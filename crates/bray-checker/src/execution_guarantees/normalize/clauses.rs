@@ -255,15 +255,19 @@ fn reference_conditions(
         // reference even when that reference has no direct invocation-local slot.
         // Keep entry layers distinct and never grant raw storage authority here.
         let place = match &target.origin {
-            bray_bound_tree::StorageOrigin::Returned { reference, projections } => {
-                crate::ExecutionPlace::storage_path(storage, reference)
-                    .and_then(|place| place.project(projections))
-            }
-            _ => target.observation_path()
+            bray_bound_tree::StorageOrigin::Returned {
+                reference,
+                projections,
+            } => crate::ExecutionPlace::storage_path(storage, reference)
+                .and_then(|place| place.project(projections)),
+            _ => target
+                .observation_path()
                 .and_then(|path| crate::ExecutionPlace::storage_path(storage, &path)),
         };
 
-        let Some(place) = place else { continue; };
+        let Some(place) = place else {
+            continue;
+        };
 
         let mut condition = match place.reference() {
             Some(bray_bound_tree::BoundReferenceTarget::Local(

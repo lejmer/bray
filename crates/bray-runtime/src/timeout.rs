@@ -5,7 +5,10 @@ use bray_runtime_abi::NativeRuntimeStatus;
 use crate::event::NativeCallback;
 use crate::{RootCancellationHandle, SchedulerError, TimerRegistration};
 
-#[expect(unsafe_code, reason = "timeout operations borrow the complete retained Source execution owner")]
+#[expect(
+    unsafe_code,
+    reason = "timeout operations borrow the complete retained Source execution owner"
+)]
 unsafe extern "C" {
     safe fn bray_runtime_execution_timeout_preparation(
         owner: &crate::native::RetainedRuntime,
@@ -44,10 +47,13 @@ pub fn register_run_timeout(
 ) -> Result<TimerRegistration, RunTimeoutError> {
     let deadline = crate::scheduler::deadline_after(duration).map_err(RunTimeoutError::Deadline)?;
     let runtime = crate::native::retain_runtime().map_err(RunTimeoutError::Runtime)?;
+
     let resources = NativeCallback::timeout(cancellation.clone(), runtime)
         .map_err(RunTimeoutError::Callback)?;
+
     let descriptor = resources.retain_timer();
     let owner = NativeCallback::resources(descriptor.context);
+
     let crate::event::Resources::Timeout { runtime, .. } = owner.as_ref() else {
         unreachable!("timeout admission retains its execution owner");
     };
@@ -65,9 +71,16 @@ pub fn register_run_timeout(
         }
 
         let mut identity = 0;
-        let status = bray_runtime_execution_timeout_registration(runtime, deadline, &descriptor, &mut identity);
 
-        crate::scheduler::deadline_registration_result(status, identity).map_err(RunTimeoutError::Deadline)
+        let status = bray_runtime_execution_timeout_registration(
+            runtime,
+            deadline,
+            &descriptor,
+            &mut identity,
+        );
+
+        crate::scheduler::deadline_registration_result(status, identity)
+            .map_err(RunTimeoutError::Deadline)
     });
 
     match registered {
@@ -85,7 +98,10 @@ pub fn register_run_timeout(
         rejected => {
             let released = (descriptor.call)(descriptor.context, 0);
 
-            assert!(released.is_success(), "rejected timeout releases its callback descriptor once");
+            assert!(
+                released.is_success(),
+                "rejected timeout releases its callback descriptor once"
+            );
 
             match rejected {
                 Ok((Err(error), status)) => {
@@ -107,7 +123,10 @@ pub(crate) fn withdraw(runtime: &crate::native::RetainedRuntime, identity: u64) 
     // needs no new driver or attachment and cannot fail admission during Drop.
     let removed = bray_runtime_execution_timeout_withdrawal(runtime, identity);
 
-    assert!(removed <= 1, "Source withdraws a deadline or observes its committed delivery");
+    assert!(
+        removed <= 1,
+        "Source withdraws a deadline or observes its committed delivery"
+    );
 }
 
 #[cfg(test)]

@@ -32,11 +32,16 @@ trusted internal func task_event_creation() -> usize
     }
 
     let owner = trusted bray.runtime.bootstrap.event.take_optional_reference(allocated);
-    let identity = trusted bray.runtime.bootstrap.event.publish(&owner, (trusted domain(bound_execution(&selected))).identity);
+
+    let identity = trusted bray.runtime.bootstrap.event.publish(
+        &owner,
+        (trusted domain(bound_execution(&selected))).identity
+    );
 
     // The directory retains the event name. The call's independent storage
     // owner ends here, including when directory publication rejects it.
     trusted bray.runtime.bootstrap.event.release_event(owner);
+
     return identity;
 }
 
@@ -56,7 +61,10 @@ trusted internal func task_event_destruction(pos identity: usize) -> u32
         return 1;
     }
 
-    return trusted bray.runtime.bootstrap.event.destruction((trusted domain(bound_execution(&selected))).identity, identity);
+    return trusted bray.runtime.bootstrap.event.destruction(
+        (trusted domain(bound_execution(&selected))).identity,
+        identity
+    );
 }
 
 @abi(c)
@@ -64,5 +72,11 @@ internal func suspension_registration(pos state: u32) -> bray.runtime.bootstrap.
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
     executes(pure, total)
 {
-    return { kind = 0, state = state, payload = 0, report = bray.runtime.bootstrap.empty_panic_report() };
+    return
+    {
+        kind = 0,
+        state = state,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
 }

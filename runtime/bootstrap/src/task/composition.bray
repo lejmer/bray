@@ -45,24 +45,54 @@ trusted internal func composition(
     )
     uses(intrinsic)
 {
-    let borrow = trusted lambda(pos slot: &DataPointer<Reference>, pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>, pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>) -> &Reference
-        requires(trusted reference_slot(owner = slot), trusted composition_slot(owner = slot, token = token, ready = ready))
-        ensures(trusted retained(owner = result), trusted native_composition_input(owner = result, token = token, ready = ready))
+    let borrow = trusted lambda(
+        pos slot: &DataPointer<Reference>,
+        pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> &Reference
+        requires(
+            trusted reference_slot(owner = slot),
+            trusted composition_slot(owner = slot, token = token, ready = ready)
+        )
+        ensures(
+            trusted retained(owner = result),
+            trusted native_composition_input(owner = result, token = token, ready = ready)
+        )
     {
         return trusted borrow_reference(slot);
     };
 
     let reference = trusted borrow(&pointer, token, ready);
 
-    let inspect = trusted lambda(pos reference: &Reference, pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>, pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>) -> bray.runtime.bootstrap.activation.Inactive
-        requires(trusted retained(owner = reference), trusted native_composition_input(owner = reference, token = pointer, ready = ready))
-        ensures(trusted retained(owner = reference), trusted composition_input(owner = reference, token = &result, ready = ready))
+    let inspect = trusted lambda(
+        pos reference: &Reference,
+        pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> bray.runtime.bootstrap.activation.Inactive
+        requires(
+            trusted retained(owner = reference),
+            trusted native_composition_input(owner = reference, token = pointer, ready = ready)
+        )
+        ensures(
+            trusted retained(owner = reference),
+            trusted composition_input(owner = reference, token = &result, ready = ready)
+        )
         uses(raw_memory, intrinsic)
     {
-        let permit = trusted lambda(pos reference: &Reference, pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>, pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>)
-            requires(trusted retained(owner = reference), trusted native_composition_input(owner = reference, token = pointer, ready = ready))
+        let permit = trusted lambda(
+            pos reference: &Reference,
+            pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
+            pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+        )
+            requires(
+                trusted retained(owner = reference),
+                trusted native_composition_input(owner = reference, token = pointer, ready = ready)
+            )
             ensures(
-                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+                trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(
+                    pointer = pointer,
+                    count = 1
+                ),
                 trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
                 trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer)
             )
@@ -115,7 +145,14 @@ trusted internal func compose_reference(
         let mut guard = trusted lock_cell(reference);
         let control = trusted guard.get();
 
-        yield if control.dispatching && control.resumable { yield control.callback; } else { yield 0; };
+        yield if control.dispatching && control.resumable
+        {
+            yield control.callback;
+        }
+        else
+        {
+            yield 0;
+        };
     };
 
     if address == 0
@@ -123,9 +160,7 @@ trusted internal func compose_reference(
         return 3;
     }
 
-    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(
-        address = address
-    );
+    let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
 
     let permit = trusted lambda(
         pos reference: &Reference,
@@ -138,7 +173,10 @@ trusted internal func compose_reference(
         pos destination: usize,
         pos disposition: u8
     )
-        requires(trusted retained(owner = reference), trusted composition_input(owner = reference, token = token, ready = ready))
+        requires(
+            trusted retained(owner = reference),
+            trusted composition_input(owner = reference, token = token, ready = ready)
+        )
         ensures(
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.activation.composition.authorized(

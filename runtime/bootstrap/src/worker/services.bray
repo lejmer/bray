@@ -2,17 +2,19 @@
 trusted internal module bray.runtime.bootstrap.worker;
 
 using std.memory;
-
 using core.memory;
-
 using core.target;
-
 using internal bray.runtime.bootstrap.scheduler;
 using internal bray.runtime.bootstrap.host.product;
 using internal bray.runtime.bootstrap.pool;
 
 internal callable Demand = @abi(c) trusted func(pos owner: DataPointer<Reference>, pos workload: u32) -> Failure
-    requires(trusted reference_slot(pointer = owner), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access(), blocking_execution());
+    requires(
+        trusted reference_slot(pointer = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution()
+    );
 
 internal callable Stop = @abi(c) trusted func(pos owner: DataPointer<Reference>, pos defer: bool)
     requires(trusted reference_slot(pointer = owner), blocking_execution());
@@ -20,16 +22,28 @@ internal callable Stop = @abi(c) trusted func(pos owner: DataPointer<Reference>,
 internal callable Detach = @abi(c) trusted func(pos owner: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = owner));
 
-
 // Operations belong to the pool that owns their backing and provider. Root-only
 // consumers can borrow this interface without retaining native worker creation.
 internal func request(pos owner: &Reference, pos lane: bray.runtime.bootstrap.scheduler.Lane) -> Failure
-    requires(trusted retained(owner = &owner.marker), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access(), blocking_execution())
+    requires(
+        trusted retained(owner = &owner.marker),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution()
+    )
     ensures(trusted retained(owner = &owner.marker))
     uses(foreign_call)
 {
     let operation = (trusted domain(owner)).demand_service;
-    let workload = if lane.workload == 3 { yield 1; } else { yield lane.workload; };
+
+    let workload = if lane.workload == 3
+    {
+        yield 1;
+    }
+    else
+    {
+        yield lane.workload;
+    };
 
     return trusted operation(trusted service_pointer(owner), workload);
 }
@@ -54,7 +68,6 @@ internal func detach(pos owner: &Reference)
     trusted operation(trusted service_pointer(owner));
 }
 
-
 internal const func optional_view(pos owner: &((&Reference)?)) -> &Reference
     requires(owner matches ?_)
     executes(pure, total)
@@ -74,7 +87,10 @@ trusted internal func service_pointer(pos owner: &Reference) -> DataPointer<Refe
     return std.memory.address_of<Reference>(owner);
 }
 
-trusted internal func borrow_reference(pos input: &DataPointer<Reference>, pos pointer: DataPointer<Reference>) -> &Reference
+trusted internal func borrow_reference(
+    pos input: &DataPointer<Reference>,
+    pos pointer: DataPointer<Reference>
+) -> &Reference
     requires(trusted reference_slot(pointer = pointer))
     ensures(trusted retained(owner = &result.marker))
     executes(pure, total)
@@ -100,7 +116,12 @@ trusted internal func borrow_reference(pos input: &DataPointer<Reference>, pos p
 
 @abi(c)
 trusted internal func demand_service(pos owner: DataPointer<Reference>, pos workload: u32) -> Failure
-    requires(trusted reference_slot(pointer = owner), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access(), blocking_execution())
+    requires(
+        trusted reference_slot(pointer = owner),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access(),
+        blocking_execution()
+    )
 {
     return trusted ensure(trusted borrow_reference(&owner, owner), workload);
 }

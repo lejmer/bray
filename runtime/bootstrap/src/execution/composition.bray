@@ -43,6 +43,7 @@ trusted internal func awaited_composition(
     let ready: bray.runtime.bootstrap.activation.callback.Ready = composition_readiness;
     let address = trusted std.memory.function_address<bray.runtime.bootstrap.activation.callback.Ready>(ready);
     let parent = trusted composition_parent(&selected, &token, address);
+
     let status = trusted bray.runtime.bootstrap.task.compose_reference(
         parent,
         &token,
@@ -65,18 +66,15 @@ trusted internal func composition_parent(
     pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 ) -> &bray.runtime.bootstrap.task.Reference
     requires(
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
+        selected.status == 0,
         trusted bray.runtime.bootstrap.activation.producer(token = token),
         trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
     )
     ensures(
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.task.retained(owner = result),
-        trusted bray.runtime.bootstrap.task.composition_input(
-            owner = result,
-            token = token,
-            ready = ready
-        )
+        trusted bray.runtime.bootstrap.task.composition_input(owner = result, token = token, ready = ready)
     )
     uses(intrinsic)
 {
@@ -93,7 +91,9 @@ trusted internal func composition_parent(
 // Admission checks proposed continuation requirements against the retained
 // execution domain. It does not replace or widen the producer's current lane.
 @abi(c)
-trusted internal func composition_readiness(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+trusted internal func composition_readiness(
+    pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>
+)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
@@ -107,8 +107,14 @@ trusted internal func composition_readiness(pos pointer: DataPointer<bray.runtim
 }
 
 trusted internal func composition_status(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> u32
-    requires(trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
-    ensures(trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
+    requires(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
+        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+    )
 {
     let execution = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
     let selected = trusted current();

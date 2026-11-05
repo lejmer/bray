@@ -1,8 +1,8 @@
 use crate::{
     NativeCleanupStorageShape, NativeFrameActionCallback, NativeFrameCancellationCallback,
-    NativeFrameCompletionMoveCallback, NativeFrameResolveCallback, NativeFrameResumeCallback,
-    NativeFrameExit, NativeFrameProgress, NativeFrameState, NativeFrameStateCallback,
-    NativeReportRecords,
+    NativeFrameCompletionMoveCallback, NativeFrameExit, NativeFrameProgress,
+    NativeFrameResolveCallback, NativeFrameResumeCallback, NativeFrameState,
+    NativeFrameStateCallback, NativeReportRecords,
 };
 
 /// Immutable concrete frame description retained by its generated or native provider.
@@ -143,6 +143,7 @@ mod tests {
     #[test]
     fn activation_invocation_matches_the_dispatcher_layout() {
         assert_abi_layout!(NativeActivationOperation, size: 16, align: 8, fields: {});
+
         assert_abi_layout!(NativeActivationInvocation<'_>, size: 64, align: 8, fields: {
             execution: 0, descriptor: 8, context: 16, operation: 24, progress: 40, records: 48, admission: 56,
         });

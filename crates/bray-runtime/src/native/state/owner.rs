@@ -5,11 +5,18 @@ use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
     reason = "native storage owns the complete Source execution owner until the consuming release"
 )]
 unsafe extern "C" {
-    safe fn bray_runtime_execution_owner_current(output: &mut RetainedRuntime) -> NativeRuntimeStatus;
-    safe fn bray_runtime_execution_owner_clone(input: &RetainedRuntime, output: &mut RetainedRuntime);
+    safe fn bray_runtime_execution_owner_current(
+        output: &mut RetainedRuntime,
+    ) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_owner_clone(
+        input: &RetainedRuntime,
+        output: &mut RetainedRuntime,
+    );
     safe fn bray_runtime_execution_owner_worker(input: &RetainedRuntime) -> u32;
     safe fn bray_runtime_execution_owner_detach(input: &RetainedRuntime);
-    safe fn bray_runtime_execution_startup(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_startup(
+        configuration: NativeRuntimeConfiguration,
+    ) -> NativeRuntimeStatus;
 }
 
 /// Owns the Source service claim and its storage pin through native callbacks.
@@ -43,7 +50,10 @@ impl Clone for RetainedRuntime {
 
         bray_runtime_execution_owner_clone(self, &mut output);
 
-        assert_ne!(output.owner, 0, "Source retention initializes a complete execution owner");
+        assert_ne!(
+            output.owner, 0,
+            "Source retention initializes a complete execution owner"
+        );
 
         output
     }
@@ -61,8 +71,10 @@ impl Drop for RetainedRuntime {
             .then(super::super::bridge::Scope::enter)
             .transpose()
             .expect("retained execution release keeps its native attachment available");
+
         let execution = super::super::scope::Scope::borrow_owner(self)
             .expect("retained execution release keeps its cleanup driver available");
+
         let incidents = execution.release_owner(self);
 
         // Source consumed the actual owner in this slot. The native carrier now
@@ -87,7 +99,10 @@ pub(crate) fn retain_current_runtime() -> Result<Option<RetainedRuntime>, Native
 
     match bray_runtime_execution_owner_current(&mut output) {
         NativeRuntimeStatus::SUCCESS => {
-            assert_ne!(output.owner, 0, "Source publishes an owner on successful retention");
+            assert_ne!(
+                output.owner, 0,
+                "Source publishes an owner on successful retention"
+            );
 
             Ok(Some(output))
         }
@@ -103,7 +118,10 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
 
     let bridge = super::super::bridge::Scope::enter()?;
     let execution = super::super::scope::Scope::enter(true)?;
-    let configuration = native_configuration(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
+
+    let configuration =
+        native_configuration(NativeRuntimeConfiguration::new(usize::MAX, usize::MAX));
+
     let status = bray_runtime_execution_startup(configuration);
 
     if !status.is_success() {
@@ -121,7 +139,9 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     Ok(owner)
 }
 
-pub(in crate::native) fn native_configuration(configuration: NativeRuntimeConfiguration) -> NativeRuntimeConfiguration {
+pub(in crate::native) fn native_configuration(
+    configuration: NativeRuntimeConfiguration,
+) -> NativeRuntimeConfiguration {
     configuration.with_native_callbacks(
         super::super::task::bray_runtime_execution_invocation,
         super::super::task::bray_runtime_execution_context_admission,
@@ -140,10 +160,18 @@ pub(crate) fn with_cleanup_runtime<T>(
     let bridge = (!crate::bootstrap::in_thread_cleanup())
         .then(super::super::bridge::Scope::enter)
         .transpose()?;
+
     let execution = super::super::scope::Scope::borrow_owner(retained)?;
     let result = callback();
     let status = execution.finish();
     let incidents = bridge.map_or(0, super::super::bridge::Scope::finish);
 
-    Ok((result, if incidents == 0 { status } else { NativeRuntimeStatus::RUNTIME_FAILURE }))
+    Ok((
+        result,
+        if incidents == 0 {
+            status
+        } else {
+            NativeRuntimeStatus::RUNTIME_FAILURE
+        },
+    ))
 }

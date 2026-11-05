@@ -48,9 +48,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) {
-        let Some(selection) = invocation.expression().and_then(|expression| {
-            self.semantics.selections().expression(expression)
-        }) else {
+        let Some(selection) = invocation
+            .expression()
+            .and_then(|expression| self.semantics.selections().expression(expression))
+        else {
             return;
         };
 
@@ -60,38 +61,53 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for subject in contracts.reference_subjects() {
             if subject.projections().is_empty()
-                || contracts.reference_type(subject).and_then(|ty| {
-                    crate::representation::reference_kind(self.request, ty)
-                }) != Some(bray_symbols::DependencyReferenceKind::Borrow)
+                || contracts
+                    .reference_type(subject)
+                    .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+                    != Some(bray_symbols::DependencyReferenceKind::Borrow)
             {
                 continue;
             }
 
-            let prepared = contracts.reference_path(subject)
+            let prepared = contracts
+                .reference_path(subject)
                 .expect("prepared reference subject retains its path");
 
-            let Some(input) = selection.invocation_input_site(invocation, subject.subject_root()) else {
+            let Some(input) = selection.invocation_input_site(invocation, subject.subject_root())
+            else {
                 continue;
             };
 
-            let Some(value) = self.input_place(input)
+            let Some(value) = self
+                .input_place(input)
                 .and_then(|place| place.project(prepared.projections()))
-                .and_then(|place| place.value_in(&state.current)) else {
+                .and_then(|place| place.value_in(&state.current))
+            else {
                 continue;
             };
 
-            let ordinal = selection.invocation_input_ordinal(invocation, subject.subject_root())
+            let ordinal = selection
+                .invocation_input_ordinal(invocation, subject.subject_root())
                 .expect("prepared input reference retains its ordinal");
 
-            let Some(place) = crate::ExecutionPlace::argument(ordinal).project(prepared.projections()) else {
+            let Some(place) =
+                crate::ExecutionPlace::argument(ordinal).project(prepared.projections())
+            else {
                 continue;
             };
 
             // Consuming the carrier does not freeze the contents of its borrowed fields.
-            super::super::state::update_parent_observations(arguments, &place, &value, Some(prepared.projections()));
+            super::super::state::update_parent_observations(
+                arguments,
+                &place,
+                &value,
+                Some(prepared.projections()),
+            );
+
             arguments.insert(place, value);
 
-            if let Some(reference) = selection.inputs()
+            if let Some(reference) = selection
+                .inputs()
                 .find(|input| input.root() == subject.subject_root())
                 .and_then(|input| input.reference())
                 && let Some(value) = arguments.get(&crate::ExecutionPlace::argument(ordinal))

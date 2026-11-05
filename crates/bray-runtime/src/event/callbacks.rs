@@ -30,7 +30,10 @@ pub(crate) enum Resources {
 impl std::fmt::Debug for Resources {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SourceTask { .. } => formatter.debug_tuple("SourceTask").field(&self.reference().task()).finish(),
+            Self::SourceTask { .. } => formatter
+                .debug_tuple("SourceTask")
+                .field(&self.reference().task())
+                .finish(),
             Self::Task { .. } => formatter.write_str("Task"),
             Self::Timeout { .. } => formatter.write_str("Timeout"),
         }
@@ -61,7 +64,6 @@ impl Resources {
 
         output
     }
-
 }
 
 struct Binding {
@@ -77,18 +79,27 @@ pub(crate) struct NativeCallback {
 impl NativeCallback {
     #[cfg(test)]
     pub(crate) fn task_count() -> usize {
-        CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values().filter(|binding| matches!(binding.resources.as_ref(), Resources::SourceTask { .. })).count()
+        CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .values()
+            .filter(|binding| matches!(binding.resources.as_ref(), Resources::SourceTask { .. }))
+            .count()
     }
 
     #[cfg(test)]
     pub(crate) fn task_owner(task: bray_runtime_abi::NativeTaskHandle) -> Option<Arc<Resources>> {
-        let callbacks = CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let callbacks = CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        callbacks.values().find(|binding| {
-            matches!(binding.resources.as_ref(), Resources::SourceTask { .. })
-                && binding.resources.reference().task() == task
-        }).map(|binding| Arc::clone(&binding.resources))
+        callbacks
+            .values()
+            .find(|binding| {
+                matches!(binding.resources.as_ref(), Resources::SourceTask { .. })
+                    && binding.resources.reference().task() == task
+            })
+            .map(|binding| Arc::clone(&binding.resources))
     }
 
     pub(crate) fn root_cancellation(&self) -> RootCancellationHandle {
@@ -111,10 +122,7 @@ impl NativeCallback {
         cancellation: CancellationContext,
         wake: TaskWakeHandle,
     ) -> Result<Self, NativeRuntimeStatus> {
-        Self::insert(Resources::Task {
-            cancellation,
-            wake,
-        })
+        Self::insert(Resources::Task { cancellation, wake })
     }
 
     pub(crate) fn timeout(
@@ -128,9 +136,16 @@ impl NativeCallback {
     }
 
     pub(crate) fn resources(identity: usize) -> Arc<Resources> {
-        let callbacks = CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let callbacks = CALLBACKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        Arc::clone(&callbacks.get(&identity).expect("Source retains its admitted native context").resources)
+        Arc::clone(
+            &callbacks
+                .get(&identity)
+                .expect("Source retains its admitted native context")
+                .resources,
+        )
     }
 
     pub(crate) fn publish(self) {
@@ -291,7 +306,9 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
                 let _cancellation = cancellation;
                 let _ = wake.wake_with_cause(cause);
             }
-            Resources::SourceTask { wake, .. } => { let _ = wake.wake_with_cause(cause); }
+            Resources::SourceTask { wake, .. } => {
+                let _ = wake.wake_with_cause(cause);
+            }
             Resources::Timeout { cancellation, .. } => {
                 cancellation.request_timeout();
             }

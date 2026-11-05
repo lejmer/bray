@@ -89,14 +89,10 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ExecutionOwnerDetach
             | RuntimeAbiRole::ExecutionTimeoutWithdrawal
             | RuntimeAbiRole::TaskEventCreation
-            | RuntimeAbiRole::SuspensionRegistration => {
-                Some(Self::RuntimeValue)
-            }
+            | RuntimeAbiRole::SuspensionRegistration => Some(Self::RuntimeValue),
             RuntimeAbiRole::ThreadAttachmentIdentity
             | RuntimeAbiRole::ExecutionScopeEnter
-            | RuntimeAbiRole::ExecutionOwnerScopeEnter => {
-                Some(Self::RuntimeIdentity)
-            }
+            | RuntimeAbiRole::ExecutionOwnerScopeEnter => Some(Self::RuntimeIdentity),
             RuntimeAbiRole::ThreadStorageExit
             | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerStop => Some(Self::ThreadStorageExit),

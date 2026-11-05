@@ -14,8 +14,16 @@ using internal bray.runtime.bootstrap.host;
 // A nested call retains the complete parent context. No active task fields move
 // out of it, and the suspended parent keeps its exclusive dispatch reservation.
 trusted internal func root_scope() -> EntryScope
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(trusted view_owned(owner = &result.current.acquisition), (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.previous)))
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
+    ensures(
+        trusted view_owned(owner = &result.current.acquisition),
+        (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+            owner = &result.previous
+        ))
+    )
     uses(intrinsic)
 {
     let nested =
@@ -33,8 +41,17 @@ trusted internal func root_scope() -> EntryScope
     }
 
     let access = trusted lambda(pos scope: &EntryScope)
-        requires(trusted view_owned(owner = &scope.current.acquisition), (scope.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &scope.previous)))
-        ensures(trusted view_owned(owner = &scope.current.acquisition), scope.current.status == 0, trusted bray.runtime.bootstrap.host.attachment.native_acquisition())
+        requires(
+            trusted view_owned(owner = &scope.current.acquisition),
+            (scope.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+                owner = &scope.previous
+            ))
+        )
+        ensures(
+            trusted view_owned(owner = &scope.current.acquisition),
+            scope.current.status == 0,
+            trusted bray.runtime.bootstrap.host.attachment.native_acquisition()
+        )
         executes(pure, total) {};
 
     trusted access(&scope);
@@ -47,7 +64,10 @@ trusted internal func root_scope() -> EntryScope
         return scope;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Context>(),
+        align = std.memory.align_of<Context>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {
@@ -59,8 +79,16 @@ trusted internal func root_scope() -> EntryScope
     return scope;
 }
 
-trusted internal func nested_context(pos parent: &Current, pos attachment: bray.runtime.bootstrap.host.attachment.Owner) -> Context
-    requires(trusted view_owned(owner = &parent.acquisition), parent.status == 0, trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment), attachment.status == 0)
+trusted internal func nested_context(
+    pos parent: &Current,
+    pos attachment: bray.runtime.bootstrap.host.attachment.Owner
+) -> Context
+    requires(
+        trusted view_owned(owner = &parent.acquisition),
+        parent.status == 0,
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment),
+        attachment.status == 0
+    )
     ensures(trusted view_owned(owner = &parent.acquisition), trusted context_owned(owner = &result))
 {
     let active = trusted context(parent);
@@ -72,7 +100,13 @@ trusted internal func nested_context(pos parent: &Current, pos attachment: bray.
         trusted core.target.abort();
     }
 
-    value.driver = { placement = active.driver.placement, workload = lane.workload, thread = value.thread };
+    value.driver =
+    {
+        placement = active.driver.placement,
+        workload = lane.workload,
+        thread = value.thread
+    };
+
     value.lanes = active.lanes;
     value.worker = active.worker;
     value.binding = core.memory.uninit_from<(Binding?)>(trusted pin_binding(trusted pin(bound_execution(parent))));
@@ -80,8 +114,19 @@ trusted internal func nested_context(pos parent: &Current, pos attachment: bray.
 }
 
 trusted internal func retain_owner(pos owner: &Owner) -> Owner
-    requires(trusted service_owner(owner = owner), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution))
-    ensures(trusted service_owner(owner = owner), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution), trusted retained(owner = &result.execution), trusted service_owner(owner = &result), trusted pinned(owner = &result.execution))
+    requires(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution)
+    )
+    ensures(
+        trusted service_owner(owner = owner),
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted retained(owner = &result.execution),
+        trusted service_owner(owner = &result),
+        trusted pinned(owner = &result.execution)
+    )
 {
     return match consume trusted try_retain_owner(&owner.execution)
     {
@@ -112,11 +157,21 @@ trusted internal func try_retain_owner(pos owner: &Reference) -> Owner?
             trusted core.target.abort();
         }
 
-        let (observed, exchanged) = core.atomic.compare_exchange<usize, 3, 1>(&value.owners, expected = previous, desired = previous + 1);
+        let (observed, exchanged) = core.atomic.compare_exchange<usize, 3, 1>(
+            &value.owners,
+            expected = previous,
+            desired = previous + 1
+        );
 
         if exchanged
         {
-            return { acquisition = Acquisition {}, execution = trusted pin(owner) };
+            return
+            {
+                acquisition = Acquisition
+                {
+                },
+                execution = trusted pin(owner)
+            };
         }
 
         previous = observed;
@@ -136,7 +191,10 @@ trusted internal func suspend_binding(pos pointer: DataPointer<Context>) -> u32
         return 0;
     }
 
-    return trusted bray.runtime.bootstrap.scheduler.release_slot(trusted scheduler_reference(bound_execution(&selected)), registration);
+    return trusted bray.runtime.bootstrap.scheduler.release_slot(
+        trusted scheduler_reference(bound_execution(&selected)),
+        registration
+    );
 }
 
 internal callable ResumeRoot = @abi(c) trusted func(pos pointer: DataPointer<Context>)
@@ -146,7 +204,11 @@ trusted internal func resume_operation() -> BindingResume
     uses(layout_reinterpret)
 {
     let callback: ResumeRoot = resume_binding;
-    let pointer = trusted std.memory.function.reinterpret<BindingResume, ResumeRoot>(trusted std.memory.function_address<ResumeRoot>(callback));
+
+    let pointer = trusted std.memory.function.reinterpret<BindingResume, ResumeRoot>(
+        trusted std.memory.function_address<ResumeRoot>(callback)
+    );
+
     let authorize = trusted lambda(pos pointer: FunctionPointer<BindingResume>)
         ensures(trusted core.memory.callable_address_valid<BindingResume>(pointer = pointer))
         executes(pure, total) {};

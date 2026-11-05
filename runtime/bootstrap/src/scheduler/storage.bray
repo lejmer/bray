@@ -35,9 +35,16 @@ trusted internal func creation(
 
 internal func create(pos capabilities: u32, pos main: u64, pos limit: usize) -> Reference?
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
-    ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted owned_reference(owner = optional_reference(&result))))
+    ensures(
+        result matches none || (trusted retained(owner = optional_reference(&result)) && trusted owned_reference(
+            owner = optional_reference(&result)
+        ))
+    )
 {
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+        std.memory.stride_of<Domain>(),
+        align = std.memory.align_of<Domain>()
+    );
 
     if std.memory.is_null<u8>(allocation)
     {
@@ -112,12 +119,17 @@ trusted internal func initialize(
 
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition {},
+        acquisition = bray.runtime.bootstrap.host.Acquisition
+        {
+        },
         pointer = pointer
     };
 }
 
-trusted internal func borrow_reference(pos input: &DataPointer<Reference>, pos pointer: DataPointer<Reference>) -> &Reference
+trusted internal func borrow_reference(
+    pos input: &DataPointer<Reference>,
+    pos pointer: DataPointer<Reference>
+) -> &Reference
     requires(trusted reference_slot(pointer = pointer))
     ensures(trusted retained(owner = result))
     executes(pure, total)
@@ -139,7 +151,6 @@ trusted internal func borrow_reference(pos input: &DataPointer<Reference>, pos p
 
     trusted permit(pointer);
     return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(input, pointer);
-
 }
 
 trusted internal func domain(pos owner: &Reference) -> &Domain
@@ -245,6 +256,7 @@ trusted internal func destroy_reference(pos reference: Reference)
     let value = trusted take(&owner);
 
     _ = value;
+
     trusted bray.runtime.bootstrap.heap.deallocate_bytes(
         std.memory.byte_address<Domain>(owner.pointer),
         std.memory.stride_of<Domain>(),

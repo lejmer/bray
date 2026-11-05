@@ -96,7 +96,11 @@ impl TaskExecutionContext {
         state: ProtectedFrameStateId,
         lane: ExecutionLane,
     ) -> Self {
-        Self { owner: TaskOwner::Source(owner), state, lane }
+        Self {
+            owner: TaskOwner::Source(owner),
+            state,
+            lane,
+        }
     }
 
     pub(crate) fn native_owner(&self) -> Option<&std::sync::Arc<crate::event::Resources>> {

@@ -16,11 +16,15 @@ impl Scheduler {
         wake: &TaskWakeHandle,
     ) -> Result<TimerRegistration, SchedulerError> {
         let (task, registration, scheduler) = match &wake.owner {
-            WakeOwner::Scheduler { task, registration, scheduler } => (task, registration, scheduler),
+            WakeOwner::Scheduler {
+                task,
+                registration,
+                scheduler,
+            } => (task, registration, scheduler),
             WakeOwner::Native(cancellation) => {
-                return Err(SchedulerError::UnknownTask(crate::TaskId::from_bray_handle(
-                    cancellation.native_reference().task(),
-                )));
+                return Err(SchedulerError::UnknownTask(
+                    crate::TaskId::from_bray_handle(cancellation.native_reference().task()),
+                ));
             }
         };
 
@@ -43,8 +47,10 @@ impl Scheduler {
         };
 
         let deadline = deadline::deadline_after(duration)?;
+
         let resources = NativeCallback::task(cancellation, wake.clone())
             .map_err(SchedulerError::TimerResources)?;
+
         let descriptor = resources.retain_timer();
 
         // Source admission invokes no callbacks. Serialize publication with task
@@ -152,9 +158,15 @@ enum TimerOwner {
 
 impl TimerRegistration {
     pub(crate) fn execution(identity: u64, owner: Arc<crate::event::Resources>) -> Self {
-        assert!(matches!(owner.as_ref(), crate::event::Resources::Timeout { .. }), "an execution timer retains its actual timeout resources");
+        assert!(
+            matches!(owner.as_ref(), crate::event::Resources::Timeout { .. }),
+            "an execution timer retains its actual timeout resources"
+        );
 
-        Self { identity, owner: TimerOwner::Execution(owner) }
+        Self {
+            identity,
+            owner: TimerOwner::Execution(owner),
+        }
     }
 }
 

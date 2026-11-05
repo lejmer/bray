@@ -161,7 +161,11 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
 #[test]
 fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
     let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
-    let field = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
+    let field = owner
+        .clone()
+        .component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+
     let mut retained = super::ObservationSet::default();
 
     retained.insert(owner.clone().borrowed());
@@ -272,7 +276,9 @@ fn repeated_component_observation_keeps_the_original_snapshot() {
 
         if first == ConstantProjectionKind::NullableValue {
             let payload = changed.component(first);
-            let updated = payload.with_component(&[nested], ExecutionCondition::Boolean(false), None);
+
+            let updated =
+                payload.with_component(&[nested], ExecutionCondition::Boolean(false), None);
 
             assert_eq!(updated.present(), expected);
         }

@@ -133,7 +133,9 @@ trusted internal func stored_primary(pos primary: ReportPrimary) -> StoredReport
         release_message = release,
         provider =
         {
-            acquisition = bray.runtime.bootstrap.host.Acquisition {},
+            acquisition = bray.runtime.bootstrap.host.Acquisition
+            {
+            },
             context = primary.provider_context,
             callbacks = trusted core.target.from_exposed_address<bray.runtime.bootstrap.provider.Callbacks>(
                 address = primary.provider_callbacks

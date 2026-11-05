@@ -349,7 +349,11 @@ pub(super) fn owned_snapshot(
                 .map(|(field, value)| {
                     (
                         *field,
-                        owned_snapshot(value, base.owner_identity().clone().project(*field), budget),
+                        owned_snapshot(
+                            value,
+                            base.owner_identity().clone().project(*field),
+                            budget,
+                        ),
                     )
                 })
                 .collect();
@@ -491,9 +495,20 @@ mod tests {
         let mut left = ExecutionState::default();
         let mut right = ExecutionState::default();
 
-        left.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))), None);
+        left.assign(
+            owner.clone(),
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1))),
+            None,
+        );
+
         left.assign(marker_place.clone(), shared.clone(), None);
-        right.assign(owner.clone(), ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))), None);
+
+        right.assign(
+            owner.clone(),
+            ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2))),
+            None,
+        );
+
         right.assign(marker_place.clone(), shared.clone(), None);
 
         let mut merged = Some(left);

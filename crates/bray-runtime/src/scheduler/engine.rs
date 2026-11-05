@@ -100,8 +100,7 @@ impl Scheduler {
         origin: RuntimeThreadId,
         cancellation: &CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let mut registration =
-            self.register(task, execution, origin, cancellation.clone())?;
+        let mut registration = self.register(task, execution, origin, cancellation.clone())?;
 
         let wake = registration.wake_handle();
 
@@ -123,10 +122,11 @@ impl Scheduler {
         origin: RuntimeThreadId,
         cancellation: CancellationContext,
     ) -> Result<TaskRegistration, SchedulerError> {
-        let lane = self
-            .data
-            .source
-            .select(None, execution.descriptor(), execution.origin().unwrap_or(origin))?;
+        let lane = self.data.source.select(
+            None,
+            execution.descriptor(),
+            execution.origin().unwrap_or(origin),
+        )?;
 
         let mut registration = 0;
 
@@ -352,8 +352,6 @@ impl TaskRegistration {
             execution.origin().unwrap_or(self.origin),
         )
     }
-
-
 }
 
 impl Drop for TaskRegistration {
@@ -429,13 +427,17 @@ pub(super) enum WakeOwner {
 
 impl TaskWakeHandle {
     pub(crate) fn native(cancellation: CancellationContext) -> Self {
-        Self { owner: WakeOwner::Native(cancellation) }
+        Self {
+            owner: WakeOwner::Native(cancellation),
+        }
     }
 
     pub(crate) fn native_cancellation(&self) -> &CancellationContext {
         match &self.owner {
             WakeOwner::Native(owner) => owner,
-            WakeOwner::Scheduler { .. } => panic!("Source task context retains its native wake owner"),
+            WakeOwner::Scheduler { .. } => {
+                panic!("Source task context retains its native wake owner")
+            }
         }
     }
 
@@ -449,17 +451,24 @@ impl TaskWakeHandle {
 
     pub(crate) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
         let (task, status) = match &self.owner {
-            WakeOwner::Scheduler { task, registration, scheduler } => {
+            WakeOwner::Scheduler {
+                task,
+                registration,
+                scheduler,
+            } => {
                 let scheduler = scheduler
                     .upgrade()
                     .ok_or(SchedulerError::UnknownTask(*task))?;
 
-                (*task, native::bray_runtime_scheduler_wake(
-                    &scheduler.source.reference,
-                    *registration,
-                    native::cause(cause),
-                    scheduler.ticks(),
-                ))
+                (
+                    *task,
+                    native::bray_runtime_scheduler_wake(
+                        &scheduler.source.reference,
+                        *registration,
+                        native::cause(cause),
+                        scheduler.ticks(),
+                    ),
+                )
             }
             WakeOwner::Native(owner) => (
                 TaskId::from_bray_handle(owner.native_reference().task()),
@@ -511,7 +520,9 @@ mod tests {
 
         super::unregister_task(&scheduler.data, retired, None);
 
-        assert!(matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired));
+        assert!(
+            matches!(registration.execution_lane(&task.execution_state()), Err(SchedulerError::UnknownTask(task)) if task == retired)
+        );
 
         drop(registration);
         drop(task);

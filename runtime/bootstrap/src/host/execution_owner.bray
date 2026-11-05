@@ -10,9 +10,7 @@ using internal bray.runtime.bootstrap;
 
 // Exchange whole, thread-bound execution owners on the actual current
 // attachment. Their acquisition or OS-entry scope keeps that attachment live.
-trusted internal func exchange_attachment_execution(
-    pos execution: &mut(ExecutionOwner?)
-) -> u32
+trusted internal func exchange_attachment_execution(pos execution: &mut(ExecutionOwner?)) -> u32
     requires((execution matches none || trusted execution_option_owned(owner = &execution)))
     ensures((execution matches none || trusted execution_option_owned(owner = &execution)))
     when(execution matches ?_)
@@ -101,7 +99,10 @@ trusted internal func exchange_attachment_execution(
 
 trusted internal func take_attachment_execution(pos owner: &AttachmentExit) -> ExecutionOwner?
     requires(trusted attachment_exit_selected(owner = owner))
-    ensures(trusted attachment_exit_selected(owner = owner), (result matches none || trusted execution_option_owned(owner = &result)))
+    ensures(
+        trusted attachment_exit_selected(owner = owner),
+        (result matches none || trusted execution_option_owned(owner = &result))
+    )
     uses(intrinsic)
 {
     let lease = trusted host_access();
@@ -167,10 +168,7 @@ trusted internal func enter_attachment_execution(pos owner: &mut(ExecutionOwner?
     // slot's old evidence when taking it, then restore the returned owner.
     let take = trusted lambda(pos owner: &mut(ExecutionOwner?)) -> ExecutionOwner?
         requires(owner matches none || trusted execution_option_owned(owner = &owner))
-        ensures(
-            owner matches none,
-            result matches none || trusted execution_option_owned(owner = &result)
-        )
+        ensures(owner matches none, result matches none || trusted execution_option_owned(owner = &result))
         uses(intrinsic)
     {
         return trusted std.memory.take_nullable<ExecutionOwner>(owner);
@@ -185,7 +183,11 @@ trusted internal func enter_attachment_execution(pos owner: &mut(ExecutionOwner?
 }
 
 trusted internal func retire_attachment_execution(pos owner: ExecutionOwner?, pos scope: &AttachmentExit) -> u32
-    requires(owner matches ?_, (owner matches none || trusted execution_option_owned(owner = &owner)), trusted attachment_exit_selected(owner = scope))
+    requires(
+        owner matches ?_,
+        (owner matches none || trusted execution_option_owned(owner = &owner)),
+        trusted attachment_exit_selected(owner = scope)
+    )
 {
     let authorize = trusted lambda(pos scope: &AttachmentExit)
         requires(trusted attachment_exit_selected(owner = scope))
@@ -197,7 +199,11 @@ trusted internal func retire_attachment_execution(pos owner: ExecutionOwner?, po
 }
 
 trusted internal func retire_execution(pos owner: ExecutionOwner?, pos identity: u64) -> u32
-    requires(owner matches ?_, (owner matches none || trusted execution_option_owned(owner = &owner)), identity == 0 || trusted execution_exit())
+    requires(
+        owner matches ?_,
+        (owner matches none || trusted execution_option_owned(owner = &owner)),
+        identity == 0 || trusted execution_exit()
+    )
     uses(foreign_call)
 {
     let execution = trusted take_execution_owner(owner);
@@ -205,4 +211,3 @@ trusted internal func retire_execution(pos owner: ExecutionOwner?, pos identity:
 
     return trusted retire(execution, identity);
 }
-

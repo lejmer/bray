@@ -35,7 +35,11 @@ trusted internal func binding_storage(pos owner: &Current) -> &(Binding?)
 }
 
 trusted internal func install_binding(pos owner: &Current, pos binding: Binding)
-    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0, trusted kernel_binding(owner = &binding))
+    requires(
+        trusted view_owned(owner = &owner.acquisition),
+        owner.status == 0,
+        trusted kernel_binding(owner = &binding)
+    )
     ensures(trusted view_owned(owner = &owner.acquisition))
     uses(raw_memory, unchecked_init)
 {
@@ -49,7 +53,10 @@ trusted internal func install_binding(pos owner: &Current, pos binding: Binding)
 
     let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(Binding?)>)
         requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
-        ensures(trusted core.memory.valid_write<(Binding?)>(pointer = pointer, count = 1), trusted core.memory.aligned_for<(Binding?)>(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_write<(Binding?)>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<(Binding?)>(pointer = pointer)
+        )
         executes(pure, total) {};
 
     trusted permit(owner, pointer);
@@ -66,7 +73,10 @@ trusted internal func install_binding(pos owner: &Current, pos binding: Binding)
 // borrowed execution view can retire that binding's independent pin.
 trusted internal func take_retiring_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> Binding?
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner), trusted owned_binding_option(owner = &result))
+    ensures(
+        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
+        trusted owned_binding_option(owner = &result)
+    )
     uses(raw_memory, unchecked_init, intrinsic)
 {
     let selected = trusted borrow_execution(owner);
@@ -78,12 +88,19 @@ trusted internal func take_retiring_binding(pos owner: &bray.runtime.bootstrap.h
     }
 
     let pointer = std.memory.uninit_pointer<(Binding?)>(&value.binding);
-    let transfer = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos pointer: DataPointer<(Binding?)>) -> Binding?
+
+    let transfer = trusted lambda(
+        pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+        pos pointer: DataPointer<(Binding?)>
+    ) -> Binding?
         requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
         ensures(trusted owned_binding_option(owner = &result))
         uses(raw_memory, unchecked_init, intrinsic)
     {
-        let permit = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner, pos pointer: DataPointer<(Binding?)>)
+        let permit = trusted lambda(
+            pos owner: &bray.runtime.bootstrap.host.ExecutionOwner,
+            pos pointer: DataPointer<(Binding?)>
+        )
             requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
             ensures(
                 trusted core.memory.valid_read<(Binding?)>(pointer = pointer, count = 1),
@@ -94,6 +111,7 @@ trusted internal func take_retiring_binding(pos owner: &bray.runtime.bootstrap.h
             executes(pure, total) {};
 
         trusted permit(owner, pointer);
+
         let previous = trusted std.memory.read<(Binding?)>(pointer);
 
         trusted std.memory.write<(Binding?)>(pointer, none);
@@ -126,10 +144,20 @@ trusted internal func take_binding_execution(pos owner: Binding) -> Reference
 // The closing binding transfers its actual service claim with its actual pin.
 trusted internal func take_binding_owner(pos owner: Binding) -> Owner
     requires(trusted kernel_binding(owner = &owner), owner.close matches ?_)
-    ensures(trusted service_owner(owner = &result), trusted retained(owner = &result.execution), trusted pinned(owner = &result.execution))
+    ensures(
+        trusted service_owner(owner = &result),
+        trusted retained(owner = &result.execution),
+        trusted pinned(owner = &result.execution)
+    )
     uses(raw_memory, intrinsic)
 {
-    return { acquisition = Acquisition {}, execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution)) };
+    return
+    {
+        acquisition = Acquisition
+        {
+        },
+        execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution))
+    };
 }
 
 trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
@@ -144,6 +172,7 @@ trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.
     };
 
     let binding = trusted take_retiring_binding(owner);
+
     let incidents = if binding matches ?_
     {
         let selected = trusted take_owned_binding(binding);

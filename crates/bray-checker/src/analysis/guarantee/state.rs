@@ -59,7 +59,8 @@ pub(super) fn update_parent_observations(
         parent.projections = place.projections[..length].into();
 
         if let Some(snapshot) = observations.get_mut(&parent) {
-            *snapshot = snapshot.with_component(&place.projections[length..], value.clone(), storage);
+            *snapshot =
+                snapshot.with_component(&place.projections[length..], value.clone(), storage);
         }
     }
 }
@@ -625,7 +626,12 @@ impl ExecutionState {
         }
     }
 
-    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition, storage: Option<&[bray_bound_tree::StorageProjection]>) {
+    pub(super) fn assign(
+        &mut self,
+        place: crate::ExecutionPlace,
+        value: ExecutionCondition,
+        storage: Option<&[bray_bound_tree::StorageProjection]>,
+    ) {
         let replaced = self
             .current
             .range(place.clone()..)

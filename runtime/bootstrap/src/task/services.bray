@@ -25,7 +25,12 @@ internal callable TransferService = @abi(c) trusted func(
     pos incidents: DataPointer<bray.runtime.bootstrap.ReportRecords>
 )
     requires(
-        trusted core.memory.non_overlapping<bray.runtime.bootstrap.ReportRecords>(left = unused, left_count = 1, right = incidents, right_count = 1),
+        trusted core.memory.non_overlapping<bray.runtime.bootstrap.ReportRecords>(
+            left = unused,
+            left_count = 1,
+            right = incidents,
+            right_count = 1
+        ),
         trusted core.memory.valid_read<bray.runtime.bootstrap.activation.requirements.Execution>(
             pointer = execution,
             count = 1
@@ -68,6 +73,7 @@ trusted internal func borrow_services(pos owner: &DataPointer<Services>) -> &Ser
     uses(raw_memory, unchecked_alias)
 {
     let pointer = trusted std.memory.read<DataPointer<Services>>(std.memory.address_of<DataPointer<Services>>(owner));
+
     let permit = trusted lambda(pos owner: &DataPointer<Services>, pos pointer: DataPointer<Services>)
         requires(trusted service_slot(owner = owner))
         ensures(
@@ -137,9 +143,17 @@ trusted internal func transfer_service(
 
     let invoke = trusted std.memory.callable_from_pointer<TransferService>(owner.transfer);
 
-    let disjoint = trusted lambda(pos unused: &mut bray.runtime.bootstrap.ReportRecords, pos incidents: &mut bray.runtime.bootstrap.ReportRecords) -> (DataPointer<bray.runtime.bootstrap.ReportRecords>, DataPointer<bray.runtime.bootstrap.ReportRecords>)
+    let disjoint = trusted lambda(
+        pos unused: &mut bray.runtime.bootstrap.ReportRecords,
+        pos incidents: &mut bray.runtime.bootstrap.ReportRecords
+    ) -> (DataPointer<bray.runtime.bootstrap.ReportRecords>, DataPointer<bray.runtime.bootstrap.ReportRecords>)
         ensures(
-            trusted core.memory.non_overlapping<bray.runtime.bootstrap.ReportRecords>(left = result.0, left_count = 1, right = result.1, right_count = 1),
+            trusted core.memory.non_overlapping<bray.runtime.bootstrap.ReportRecords>(
+                left = result.0,
+                left_count = 1,
+                right = result.1,
+                right_count = 1
+            ),
             trusted core.memory.valid_read<bray.runtime.bootstrap.ReportRecords>(pointer = result.0, count = 1),
             trusted core.memory.valid_write<bray.runtime.bootstrap.ReportRecords>(pointer = result.0, count = 1),
             trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportRecords>(pointer = result.0),
@@ -151,7 +165,10 @@ trusted internal func transfer_service(
         )
         executes(pure, total)
     {
-        return (std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(unused), std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(incidents));
+        return (
+            std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(unused),
+            std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(incidents)
+        );
     };
 
     let slots = trusted disjoint(unused, incidents);
@@ -210,6 +227,3 @@ trusted internal func cancel_wait_service(
     trusted invoke();
     return frame;
 }
-
-
-

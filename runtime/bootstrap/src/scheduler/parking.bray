@@ -82,7 +82,6 @@ trusted internal func parking(pos pointer: DataPointer<Reference>, pos group: u3
     trusted park_reference(&owner, group, milliseconds);
 }
 
-
 trusted internal func register_parking(pos owner: &Reference) -> u32
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -108,7 +107,6 @@ trusted internal func register_parking(pos owner: &Reference) -> u32
     // immediately. No new waiter may clear either outstanding signal.
     return 2;
 }
-
 
 trusted internal func withdraw_parking(pos owner: &Reference, pos group: u32)
     requires(trusted retained(owner = owner))
@@ -139,7 +137,6 @@ trusted internal func withdraw_parking(pos owner: &Reference, pos group: u32)
     }
 }
 
-
 trusted internal func notify_ready(pos owner: &Reference)
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -158,7 +155,6 @@ trusted internal func notify_ready(pos owner: &Reference)
 
     trusted notify(value, notifications);
 }
-
 
 trusted internal func park_reference(pos owner: &Reference, pos group: u32, pos milliseconds: u32)
     requires(trusted retained(owner = owner))

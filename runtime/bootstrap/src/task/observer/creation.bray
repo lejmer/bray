@@ -31,7 +31,9 @@ trusted internal func prepare(pos input: Input, pos shape: bray.runtime.bootstra
 
     return
     {
-        acquisition = Marker {},
+        acquisition = Marker
+        {
+        },
         input = input,
         lease = lease,
         records = bray.runtime.bootstrap.empty_records(),

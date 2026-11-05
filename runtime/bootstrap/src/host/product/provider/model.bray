@@ -247,7 +247,9 @@ trusted internal func provider_view(pos owner: &LoadedProvider) -> bray.runtime.
 {
     return
     {
-        acquisition = bray.runtime.bootstrap.host.Acquisition {},
+        acquisition = bray.runtime.bootstrap.host.Acquisition
+        {
+        },
         context = owner.native.context,
         callbacks = owner.native.callbacks
     };
@@ -332,7 +334,9 @@ trusted internal func acquire_loaded_root(pos owner: &LoadedProvider) -> bray.ru
     return
     {
         context = trusted core.target.expose_address<Residency>(std.memory.address_of<Residency>(cell)),
-        acquisition = bray.runtime.bootstrap.host.Acquisition {},
+        acquisition = bray.runtime.bootstrap.host.Acquisition
+        {
+        },
         callbacks = trusted bray.runtime.bootstrap.domain.root_callbacks()
     };
 }

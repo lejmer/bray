@@ -17,9 +17,8 @@ internal struct EntryScope
     mut status: u32;
 }
 
-internal predicate entry_scope_owned(owner: &EntryScope) =
-    view_owned(owner = &owner.current.acquisition)
-    && (owner.previous matches none || bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous));
+internal predicate entry_scope_owned(owner: &EntryScope) = view_owned(owner = &owner.current.acquisition) &&
+    (owner.previous matches none || bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous));
 
 // The native RAII owner lends exclusive, aligned storage for this complete
 // Source value. It does not inspect or copy the value's private representation.
@@ -55,22 +54,30 @@ internal func validate_native_scope(pos bytes: usize, pos align: usize)
 {
     // Check before changing ownership, so an ABI mismatch cannot strand a live
     // Source scope in undersized native storage.
-    if bytes < std.memory.stride_of<EntryScope>()
-        || align < std.memory.align_of<EntryScope>()
+    if bytes < std.memory.stride_of<EntryScope>() || align < std.memory.align_of<EntryScope>()
     {
         trusted core.target.abort();
     }
-
 }
 
-trusted internal func borrow_native_scope_output(pos storage: &mut DataPointer<u8>, pos bytes: usize, pos align: usize) -> &mut Uninit<EntryScope>
+trusted internal func borrow_native_scope_output(
+    pos storage: &mut DataPointer<u8>,
+    pos bytes: usize,
+    pos align: usize
+) -> &mut Uninit<EntryScope>
     requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align))
     executes(pure, total)
     uses(raw_memory, unchecked_alias, layout_reinterpret)
 {
     let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(&storage));
     let pointer = trusted std.memory.reinterpret<Uninit<EntryScope>, u8>(address);
-    let permit = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<Uninit<EntryScope>>, pos bytes: usize, pos align: usize)
+
+    let permit = trusted lambda(
+        pos storage: &DataPointer<u8>,
+        pos pointer: DataPointer<Uninit<EntryScope>>,
+        pos bytes: usize,
+        pos align: usize
+    )
         requires(trusted native_scope_storage(owner = storage, bytes = bytes, align = align))
         ensures(
             trusted core.memory.valid_write<Uninit<EntryScope>>(pointer = pointer, count = 1),
@@ -94,6 +101,7 @@ trusted internal func publish_native_scope(pos storage: &mut Uninit<EntryScope>,
     let status = scope.status;
 
     _ = std.memory.uninit_write<EntryScope>(storage, scope);
+
     // The high word publishes initialization independently from entry status.
     // A containing native boundary returns zero if construction unwinds.
     let committed: u64 = 1;
@@ -109,6 +117,7 @@ trusted internal func borrow_native_scope(pos input: &DataPointer<u8>) -> &Entry
 {
     let storage = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(input));
     let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+
     let readable = trusted lambda(pos input: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>)
         requires(trusted native_scope_initialized(owner = input))
         ensures(
@@ -124,7 +133,9 @@ trusted internal func borrow_native_scope(pos input: &DataPointer<u8>) -> &Entry
         executes(pure, total) {};
 
     trusted readable(input, pointer);
+
     let owner = trusted std.memory.borrow_from<EntryScope, DataPointer<u8>>(input, pointer);
+
     let owned = trusted lambda(pos input: &DataPointer<u8>, pos owner: &EntryScope)
         requires(trusted native_scope_initialized(owner = input))
         ensures(trusted entry_scope_owned(owner = owner))
@@ -141,6 +152,7 @@ trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
 {
     let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(&storage));
     let pointer = trusted std.memory.reinterpret<EntryScope, u8>(address);
+
     let take = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>) -> EntryScope
         requires(trusted native_scope_initialized(owner = storage))
         ensures(trusted entry_scope_owned(owner = &result))
@@ -163,7 +175,12 @@ trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
 }
 
 trusted internal func entry_scope(pos isolate: bool) -> EntryScope
-    ensures(trusted view_owned(owner = &result.current.acquisition), (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.previous)))
+    ensures(
+        trusted view_owned(owner = &result.current.acquisition),
+        (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+            owner = &result.previous
+        ))
+    )
     when(trusted bray.runtime.bootstrap.entry.native_entry())
     {
         ensures(trusted bray.runtime.bootstrap.entry.native_entry())
@@ -174,7 +191,14 @@ trusted internal func entry_scope(pos isolate: bool) -> EntryScope
 
     if !isolate
     {
-        return { current = selected, previous = none, isolated = false, suspended = false, status = 0 };
+        return
+        {
+            current = selected,
+            previous = none,
+            isolated = false,
+            suspended = false,
+            status = 0
+        };
     }
 
     let suspended = trusted suspend_current(&selected);
@@ -188,35 +212,67 @@ trusted internal func entry_scope(pos isolate: bool) -> EntryScope
             trusted resume_current(&selected);
         }
 
-        return { current = selected, previous = none, isolated = false, suspended = false, status = exchanged };
+        return
+        {
+            current = selected,
+            previous = none,
+            isolated = false,
+            suspended = false,
+            status = exchanged
+        };
     }
 
     let cleared = trusted bray.runtime.bootstrap.host.execution_context(std.memory.null<u8>());
+
     let status = match consume cleared
     {
         case Ok(_) { yield 0; }
         case Error(value) { yield value; }
     };
 
-    return { current = selected, previous = previous, isolated = true, suspended = suspended, status = status };
+    return
+    {
+        current = selected,
+        previous = previous,
+        isolated = true,
+        suspended = suspended,
+        status = status
+    };
 }
 
 trusted internal func finish_entry_scope(pos owner: EntryScope) -> u32
-    requires(trusted view_owned(owner = &owner.current.acquisition), owner.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous))
+    requires(
+        trusted view_owned(owner = &owner.current.acquisition),
+        owner.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+            owner = &owner.previous
+        )
+    )
 {
     // Finishing the scope transfers its two actual owners. Restoring the saved
     // attachment owner cannot replace the independent counted Current value.
     let isolated = owner.isolated;
+
     let suspended = owner.suspended;
     let status = owner.status;
+
     let take = trusted lambda(pos owner: EntryScope) -> (Current, bray.runtime.bootstrap.host.ExecutionOwner?)
-        requires(trusted view_owned(owner = &owner.current.acquisition), owner.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous))
-        ensures(trusted view_owned(owner = &result.0.acquisition), result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1))
+        requires(
+            trusted view_owned(owner = &owner.current.acquisition),
+            owner.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(
+                owner = &owner.previous
+            )
+        )
+        ensures(
+            trusted view_owned(owner = &result.0.acquisition),
+            result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)
+        )
         uses(raw_memory, intrinsic)
     {
         return (
             trusted std.memory.read<Current>(std.memory.address_of<Current>(&owner.current)),
-            trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(std.memory.address_of<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&owner.previous))
+            trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(
+                std.memory.address_of<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&owner.previous)
+            )
         );
     };
 
@@ -237,12 +293,32 @@ trusted internal func finish_entry_scope(pos owner: EntryScope) -> u32
         trusted resume_current(&selected);
     }
 
-    return if status != 0 { yield status; } else if incidents != 0 { yield 5; } else { yield 0; };
+    return if status != 0
+    {
+        yield status;
+    }
+    else if incidents != 0
+    {
+        yield 5;
+    }
+    else
+    {
+        yield 0;
+    };
 }
 
-trusted internal func retire_entry_execution(pos selected: &Current, pos previous: &(bray.runtime.bootstrap.host.ExecutionOwner?)) -> u32
-    requires(trusted view_owned(owner = &selected.acquisition), previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous))
-    ensures(trusted view_owned(owner = &selected.acquisition), previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous))
+trusted internal func retire_entry_execution(
+    pos selected: &Current,
+    pos previous: &(bray.runtime.bootstrap.host.ExecutionOwner?)
+) -> u32
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous)
+    )
+    ensures(
+        trusted view_owned(owner = &selected.acquisition),
+        previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous)
+    )
     uses(intrinsic)
 {
     let mut retired: bray.runtime.bootstrap.host.ExecutionOwner? = none;
@@ -262,8 +338,14 @@ trusted internal func retire_entry_execution(pos selected: &Current, pos previou
     };
 }
 
-trusted internal func restore_entry_execution(pos selected: &Current, pos previous: &mut(bray.runtime.bootstrap.host.ExecutionOwner?))
-    requires(trusted view_owned(owner = &selected.acquisition), previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous))
+trusted internal func restore_entry_execution(
+    pos selected: &Current,
+    pos previous: &mut(bray.runtime.bootstrap.host.ExecutionOwner?)
+)
+    requires(
+        trusted view_owned(owner = &selected.acquisition),
+        previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous)
+    )
     ensures(trusted view_owned(owner = &selected.acquisition), previous matches none)
     uses(intrinsic)
 {
@@ -324,6 +406,4 @@ trusted internal func resume_current(pos selected: &Current)
 trusted internal func authorize_binding_entry(pos selected: &Current)
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(trusted view_owned(owner = &selected.acquisition), trusted driver_binding_entry(context = selected.pointer))
-    executes(pure, total)
-{
-}
+    executes(pure, total) {}

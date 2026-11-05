@@ -14,9 +14,18 @@ trusted internal func native_timeout_prepare(
     pos input: DataPointer<Owner>,
     pos failure: DataPointer<bray.runtime.bootstrap.worker.Failure>
 ) -> u32
-    requires(blocking_execution(), trusted native_owner_slot(owner = &input), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        blocking_execution(),
+        trusted native_owner_slot(owner = &input),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(failure, bray.runtime.bootstrap.worker.no_failure());
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(
+        failure,
+        bray.runtime.bootstrap.worker.no_failure()
+    );
 
     let owner = trusted borrow_native_owner(&input);
     let status = trusted ensure_deadlines(&owner.execution);
@@ -33,10 +42,28 @@ trusted internal func native_timeout_prepare(
         return workers;
     }
 
-    let demanded = trusted demand_lane(&owner.execution, { placement = 0, workload = 0, thread = 0 });
+    let demanded = trusted demand_lane(
+        &owner.execution,
+        {
+            placement = 0,
+            workload = 0,
+            thread = 0
+        }
+    );
 
-    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(failure, demanded);
-    return if demanded.stage == 0 { yield 0; } else { yield 4; };
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.worker.Failure>(
+        failure,
+        demanded
+    );
+
+    return if demanded.stage == 0
+    {
+        yield 0;
+    }
+    else
+    {
+        yield 4;
+    };
 }
 
 @abi(c)
@@ -46,7 +73,11 @@ trusted internal func native_timeout_registration(
     pos callback: DataPointer<bray.runtime.bootstrap.event.Callback>,
     pos output: DataPointer<u64>
 ) -> u32
-    requires(trusted native_owner_slot(owner = &input), trusted bray.runtime.bootstrap.event.callback_slot(pointer = callback), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted native_owner_slot(owner = &input),
+        trusted bray.runtime.bootstrap.event.callback_slot(pointer = callback),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     let owner = trusted borrow_native_owner(&input);
 
@@ -72,7 +103,10 @@ trusted internal func native_timeout_withdrawal(pos input: DataPointer<Owner>, p
 
     if let ?service = trusted deadlines(&owner.execution)
     {
-        return trusted bray.runtime.bootstrap.deadline.withdrawal(trusted bray.runtime.bootstrap.deadline.service_pointer(service), identity);
+        return trusted bray.runtime.bootstrap.deadline.withdrawal(
+            trusted bray.runtime.bootstrap.deadline.service_pointer(service),
+            identity
+        );
     }
 
     return 0;

@@ -86,7 +86,11 @@ trusted internal func invoke_owned(
         pos argument: u64,
         pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
     )
-        requires(trusted scope_live(owner = &scope.marker), trusted retained(owner = &pool.marker), operation >= 2 && operation <= 7)
+        requires(
+            trusted scope_live(owner = &scope.marker),
+            trusted retained(owner = &pool.marker),
+            operation >= 2 && operation <= 7
+        )
         ensures(
             trusted callback_authorized(
                 context = context,
@@ -124,7 +128,8 @@ trusted internal func perform(
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
-    requires(operation != 4 || blocking_execution(), 
+    requires(
+        operation != 4 || blocking_execution(),
         trusted callback_authorized(
             context = context,
             operation = operation,
@@ -145,20 +150,49 @@ trusted internal func perform(
         pos argument: u64,
         pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
     ) -> DataPointer<Reference>
-        requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
-        ensures(trusted callback_authorized(context = context, operation = operation, pool = &result, scope = scope, argument = argument, outcome = outcome))
+        requires(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                pool = pool,
+                scope = scope,
+                argument = argument,
+                outcome = outcome
+            )
+        )
+        ensures(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                pool = &result,
+                scope = scope,
+                argument = argument,
+                outcome = outcome
+            )
+        )
         uses(raw_memory)
     {
         return trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(pool));
     };
 
-    return trusted callback(context, operation, trusted address(context, operation, pool, scope, argument, outcome), scope, argument, outcome);
+    return trusted callback(
+        context,
+        operation,
+        trusted address(context, operation, pool, scope, argument, outcome),
+        scope,
+        argument,
+        outcome
+    );
 }
 
 // Pool creation accepts one provider retention. Completion releases it after
 // every OS entry has acknowledged cleanup. The canonical pool owns that interval.
 trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
-    requires(trusted retained(owner = &owner.marker), operation != 4, operation == 0 || operation == 1 || operation == 8)
+    requires(
+        trusted retained(owner = &owner.marker),
+        operation != 4,
+        operation == 0 || operation == 1 || operation == 8
+    )
     ensures(trusted retained(owner = &owner.marker))
     when(trusted retiring(owner = owner))
     {
@@ -169,6 +203,7 @@ trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
     let input = std.memory.address_of<Reference>(owner);
     let wire = std.memory.null<Scope>();
     let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
+
     let mut outcome: bray.runtime.bootstrap.ReportOutcome =
     {
         state = bray.runtime.bootstrap.RUN_COMPLETED,
@@ -180,9 +215,25 @@ trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
     let context = value.callback.context;
     let callback = value.callback.call;
 
-    let authorize = trusted lambda(pos owner: &Reference, pos input: &DataPointer<Reference>, pos context: usize, pos operation: u32, pos scope: DataPointer<DataPointer<Scope>>, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
+    let authorize = trusted lambda(
+        pos owner: &Reference,
+        pos input: &DataPointer<Reference>,
+        pos context: usize,
+        pos operation: u32,
+        pos scope: DataPointer<DataPointer<Scope>>,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
         requires(trusted retained(owner = &owner.marker), operation == 0 || operation == 1 || operation == 8)
-        ensures(trusted callback_authorized(context = context, operation = operation, pool = input, scope = scope, argument = 0, outcome = outcome))
+        ensures(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                pool = input,
+                scope = scope,
+                argument = 0,
+                outcome = outcome
+            )
+        )
         executes(pure, total) {};
 
     trusted authorize(owner, &input, context, operation, scope_pointer, output);
@@ -195,27 +246,44 @@ trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
 
 trusted internal func retain_descriptor(pos formation: Descriptor) -> (Descriptor, WorkerReference)
     requires(trusted forming(owner = &formation.marker), trusted retained_worker(owner = &formation.reference.marker))
-    ensures(trusted descriptor_owned(owner = &result.0.marker), trusted retained_worker(owner = &result.0.reference.marker), trusted retained_worker(owner = &result.1.marker))
+    ensures(
+        trusted descriptor_owned(owner = &result.0.marker),
+        trusted retained_worker(owner = &result.0.reference.marker),
+        trusted retained_worker(owner = &result.1.marker)
+    )
     uses(intrinsic)
 {
-    let observer: WorkerReference = { marker = Marker {}, pointer = formation.reference.pointer };
+    let observer: WorkerReference =
+    {
+        marker = Marker
+        {
+        },
+        pointer = formation.reference.pointer
+    };
 
     return (formation, observer);
 }
 
 trusted internal func release_descriptor(pos descriptor: Descriptor)
-    requires(trusted descriptor_owned(owner = &descriptor.marker), trusted retained_worker(owner = &descriptor.reference.marker))
+    requires(
+        trusted descriptor_owned(owner = &descriptor.marker),
+        trusted retained_worker(owner = &descriptor.reference.marker)
+    )
     uses(intrinsic)
 {
     trusted release_descriptor_resources(&descriptor);
 }
 
 trusted internal func release_descriptor_resources(pos descriptor: &Descriptor)
-    requires(trusted descriptor_owned(owner = &descriptor.marker), trusted retained_worker(owner = &descriptor.reference.marker))
+    requires(
+        trusted descriptor_owned(owner = &descriptor.marker),
+        trusted retained_worker(owner = &descriptor.reference.marker)
+    )
     uses(intrinsic)
 {
     let row = trusted retained_worker_value(&descriptor.reference);
     let pool = &row.pool;
+
     let retire =
     {
         let mut guard = trusted lock(&row.pool);
@@ -244,7 +312,6 @@ trusted internal func release_descriptor_resources(pos descriptor: &Descriptor)
         trusted invoke_pool(pool, 8);
         trusted invoke_pool(pool, 1);
     }
-
 }
 
 // A callback lends the actual retained pool record for exactly this C input scope.
@@ -258,9 +325,25 @@ trusted internal func callback_pool(
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> &Reference
-    requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
+    requires(
+        trusted callback_authorized(
+            context = context,
+            operation = operation,
+            pool = pool,
+            scope = scope,
+            argument = argument,
+            outcome = outcome
+        )
+    )
     ensures(
-        trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome),
+        trusted callback_authorized(
+            context = context,
+            operation = operation,
+            pool = pool,
+            scope = scope,
+            argument = argument,
+            outcome = outcome
+        ),
         trusted retained(owner = &result.marker),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -276,6 +359,7 @@ trusted internal func callback_pool(
     uses(raw_memory)
 {
     let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(pool));
+
     let authorize = trusted lambda(
         pos context: usize,
         pos operation: u32,
@@ -285,7 +369,16 @@ trusted internal func callback_pool(
         pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
         pos pointer: DataPointer<Reference>
     )
-        requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
+        requires(
+            trusted callback_authorized(
+                context = context,
+                operation = operation,
+                pool = pool,
+                scope = scope,
+                argument = argument,
+                outcome = outcome
+            )
+        )
         ensures(trusted reference_slot(pointer = pointer))
         executes(pure, total) {};
 

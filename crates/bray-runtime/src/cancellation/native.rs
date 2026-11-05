@@ -42,6 +42,9 @@ impl Drop for NativeCancellation {
     fn drop(&mut self) {
         let status = report_provider::bray_runtime_task_control_reference_release(&self.reference);
 
-        assert!(status.is_success(), "the last cancellation or dispatch user releases its retained Bray cell");
+        assert!(
+            status.is_success(),
+            "the last cancellation or dispatch user releases its retained Bray cell"
+        );
     }
 }

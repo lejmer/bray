@@ -153,5 +153,12 @@ trusted internal func invoke(
         return records_status;
     }
 
-    return if execution_status != 0 { yield execution_status; } else { yield attachment_status; };
+    return if execution_status != 0
+    {
+        yield execution_status;
+    }
+    else
+    {
+        yield attachment_status;
+    };
 }

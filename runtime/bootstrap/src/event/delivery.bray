@@ -273,7 +273,11 @@ trusted internal func wake_waiter(pos owner: &bray.runtime.bootstrap.task.WaitRe
 {
     if owner.target matches bray.runtime.bootstrap.task.WaitTarget.ExecutionEvent(_, _)
     {
-        _ = trusted bray.runtime.bootstrap.execution.wake_reference(trusted bray.runtime.bootstrap.task.registration_waiter(owner), bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+        _ = trusted bray.runtime.bootstrap.execution.wake_reference(
+            trusted bray.runtime.bootstrap.task.registration_waiter(owner),
+            bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT
+        );
+
         return 0;
     }
 

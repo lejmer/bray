@@ -449,7 +449,8 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
             let mut container = location.clone();
 
             match &mut container.origin {
-                Origin::Entry { projections, .. } | Origin::Returned { projections, .. }
+                Origin::Entry { projections, .. }
+                | Origin::Returned { projections, .. }
                 | Origin::Static { projections, .. } => {
                     *projections = std::sync::Arc::from([]);
                 }

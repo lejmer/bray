@@ -44,21 +44,27 @@ pub(super) struct Scope {
 
 impl Scope {
     pub(super) fn enter(isolate: bool) -> Result<Self, NativeRuntimeStatus> {
-        Self::acquire(|storage| bray_runtime_execution_scope_enter(
-            storage,
-            size_of::<Storage>(),
-            align_of::<Storage>(),
-            u32::from(isolate),
-        ))
+        Self::acquire(|storage| {
+            bray_runtime_execution_scope_enter(
+                storage,
+                size_of::<Storage>(),
+                align_of::<Storage>(),
+                u32::from(isolate),
+            )
+        })
     }
 
-    pub(super) fn borrow_owner(owner: &super::state::RetainedRuntime) -> Result<Self, NativeRuntimeStatus> {
-        Self::acquire(|storage| bray_runtime_execution_owner_scope_enter(
-            storage,
-            size_of::<Storage>(),
-            align_of::<Storage>(),
-            owner,
-        ))
+    pub(super) fn borrow_owner(
+        owner: &super::state::RetainedRuntime,
+    ) -> Result<Self, NativeRuntimeStatus> {
+        Self::acquire(|storage| {
+            bray_runtime_execution_owner_scope_enter(
+                storage,
+                size_of::<Storage>(),
+                align_of::<Storage>(),
+                owner,
+            )
+        })
     }
 
     fn acquire(enter: impl FnOnce(*mut u8) -> u64) -> Result<Self, NativeRuntimeStatus> {
@@ -101,7 +107,10 @@ impl Scope {
     }
 
     pub(super) fn release_owner(&self, owner: &mut super::state::RetainedRuntime) -> u32 {
-        assert!(self.active, "execution release borrows its complete live entry scope");
+        assert!(
+            self.active,
+            "execution release borrows its complete live entry scope"
+        );
 
         bray_runtime_execution_owner_release(owner, self.storage.0.as_ptr().cast())
     }

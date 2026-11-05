@@ -133,7 +133,10 @@ pub(crate) fn selected_call_condition(
         let mut arguments = arguments(budget);
 
         if let Some(receiver) = call.receiver()
-            && matches!(values.type_data(receiver.target_type()).as_ref(), bray_symbols::TypeData::Borrow { .. })
+            && matches!(
+                values.type_data(receiver.target_type()).as_ref(),
+                bray_symbols::TypeData::Borrow { .. }
+            )
         {
             arguments[0] = arguments[0].clone().borrowed();
         }
@@ -163,7 +166,13 @@ pub(crate) fn selected_call_condition(
     };
 
     if let bray_bound_tree::BoundCallableTarget::Predicate(predicate) = call.target() {
-        return predicate_condition(values, predicates, predicate, borrowed_arguments(budget), budget);
+        return predicate_condition(
+            values,
+            predicates,
+            predicate,
+            borrowed_arguments(budget),
+            budget,
+        );
     }
 
     let observed_intrinsic = matches!(

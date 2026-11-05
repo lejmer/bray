@@ -13,23 +13,38 @@ pub(crate) fn run_static_finalizer(
     if !super::export::bray_runtime_task_start(task, address, &mut rejected).is_success() {
         let status = super::export::bray_runtime_task_destruction(task);
 
-        assert!(status.is_success(), "rejected finalizer admission releases its unstarted Source claim");
+        assert!(
+            status.is_success(),
+            "rejected finalizer admission releases its unstarted Source claim"
+        );
 
-        let incident = OwnedCleanupIncident::outcome(rejected).unwrap_or_else(OwnedCleanupIncident::runtime_failure);
+        let incident = OwnedCleanupIncident::outcome(rejected)
+            .unwrap_or_else(OwnedCleanupIncident::runtime_failure);
+
         let [broadcast, resolution] = dispose_inactive(frame);
 
         return [Some(incident), broadcast, resolution, None];
     }
 
-    let root = NativeRootHandle::new(task.raw()).expect("an allocated Source claim has a nonzero handle");
+    let root =
+        NativeRootHandle::new(task.raw()).expect("an allocated Source claim has a nonzero handle");
+
     let mut outcome = super::export::bray_runtime_root_terminal_observation(root);
 
     let [first, second, third] = match outcome.state() {
-        NativeRunState::COMPLETED => crate::product::collect_finalizer_incidents(|incident, destination| {
-            resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
-        }),
-        NativeRunState::PANICKED => [Some(OwnedCleanupIncident::report_owner(outcome.take_report())), None, None],
-        NativeRunState::CANCELLED | NativeRunState::PENDING | NativeRunState::RUNTIME_FAILURE => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
+        NativeRunState::COMPLETED => {
+            crate::product::collect_finalizer_incidents(|incident, destination| {
+                resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
+            })
+        }
+        NativeRunState::PANICKED => [
+            Some(OwnedCleanupIncident::report_owner(outcome.take_report())),
+            None,
+            None,
+        ],
+        NativeRunState::CANCELLED | NativeRunState::PENDING | NativeRunState::RUNTIME_FAILURE => {
+            [Some(OwnedCleanupIncident::runtime_failure()), None, None]
+        }
         _ => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
     };
 
@@ -39,19 +54,54 @@ pub(crate) fn run_static_finalizer(
     [first, second, third, resolution]
 }
 
-fn dispose_inactive(frame: bray_runtime_abi::NativeInactiveFrame) -> [Option<OwnedCleanupIncident>; 2] {
+fn dispose_inactive(
+    frame: bray_runtime_abi::NativeInactiveFrame,
+) -> [Option<OwnedCleanupIncident>; 2] {
     type Invoke = for<'a> extern "C" fn(&mut bray_runtime_abi::NativeActivationInvocation<'a>);
-    #[expect(unsafe_code, reason = "Source consumes the retained inactive finalizer through its lifecycle ABI")]
-    unsafe extern "C" {
-        safe fn bray_runtime_inactive_frame_broadcast(frame: &bray_runtime_abi::NativeInactiveFrame, invoke: Invoke, ready: Invoke, outcome: &mut bray_runtime_abi::NativeRunOutcome);
-        safe fn bray_runtime_inactive_frame_resolution(frame: &bray_runtime_abi::NativeInactiveFrame, invoke: Invoke, ready: Invoke, outcome: &mut bray_runtime_abi::NativeRunOutcome);
-    }
-    let mut broadcast = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
-    let mut resolution = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
-    bray_runtime_inactive_frame_broadcast(&frame, super::export::bray_runtime_activation_callback, super::export::bray_runtime_activation_action_readiness, &mut broadcast);
-    bray_runtime_inactive_frame_resolution(&frame, super::export::bray_runtime_activation_callback, super::export::bray_runtime_activation_action_readiness, &mut resolution);
-    [OwnedCleanupIncident::outcome(broadcast), OwnedCleanupIncident::outcome(resolution)]
+    #[expect(
+        unsafe_code,
+        reason = "Source consumes the retained inactive finalizer through its lifecycle ABI"
+    )]
+    unsafe extern "C" {
+        safe fn bray_runtime_inactive_frame_broadcast(
+            frame: &bray_runtime_abi::NativeInactiveFrame,
+            invoke: Invoke,
+            ready: Invoke,
+            outcome: &mut bray_runtime_abi::NativeRunOutcome,
+        );
+        safe fn bray_runtime_inactive_frame_resolution(
+            frame: &bray_runtime_abi::NativeInactiveFrame,
+            invoke: Invoke,
+            ready: Invoke,
+            outcome: &mut bray_runtime_abi::NativeRunOutcome,
+        );
+    }
+
+    let mut broadcast =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    let mut resolution =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    bray_runtime_inactive_frame_broadcast(
+        &frame,
+        super::export::bray_runtime_activation_callback,
+        super::export::bray_runtime_activation_action_readiness,
+        &mut broadcast,
+    );
+
+    bray_runtime_inactive_frame_resolution(
+        &frame,
+        super::export::bray_runtime_activation_callback,
+        super::export::bray_runtime_activation_action_readiness,
+        &mut resolution,
+    );
+
+    [
+        OwnedCleanupIncident::outcome(broadcast),
+        OwnedCleanupIncident::outcome(resolution),
+    ]
 }
 
 pub(crate) fn with_static_cleanup_context<T>(
@@ -69,6 +119,7 @@ pub(crate) fn with_static_cleanup_context<T>(
         let result = crate::context::with_independent_execution_context(callback);
         let execution_status = execution.finish();
         let incidents = bridge.map_or(0, super::bridge::Scope::finish);
+
         let incident = (incidents != 0 || !execution_status.is_success())
             .then(OwnedCleanupIncident::runtime_failure);
 
@@ -97,7 +148,8 @@ mod tests {
 
     use super::run_static_finalizer;
 
-    static FRAME_DESTRUCTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    static FRAME_DESTRUCTIONS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
 
     fn with_static_cleanup_runtime<T>(
         callback: impl FnOnce() -> T,
@@ -163,7 +215,9 @@ mod tests {
             outcome: &mut bray_runtime_abi::NativeRunOutcome,
             _: &mut bray_runtime_abi::NativeReportRecords,
         ) {
-            let isolated = super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_none();
+            let isolated = super::super::state::retain_current_runtime()
+                .expect("Source owner query succeeds")
+                .is_none();
 
             *outcome = bray_runtime_abi::NativeRunOutcome::new(
                 bray_runtime_abi::NativeRunState::COMPLETED,
@@ -191,12 +245,23 @@ mod tests {
 
             assert_eq!(outcome.state(), bray_runtime_abi::NativeRunState::COMPLETED);
             assert_eq!(outcome.payload(), 1);
-            assert!(super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_some());
+
+            assert!(
+                super::super::state::retain_current_runtime()
+                    .expect("Source owner query succeeds")
+                    .is_some()
+            );
         })
         .expect("fixture static cleanup context must be installed");
 
         assert!(incident.is_none());
-        assert!(super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_none());
+
+        assert!(
+            super::super::state::retain_current_runtime()
+                .expect("Source owner query succeeds")
+                .is_none()
+        );
+
         assert!(crate::bootstrap::current_runtime_thread().is_none());
     }
 
@@ -247,12 +312,17 @@ mod tests {
     #[test]
     fn admitted_finalizer_runs_after_further_outgoing_admission_is_rejected() {
         let _isolation = super::super::state::test_runtime_isolation();
+
         let (incidents, runtime_incident) = with_static_cleanup_runtime(|| {
-            let admission = super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its actual Source claim");
+            let admission = super::super::export::bray_runtime_task_allocation()
+                .task()
+                .expect("the finalizer reserves its actual Source claim");
+
             let frame = inactive_frame(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE);
             let _failure = crate::outgoing::tests::reject_admission();
 
             assert!(crate::outgoing::OutgoingRecords::admit(1).is_err());
+
             run_static_finalizer(admission, frame, resolve)
         });
 
@@ -263,12 +333,15 @@ mod tests {
     #[test]
     fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
         let _isolation = super::super::state::test_runtime_isolation();
+
         let _attachment = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
             run_static_finalizer(
-                super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"),
+                super::super::export::bray_runtime_task_allocation()
+                    .task()
+                    .expect("the finalizer reserves its Source claim"),
                 inactive_frame(
                     NativeFrameAffinity::ORIGIN_THREAD,
                     NativeLaneRequirements::NONE,
@@ -284,6 +357,7 @@ mod tests {
     #[test]
     fn cleanup_runtime_services_every_owned_cleanup_lane() {
         let _isolation = super::super::state::test_runtime_isolation();
+
         let cases = [
             (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE),
             (
@@ -301,7 +375,9 @@ mod tests {
                 .into_iter()
                 .flat_map(|(affinity, requirements)| {
                     run_static_finalizer(
-                        super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"),
+                        super::super::export::bray_runtime_task_allocation()
+                            .task()
+                            .expect("the finalizer reserves its Source claim"),
                         inactive_frame(affinity, requirements),
                         resolve,
                     )
@@ -316,7 +392,9 @@ mod tests {
     #[test]
     fn cleanup_runtime_requires_a_retained_main_thread_identity() {
         let _isolation = super::super::state::test_runtime_isolation();
+
         FRAME_DESTRUCTIONS.store(0, std::sync::atomic::Ordering::Relaxed);
+
         let main_frame = || {
             inactive_frame(
                 NativeFrameAffinity::MAIN_THREAD,
@@ -325,11 +403,22 @@ mod tests {
         };
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"), main_frame(), resolve)
+            run_static_finalizer(
+                super::super::export::bray_runtime_task_allocation()
+                    .task()
+                    .expect("the finalizer reserves its Source claim"),
+                main_frame(),
+                resolve,
+            )
         });
 
         assert_eq!(incidents.iter().flatten().count(), 1);
-        assert_eq!(FRAME_DESTRUCTIONS.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+        assert_eq!(
+            FRAME_DESTRUCTIONS.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
         assert!(runtime_incidents.is_none());
 
         assert!(
@@ -340,7 +429,13 @@ mod tests {
         );
 
         let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
-            run_static_finalizer(super::super::export::bray_runtime_task_allocation().task().expect("the finalizer reserves its Source claim"), main_frame(), resolve)
+            run_static_finalizer(
+                super::super::export::bray_runtime_task_allocation()
+                    .task()
+                    .expect("the finalizer reserves its Source claim"),
+                main_frame(),
+                resolve,
+            )
         });
 
         assert!(incidents.iter().all(Option::is_none));
@@ -384,7 +479,10 @@ mod tests {
         // These fixtures capture only an immutable scalar. Cleanup has no body
         // execution requirement or exact-thread dependency of its own.
         if operation >= 2 {
-            return NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE);
+            return NativeFrameState::new(
+                NativeFrameAffinity::MOVABLE,
+                NativeLaneRequirements::NONE,
+            );
         }
 
         let context = u64::try_from(context)
@@ -413,7 +511,9 @@ mod tests {
 
     extern "C-unwind" fn ignore_broadcast(_: &mut NativeFrameProgress, _: usize) {}
 
-    extern "C-unwind" fn ignore_action(_: usize) { FRAME_DESTRUCTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+    extern "C-unwind" fn ignore_action(_: usize) {
+        FRAME_DESTRUCTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
 
     extern "C-unwind" fn ignore_resolution(
         _: &mut bray_runtime_abi::NativeFrameProgress,

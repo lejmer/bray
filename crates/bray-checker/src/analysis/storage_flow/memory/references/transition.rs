@@ -111,9 +111,7 @@ impl State {
         let opaque_bounds = references
             .iter()
             .any(|(_, _, bounds)| bounds.is_none())
-            .then(|| {
-                self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0)
-            });
+            .then(|| self.unbounded_reference_regions(self.transitive_regions(inputs, |_| true).0));
 
         for (destination, ty, forwarded) in references {
             let bounds = match forwarded {
@@ -162,8 +160,12 @@ impl State {
         // An external result can reach inline storage already published at its
         // introduction. Later publication cannot change an older reference's origins.
         let exposed = self.contents.iter().filter_map(|(target, contents)| {
-            (!target.previous && contents.escaped && target.storage_path().is_some_and(|path| self.is_owned_inline_storage(path)))
-                .then(|| target.clone())
+            (!target.previous
+                && contents.escaped
+                && target
+                    .storage_path()
+                    .is_some_and(|path| self.is_owned_inline_storage(path)))
+            .then(|| target.clone())
         });
 
         let mut bounds = self.expand_returned_regions(inputs.into_iter().chain(exposed));
@@ -466,7 +468,9 @@ impl State {
         for (target, contents) in &mut self.contents {
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
-                Origin::Entry { .. } | Origin::Returned { .. } | Origin::Allocation(_)
+                Origin::Entry { .. }
+                | Origin::Returned { .. }
+                | Origin::Allocation(_)
                 | Origin::Static { .. } => {
                     matches!(
                         invalidation,
@@ -534,7 +538,11 @@ impl State {
         owner: &Target,
         pointer: bray_bound_tree::StorageProjection,
     ) -> std::borrow::Cow<'_, References> {
-        if let Some(references) = self.values.get(owner).filter(|references| !references.unknown) {
+        if let Some(references) = self
+            .values
+            .get(owner)
+            .filter(|references| !references.unknown)
+        {
             return std::borrow::Cow::Borrowed(references);
         }
 
@@ -542,10 +550,12 @@ impl State {
         let declared_backing = backing.observation_path();
 
         let pointer = self.values.get(&backing).filter(|references| {
-            !references.unknown && (references.targets.is_empty() || !references.targets.iter().all(|target| {
-                matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
+            !references.unknown
+                && (references.targets.is_empty()
+                    || !references.targets.iter().all(|target| {
+                        matches!(&target.origin, Origin::Entry { reference, layer: 1, projections }
                     if declared_backing.as_ref() == Some(reference) && projections.is_empty())
-            }))
+                    }))
         });
 
         // An entry descriptor's own pointer snapshot denotes its owned region.
@@ -574,7 +584,10 @@ impl State {
         pointer: bray_bound_tree::StorageProjection,
         inexact: bool,
     ) {
-        let mut references = References { inexact, ..References::default() };
+        let mut references = References {
+            inexact,
+            ..References::default()
+        };
 
         for owner in owners {
             let materialized = self.values.get(owner).is_some_and(|value| !value.unknown);
@@ -660,9 +673,15 @@ impl State {
             // Older instances share a summary target, so no definite contents survive.
             contents.initialized.clear();
 
-            let previous = Target { previous: true, ..target };
+            let previous = Target {
+                previous: true,
+                ..target
+            };
 
-            self.contents.entry(previous.clone()).or_default().merge(&contents, &previous);
+            self.contents
+                .entry(previous.clone())
+                .or_default()
+                .merge(&contents, &previous);
         }
     }
 

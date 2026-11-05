@@ -36,7 +36,10 @@ impl Once<T>
 
     internal trusted func initialized() -> bool
         requires(trusted std.sync.once.valid(&self.prepared.instance))
-        ensures(trusted std.sync.once.valid(&self.prepared.instance), !result || trusted std.sync.once.ready(&self.prepared.instance))
+        ensures(
+            trusted std.sync.once.valid(&self.prepared.instance),
+            !result || trusted std.sync.once.ready(&self.prepared.instance)
+        )
         executes(total)
     {
         return core.atomic.load<u32, 1>(&(trusted self.state()).phase) == std.sync.once.INITIALIZED;
@@ -71,15 +74,26 @@ impl Once<T>
         }
 
         let state = trusted self.state();
+
         let take = trusted lambda(pos owner: &std.sync.Once<T>) -> T
-            requires(trusted std.sync.once.valid(&owner.prepared.instance), trusted std.sync.once.ready(&owner.prepared.instance))
+            requires(
+                trusted std.sync.once.valid(&owner.prepared.instance),
+                trusted std.sync.once.ready(&owner.prepared.instance)
+            )
             uses(raw_memory)
         {
             let pointer = std.memory.uninit_pointer<T>(&(trusted owner.state()).value);
 
             let permit = trusted lambda(pos owner: &std.sync.Once<T>, pos pointer: DataPointer<T>)
-                requires(trusted std.sync.once.valid(&owner.prepared.instance), trusted std.sync.once.ready(&owner.prepared.instance))
-                ensures(trusted core.memory.valid_read<T>(pointer = pointer, count = 1), trusted core.memory.aligned_for<T>(pointer = pointer), trusted core.memory.initialized_as<T>(pointer = pointer))
+                requires(
+                    trusted std.sync.once.valid(&owner.prepared.instance),
+                    trusted std.sync.once.ready(&owner.prepared.instance)
+                )
+                ensures(
+                    trusted core.memory.valid_read<T>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<T>(pointer = pointer),
+                    trusted core.memory.initialized_as<T>(pointer = pointer)
+                )
                 executes(pure, total) {};
 
             trusted permit(owner, pointer);

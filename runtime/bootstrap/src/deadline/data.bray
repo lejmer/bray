@@ -8,7 +8,9 @@ using internal bray.runtime.bootstrap.event;
 using internal bray.runtime.bootstrap.scheduler;
 
 @layout(c)
-internal struct Marker {}
+internal struct Marker
+{
+}
 
 @layout(c)
 internal struct Reference

@@ -12,7 +12,11 @@ using internal bray.runtime.bootstrap.scheduler;
 
 @abi(c)
 trusted internal func task_allocation() -> Admission
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
     ensures(result.status != 0 || trusted resolution_input(owner = &result.task))
     uses(intrinsic)
 {
@@ -20,19 +24,31 @@ trusted internal func task_allocation() -> Admission
 
     if selected.status != 0
     {
-        return { status = selected.status, task = 0 };
+        return
+        {
+            status = selected.status,
+            task = 0
+        };
     }
 
     if !has_execution(&selected)
     {
-        return { status = 1, task = 0 };
+        return
+        {
+            status = 1,
+            task = 0
+        };
     }
 
     let (admitted, status) = trusted admit_source_task(&selected, false);
 
     if admitted matches none
     {
-        return { status = status, task = 0 };
+        return
+        {
+            status = status,
+            task = 0
+        };
     }
 
     let owner = trusted bray.runtime.bootstrap.task.take_retained(admitted);
@@ -41,12 +57,28 @@ trusted internal func task_allocation() -> Admission
     // The returned protected task keeps the source claim. Only the temporary
     // independent storage count ends at this boundary.
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
-    return { status = 0, task = handle };
+
+    return
+    {
+        status = 0,
+        task = handle
+    };
 }
 
 @abi(c)
-trusted internal func task_start(pos handle: u64, pos frame: usize, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> u32
-    requires(blocking_execution(), trusted resolution_input(owner = &handle), trusted frame_input(owner = &frame), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+trusted internal func task_start(
+    pos handle: u64,
+    pos frame: usize,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(
+        blocking_execution(),
+        trusted resolution_input(owner = &handle),
+        trusted frame_input(owner = &frame),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
     if frame == 0 || frame % std.memory.align_of<bray.runtime.bootstrap.activation.Inactive>() != 0
     {
@@ -78,12 +110,18 @@ trusted internal func task_start(pos handle: u64, pos frame: usize, pos outcome:
     let started = trusted start_frame(&selected, &owner, token, none, outcome);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
     return started;
 }
 
 @abi(c)
 trusted internal func task_destruction(pos handle: u64) -> u32
-    requires(trusted resolution_input(owner = &handle), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    requires(
+        trusted resolution_input(owner = &handle),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
 {
     let selected = trusted current();
 
@@ -109,12 +147,16 @@ trusted internal func task_destruction(pos handle: u64) -> u32
     let destroyed = trusted destroy_reference(&selected, &owner);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
     return destroyed;
 }
 
 @abi(c)
 trusted internal func task_wake(pos handle: u64) -> u32
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     let selected = trusted current();
 
@@ -139,12 +181,17 @@ trusted internal func task_wake(pos handle: u64) -> u32
     let awakened = trusted wake_reference(&owner, 1);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
     return awakened;
 }
 
 @abi(c)
 trusted internal func task_cancellation(pos handle: u64) -> u32
-    requires(trusted resolution_input(owner = &handle), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted resolution_input(owner = &handle),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     uses(intrinsic)
 {
     return trusted cancellation_action(&handle);
@@ -152,13 +199,21 @@ trusted internal func task_cancellation(pos handle: u64) -> u32
 
 @abi(c)
 trusted internal func root_cancellation(pos handle: u64) -> u32
-    requires(trusted resolution_input(owner = &handle), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted resolution_input(owner = &handle),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
 {
     return trusted cancellation_action(&handle);
 }
 
 trusted internal func cancellation_action(pos handle: &u64) -> u32
-    requires(trusted resolution_input(owner = handle), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+    requires(
+        trusted resolution_input(owner = handle),
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host()
+    )
     ensures(trusted resolution_input(owner = handle))
     uses(raw_memory)
 {
@@ -174,7 +229,10 @@ trusted internal func cancellation_action(pos handle: &u64) -> u32
         return 1;
     }
 
-    let (reference, status) = trusted retain_task(trusted bound_execution(&selected), trusted std.memory.read<u64>(std.memory.address_of<u64>(handle)));
+    let (reference, status) = trusted retain_task(
+        trusted bound_execution(&selected),
+        trusted std.memory.read<u64>(std.memory.address_of<u64>(handle))
+    );
 
     if reference matches none
     {
@@ -185,12 +243,19 @@ trusted internal func cancellation_action(pos handle: &u64) -> u32
     let requested = trusted request_cancellation(&owner);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
     return requested;
 }
 
 trusted internal func request_cancellation(pos owner: &bray.runtime.bootstrap.task.Reference) -> u32
-    requires(trusted bray.runtime.bootstrap.task.retained(owner = owner), trusted bray.runtime.bootstrap.task.owned_reference(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.task.retained(owner = owner), trusted bray.runtime.bootstrap.task.owned_reference(owner = owner))
+    requires(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = owner)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.task.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = owner)
+    )
     uses(intrinsic)
 {
     let requested = trusted bray.runtime.bootstrap.task.cancellation_change(owner, 1);

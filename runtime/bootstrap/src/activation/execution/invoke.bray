@@ -99,7 +99,10 @@ trusted internal func invoke(
 
     // Preparation borrows the same invocation that passed readiness. Its
     // output destinations remain owned while frame records transfer into them.
-    let prepare = trusted lambda(pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor, pos invocation: &bray.runtime.bootstrap.activation.callback.Invocation) -> (
+    let prepare = trusted lambda(
+        pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+        pos invocation: &bray.runtime.bootstrap.activation.callback.Invocation
+    ) -> (
         bray.runtime.bootstrap.ReportRecords,
         bray.runtime.bootstrap.ReportRecords,
         bray.runtime.bootstrap.activation.Progress
@@ -116,7 +119,8 @@ trusted internal func invoke(
             trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition)
         )
     {
-        let (incidents, progress) = if invocation.operation matches bray.runtime.bootstrap.activation.callback.Operation.Destroy
+        let (incidents, progress) = if invocation.operation matches
+            bray.runtime.bootstrap.activation.callback.Operation.Destroy
         {
             yield trusted take_terminal(cursor);
         }
@@ -178,7 +182,11 @@ trusted internal func invoke(
             trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &invocation.acquisition),
             trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition),
         )
-        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &invocation.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition))
+        ensures(
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+            trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &invocation.acquisition),
+            trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition)
+        )
     {
         trusted bray.runtime.bootstrap.activation.callback.admit(ready, invocation);
 
@@ -186,10 +194,10 @@ trusted internal func invoke(
         {
             trusted bray.runtime.bootstrap.entry.control.enter_cleanup();
         }
-
     };
 
     trusted admit(cursor, ready, &mut invocation, operation);
+
     let status = invocation.admission;
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS

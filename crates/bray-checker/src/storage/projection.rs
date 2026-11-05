@@ -72,23 +72,49 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
             projection,
         ) => {
             let member = match (*definition, projection) {
-                (bray_symbols::NamedTypeSymbolId::Struct(structure), DependencyProjection::ProductField(field))
-                    if request.context().struct_field(field)?.is_some_and(|field| field.containing_symbol() == structure.into()) => Some(field.into()),
-                (bray_symbols::NamedTypeSymbolId::Union(union), DependencyProjection::UnionPayloadField(field)) => {
-                    let variant = request.context().union_payload_field(field)?.and_then(|field| match field.containing_symbol() {
-                        bray_symbols::AnySymbolId::UnionVariant(variant) => Some(variant),
-                        _ => None,
-                    });
+                (
+                    bray_symbols::NamedTypeSymbolId::Struct(structure),
+                    DependencyProjection::ProductField(field),
+                ) if request
+                    .context()
+                    .struct_field(field)?
+                    .is_some_and(|field| field.containing_symbol() == structure.into()) =>
+                {
+                    Some(field.into())
+                }
+                (
+                    bray_symbols::NamedTypeSymbolId::Union(union),
+                    DependencyProjection::UnionPayloadField(field),
+                ) => {
+                    let variant = request
+                        .context()
+                        .union_payload_field(field)?
+                        .and_then(|field| match field.containing_symbol() {
+                            bray_symbols::AnySymbolId::UnionVariant(variant) => Some(variant),
+                            _ => None,
+                        });
+
                     match variant {
-                        Some(variant) if request.context().union_variant(variant)?.is_some_and(|variant| variant.containing_symbol() == union.into()) => Some(field.into()),
+                        Some(variant)
+                            if request.context().union_variant(variant)?.is_some_and(
+                                |variant| variant.containing_symbol() == union.into(),
+                            ) =>
+                        {
+                            Some(field.into())
+                        }
                         _ => None,
                     }
                 }
                 _ => None,
             };
-            let queried = member.map(|member| request.context().storage_member_type(member)).transpose()?;
+
+            let queried = member
+                .map(|member| request.context().storage_member_type(member))
+                .transpose()?;
+
             let template = queried.as_ref().map(|queried| {
                 diagnostics.add_range(queried.diagnostics().iter().cloned());
+
                 queried.value()
             });
 
@@ -170,16 +196,26 @@ pub(crate) fn owned_storage_projections(
 ) -> Vec<StorageProjection> {
     use bray_symbols::ConstantProjectionKind;
 
-    projections.iter().map(|projection| match *projection {
-        ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
-        ConstantProjectionKind::UnionPayloadField(field) => StorageProjection::ActiveUnionPayloadField {
-            variant: dependencies.projection_variant(field), field,
-        },
-        ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
-        ConstantProjectionKind::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
-        ConstantProjectionKind::ArrayElementOrdinal(ordinal) => StorageProjection::ElementFromStart(ordinal),
-        _ => unreachable!("checked transfer contains only owning projections"),
-    }).collect()
+    projections
+        .iter()
+        .map(|projection| match *projection {
+            ConstantProjectionKind::ProductField(field) => StorageProjection::ProductField(field),
+            ConstantProjectionKind::UnionPayloadField(field) => {
+                StorageProjection::ActiveUnionPayloadField {
+                    variant: dependencies.projection_variant(field),
+                    field,
+                }
+            }
+            ConstantProjectionKind::NullableValue => StorageProjection::NullableValue,
+            ConstantProjectionKind::TupleElement(ordinal) => {
+                StorageProjection::TupleElement(ordinal)
+            }
+            ConstantProjectionKind::ArrayElementOrdinal(ordinal) => {
+                StorageProjection::ElementFromStart(ordinal)
+            }
+            _ => unreachable!("checked transfer contains only owning projections"),
+        })
+        .collect()
 }
 
 pub(crate) fn storage_projections(
@@ -218,8 +254,7 @@ fn convert_projections<E>(
             DependencyProjection::Element(term) => {
                 let term = values.constant_term_data(term);
 
-                let bray_symbols::ConstantTermData::Value(value) = term.as_ref()
-                else {
+                let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
                     return Ok(None);
                 };
 

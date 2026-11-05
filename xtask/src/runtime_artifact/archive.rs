@@ -52,8 +52,7 @@ fn validate_exports(
         .chain(
             kind.platform_services()
                 .map(PlatformServiceRole::native_symbol),
-        )
-        ;
+        );
 
     crate::native_symbols::validate_role_exports(strong, required)
         .map_err(|error| CommandError::RuntimeRoleExports { kind, error })?;
@@ -112,7 +111,6 @@ mod tests {
                 kind.platform_services()
                     .map(PlatformServiceRole::native_symbol),
             )
-
             .map(str::to_owned)
             .collect()
     }
@@ -206,7 +204,10 @@ mod tests {
     #[test]
     fn each_archive_requires_its_projected_roles_once() {
         for kind in RuntimeArchiveKind::ALL {
-            for symbol in kind.runtime_roles().filter_map(RuntimeAbiRole::native_symbol) {
+            for symbol in kind
+                .runtime_roles()
+                .filter_map(RuntimeAbiRole::native_symbol)
+            {
                 let mut missing = exports(kind);
 
                 missing.retain(|candidate| candidate != symbol);

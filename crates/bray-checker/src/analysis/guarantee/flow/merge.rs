@@ -372,11 +372,22 @@ fn join_observations<'a>(
 }
 
 fn common_truth(
-    left: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
-    right: (&ExecutionCondition, &std::collections::BTreeSet<(ExecutionCondition, bool)>),
+    left: (
+        &ExecutionCondition,
+        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    ),
+    right: (
+        &ExecutionCondition,
+        &std::collections::BTreeSet<(ExecutionCondition, bool)>,
+    ),
 ) -> Option<bool> {
-    let left = left.0.prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
-    let right = right.0.prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+    let left = left
+        .0
+        .prove(left.1, &mut { ExecutionCondition::WORK_LIMIT })?;
+
+    let right = right
+        .0
+        .prove(right.1, &mut { ExecutionCondition::WORK_LIMIT })?;
 
     (left == right).then_some(left)
 }

@@ -64,9 +64,7 @@ impl AnalysisOperationKind {
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { invocation, .. } => invocation.node(),
             Self::Suspension { occurrence, .. } => occurrence.node(),
-            Self::Result { expression, .. } => {
-                AnyBoundNodeId::Expression(expression)
-            }
+            Self::Result { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { scope, .. } => scope.node(),
         }
     }

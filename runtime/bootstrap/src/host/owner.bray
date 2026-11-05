@@ -24,7 +24,9 @@ trusted internal predicate execution_acquired(owner: &Acquisition);
 
 internal predicate execution_owned(owner: &ExecutionOwner) = execution_acquired(owner = &owner.acquisition);
 
-internal predicate execution_option_owned(owner: &(ExecutionOwner?)) = owner matches none || execution_owned(owner = execution_option(owner));
+internal predicate execution_option_owned(owner: &(ExecutionOwner?)) = owner matches none || execution_owned(
+    owner = execution_option(owner)
+);
 
 // Borrow the actual contained owner. Presence and ownership remain separate
 // requirements, including for an empty attachment during entry exchange.
@@ -628,6 +630,7 @@ trusted internal func shutdown_host() -> u32
                 // Unattached control lookups borrow the key without taking this lock.
                 // Unpublish before observing readers. retirement never waits for them.
                 let control_key = core.atomic.exchange<u64, 4>(&synchronization.control_key, 0);
+
                 let execution_key = core.atomic.exchange<u64, 4>(&synchronization.execution_key, 0);
 
                 if core.atomic.load<u64, 4>(&synchronization.control_readers) != 0
@@ -741,14 +744,23 @@ trusted internal func shutdown_host() -> u32
 
         if let ?storage = retired
         {
-            if !storage.released || !storage.cleanup_released || !storage.control_released || storage.execution_key matches ?_
+            if !storage.released || !storage.cleanup_released || !storage.control_released ||
+                storage.execution_key matches ?_
             {
                 let key = storage.key;
                 let cleanup_key = storage.cleanup_key;
                 let control_key = storage.control_key;
+
                 let execution_key = if let ?selected_key = storage.execution_key
                 {
-                    yield if selected_key == std.numeric.U64_MAX { yield 0; } else { yield selected_key + 1; };
+                    yield if selected_key == std.numeric.U64_MAX
+                    {
+                        yield 0;
+                    }
+                    else
+                    {
+                        yield selected_key + 1;
+                    };
                 }
                 else
                 {

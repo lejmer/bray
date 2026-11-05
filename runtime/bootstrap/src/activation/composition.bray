@@ -75,7 +75,6 @@ trusted internal func compose(
 
     let mut cursor = trusted acquire(parent);
 
-
     let inspect = trusted lambda(
         pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
@@ -190,7 +189,13 @@ trusted internal func compose(
         yield 0;
     };
 
-    let own = match consume trusted bray.runtime.bootstrap.activation.requirements.read(&value, 0, operation, argument, origin)
+    let own = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
+        &value,
+        0,
+        operation,
+        argument,
+        origin
+    )
     {
         case ?requirements { yield requirements; }
         case none { return 0; }
@@ -226,6 +231,7 @@ trusted internal func compose(
     let description: bray.runtime.bootstrap.activation.Descriptor? = none;
     let mut progress = bray.runtime.bootstrap.activation.empty_progress();
     let mut records = bray.runtime.bootstrap.empty_records();
+
     let mut invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
         &mut cursor,
         &requested,
@@ -235,6 +241,7 @@ trusted internal func compose(
         &mut progress,
         &mut records
     );
+
     trusted bray.runtime.bootstrap.activation.callback.admit(admit, &mut invocation);
 
     if invocation.admission != 0

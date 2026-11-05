@@ -9,7 +9,10 @@ using internal std.thread;
 
 // The native caller retains this exact input slot throughout the callback.
 // Borrow the actual scope rather than issuing another pointer-and-marker owner.
-trusted internal func read_scope(pos input: &DataPointer<DataPointer<Scope>>, pos pointer: DataPointer<DataPointer<Scope>>) -> &Scope
+trusted internal func read_scope(
+    pos input: &DataPointer<DataPointer<Scope>>,
+    pos pointer: DataPointer<DataPointer<Scope>>
+) -> &Scope
     requires(trusted scope_slot(pointer = pointer))
     ensures(trusted scope_live(owner = &result.marker))
     executes(pure, total)
@@ -27,7 +30,12 @@ trusted internal func read_scope(pos input: &DataPointer<DataPointer<Scope>>, po
     trusted readable(pointer);
 
     let address = trusted std.memory.read<DataPointer<Scope>>(pointer);
-    let authorize = trusted lambda(pos input: &DataPointer<DataPointer<Scope>>, pos pointer: DataPointer<DataPointer<Scope>>, pos address: DataPointer<Scope>)
+
+    let authorize = trusted lambda(
+        pos input: &DataPointer<DataPointer<Scope>>,
+        pos pointer: DataPointer<DataPointer<Scope>>,
+        pos address: DataPointer<Scope>
+    )
         requires(trusted scope_slot(pointer = pointer))
         ensures(
             trusted core.memory.valid_read<Scope>(pointer = address, count = 1),

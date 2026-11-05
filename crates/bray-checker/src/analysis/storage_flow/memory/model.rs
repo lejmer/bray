@@ -67,11 +67,7 @@ impl Effect {
         match self {
             Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) => None,
             Self::Mutation(target, kind) => Some((target, *kind)),
-            Self::Unknown
-            | Self::Ambient
-            | Self::Escape
-            | Self::Atomic
-            | Self::Cleanup(_) => None,
+            Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
         }
     }
 }

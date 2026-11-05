@@ -21,18 +21,27 @@ pub(crate) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
         return None;
     }
 
-    let guard = ISOLATION.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = ISOLATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     HOLDS_ISOLATION.set(true);
 
     Some(TestRuntimeIsolation { _guard: guard })
 }
 
-#[expect(unsafe_code, reason = "tests initialize the same Source execution provider as native consumers")]
+#[expect(
+    unsafe_code,
+    reason = "tests initialize the same Source execution provider as native consumers"
+)]
 unsafe extern "C" {
-    safe fn bray_runtime_execution_startup(configuration: bray_runtime_abi::NativeRuntimeConfiguration) -> bray_runtime_abi::NativeRuntimeStatus;
+    safe fn bray_runtime_execution_startup(
+        configuration: bray_runtime_abi::NativeRuntimeConfiguration,
+    ) -> bray_runtime_abi::NativeRuntimeStatus;
 }
 
-pub(in crate::native) fn initialize(configuration: bray_runtime_abi::NativeRuntimeConfiguration) -> bray_runtime_abi::NativeRuntimeStatus {
+pub(in crate::native) fn initialize(
+    configuration: bray_runtime_abi::NativeRuntimeConfiguration,
+) -> bray_runtime_abi::NativeRuntimeStatus {
     bray_runtime_execution_startup(super::native_configuration(configuration))
 }

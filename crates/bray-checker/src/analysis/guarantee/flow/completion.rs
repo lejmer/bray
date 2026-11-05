@@ -27,23 +27,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (variant, field) = if panicked {
             crate::representation::union_payload(
-                self.request, "ResultVariant1Error", "ResultVariant1ErrorError",
+                self.request,
+                "ResultVariant1Error",
+                "ResultVariant1ErrorError",
             )
         } else {
             crate::representation::union_payload(
-                self.request, "ResultVariant0Ok", "ResultVariant0OkValue",
+                self.request,
+                "ResultVariant0Ok",
+                "ResultVariant0OkValue",
             )
         };
 
         let value = if panicked {
             ExecutionCondition::Unknown
         } else {
-            operation.operands().last().map_or(ExecutionCondition::Unknown, |operand| self.value(state, *operand))
+            operation
+                .operands()
+                .last()
+                .map_or(ExecutionCondition::Unknown, |operand| {
+                    self.value(state, *operand)
+                })
         };
 
-        let projection = bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
+        let projection =
+            bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
+
         let result = ExecutionCondition::Constructed(
-            Arc::new(ExecutionCondition::Tagged(variant, Arc::new(ExecutionCondition::Expression(expression)))),
+            Arc::new(ExecutionCondition::Tagged(
+                variant,
+                Arc::new(ExecutionCondition::Expression(expression)),
+            )),
             [(projection, value)].into(),
         );
 
@@ -57,7 +71,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         assumptions: &'s std::collections::BTreeSet<(ExecutionCondition, bool)>,
         value: ExecutionCondition,
         result: ExecutionCondition,
-    ) -> impl Iterator<Item = (BoundExecutionSite, &'s Arc<crate::ExecutionCallEvidence>, ExecutionCondition)> + 's {
+    ) -> impl Iterator<
+        Item = (
+            BoundExecutionSite,
+            &'s Arc<crate::ExecutionCallEvidence>,
+            ExecutionCondition,
+        ),
+    > + 's {
         let mut next = Some((value, result));
         let mut visited = std::collections::BTreeSet::new();
         let mut payload = None;
@@ -67,7 +87,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let deferred = deferred.get(value.owner_identity())?;
 
-            if deferred.unknown_possible(assumptions) { return None; }
+            if deferred.unknown_possible(assumptions) {
+                return None;
+            }
 
             let mut feasible = deferred.producers.iter().filter(|(_, candidate)| {
                 super::super::deferred::possible(&candidate.selection, assumptions)
@@ -75,17 +97,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let (source, candidate) = feasible.next()?;
 
-            assert!(feasible.next().is_none(), "operation selects one deferred producer before composing completion");
+            assert!(
+                feasible.next().is_none(),
+                "operation selects one deferred producer before composing completion"
+            );
 
             if self.is_task_observation(*source) {
-                if !visited.insert(value.owner_identity().clone()) { return None; }
+                if !visited.insert(value.owner_identity().clone()) {
+                    return None;
+                }
 
                 let task = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
                     .value_in(&candidate.entry.arguments)?;
 
                 let projection = *payload.get_or_insert_with(|| {
                     let (variant, field) = crate::representation::union_payload(
-                        self.request, "RunResultVariant0Completed", "RunResultVariant0CompletedValue",
+                        self.request,
+                        "RunResultVariant0Completed",
+                        "RunResultVariant0CompletedValue",
                     );
 
                     bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field }
@@ -103,10 +132,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         value: ExecutionCondition,
     ) -> Option<(BoundExecutionSite, usize)> {
-        self.deferred_execution(&state.deferred_invocations, &state.assumptions, value, ExecutionCondition::Unknown)
-            .enumerate().last()
-            .filter(|(_, (source, _, _))| !self.is_task_observation(*source))
-            .map(|(depth, (source, _, _))| (source, depth))
+        self.deferred_execution(
+            &state.deferred_invocations,
+            &state.assumptions,
+            value,
+            ExecutionCondition::Unknown,
+        )
+        .enumerate()
+        .last()
+        .filter(|(_, (source, _, _))| !self.is_task_observation(*source))
+        .map(|(depth, (source, _, _))| (source, depth))
     }
 
     pub(in crate::analysis) fn task_body(
@@ -114,12 +149,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> Option<BoundExecutionSite> {
-        let bray_bound_tree::SemanticSelection::Call(call) = self.semantics.selections().expression(expression)?
-            else { return None; };
+        let bray_bound_tree::SemanticSelection::Call(call) =
+            self.semantics.selections().expression(expression)?
+        else {
+            return None;
+        };
 
-        crate::analysis::AnalysisTaskOperationKind::from_implementation_hook(call.implementation_hook()?)?;
+        crate::analysis::AnalysisTaskOperationKind::from_implementation_hook(
+            call.implementation_hook()?,
+        )?;
 
-        self.deferred_body(state, self.receiver_value(state, expression, call)).map(|(source, _)| source)
+        self.deferred_body(state, self.receiver_value(state, expression, call))
+            .map(|(source, _)| source)
     }
 
     /// Preservation queries can join producers before an operation selects one.
@@ -133,22 +174,35 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let mut body = false;
 
         while let Some(value) = pending.pop() {
-            if !visited.insert(value.owner_identity().clone()) { continue; }
+            if !visited.insert(value.owner_identity().clone()) {
+                continue;
+            }
 
-            let Some(deferred) = state.deferred_entries(&value) else { return false; };
+            let Some(deferred) = state.deferred_entries(&value) else {
+                return false;
+            };
 
-            if deferred.unknown_possible(&state.assumptions) { return false; }
+            if deferred.unknown_possible(&state.assumptions) {
+                return false;
+            }
 
             for (source, candidate) in &deferred.producers {
-                if !super::super::deferred::possible(&candidate.selection, &state.assumptions) { continue; }
+                if !super::super::deferred::possible(&candidate.selection, &state.assumptions) {
+                    continue;
+                }
 
                 if self.is_task_observation(*source) {
                     let Some(task) = ExecutionPlace::argument(bray_symbols::SymbolOrdinal::new(0))
-                        .value_in(&candidate.entry.arguments) else { return false; };
+                        .value_in(&candidate.entry.arguments)
+                    else {
+                        return false;
+                    };
 
                     pending.push(task);
                 } else {
-                    if !self.dependencies.calls()[source].deferred_preserves_storage_on_normal_return() {
+                    if !self.dependencies.calls()[source]
+                        .deferred_preserves_storage_on_normal_return()
+                    {
                         return false;
                     }
 
@@ -165,16 +219,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> Option<std::collections::BTreeSet<BoundExpressionId>> {
-        let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression)
-            else { return None; };
+        let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+            self.request.view().expression(expression)
+        else {
+            return None;
+        };
 
         let value = self.value(state, awaited.operand());
 
         state.deferred_entries(&value)?;
 
-        Some(self.deferred_body(state, value).map(|(source, _)| {
-            source.expression().expect("formed producer retains its source expression")
-        }).into_iter().collect())
+        Some(
+            self.deferred_body(state, value)
+                .map(|(source, _)| {
+                    source
+                        .expression()
+                        .expect("formed producer retains its source expression")
+                })
+                .into_iter()
+                .collect(),
+        )
     }
 
     fn task_outcomes<'s>(
@@ -183,17 +247,26 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
     ) -> impl Iterator<Item = ExecutionCondition> + 's {
         let value = match self.request.view().expression(expression) {
-            Some(bray_bound_tree::BoundExpression::Await(awaited)) => self.value(state, awaited.operand()),
+            Some(bray_bound_tree::BoundExpression::Await(awaited)) => {
+                self.value(state, awaited.operand())
+            }
             _ => ExecutionCondition::Unknown,
         };
 
         let (variant, _) = crate::representation::union_payload(
-            self.request, "RunResultVariant0Completed", "RunResultVariant0CompletedValue",
+            self.request,
+            "RunResultVariant0Completed",
+            "RunResultVariant0CompletedValue",
         );
 
-        self.deferred_execution(&state.deferred_invocations, &state.assumptions, value, ExecutionCondition::Expression(expression))
-            .take_while(|(source, _, _)| self.is_task_observation(*source))
-            .map(move |(_, _, result)| ExecutionCondition::VariantTest(variant, Arc::new(result)))
+        self.deferred_execution(
+            &state.deferred_invocations,
+            &state.assumptions,
+            value,
+            ExecutionCondition::Expression(expression),
+        )
+        .take_while(|(source, _, _)| self.is_task_observation(*source))
+        .map(move |(_, _, result)| ExecutionCondition::VariantTest(variant, Arc::new(result)))
     }
 
     pub(in crate::analysis) fn task_completion(
@@ -220,42 +293,70 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         operation: crate::analysis::AnalysisOperationKind,
     ) -> Vec<ExecutionState> {
-        if !matches!(operation, crate::analysis::AnalysisOperationKind::Call {
-            phase: crate::analysis::model::AnalysisCallPhase::Completion, ..
-        }) { return Vec::new(); }
+        if !matches!(
+            operation,
+            crate::analysis::AnalysisOperationKind::Call {
+                phase: crate::analysis::model::AnalysisCallPhase::Completion,
+                ..
+            }
+        ) {
+            return Vec::new();
+        }
 
-        let Some(expression) = operation.occurrence().expression() else { return Vec::new(); };
+        let Some(expression) = operation.occurrence().expression() else {
+            return Vec::new();
+        };
 
-        let Some(sources) = self.awaited_task_invocations(state, expression) else { return Vec::new(); };
+        let Some(sources) = self.awaited_task_invocations(state, expression) else {
+            return Vec::new();
+        };
 
-        let Some(cleanup) = self.task_cleanup_types(&sources, false) else { return Vec::new(); };
+        let Some(cleanup) = self.task_cleanup_types(&sources, false) else {
+            return Vec::new();
+        };
 
         let body_effects = sources.iter().any(|source| {
-            self.dependencies.calls()[source].deferred_effects().is_none_or(|effects| !effects.is_empty())
+            self.dependencies.calls()[source]
+                .deferred_effects()
+                .is_none_or(|effects| !effects.is_empty())
         });
 
-        if sources.is_empty() || (cleanup.is_empty() && !body_effects) { return Vec::new(); }
+        if sources.is_empty() || (cleanup.is_empty() && !body_effects) {
+            return Vec::new();
+        }
 
-        let Some(bray_bound_tree::BoundExpression::Await(awaited)) = self.request.view().expression(expression)
-            else { unreachable!("Task completion retains its await operation"); };
+        let Some(bray_bound_tree::BoundExpression::Await(awaited)) =
+            self.request.view().expression(expression)
+        else {
+            unreachable!("Task completion retains its await operation");
+        };
 
         let value = self.value(state, awaited.operand());
 
         // Formation guards select existing frames while this outcome refines ordinary truth.
         let formation = state.assumptions.clone();
 
-        let mut steps = self.deferred_execution(
-            &state.deferred_invocations, &formation, value, ExecutionCondition::Expression(expression),
-        ).peekable();
+        let mut steps = self
+            .deferred_execution(
+                &state.deferred_invocations,
+                &formation,
+                value,
+                ExecutionCondition::Expression(expression),
+            )
+            .peekable();
 
         let (variant, _) = crate::representation::union_payload(
-            self.request, "RunResultVariant0Completed", "RunResultVariant0CompletedValue",
+            self.request,
+            "RunResultVariant0Completed",
+            "RunResultVariant0CompletedValue",
         );
 
         let mut alternatives = Vec::new();
 
         while let Some((source, _, result)) = steps.next() {
-            if !self.is_task_observation(source) { break; }
+            if !self.is_task_observation(source) {
+                break;
+            }
 
             let condition = ExecutionCondition::VariantTest(variant, Arc::new(result));
 
