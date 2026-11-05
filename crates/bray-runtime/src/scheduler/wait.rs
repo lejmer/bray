@@ -37,7 +37,7 @@ impl Scheduler {
 
             self.promote_elapsed_timers()?;
 
-            if let Some(task) = dispatch::pop_ready(&self.data, thread, lanes, None)? {
+            if let Some(task) = dispatch::pop_ready(&self.data, thread, lanes)? {
                 return Ok(Some(task));
             }
 

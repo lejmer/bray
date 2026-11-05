@@ -79,7 +79,7 @@ trusted internal func invoke_owned(
     let authorize = trusted lambda(
         pos scope: &Scope,
         pos pool: &Reference,
-        pos input: DataPointer<Reference>,
+        pos input: &DataPointer<Reference>,
         pos operation: u32,
         pos context: usize,
         pos scope_pointer: DataPointer<DataPointer<Scope>>,
@@ -99,9 +99,9 @@ trusted internal func invoke_owned(
         )
         executes(pure, total) {};
 
-    trusted authorize(scope, pool, input, operation, context, scope_pointer, argument, output);
+    trusted authorize(scope, pool, &input, operation, context, scope_pointer, argument, output);
 
-    let status = trusted perform(callback, context, operation, input, scope_pointer, argument, output);
+    let status = trusted perform(callback, context, operation, &input, scope_pointer, argument, output);
 
     let returned = trusted lambda(
         pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
@@ -119,7 +119,7 @@ trusted internal func perform(
     pos callback: Operation,
     pos context: usize,
     pos operation: u32,
-    pos pool: DataPointer<Reference>,
+    pos pool: &DataPointer<Reference>,
     pos scope: DataPointer<DataPointer<Scope>>,
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
@@ -135,9 +135,24 @@ trusted internal func perform(
         )
     )
     ensures(trusted callback_returned(outcome = outcome))
-    uses(foreign_call)
+    uses(foreign_call, raw_memory)
 {
-    return trusted callback(context, operation, pool, scope, argument, outcome);
+    let address = trusted lambda(
+        pos context: usize,
+        pos operation: u32,
+        pos pool: &DataPointer<Reference>,
+        pos scope: DataPointer<DataPointer<Scope>>,
+        pos argument: u64,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    ) -> DataPointer<Reference>
+        requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
+        ensures(trusted callback_authorized(context = context, operation = operation, pool = &result, scope = scope, argument = argument, outcome = outcome))
+        uses(raw_memory)
+    {
+        return trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(pool));
+    };
+
+    return trusted callback(context, operation, trusted address(context, operation, pool, scope, argument, outcome), scope, argument, outcome);
 }
 
 // Pool creation accepts one provider retention. Completion releases it after
@@ -165,14 +180,14 @@ trusted internal func invoke_pool(pos owner: &Reference, pos operation: u32)
     let context = value.callback.context;
     let callback = value.callback.call;
 
-    let authorize = trusted lambda(pos owner: &Reference, pos input: DataPointer<Reference>, pos context: usize, pos operation: u32, pos scope: DataPointer<DataPointer<Scope>>, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
+    let authorize = trusted lambda(pos owner: &Reference, pos input: &DataPointer<Reference>, pos context: usize, pos operation: u32, pos scope: DataPointer<DataPointer<Scope>>, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>)
         requires(trusted retained(owner = &owner.marker), operation == 0 || operation == 1 || operation == 8)
         ensures(trusted callback_authorized(context = context, operation = operation, pool = input, scope = scope, argument = 0, outcome = outcome))
         executes(pure, total) {};
 
-    trusted authorize(owner, input, context, operation, scope_pointer, output);
+    trusted authorize(owner, &input, context, operation, scope_pointer, output);
 
-    if trusted perform(callback, context, operation, input, scope_pointer, 0, output) != 0
+    if trusted perform(callback, context, operation, &input, scope_pointer, 0, output) != 0
     {
         trusted core.target.abort();
     }
@@ -238,14 +253,14 @@ trusted internal func release_descriptor_resources(pos descriptor: &Descriptor)
 trusted internal func callback_pool(
     pos context: usize,
     pos operation: u32,
-    pos pool: DataPointer<Reference>,
+    pos pool: &DataPointer<Reference>,
     pos scope: DataPointer<DataPointer<Scope>>,
     pos argument: u64,
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos input: &DataPointer<Reference>
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> &Reference
     requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
     ensures(
+        trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome),
         trusted retained(owner = &result.marker),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -258,19 +273,22 @@ trusted internal func callback_pool(
     {
         ensures(trusted scope_slot(pointer = scope))
     }
+    uses(raw_memory)
 {
+    let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(pool));
     let authorize = trusted lambda(
         pos context: usize,
         pos operation: u32,
-        pos pool: DataPointer<Reference>,
+        pos pool: &DataPointer<Reference>,
         pos scope: DataPointer<DataPointer<Scope>>,
         pos argument: u64,
-        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos pointer: DataPointer<Reference>
     )
         requires(trusted callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
-        ensures(trusted reference_slot(pointer = pool))
+        ensures(trusted reference_slot(pointer = pointer))
         executes(pure, total) {};
 
-    trusted authorize(context, operation, pool, scope, argument, outcome);
-    return trusted borrow_reference(input, pool);
+    trusted authorize(context, operation, pool, scope, argument, outcome, pointer);
+    return trusted borrow_reference(pool, pointer);
 }

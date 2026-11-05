@@ -28,7 +28,7 @@ trusted internal func task_allocation() -> Admission
         return { status = 1, task = 0 };
     }
 
-    let (admitted, status) = trusted admit_source_task(&selected);
+    let (admitted, status) = trusted admit_source_task(&selected, false);
 
     if admitted matches none
     {

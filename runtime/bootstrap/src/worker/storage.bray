@@ -422,7 +422,7 @@ trusted internal func scheduler_pointer(pos owner: &Reference) -> DataPointer<br
 trusted internal func take_execution_backing(
     pos context: usize,
     pos owner: &Reference,
-    pos pool: DataPointer<Reference>,
+    pos pool: &DataPointer<Reference>,
     pos scope: DataPointer<DataPointer<Scope>>,
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
@@ -438,7 +438,7 @@ trusted internal func take_execution_backing(
     let take = trusted lambda(
         pos context: usize,
         pos owner: &Reference,
-        pos pool: DataPointer<Reference>,
+        pos pool: &DataPointer<Reference>,
         pos scope: DataPointer<DataPointer<Scope>>,
         pos argument: u64,
         pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,

@@ -66,7 +66,7 @@ pub use provider::{
 pub use records::{NativeReportRecords, NativeReportSegment};
 pub use run_result::NativeRunResultLayout;
 pub use runtime::{
-    MAX_PERFORMANCE_OBSERVATION_RECORDS, NativeExecutionLane, NativeExecutionLaneResult,
+    MAX_PERFORMANCE_OBSERVATION_RECORDS,
     NativeFrameActionCallback, NativeFrameAffinity, NativeFrameCancellationCallback,
     NativeFrameCompletionMoveCallback, NativeFrameComposition, NativeFrameExit,
     NativeFrameProgress, NativeFrameProgressKind, NativeFrameResolveCallback,

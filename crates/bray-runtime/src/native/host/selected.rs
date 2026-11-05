@@ -75,7 +75,8 @@ impl NativeHostCallbacks {
 /// The test adapter and callback provider belong to that executable product.
 #[doc(hidden)]
 pub fn register_host_callbacks(callbacks: NativeHostCallbacks) -> NativeRuntimeStatus {
-    super::super::state::initialize_thread_context();
+    crate::context::initialize_thread_context();
+    initialize_thread_context();
 
     CALLBACKS.with(|cell| {
         let selected = &mut *cell.borrow_mut();

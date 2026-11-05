@@ -7,80 +7,45 @@ pub(crate) fn run_static_finalizer(
 ) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
-    super::state::with_runtime(|runtime| {
-        let allocation = runtime.allocate();
+    let allocation = super::export::bray_runtime_task_allocation();
 
-        let Some(task) = allocation.task() else {
-            return [
-                Some(OwnedCleanupIncident::runtime_failure()),
-                None,
-                None,
-                None,
-            ];
+    let Some(task) = allocation.task() else {
+        return [Some(OwnedCleanupIncident::runtime_failure()), None, None, None];
+    };
+
+    let mut rejected = bray_runtime_abi::NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+    let address = std::ptr::from_ref(&frame).addr();
+
+    if !super::export::bray_runtime_task_start(task, address, &mut rejected).is_success() {
+        let status = super::export::bray_runtime_task_destruction(task);
+
+        assert!(status.is_success(), "rejected finalizer admission releases its unstarted Source claim");
+
+        let incident = if rejected.state() == NativeRunState::PANICKED {
+            OwnedCleanupIncident::report_owner(rejected.take_report())
+        } else {
+            OwnedCleanupIncident::runtime_failure()
         };
 
-        let mut rejected = bray_runtime_abi::NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+        return [Some(incident), None, None, None];
+    }
 
-        if !runtime.start(task, &frame, &mut rejected).is_success() {
-            let status = runtime.destroy_task(task);
+    let root = NativeRootHandle::new(task.raw()).expect("an allocated Source claim has a nonzero handle");
+    let mut outcome = super::export::bray_runtime_root_terminal_observation(root);
 
-            assert!(
-                status.is_success(),
-                "rejected finalizer admission releases its unstarted control"
-            );
+    let [first, second, third] = match outcome.state() {
+        NativeRunState::COMPLETED => crate::product::collect_finalizer_incidents(|incident, destination| {
+            resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
+        }),
+        NativeRunState::PANICKED => [Some(OwnedCleanupIncident::report_owner(outcome.take_report())), None, None],
+        NativeRunState::CANCELLED | NativeRunState::PENDING | NativeRunState::RUNTIME_FAILURE => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
+        _ => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
+    };
 
-            let incident = if rejected.state() == NativeRunState::PANICKED {
-                OwnedCleanupIncident::report_owner(rejected.take_report())
-            } else {
-                OwnedCleanupIncident::runtime_failure()
-            };
+    let resolution = (!super::export::bray_runtime_root_completion_resolution(root).is_success())
+        .then(OwnedCleanupIncident::runtime_failure);
 
-            return [Some(incident), None, None, None];
-        }
-
-        let Some(root) = NativeRootHandle::new(task.raw()) else {
-            return [
-                Some(OwnedCleanupIncident::runtime_failure()),
-                None,
-                None,
-                None,
-            ];
-        };
-
-        let mut outcome = runtime.observe_root(root);
-
-        let [first, second, third] = match outcome.state() {
-            NativeRunState::COMPLETED => {
-                crate::product::collect_finalizer_incidents(|incident, destination| {
-                    resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
-                })
-            }
-            NativeRunState::PANICKED => [
-                Some(OwnedCleanupIncident::report_owner(outcome.take_report())),
-                None,
-                None,
-            ],
-            NativeRunState::CANCELLED
-            | NativeRunState::PENDING
-            | NativeRunState::RUNTIME_FAILURE => {
-                [Some(OwnedCleanupIncident::runtime_failure()), None, None]
-            }
-            _ => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
-        };
-
-        let resolution = (!runtime.resolve_root_completion(root).is_success())
-            .then(OwnedCleanupIncident::runtime_failure);
-
-        [first, second, third, resolution]
-    })
-    .unwrap_or_else(|_| {
-        [
-            Some(OwnedCleanupIncident::runtime_failure()),
-            None,
-            None,
-            None,
-        ]
-    })
+    [first, second, third, resolution]
 }
 
 pub(crate) fn with_static_cleanup_context<T>(
@@ -105,10 +70,8 @@ pub(crate) fn with_static_cleanup_context<T>(
     };
 
     let ((result, reported), shutdown) = super::state::with_cleanup_runtime(runtime, || {
-        let result = callback();
-
-        let reported = super::state::with_runtime(|runtime| runtime.report_cleanup_incidents())
-            .is_ok_and(|status| status.is_success());
+        let result = crate::context::with_independent_execution_context(callback);
+        let reported = super::export::bray_runtime_cleanup_incident_reporting().is_success();
 
         (result, reported)
     })?;

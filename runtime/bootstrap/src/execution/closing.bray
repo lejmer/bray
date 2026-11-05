@@ -190,3 +190,32 @@ trusted internal func driver_shutdown() -> u32
     // End the view before attachment exit can retire its sole context owner.
     return trusted finish_driver_attachment(attachment);
 }
+
+// Product shutdown ends its driver before completing the optional native host.
+// Nested entry scopes retire only their own driver and never finalize that host.
+@abi(c)
+trusted internal func shutdown() -> u32
+    requires(trusted bray.runtime.bootstrap.pool.protocol_access())
+    uses(foreign_call)
+{
+    let control = trusted bray.runtime.bootstrap.entry.bridge.current_control();
+    let status = trusted driver_shutdown();
+
+    if status != 0 && status != 1
+    {
+        return status;
+    }
+
+    if let ?complete = control
+    {
+        let finished = trusted complete(3);
+
+        // Zero means no native host was selected. Nonzero encodes status + 1.
+        if finished != 0
+        {
+            return finished - 1;
+        }
+    }
+
+    return status;
+}

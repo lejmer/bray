@@ -93,7 +93,7 @@ trusted internal func start_root(pos frame: &usize, pos outcome: DataPointer<bra
     // root has only the cooperative Main lane for its entire continuation.
     let lane: bray.runtime.bootstrap.scheduler.Lane = { placement = 3, workload = 0, thread = active.thread };
 
-    let (reference, admission_status) = trusted admit_source_task(&selected);
+    let (reference, admission_status) = trusted admit_source_task(&selected, true);
 
     if reference matches none
     {

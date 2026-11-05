@@ -1,45 +1,4 @@
-use std::sync::Arc;
-
-use bray_runtime_abi::{NativeEventReference, NativeRuntimeStatus};
-
-use crate::context::with_independent_execution_context as independent;
-use crate::event::Event;
-use crate::event::native;
-
-use super::state::NativeRuntimeCore;
-
-pub(super) fn create(owner: &Arc<NativeRuntimeCore>) -> usize {
-    independent(|| {
-        let mut reference = NativeEventReference::default();
-        let identity = native::creation(owner.identity, &mut reference);
-
-        if identity != 0 {
-            native::release(&reference);
-        }
-
-        identity
-    })
-}
-
-pub(super) fn event(owner: &Arc<NativeRuntimeCore>, identity: usize) -> Option<Event> {
-    Event::acquire(owner.identity, identity)
-}
-
-pub(super) fn signal(identity: usize) -> NativeRuntimeStatus {
-    independent(|| native::signal(identity))
-}
-
-pub(super) fn destroy(owner: &Arc<NativeRuntimeCore>, identity: usize) -> NativeRuntimeStatus {
-    independent(|| native::destruction(owner.identity, identity))
-}
-
-pub(super) fn clear(owner: &NativeRuntimeCore) {
-    independent(|| native::clear(owner.identity));
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
 
     use crate::native::implementation::{
         bray_runtime_execution_shutdown, bray_runtime_main_thread_lane_startup,
@@ -111,4 +70,3 @@ mod tests {
         assert_eq!(bray_runtime_execution_shutdown(), NativeRuntimeStatus::SUCCESS);
         drop(retained);
     }
-}

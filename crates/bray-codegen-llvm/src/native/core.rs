@@ -473,7 +473,7 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
         RuntimeAbiType::InactiveFrame => inactive_frame_type(context, target).into(),
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
-        RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState => context
+        RuntimeAbiType::FrameState => context
             .struct_type(
                 &[context.i32_type().into(), context.i32_type().into()],
                 false,
@@ -634,19 +634,19 @@ mod tests {
         )
         .expect("native cancellation signature exists");
 
-        let lane = super::runtime_function_type(
+        let state = super::runtime_function_type(
             &context,
             &target,
-            RuntimeAbiRole::CompatibleLaneSelection,
+            RuntimeAbiRole::TaskObservationQuery,
         )
-        .expect("native lane signature exists");
+        .expect("native state signature exists");
 
         assert_eq!(
             cancellation.get_return_type(),
             Some(context.i8_type().into())
         );
 
-        assert_eq!(lane.get_return_type(), Some(context.i64_type().into()));
+        assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
 
         assert_eq!(
             RuntimeAbiRole::SuspensionRegistration

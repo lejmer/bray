@@ -12,22 +12,6 @@ using internal bray.runtime.bootstrap.host.product;
 using internal bray.runtime.bootstrap.execution;
 using internal bray.runtime.bootstrap.scheduler;
 
-@abi(c)
-trusted internal func runtime_retirement(pos pointer: DataPointer<bray.runtime.bootstrap.execution.Reference>) -> u32
-    requires(
-        trusted bray.runtime.bootstrap.execution.reference_slot(pointer = pointer),
-        trusted bray.runtime.bootstrap.execution.retirement_entry(pointer = pointer),
-        trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.host.product.native_host(),
-        trusted bray.runtime.bootstrap.pool.protocol_access()
-    )
-{
-    let owner = trusted bray.runtime.bootstrap.execution.read_reference(pointer);
-
-    trusted retire_execution(&owner);
-    return 0;
-}
-
 trusted internal func retire_execution(pos owner: &bray.runtime.bootstrap.execution.Reference)
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),

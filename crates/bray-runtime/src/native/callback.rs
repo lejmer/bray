@@ -5,7 +5,7 @@ use bray_runtime_abi::{
 
 use crate::{RunOutcome, execute_synchronous_root};
 
-use super::state::runtime_failure;
+use super::outgoing::runtime_failure;
 
 native_export! {
     pub extern "C" fn bray_runtime_native_thread_execution(

@@ -64,7 +64,8 @@ pub extern "C" fn bray_runtime_activation_callback_admission(
 /// Retaining operations keep their frame live. Destruction may release it, while
 /// the descriptor and provider code remain live until the callback returns.
 /// Admission retains the selected task execution context through this call.
-pub extern "C" fn bray_runtime_activation_callback(invocation: &mut NativeActivationInvocation<'_>) {
+#[cfg(test)]
+fn bray_runtime_activation_callback(invocation: &mut NativeActivationInvocation<'_>) {
     let execution = invocation.execution;
 
     if invocation.operation.is_resumable() || crate::context::current_task_execution_lane().is_some() {

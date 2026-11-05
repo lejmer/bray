@@ -1300,16 +1300,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: [ReleaseCleanupStorage]
             }
-            TaskControlRuntimeRetirement {
-                "Release unstarted admissions after the runtime closes.", "task_control_runtime_retirement",
-                native: (TASK_CONTROL_RUNTIME_RETIREMENT_SYMBOL = "bray_runtime_task_control_runtime_retirement", [Pointer] -> U32),
-                service: Execution,
-                call_hook: (),
-                compiler: C [Pointer] -> U32,
-                owner: Host, availability: All, bootstrap: ("task.runtime_retirement"), host_control: false,
-                capabilities: [CooperativeExecution],
-                effects: [ReleaseCleanupStorage]
-            }
             TaskControlComposition {
                 "Compose beneath the current authentic producer callback.", "task_control_composition",
                 native: (TASK_CONTROL_COMPOSITION_SYMBOL = "bray_runtime_task_control_composition", [Pointer, Pointer, U32, U64, Usize, U8, Pointer] -> U32),
@@ -1490,16 +1480,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
-            TaskObservationService {
-                "Borrow the current native execution context for a Bray observation.", "task_observation_service",
-                native: (TASK_OBSERVATION_SERVICE_SYMBOL = "bray_runtime_task_observation_service", [U64, U32, Pointer] -> U32),
-                service: Execution,
-                call_hook: (),
-                compiler: C [U64, U32, Pointer] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: []
-            }
             TaskResolution {
                 "Resolve one task to its terminal result.", "task_resolution",
                 native: (TASK_RESOLUTION_SYMBOL = "bray_runtime_task_resolution", [U64, Pointer, Pointer] -> U32),
@@ -1537,16 +1517,6 @@ macro_rules! runtime_role_catalog {
                 owner: Event, availability: All, bootstrap: (), host_control: false,
                 capabilities: [Reactor],
                 effects: [ExecuteCallbackRoot]
-            }
-            CompatibleLaneSelection {
-                "Select a lane compatible with checked execution requirements.", "compatible_lane_selection",
-                native: (COMPATIBLE_LANE_SELECTION_SYMBOL = "bray_runtime_compatible_lane_selection", [U64, U32] -> LaneResult),
-                service: Execution,
-                call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [CooperativeExecution],
-                effects: []
             }
             CleanupIncidentTransfer {
                 "Transfer ownership of one cleanup incident.", "cleanup_incident_transfer",
@@ -1992,7 +1962,7 @@ macro_rules! runtime_role_catalog {
                 native: (EXECUTION_SHUTDOWN_SYMBOL = "bray_runtime_execution_shutdown", [] -> U32),
                 call_hook: (),
                 compiler: C [] -> U32,
-                owner: Bootstrap, availability: All, bootstrap: ("execution.driver_shutdown"), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.shutdown"), host_control: false,
                 capabilities: [],
                 effects: [StructuredShutdown]
             }
