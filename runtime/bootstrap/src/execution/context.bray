@@ -105,6 +105,18 @@ trusted internal func current() -> Current
         result.status != 0 || trusted bray.runtime.bootstrap.host.product.native_host(),
         result.status != 0 || trusted bray.runtime.bootstrap.pool.protocol_access()
     )
+    when(trusted bray.runtime.bootstrap.entry.native_entry())
+    {
+        ensures(trusted bray.runtime.bootstrap.entry.native_entry())
+    }
+    when(trusted bray.runtime.bootstrap.host.product.native_host())
+    {
+        ensures(trusted bray.runtime.bootstrap.host.product.native_host())
+    }
+    when(trusted bray.runtime.bootstrap.pool.protocol_access())
+    {
+        ensures(trusted bray.runtime.bootstrap.pool.protocol_access())
+    }
     uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
 {
     let address = match consume trusted bray.runtime.bootstrap.host.execution_context(none)

@@ -98,7 +98,7 @@ trusted internal func snapshot(pos pointer: DataPointer<Reference>, pos output: 
 // has retained its frame, immutable description and callback provider through
 // final retirement. Rejection before this point keeps the inactive input owner.
 trusted internal predicate publication_entry(
-    reference: DataPointer<Reference>,
+    reference: &DataPointer<Reference>,
     root: usize,
     execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 );
@@ -111,14 +111,14 @@ trusted internal func publication(
 ) -> u32
     requires(
         trusted reference_slot(owner = &pointer),
-        trusted publication_entry(reference = pointer, root = root, execution = execution)
+        trusted publication_entry(reference = &pointer, root = root, execution = execution)
     )
     uses(raw_memory)
 {
     let reference = trusted borrow_reference(&pointer);
 
     let permit = trusted lambda(
-        pos pointer: DataPointer<Reference>,
+        pos pointer: &DataPointer<Reference>,
         pos root: usize,
         pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
     )
@@ -137,7 +137,7 @@ trusted internal func publication(
         )
         executes(pure, total) {};
 
-    trusted permit(pointer, root, execution);
+    trusted permit(&pointer, root, execution);
 
     let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
     let mut guard = trusted lock_cell(reference);

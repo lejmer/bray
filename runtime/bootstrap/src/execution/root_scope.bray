@@ -75,13 +75,26 @@ trusted internal func nested_context(pos parent: &Current, pos attachment: bray.
     value.driver = { placement = active.driver.placement, workload = lane.workload, thread = value.thread };
     value.lanes = active.lanes;
     value.worker = active.worker;
-    value.binding = core.memory.uninit_from<(Binding?)>(trusted own_binding(parent, trusted retain_owner(bound_execution(parent))));
+    value.binding = core.memory.uninit_from<(Binding?)>(trusted pin_binding(trusted pin(bound_execution(parent))));
     return value;
 }
 
-trusted internal func retain_owner(pos owner: &Reference) -> Owner
+trusted internal func retain_owner(pos owner: &Owner) -> Owner
+    requires(trusted service_owner(owner = owner), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution))
+    ensures(trusted service_owner(owner = owner), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution), trusted retained(owner = &result.execution), trusted service_owner(owner = &result), trusted pinned(owner = &result.execution))
+{
+    return match consume trusted try_retain_owner(&owner.execution)
+    {
+        case ?acquired { yield acquired; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+// A storage pin preserves cleanup access after admission closes. Only an open
+// execution can turn that pin into a new service owner.
+trusted internal func try_retain_owner(pos owner: &Reference) -> Owner?
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner), trusted retained(owner = &result.execution), trusted service_owner(owner = &result), trusted pinned(owner = &result.execution))
+    ensures(trusted retained(owner = owner))
     uses(intrinsic)
 {
     let value = trusted domain(owner);
@@ -89,7 +102,12 @@ trusted internal func retain_owner(pos owner: &Reference) -> Owner
 
     loop
     {
-        if previous == 0 || previous == std.numeric.USIZE_MAX
+        if previous == 0
+        {
+            return none;
+        }
+
+        if previous == std.numeric.USIZE_MAX
         {
             trusted core.target.abort();
         }

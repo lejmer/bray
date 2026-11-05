@@ -11,7 +11,7 @@ using internal bray.runtime.bootstrap.host.product;
 // The current native producer invocation retains its exact checked frame and
 // disjoint metadata slot. This permission is independent of numeric frame IDs.
 trusted internal predicate callback_invocation(
-    reference: DataPointer<Reference>,
+    reference: &DataPointer<Reference>,
     execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
 );
 
@@ -24,7 +24,7 @@ trusted internal func callback_enter(
 ) -> usize
     requires(
         trusted reference_slot(owner = &pointer),
-        trusted callback_invocation(reference = pointer, execution = execution),
+        trusted callback_invocation(reference = &pointer, execution = execution),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     uses(raw_memory, intrinsic)
@@ -32,7 +32,7 @@ trusted internal func callback_enter(
     let reference = trusted borrow_reference(&pointer);
 
     let permit = trusted lambda(
-        pos pointer: DataPointer<Reference>,
+        pos pointer: &DataPointer<Reference>,
         pos execution: DataPointer<bray.runtime.bootstrap.activation.requirements.Execution>
     )
         requires(trusted callback_invocation(reference = pointer, execution = execution))
@@ -50,7 +50,7 @@ trusted internal func callback_enter(
         )
         executes(pure, total) {};
 
-    trusted permit(pointer, execution);
+    trusted permit(&pointer, execution);
 
     let value = trusted std.memory.read<bray.runtime.bootstrap.activation.requirements.Execution>(execution);
 

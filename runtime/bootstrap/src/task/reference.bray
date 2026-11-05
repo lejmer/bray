@@ -155,6 +155,14 @@ trusted internal func take_retained(pos owner: Reference?) -> Reference
 // cell until the enclosing native call returns.
 trusted internal predicate reference_slot(owner: &DataPointer<Reference>);
 
+trusted internal func native_pointer(pos owner: &Reference) -> DataPointer<Reference>
+    requires(trusted retained(owner = owner))
+    ensures(trusted reference_slot(owner = &result))
+    executes(pure, total)
+{
+    return std.memory.address_of<Reference>(owner);
+}
+
 trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &Reference
     requires(trusted reference_slot(owner = owner))
     ensures(trusted retained(owner = result))
