@@ -34,7 +34,7 @@ internal callable Operation = @abi(c) trusted func(
         trusted callback_authorized(
             context = context,
             operation = operation,
-            pool = pool,
+            pool = &pool,
             scope = scope,
             argument = argument,
             outcome = outcome
@@ -51,7 +51,7 @@ internal callable Operation = @abi(c) trusted func(
 trusted internal predicate callback_authorized(
     context: usize,
     operation: u32,
-    pool: DataPointer<Reference>,
+    pool: &DataPointer<Reference>,
     scope: DataPointer<DataPointer<Scope>>,
     argument: u64,
     outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>

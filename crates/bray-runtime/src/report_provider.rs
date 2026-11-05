@@ -83,8 +83,6 @@ unsafe extern "C" {
         reference: &bray_runtime_abi::NativeTaskReference,
         context: usize,
     );
-    pub(crate) safe fn bray_runtime_task_control_runtime_retirement(context: &crate::native::RuntimeRetirement<'_>)
-        -> bray_runtime_abi::NativeRuntimeStatus;
     pub(crate) safe fn bray_runtime_task_control_composition(
         reference: &bray_runtime_abi::NativeTaskReference,
         token: &bray_runtime_abi::NativeInactiveFrame,

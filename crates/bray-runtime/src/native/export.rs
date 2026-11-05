@@ -1,14 +1,58 @@
-use std::mem::align_of;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
-    NativeInactiveFrameTransfer, NativeProductExecution, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunResultLayout, NativeRuntimeConfiguration,
-    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
+    NativeActivationInvocation, NativeFrameProgress, NativeInactiveFrame,
+    NativeProductExecution, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+    NativeRunResultLayout, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
+    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
 };
 
-use super::state::{initialize, runtime_failure, shutdown, with_runtime};
+// These entries borrow native slots and invoke Source's sole execution engine.
+#[expect(unsafe_code, reason = "native consumers lend initialized ABI storage to the Source execution provider")]
+unsafe extern "C" {
+    /// Start an admitted root from its actual inactive frame slot.
+    pub safe fn bray_runtime_root_execution(frame: usize, outcome: &mut NativeRunOutcome) -> NativeRootStart;
+    /// Request cancellation of the root's source claim.
+    pub safe fn bray_runtime_root_cancellation_request(root: NativeRootHandle) -> NativeRuntimeStatus;
+    /// Move the root's terminal outcome while retaining its completion claim.
+    pub safe fn bray_runtime_root_terminal_observation(root: NativeRootHandle) -> NativeRunOutcome;
+    /// Retire the observed root after its outcome has been resolved.
+    pub safe fn bray_runtime_root_completion_resolution(root: NativeRootHandle) -> NativeRuntimeStatus;
+    /// Drain execution cleanup incidents before retiring its services.
+    pub safe fn bray_runtime_cleanup_incident_reporting() -> NativeRuntimeStatus;
+    /// Establish the physical Main driver and its execution services.
+    pub safe fn bray_runtime_main_thread_lane_startup(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus;
+    /// Drive one ready turn on the retained physical Main driver.
+    pub safe fn bray_runtime_main_thread_lane_drive() -> NativeRuntimeStatus;
+    /// Allocate the source claim for an ordinary task or cleanup computation.
+    pub safe fn bray_runtime_task_allocation() -> NativeTaskAllocation;
+    /// Transfer the actual inactive frame slot to its allocated task.
+    pub safe fn bray_runtime_task_start(task: NativeTaskHandle, frame: usize, outcome: &mut NativeRunOutcome) -> NativeRuntimeStatus;
+    /// Compose an awaited frame beneath the currently admitted Source invocation.
+    pub safe fn bray_runtime_awaited_frame_composition(frame: NativeInactiveFrame, resume_state: u32, destination: usize, composition: u8);
+    /// Transfer the terminal task result into the compiler-described destination.
+    pub safe fn bray_runtime_task_resolution(task: NativeTaskHandle, destination: *mut u8, layout: *const NativeRunResultLayout) -> NativeRuntimeStatus;
+    /// Resolve the task's source claim and release its storage.
+    pub safe fn bray_runtime_task_destruction(task: NativeTaskHandle) -> NativeRuntimeStatus;
+    /// Create an event in this execution's Source directory.
+    pub safe fn bray_runtime_task_event_creation() -> usize;
+    /// Signal the event's current generation.
+    pub safe fn bray_runtime_task_event_signal(event: usize) -> NativeRuntimeStatus;
+    /// Withdraw the event from its Source directory.
+    pub safe fn bray_runtime_task_event_destruction(event: usize) -> NativeRuntimeStatus;
+    /// Publish the next suspended producer state.
+    pub safe fn bray_runtime_suspension_registration(state: u32) -> NativeFrameProgress;
+    /// Wake an admitted Source task.
+    pub safe fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus;
+    /// Request cancellation through the task's actual source claim.
+    pub safe fn bray_runtime_task_cancellation_request(task: NativeTaskHandle) -> NativeRuntimeStatus;
+    /// Retire the execution driver, then finalize its optional native host.
+    pub safe fn bray_runtime_execution_shutdown() -> NativeRuntimeStatus;
+    /// Enter a producer callback through its complete Source invocation.
+    pub safe fn bray_runtime_activation_callback(invocation: &mut NativeActivationInvocation<'_>);
+    /// Check action requirements against the actual retained Source driver.
+    pub safe fn bray_runtime_activation_action_readiness(invocation: &mut NativeActivationInvocation<'_>);
+}
 
 // Bundled Rust hosts and runtime test images own a resident final image. Bray images
 // select unbundled runtime components and publish their own generated descriptor.
@@ -31,22 +75,6 @@ extern "C" fn no_host_statics(_: usize) -> bray_runtime_abi::NativeStaticHostEnt
 }
 
 native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_substrate_initialization(
-        worker_capacity: usize,
-        timer_capacity: usize,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            initialize(NativeRuntimeConfiguration::new(
-                worker_capacity,
-                timer_capacity,
-            ))
-        })
-    }
-}
-
-native_export! {
     pub extern "C" fn bray_runtime_product_execution_provider(
         asynchronous: u32,
         output: &mut std::mem::MaybeUninit<NativeProductExecution>,
@@ -56,368 +84,13 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeInactiveFrameTransfer,
-        configuration: NativeRuntimeConfiguration,
-        outcome: &mut NativeRunOutcome,
-    ) -> NativeRootStart {
-        catch_unwind(AssertUnwindSafe(|| {
-            super::state::with_root_execution_context(|| {
-                let Some(frame) = take_transferred_frame(frame) else {
-                    return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
-                };
-
-                let start = super::host::with_output(|| execute_root(frame, configuration, outcome));
-
-                if let Some(root) = start.root()
-                    && let Ok(Ok(cancellation)) =
-                        with_runtime(|runtime| runtime.root_cancellation(root))
-                {
-                    super::host::register_timeout(cancellation);
-                }
-
-                start
-            })
-        }))
-            .unwrap_or_else(|_| {
-                NativeRootStart::failure(NativeRuntimeStatus::PANICKED)
-            })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_root_cancellation_request(
-        root: NativeRootHandle,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.request_root_cancellation(root))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_root_terminal_observation(
-        root: NativeRootHandle,
-    ) -> NativeRunOutcome {
-        let outcome = catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|runtime| runtime.observe_root(root))
-                .unwrap_or_else(runtime_failure)
-        }))
-        .unwrap_or_else(|_| runtime_failure(NativeRuntimeStatus::PANICKED));
-
-        super::host::record_outcome(&outcome);
-
-        outcome
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_root_completion_resolution(
-        root: NativeRootHandle,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.resolve_root_completion(root))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_cleanup_incident_reporting(
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            match with_runtime(|runtime| runtime.report_cleanup_incidents()) {
-                Ok(status) => status,
-                Err(NativeRuntimeStatus::NOT_INITIALIZED) => NativeRuntimeStatus::SUCCESS,
-                Err(status) => status,
-            }
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_main_thread_lane_startup(
-        configuration: NativeRuntimeConfiguration,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| initialize_for_execution(configuration))
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_main_thread_lane_drive() -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.drive_main_thread())
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_allocation() -> NativeTaskAllocation {
-        catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|runtime| runtime.allocate()).unwrap_or_else(
-                NativeTaskAllocation::failure,
-            )
-        }))
-        .unwrap_or_else(|_| {
-            NativeTaskAllocation::failure(NativeRuntimeStatus::PANICKED)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_start(
-        task: NativeTaskHandle,
-        frame: NativeInactiveFrame,
-        outcome: &mut NativeRunOutcome,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.start(task, &frame, outcome))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
-        frame: NativeInactiveFrame,
-        resume_state: u32,
-        destination: usize,
-        composition: u8,
-    ) {
-        let composition = bray_runtime_abi::NativeFrameComposition::from_code(composition)
-            .expect("frame composition requires a valid ownership disposition");
-
-        let status = with_runtime(|runtime| runtime.compose_awaited(&frame, resume_state, destination, composition))
-            .unwrap_or_else(|status| status);
-
-        assert!(status.is_success(), "awaited-frame composition failed");
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_resolution(
-        task: NativeTaskHandle,
-        destination: *mut u8,
-        layout: *const NativeRunResultLayout,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.with_cleanup_driving(|| {
-                let mut outcome = runtime.resolve_task(task);
-                let status = crate::report_provider::bray_runtime_task_result_transfer(
-                    &mut outcome, destination, layout,
-                );
-
-                if !status.is_success() {
-                    return status;
-                }
-
-                runtime.resolve_task_retirement(task)
-            })).unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_task_destruction(
-        task: NativeTaskHandle,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.destroy_task(task))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_event_creation() -> usize {
-        with_runtime(|runtime| super::event::create(&runtime.core)).unwrap_or(0)
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_event_signal(event: usize) -> NativeRuntimeStatus {
-        contain_status(|| super::event::signal(event))
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_task_event_destruction(
-        event: usize,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| super::event::destroy(&runtime.core, event))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_suspension_registration(
-        state: u32,
-    ) -> NativeFrameProgress {
-        NativeFrameProgress::new(
-            NativeFrameProgressKind::SUSPENDED,
-            state,
-            0,
-        )
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.wake(task))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_task_cancellation_request(
-        task: NativeTaskHandle,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| {
-            with_runtime(|runtime| runtime.request_cancellation(task))
-                .unwrap_or_else(|status| status)
-        })
-    }
-}
-
-native_export! {
-    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
-    #[cfg_attr(test, unsafe(no_mangle))]
-    pub extern "C" fn bray_runtime_task_observation_service(
-        task: NativeTaskHandle,
-        operation: u32,
-        output: &mut u64,
-    ) -> NativeRuntimeStatus {
-        contain_status(|| super::task::observation_service(task, operation, output))
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_event(
-        callback: NativeRuntimeEventCallback,
-        context: usize,
-    ) -> NativeRuntimeStatus {
+    pub extern "C" fn bray_runtime_event(callback: NativeRuntimeEventCallback, context: usize) -> NativeRuntimeStatus {
         contain_status(|| callback(context))
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_compatible_lane_selection(
-        task: NativeTaskHandle,
-        state: u32,
-    ) -> NativeExecutionLaneResult {
-        catch_unwind(AssertUnwindSafe(|| {
-            with_runtime(|runtime| runtime.lane(task, state)).unwrap_or_else(
-                NativeExecutionLaneResult::failure,
-            )
-        }))
-        .unwrap_or_else(|_| {
-            NativeExecutionLaneResult::failure(NativeRuntimeStatus::PANICKED)
-        })
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_execution_shutdown() -> NativeRuntimeStatus {
-        contain_status(|| {
-            let runtime_status = shutdown();
-            let selected_host = super::host::active();
-
-            if super::host::finish().is_err() {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            }
-
-            if selected_host && runtime_status == NativeRuntimeStatus::NOT_INITIALIZED {
-                NativeRuntimeStatus::SUCCESS
-            } else {
-                runtime_status
-            }
-        })
     }
 }
 
 fn contain_status(callback: impl FnOnce() -> NativeRuntimeStatus) -> NativeRuntimeStatus {
     catch_unwind(AssertUnwindSafe(callback)).unwrap_or(NativeRuntimeStatus::PANICKED)
-}
-
-#[expect(
-    unsafe_code,
-    reason = "the native ownership-transfer ABI exposes a validated descriptor address"
-)]
-fn take_transferred_frame(transfer: NativeInactiveFrameTransfer) -> Option<NativeInactiveFrame> {
-    let address = transfer.address();
-
-    if address == 0 || !address.is_multiple_of(align_of::<NativeInactiveFrame>()) {
-        return None;
-    }
-
-    let frame = unsafe {
-        // The native ABI requires the caller to keep this descriptor live for
-        // the call and transfers its generated context to this copied value.
-        (address as *const NativeInactiveFrame).read()
-    };
-
-    Some(frame)
-}
-
-fn execute_root(
-    frame: NativeInactiveFrame,
-    configuration: NativeRuntimeConfiguration,
-    outcome: &mut NativeRunOutcome,
-) -> NativeRootStart {
-    let status = initialize_for_execution(configuration);
-
-    if !status.is_success() {
-        return NativeRootStart::failure(status);
-    }
-
-    let allocation =
-        with_runtime(|runtime| runtime.allocate()).unwrap_or_else(NativeTaskAllocation::failure);
-
-    let Some(task) = allocation.task() else {
-        return NativeRootStart::failure(allocation.status());
-    };
-
-    let status = with_runtime(|runtime| runtime.start(task, &frame, outcome))
-        .unwrap_or_else(|status| status);
-
-    if !status.is_success() {
-        let released = with_runtime(|runtime| runtime.destroy_task(task))
-            .expect("root admission retains its initialized runtime");
-
-        assert!(
-            released.is_success(),
-            "rejected root activation retains its unstarted task reservation"
-        );
-
-        return NativeRootStart::failure(status);
-    }
-
-    NativeRootHandle::new(task.raw()).map_or_else(
-        || NativeRootStart::failure(NativeRuntimeStatus::RUNTIME_FAILURE),
-        NativeRootStart::success,
-    )
-}
-
-fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus {
-    let status = initialize(configuration);
-
-    if status == NativeRuntimeStatus::ALREADY_INITIALIZED {
-        NativeRuntimeStatus::SUCCESS
-    } else {
-        status
-    }
 }
 
 #[cfg(test)]

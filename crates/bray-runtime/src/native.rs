@@ -7,7 +7,8 @@ mod callback;
 mod entry;
 #[cfg(test)]
 pub(crate) use entry::bray_runtime_foreign_callback_execution;
-mod event;
+#[cfg(test)]
+mod event_tests;
 mod export;
 #[cfg(test)]
 mod fixtures;
@@ -22,11 +23,11 @@ mod state;
 pub(crate) use state::test_runtime_isolation;
 mod static_finalizer;
 mod task;
-pub(crate) mod workers;
+#[cfg(test)]
+mod workers_tests;
 
 pub(crate) use state::{
-    NativeRuntimeCore, RetainedRuntime, RuntimeRetirement, retain_current_runtime, retain_runtime,
+    RetainedRuntime, retain_current_runtime, retain_runtime,
     with_cleanup_runtime,
 };
 pub(crate) use static_finalizer::{run_static_finalizer, with_static_cleanup_context};
-pub(crate) use task::NativeTaskServices;

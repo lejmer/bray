@@ -1,38 +1,4 @@
 use bray_runtime::native::implementation;
-use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeRuntimeStatus, NativeTaskHandle,
-};
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_task_observation_service(
-        task: NativeTaskHandle,
-        operation: u32,
-        output: &mut u64,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_observation_service(task, operation, output)
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_compatible_lane_selection(
-        task: NativeTaskHandle,
-        state: u32,
-    ) -> NativeExecutionLaneResult {
-        implementation::bray_runtime_compatible_lane_selection(task, state)
-    }
-}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_activation_callback_admission(

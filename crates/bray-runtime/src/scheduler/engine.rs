@@ -223,24 +223,7 @@ impl Scheduler {
             .into_iter()
             .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
 
-        super::dispatch::pop_ready(&self.data, thread, lanes, None)
-    }
-
-    pub(crate) fn take_worker_ready(
-        &self,
-        thread: &RuntimeThread,
-        lanes: impl IntoIterator<Item = ExecutionLane>,
-        scope: &bray_runtime_abi::NativeWorkerScope,
-    ) -> Result<Option<super::dispatch::ReadyTask>, SchedulerError> {
-        self.promote_elapsed_timers()?;
-
-        let thread = thread.id();
-
-        let lanes = lanes
-            .into_iter()
-            .fold(0, |mask, lane| mask | native::lane_bit(lane, thread));
-
-        super::dispatch::pop_ready(&self.data, thread, lanes, Some(scope))
+        super::dispatch::pop_ready(&self.data, thread, lanes)
     }
 
     /// Returns the number of registered independent runs.
@@ -370,16 +353,7 @@ impl TaskRegistration {
         )
     }
 
-    pub(crate) fn retain_driver(&self, scope: Option<&bray_runtime_abi::NativeWorkerScope>, cleanup: bool) {
-        let scheduler = self.scheduler.upgrade().expect("an exclusive dispatch retains its scheduler");
 
-        native::bray_runtime_scheduler_recovery(
-            &scheduler.source.reference,
-            self.registration,
-            scope.unwrap_or(&bray_runtime_abi::NativeWorkerScope::default()),
-            cleanup,
-        );
-    }
 }
 
 impl Drop for TaskRegistration {

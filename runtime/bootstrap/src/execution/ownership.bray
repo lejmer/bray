@@ -19,7 +19,7 @@ trusted internal func borrow_resolution(pos execution: &bray.runtime.bootstrap.e
     return trusted retain_task(execution, handle);
 }
 
-trusted internal func admit_source_task(pos selected: &Current) -> (bray.runtime.bootstrap.task.Reference?, u32)
+trusted internal func admit_source_task(pos selected: &Current, pos root: bool) -> (bray.runtime.bootstrap.task.Reference?, u32)
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
     ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.task.retained_option(owner = &result.0), trusted bray.runtime.bootstrap.task.resolution_owner_option(owner = &result.0))
     uses(intrinsic)
@@ -41,7 +41,7 @@ trusted internal func admit_source_task(pos selected: &Current) -> (bray.runtime
     let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
     trusted bray.runtime.bootstrap.task.attach_execution(&owner, trusted pin(bound_execution(selected)));
 
-    let status = trusted admit_task_context(selected, &owner);
+    let status = trusted admit_task_context(selected, &owner, root);
 
     if status != 0
     {
@@ -55,7 +55,7 @@ trusted internal func admit_source_task(pos selected: &Current) -> (bray.runtime
     return (source, 0);
 }
 
-trusted internal func admit_task_context(pos selected: &Current, pos reference: &bray.runtime.bootstrap.task.Reference) -> u32
+trusted internal func admit_task_context(pos selected: &Current, pos reference: &bray.runtime.bootstrap.task.Reference, pos root: bool) -> u32
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.task.retained(owner = reference))
     ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.task.retained(owner = reference))
     when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
@@ -68,8 +68,6 @@ trusted internal func admit_task_context(pos selected: &Current, pos reference: 
     }
     uses(foreign_call, intrinsic)
 {
-    let parent = trusted current_task(selected);
-    let root: u32 = if parent matches none { yield 1; } else { yield 0; };
     let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
     let admission = trusted context_admission(execution);
 
@@ -84,7 +82,7 @@ trusted internal func admit_task_context(pos selected: &Current, pos reference: 
 
         let owner = trusted bray.runtime.bootstrap.task.take_retained(storage);
 
-        return trusted accept(owner, root);
+        return trusted accept(owner, if root { yield 1; } else { yield 0; });
     }
 
     return 0;

@@ -19,7 +19,7 @@ trusted internal func worker_callback(
     pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
-    requires(operation != 4 || blocking_execution(), trusted bray.runtime.bootstrap.worker.callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
+    requires(operation != 4 || blocking_execution(), trusted bray.runtime.bootstrap.worker.callback_authorized(context = context, operation = operation, pool = &pool, scope = scope, argument = argument, outcome = outcome))
     ensures(
         trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
         trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
@@ -29,14 +29,14 @@ trusted internal func worker_callback(
     )
     uses(raw_memory, unchecked_init)
 {
-    let reference = trusted bray.runtime.bootstrap.worker.callback_pool(context, operation, pool, scope, argument, outcome, &pool);
+    let reference = trusted bray.runtime.bootstrap.worker.callback_pool(context, operation, &pool, scope, argument, outcome);
     let owner = trusted bray.runtime.bootstrap.worker.execution_reference(reference);
     let status: u32 = match operation
     {
         case 0 { yield trusted core.target.abort(); }
         case 1
         {
-            _ = trusted release_pin(trusted bray.runtime.bootstrap.worker.take_execution_backing(context, reference, pool, scope, argument, outcome));
+            _ = trusted release_pin(trusted bray.runtime.bootstrap.worker.take_execution_backing(context, reference, &pool, scope, argument, outcome));
             yield 0;
         }
         case 2

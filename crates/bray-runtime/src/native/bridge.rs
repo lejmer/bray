@@ -1,4 +1,4 @@
-use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeRuntimeStatus};
+use bray_runtime_abi::{NativeRunOutcome, NativeRuntimeStatus};
 
 use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
 
@@ -46,6 +46,8 @@ extern "C" fn control(operation: u32) -> u32 {
 
             0
         }
+        3 if !super::host::active() => 0,
+        3 => if super::host::finish().is_ok() { 1 } else { NativeRuntimeStatus::RUNTIME_FAILURE.code() + 1 },
         _ => panic!("unknown execution control operation {operation}"),
     }
 }
@@ -150,45 +152,18 @@ extern "C" fn invoke(
     main: u32,
     outcome: &mut NativeRunOutcome,
 ) -> u32 {
-    // Rust callback shims contain unwind before returning through this continuation.
-    super::state::with_independent_execution_context(|| {
-        // Retirement can release a Rust payload after the body has completed.
-        // Its report owner and suppression record must exist before user code runs.
-        let Ok(mut admitted) = crate::outgoing::OutgoingRecords::admit(1) else {
-            *outcome = super::outgoing::allocation_failure();
-
-            if main != 0 {
-                super::host::record_outcome(outcome);
-            }
-
-            return NativeRuntimeStatus::SUCCESS.code();
-        };
-
+    // Source owns entry isolation, frame cleanup and execution retirement. Only
+    // the native cancellation and output contexts belong to this continuation.
+    crate::context::with_independent_execution_context(|| {
         let cancellation = crate::CancellationContext::root();
 
         if main != 0 {
             super::host::register_timeout(crate::RootCancellationHandle::new(cancellation.clone()));
         }
 
-        let mut status = crate::context::with_run_cancellation_context(cancellation, || {
+        let status = crate::context::with_run_cancellation_context(cancellation, || {
             super::host::with_output(|| continuation(callback, context, main, outcome))
         });
-
-        // Only Rust-owned retirement is caught here. The Bray continuation has
-        // already returned, and its body result remains in the caller's slot.
-        let retirement = match std::panic::catch_unwind(super::state::shutdown) {
-            Ok(status) if status == NativeRuntimeStatus::NOT_INITIALIZED => {
-                NativeRuntimeStatus::SUCCESS
-            }
-            Ok(status) => status,
-            Err(payload) => report_retirement(outcome, payload, &mut admitted),
-        };
-
-        if !retirement.is_success()
-            && (status == 0 || status == NativeRuntimeStatus::PANICKED.code())
-        {
-            status = retirement.code();
-        }
 
         if main != 0 {
             super::host::record_outcome(outcome);
@@ -200,28 +175,6 @@ extern "C" fn invoke(
 
         status
     })
-}
-
-fn report_retirement(
-    outcome: &mut NativeRunOutcome,
-    payload: Box<dyn std::any::Any + Send>,
-    admitted: &mut crate::outgoing::OutgoingRecords,
-) -> NativeRuntimeStatus {
-    let mut panic = crate::RuntimePanic::from_payload(payload, admitted);
-
-    if outcome.state() == NativeRunState::COMPLETED {
-        // The caller still owns the completed result. Reporting takes only cleanup.
-        let status = panic.consume(true);
-
-        if !status.is_success() && status != NativeRuntimeStatus::PANICKED {
-            return status;
-        }
-    } else {
-        super::outgoing::append_panic(outcome, panic, admitted);
-    }
-
-    // EntryStatus distinguishes a represented panic from an unreported failure.
-    NativeRuntimeStatus::PANICKED
 }
 
 #[cfg(test)]

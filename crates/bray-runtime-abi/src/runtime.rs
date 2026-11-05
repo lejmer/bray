@@ -614,69 +614,13 @@ impl NativeInactiveFrame {
 /// Callback waking a generated task observer.
 pub type NativeWakeCallback = extern "C" fn(context: usize);
 
-/// ABI-safe selected execution-lane category.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeExecutionLane(u32);
-
-impl NativeExecutionLane {
-    /// Cooperative work on a movable or pinned worker lane.
-    pub const COOPERATIVE: Self = Self(0);
-    /// Work on an origin-thread lane.
-    pub const ORIGIN_THREAD: Self = Self(1);
-    /// Work on the distinguished main-thread lane.
-    pub const MAIN_THREAD: Self = Self(2);
-    /// Work on a blocking lane.
-    pub const BLOCKING: Self = Self(3);
-    /// Work on a compute lane.
-    pub const COMPUTE: Self = Self(4);
-    /// Work requiring both blocking and compute execution authority.
-    pub const BLOCKING_COMPUTE: Self = Self(5);
-}
-
-/// Result of selecting a compatible execution lane.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeExecutionLaneResult {
-    status: NativeRuntimeStatus,
-    lane: NativeExecutionLane,
-}
-
-impl NativeExecutionLaneResult {
-    /// Creates one successful lane selection.
-    pub const fn success(lane: NativeExecutionLane) -> Self {
-        Self {
-            status: NativeRuntimeStatus::SUCCESS,
-            lane,
-        }
-    }
-
-    /// Creates one failed lane selection.
-    pub const fn failure(status: NativeRuntimeStatus) -> Self {
-        Self {
-            status,
-            lane: NativeExecutionLane::COOPERATIVE,
-        }
-    }
-
-    /// Returns the operation status.
-    pub const fn status(self) -> NativeRuntimeStatus {
-        self.status
-    }
-
-    /// Returns the selected lane after success.
-    pub const fn lane(self) -> NativeExecutionLane {
-        self.lane
-    }
-}
-
 /// Runtime event callback accepted by the native artifact.
 pub type NativeRuntimeEventCallback = extern "C" fn(context: usize) -> NativeRuntimeStatus;
 
 #[cfg(test)]
 mod tests {
     use super::{
-        NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
+        NativeFrameAffinity, NativeFrameExit,
         NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
         NativeInactiveFrameTransfer, NativeLaneRequirements, NativeRootHandle, NativeRootStart,
         NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
@@ -696,7 +640,6 @@ mod tests {
         assert_abi_layout!(NativeFrameProgressKind, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameExit, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeInactiveFrameTransfer, size: 8, align: 8, fields: {});
-        assert_abi_layout!(NativeExecutionLane, size: 4, align: 4, fields: {});
     }
 
     #[test]
@@ -748,9 +691,5 @@ mod tests {
             descriptor: 40,
         });
 
-        assert_abi_layout!(NativeExecutionLaneResult, size: 8, align: 4, fields: {
-            status: 0,
-            lane: 4,
-        });
     }
 }

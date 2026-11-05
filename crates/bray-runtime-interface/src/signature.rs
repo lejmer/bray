@@ -38,8 +38,6 @@ pub enum RuntimeAbiType {
     FrameProgress,
     /// Frame affinity and required execution lanes.
     FrameState,
-    /// Lane-selection status and lane identity.
-    LaneResult,
 }
 
 /// Native field order shared by panic report type realization and source binding checks.

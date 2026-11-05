@@ -173,7 +173,7 @@ fn register_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if matches!(kind, RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState) {
+    if matches!(kind, RuntimeAbiType::FrameState) {
         return Some(context.i64_type().into());
     }
 
@@ -866,8 +866,8 @@ mod tests {
                 runtime_function_type(&context, &target, RuntimeAbiRole::SuspensionRegistration)
                     .expect("fixture `runtime_function_type` call must succeed");
 
-            let lane =
-                runtime_function_type(&context, &target, RuntimeAbiRole::CompatibleLaneSelection)
+            let state =
+                runtime_function_type(&context, &target, RuntimeAbiRole::TaskObservationQuery)
                     .expect("fixture `runtime_function_type` call must succeed");
 
             let root = runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
@@ -890,7 +890,7 @@ mod tests {
             assert_eq!(progress.get_return_type(), None, "{native:?}");
 
             assert_eq!(
-                lane.get_return_type(),
+                state.get_return_type(),
                 Some(context.i64_type().into()),
                 "{native:?}"
             );

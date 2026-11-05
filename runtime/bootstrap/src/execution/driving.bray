@@ -82,7 +82,7 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
 
     let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
 
-    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer, pending);
+    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected), pending);
     return true;
 }
 

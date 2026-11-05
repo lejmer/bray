@@ -1,5 +1,9 @@
 use bray_runtime_abi::{NativeRunOutcome, NativeRunState};
 
+pub(super) fn runtime_failure(status: bray_runtime_abi::NativeRuntimeStatus) -> NativeRunOutcome {
+    NativeRunOutcome::new(NativeRunState::RUNTIME_FAILURE, status.code() as usize)
+}
+
 pub(super) fn allocation_failure() -> NativeRunOutcome {
     NativeRunOutcome::panicked(crate::frame::native_report(
         bray_runtime_abi::NativePanicPrimary::new(
