@@ -34,7 +34,7 @@ trusted internal func native_scope_enter(
     pos bytes: usize,
     pos align: usize,
     pos isolate: u32
-) -> u32
+) -> u64
     requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align))
     ensures(trusted native_scope_initialized(owner = &storage))
     uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
@@ -58,7 +58,11 @@ trusted internal func native_scope_enter(
 
     trusted permit(&storage, pointer, bytes, align);
     trusted std.memory.write<EntryScope>(pointer, scope);
-    return status;
+    // The high word publishes initialization independently from entry status.
+    // A containing native boundary returns zero if construction unwinds.
+    let committed: u64 = 1;
+
+    return (committed << 32) | (status as u64);
 }
 
 @abi(c)

@@ -34,6 +34,11 @@ impl NativeRuntimeStatus {
     /// Required outgoing cleanup storage could not be admitted.
     pub const OUTGOING_STORAGE_UNAVAILABLE: Self = Self(9);
 
+    /// Preserves a status received from a native ABI result field.
+    pub const fn from_code(code: u32) -> Self {
+        Self(code)
+    }
+
     /// Returns whether the operation completed successfully.
     pub const fn is_success(self) -> bool {
         self.0 == Self::SUCCESS.0

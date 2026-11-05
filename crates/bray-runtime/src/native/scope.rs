@@ -14,7 +14,7 @@ unsafe extern "C" {
         bytes: usize,
         align: usize,
         isolate: u32,
-    ) -> NativeRuntimeStatus;
+    ) -> u64;
     safe fn bray_runtime_execution_scope_finish(storage: *mut u8) -> NativeRuntimeStatus;
 }
 
@@ -40,15 +40,24 @@ impl Scope {
             _thread: PhantomData,
         };
 
-        let status = bray_runtime_execution_scope_enter(
+        let entered = bray_runtime_execution_scope_enter(
             scope.storage.0.as_mut_ptr().cast(),
             size_of::<Storage>(),
             align_of::<Storage>(),
             u32::from(isolate),
         );
 
-        // The entry always commits its scope, including an entry that could not
-        // isolate. Retire that owner before returning a failed acquisition.
+        // A contained construction failure has not initialized Source storage.
+        // An entry that merely could not isolate still commits an actual scope.
+        if entered >> 32 != 1 {
+            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+        }
+
+        let status = NativeRuntimeStatus::from_code(
+            u32::try_from(entered & u64::from(u32::MAX))
+                .expect("the entry status occupies its ABI low word"),
+        );
+
         scope.active = true;
 
         if !status.is_success() {

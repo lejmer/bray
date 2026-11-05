@@ -877,17 +877,12 @@ mod tests {
                 NativeTarget::X86_64WindowsMsvc => vec![
                     context.ptr_type(inkwell::AddressSpace::default()).into(),
                     context.i64_type().into(),
-                    context.ptr_type(inkwell::AddressSpace::default()).into(),
                 ],
-                NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => {
-                    vec![context.i64_type().into(); 3]
-                }
-                NativeTarget::Aarch64LinuxGnu
+                NativeTarget::X86_64LinuxGnu
+                | NativeTarget::X86_64MacOs
+                | NativeTarget::Aarch64LinuxGnu
                 | NativeTarget::Aarch64WindowsMsvc
-                | NativeTarget::Aarch64MacOs => vec![
-                    context.i64_type().into(),
-                    context.i64_type().array_type(2).into(),
-                ],
+                | NativeTarget::Aarch64MacOs => vec![context.i64_type().into()],
             };
 
             expected_root_parameters.push(context.ptr_type(inkwell::AddressSpace::default()).into());

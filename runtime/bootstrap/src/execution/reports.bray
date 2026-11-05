@@ -9,6 +9,30 @@ using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.report.sink;
 
+@abi(c)
+trusted internal func report_incidents() -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let selected = trusted current();
+
+    if selected.status == 1
+    {
+        return 0;
+    }
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if has_execution(&selected)
+    {
+        _ = trusted drain_reports(trusted bound_execution(&selected));
+    }
+
+    return 0;
+}
+
 trusted internal func lock_reports(pos owner: &bray.runtime.bootstrap.execution.Reference) -> std.sync.SpinLockGuard<bray.runtime.bootstrap.report.sink.State>
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted std.sync.spin_lock.acquired(&result.acquisition))

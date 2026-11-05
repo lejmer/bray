@@ -297,9 +297,8 @@ struct RunOutcome
 _Static_assert(sizeof(PanicReport) == 168, "native report layout");
 _Static_assert(sizeof(RunOutcome) == 184, "native outcome layout");
 
-extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
+extern uint32_t bray_runtime_initialization(void);
 
-static uint32_t substrate_initialized;
 static atomic_uint cleanup_shield_balance;
 
 extern void bray_runtime_cleanup_shield_enter(void);
@@ -332,28 +331,7 @@ static uint32_t execution_control(uint32_t operation)
     return 0;
 }
 
-uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity)
-{
-    (void)worker_capacity;
-    (void)timer_capacity;
-
-    if (substrate_initialized != 0)
-        return 2;
-
-    substrate_initialized = 1;
-
-    return 0;
-}
-
-uint32_t bray_runtime_execution_shutdown(void)
-{
-    if (substrate_initialized == 0)
-        return 1;
-
-    substrate_initialized = 0;
-
-    return 0;
-}
+extern uint32_t bray_runtime_execution_shutdown(void);
 
 extern uint32_t bray_runtime_panic_reporting(PanicReport*);
 extern uint32_t bray_runtime_panic_report_destruction(PanicReport*);
@@ -383,7 +361,7 @@ static uint32_t shutdown_product(void)
 
     uint32_t host = bray_runtime_structured_shutdown();
 
-    return host == 0 ? execution : host;
+    return host;
 }
 
 typedef struct
@@ -1166,7 +1144,7 @@ static int check_concurrent_attachments(void)
 
 static int check_pool_retirement(void)
 {
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 42;
 
     RunOutcome outcome = {0};
@@ -1201,7 +1179,7 @@ static int check_pool_retirement(void)
     atomic_store(&reject_allocations, 0);
 
     // A new epoch must allocate a usable pool after the previous one released its backing.
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 46;
 
     bray_runtime_outgoing_admission(&(CleanupBundle){ 1, NULL, 0 }, &outcome);
@@ -3276,7 +3254,7 @@ int main(void)
 
     if (getenv("BRAY_RUNTIME_SMOKE_DEADLINES"))
     {
-        if (bray_runtime_initialization(1, 1) != 0)
+        if (bray_runtime_initialization() != 0)
             return 1;
 
         int status = check_deadline_runtime();
@@ -3348,7 +3326,7 @@ int main(void)
     if (worker_status != 0)
         return worker_status;
 
-    if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2)
+    if (bray_runtime_initialization() != 0 || bray_runtime_initialization() != 2)
         return 1;
 
     int numeric_status = check_numeric_runtime();
@@ -3397,7 +3375,7 @@ int main(void)
     if (shutdown_product() != 1 || shutdown_product() != 1)
         return 5;
 
-    if (bray_runtime_initialization(1, 1) != 0 || shutdown_product() != 0)
+    if (bray_runtime_initialization() != 0 || shutdown_product() != 0)
         return 6;
 
     int retirement_status = check_pool_retirement();
@@ -3405,7 +3383,7 @@ int main(void)
     if (retirement_status != 0)
         return retirement_status;
 
-    if (bray_runtime_initialization(1, 1) != 0)
+    if (bray_runtime_initialization() != 0)
         return 76;
 
     int bundle_status = check_cleanup_bundle();

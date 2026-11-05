@@ -77,6 +77,26 @@ pub(super) fn translate_runtime_boundary<'context>(
                 state.into(),
                 "worker.entry.completed",
             )?;
+
+            // The success check ends the unexpected unwind path. Returning the
+            // actual value also supports owned aggregate results without a
+            // speculative aggregate select or a fabricated zero value.
+            match symbol.signature().result() {
+                bray_codegen::CodegenResultMapping::Void
+                | bray_codegen::CodegenResultMapping::Indirect { .. } => {
+                    llvm(builder.build_return(None))?;
+                }
+                bray_codegen::CodegenResultMapping::Direct { .. } => {
+                    let returned = call
+                        .try_as_basic_value()
+                        .basic()
+                        .expect("a direct runtime value boundary returns its checked value");
+
+                    llvm(builder.build_return(Some(&returned)))?;
+                }
+            }
+
+            return Ok(());
         }
 
         let completed = native_run_state_is(
@@ -112,8 +132,6 @@ pub(super) fn translate_runtime_boundary<'context>(
                 ),
                 "entry.cleanup.status",
             ))?
-        } else if kind == bray_runtime_interface::NativeEntryKind::RuntimeValue {
-            status.get_type().const_zero()
         } else if kind == bray_runtime_interface::NativeEntryKind::RuntimeIdentity {
             context.i64_type().const_zero().into()
         } else {
