@@ -83,7 +83,10 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
 {
     let pointer = trusted pending_storage(selected);
 
-    if trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(selected, pointer) matches ?_
+    if trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(
+        selected,
+        pointer
+    ) matches ?_
     {
         trusted core.target.abort();
     }

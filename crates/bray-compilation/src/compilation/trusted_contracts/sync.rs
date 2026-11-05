@@ -350,7 +350,8 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
         ("return lend(owner);", true),
         ("return other;", false),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             struct Marker {{}}
             struct Owner {{ acquisition: Marker; }}
@@ -371,12 +372,20 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
                 requires(trusted held(owner = &owner.acquisition))
                 ensures(result matches none || trusted held(owner = marker(&result)))
             {{ {body} }}
-        "#);
+        "#
+        );
+
         let application = compilation(&source);
-        let checked = application.lowered_unit(source_function_body_key(&application, "forward"))
+
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "forward"))
             .expect("nullable borrowed witness retains its checked body");
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {checked:#?}");
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
     }
 }
 
@@ -2184,11 +2193,21 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
 #[test]
 fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
     for (body, valid) in [
-        ("let owner = view(&pointer, pointer); visit(owner, callback); visit(owner, callback);", true),
-        ("let owner = view(&pointer, pointer); loop { visit(owner, callback); if !again { return; } }", true),
-        ("let owner = view(&pointer, pointer); pointer = std.memory.null<Owner>(); visit(owner, callback);", false),
+        (
+            "let owner = borrow_owner(&pointer, pointer); visit(owner, callback); visit(owner, callback);",
+            true,
+        ),
+        (
+            "let owner = borrow_owner(&pointer, pointer); loop { visit(owner, callback); if !again { return; } }",
+            true,
+        ),
+        (
+            "let owner = borrow_owner(&pointer, pointer); pointer = std.memory.null<Owner>(); visit(owner, callback);",
+            false,
+        ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             using core.memory;
             struct Marker {{}}
@@ -2196,7 +2215,7 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             callable Callback = @abi(c) trusted func();
             trusted predicate slot(pointer: DataPointer<Owner>);
             trusted predicate held(marker: &Marker);
-            trusted func view(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>) -> &Owner
+            trusted func borrow_owner(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>) -> &Owner
                 requires(trusted slot(pointer = address))
                 ensures(trusted held(marker = &result.marker))
                 executes(pure, total)
@@ -2230,13 +2249,21 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             {{
                 {body}
             }}
-        "#);
+        "#
+        );
+
         let application = production_sync_compilation(&source);
+
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
             .expect("fixture callable must lower successfully");
 
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            checked.diagnostics()
+        );
     }
 }
 
@@ -2245,6 +2272,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
     for (pointee, value, valid) in [
         ("u32", "1", true),
         ("(u32?)", "none", true),
+        ("Data", "Data { value = 1 }", true),
         (
             "Payload",
             "Payload { marker = Marker {}, value = 1 }",
@@ -2252,14 +2280,21 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
         ),
     ] {
         for (operation, capabilities) in [
-            (format!("trusted core.memory.write<{pointee}>(destination, {value});"), "raw_memory, unchecked_init"),
-            (format!("_ = trusted core.memory.read<{pointee}>(destination);"), "raw_memory"),
+            (
+                format!("trusted core.memory.write<{pointee}>(destination, {value});"),
+                "raw_memory, unchecked_init",
+            ),
+            (
+                format!("_ = trusted core.memory.read<{pointee}>(destination);"),
+                "raw_memory",
+            ),
         ] {
-        let source = format!(
-            r#"
+            let source = format!(
+                r#"
             trusted module app;
             using core.memory;
             struct Marker {{}}
+            struct Data {{ value: u32; }}
             struct Payload {{ marker: Marker; value: u32; }}
             struct Owner {{
                 marker: Marker;
@@ -2289,23 +2324,23 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 observe(owner);
             }}
             "#
-        );
-
-        let application = compilation(&source);
-        let diagnostics = application.check_diagnostics();
-
-        assert_eq!(
-            !diagnostics.has_errors(),
-            valid,
-            "{source}: {diagnostics:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                diagnostics,
-                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
-        }
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedObligationNotProven,
+                );
+            }
         }
     }
 }

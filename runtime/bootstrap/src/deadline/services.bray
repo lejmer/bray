@@ -6,6 +6,14 @@ using core.target;
 using std.memory;
 using internal std.platform;
 
+trusted internal func service_pointer(pos owner: &Reference) -> DataPointer<Reference>
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner), trusted reference_slot(pointer = result))
+    executes(pure, total)
+{
+    return std.memory.address_of<Reference>(owner);
+}
+
 internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -123,4 +131,3 @@ trusted internal func borrow_reference(
     trusted permit(input, pointer);
     return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(input, pointer);
 }
-

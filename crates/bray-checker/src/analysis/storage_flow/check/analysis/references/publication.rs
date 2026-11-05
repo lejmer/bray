@@ -53,6 +53,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 // Both terms already retain their checked portable subjects.
                 // Compose them directly rather than reconstructing local places.
                 let values = self.request.semantic_values();
+
                 let inactive = values
                     .intern_constant_term(ConstantTermData::Unary {
                         operation: ConstantUnaryOperation::LogicalNot,

@@ -741,7 +741,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter_map(|(path, target)| {
                 if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
                     && !self.storage.storage_type(reference.root).is_some_and(|ty| {
-                        matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+                        matches!(
+                            self.request.semantic_values().type_data(ty).as_ref(),
+                            bray_symbols::TypeData::Borrow { .. }
+                        )
                     })
                 {
                     // A raw pointer's entry referent is a separate object. Its slot's

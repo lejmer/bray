@@ -3,10 +3,6 @@
 static DENY_WORKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static REJECTED_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-#[expect(
-    improper_ctypes_definitions,
-    reason = "the test provider shares its private opaque scope type"
-)]
 extern "C" fn enter_provider(
     output: &mut std::mem::MaybeUninit<super::bridge::Scope>,
     bytes: usize,

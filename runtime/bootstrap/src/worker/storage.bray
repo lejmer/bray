@@ -478,7 +478,9 @@ trusted internal func take_execution_backing(
     )
     uses(raw_memory, unchecked_init, intrinsic)
 {
-    let pointer = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(&(trusted domain(owner)).backing.execution);
+    let pointer = std.memory.address_of<(bray.runtime.bootstrap.execution.Reference?)>(
+        &(trusted domain(owner)).backing.execution
+    );
 
     let take = trusted lambda(
         pos context: usize,
@@ -500,10 +502,7 @@ trusted internal func take_execution_backing(
                 outcome = outcome
             )
         )
-        ensures(
-            trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result),
-            result matches ?_
-        )
+        ensures(trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result), result matches ?_)
         uses(raw_memory, unchecked_init, intrinsic)
     {
         let permit = trusted lambda(
@@ -512,8 +511,14 @@ trusted internal func take_execution_backing(
         )
             requires(trusted retained(owner = &owner.marker))
             ensures(
-                trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
-                trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1),
+                trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(
+                    pointer = pointer,
+                    count = 1
+                ),
+                trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(
+                    pointer = pointer,
+                    count = 1
+                ),
                 trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer),
                 trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer)
             )
@@ -523,10 +528,12 @@ trusted internal func take_execution_backing(
 
         let backing = trusted std.memory.read<(bray.runtime.bootstrap.execution.Reference?)>(pointer);
 
-        trusted std.memory.write<(bray.runtime.bootstrap.execution.Reference?)>(
-            pointer,
-            none
-        );
+        trusted std.memory.write<(bray.runtime.bootstrap.execution.Reference?)>(pointer, none);
+
+        if backing matches none
+        {
+            trusted core.target.abort();
+        }
 
         return backing;
     };
