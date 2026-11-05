@@ -369,7 +369,7 @@ pub(crate) fn runtime_configuration_type<'context>(
 
     let pointer = context.ptr_type(AddressSpace::default());
 
-    context.struct_type(&[usize.into(), usize.into(), context.i32_type().into(), pointer.into(), pointer.into(), pointer.into()], false)
+    context.struct_type(&[usize.into(), usize.into(), context.i32_type().into(), pointer.into(), pointer.into(), pointer.into(), usize.into(), usize.into()], false)
 }
 
 pub(super) fn frame_state_type(context: &Context) -> StructType<'_> {

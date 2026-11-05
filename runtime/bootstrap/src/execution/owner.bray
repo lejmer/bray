@@ -22,6 +22,7 @@ trusted internal func origin_context(pos attachment: bray.runtime.bootstrap.host
             binding = core.memory.uninit_from<(Binding?)>(none),
             attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(acquired),
             previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
+            provider = core.memory.uninit_from<(NativeProviderScope?)>(none),
             phase = core.atomic.initialize<u32>(1),
             views = core.atomic.initialize<usize>(0),
             thread = thread,

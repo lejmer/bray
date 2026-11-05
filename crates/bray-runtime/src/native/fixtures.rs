@@ -37,6 +37,17 @@ pub(super) fn observe(task: bray_runtime_abi::NativeTaskHandle) -> bray_runtime_
     super::export::bray_runtime_root_terminal_observation(root)
 }
 
+pub(super) fn poll(owner: &crate::event::Resources) -> bray_runtime_abi::NativeRunOutcome {
+    let mut outcome = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::PENDING, 0);
+    let status = crate::report_provider::bray_runtime_task_control_observation(owner.reference(), &mut outcome);
+
+    if status.is_success() || status == bray_runtime_abi::NativeRuntimeStatus::PENDING {
+        outcome
+    } else {
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::RUNTIME_FAILURE, status.code() as usize)
+    }
+}
+
 pub(super) fn complete(task: bray_runtime_abi::NativeTaskHandle) -> bray_runtime_abi::NativeRuntimeStatus {
     let root = bray_runtime_abi::NativeRootHandle::new(task.raw()).expect("an admitted task has a nonzero source claim");
 

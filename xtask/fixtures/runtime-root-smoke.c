@@ -6,6 +6,8 @@ typedef struct
     const void* invoke;
     const void* admit_context;
     const void* release_context;
+    uintptr_t scope_enter;
+    uintptr_t scope_finish;
 } RootConfiguration;
 
 typedef struct

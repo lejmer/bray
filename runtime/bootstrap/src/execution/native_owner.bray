@@ -203,7 +203,18 @@ trusted internal func owner_entry_scope(pos owner: &Owner) -> EntryScope
         trusted core.target.abort();
     }
 
+    let provider = match consume create_native_provider(&(trusted domain(&owner.execution)).configuration)
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            scope.status = status;
+            return scope;
+        }
+    };
+
     trusted install_binding(&selected, trusted pin_binding(pin(&owner.execution)));
+    trusted install_native_provider(&selected, provider);
     return scope;
 }
 

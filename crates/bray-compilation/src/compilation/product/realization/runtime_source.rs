@@ -85,7 +85,7 @@ macro_rules! define_runtime_source_fields {
     (@field FrameState) => { AbiField::Struct(&[U32, U32]) };
     (@field Configuration) => { AbiField::Struct(&[
         AbiField::Struct(&[]), USIZE, USIZE, U32,
-        AbiField::NativePointer, AbiField::NativePointer, AbiField::NativePointer,
+        AbiField::NativePointer, AbiField::NativePointer, AbiField::NativePointer, USIZE, USIZE,
     ]) };
     (@field RootStart) => { AbiField::Struct(&[U32, U64]) };
     (@field TaskAllocation) => { AbiField::Struct(&[U32, U64]) };

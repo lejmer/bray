@@ -100,7 +100,7 @@ mod tests {
         _: bray_runtime_abi::NativeWakeCallback,
         _: usize,
     ) -> bray_runtime_abi::NativeRunOutcome {
-        super::super::fixtures::observe(task)
+        super::super::fixtures::poll(&super::super::fixtures::task(task))
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -367,8 +367,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
 
         loop {
-            let outcome = super::with_runtime(|runtime| runtime.observe(task))
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+            let outcome = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
             if outcome.state() != NativeRunState::PENDING {
                 assert_eq!(outcome.state(), NativeRunState::COMPLETED);
@@ -390,9 +389,7 @@ mod tests {
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.scheduler.task_count())
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
-                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            crate::event::NativeCallback::task_count(),
             1
         );
 
@@ -445,8 +442,7 @@ mod tests {
                 NativeRuntimeStatus::RUNTIME_FAILURE
             );
 
-            outcome = super::with_runtime(|runtime| runtime.observe(task))
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+            outcome = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
             if outcome.state() != NativeRunState::PENDING {
                 break;
@@ -457,15 +453,12 @@ mod tests {
         assert_eq!(EXACT_BLOCKING_PARENT_RESUMES.load(Ordering::Relaxed), 2);
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.scheduler.task_count())
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
-                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            crate::event::NativeCallback::task_count(),
             1
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -536,8 +529,7 @@ mod tests {
 
         assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 1);
 
-        let pending = super::with_runtime(|runtime| runtime.observe(task))
-            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+        let pending = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
         assert_eq!(pending.state(), NativeRunState::PENDING);
 
@@ -559,14 +551,12 @@ mod tests {
         assert_eq!(EVENT_CHILD_RESUMES.load(Ordering::Relaxed), 2);
         assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 2);
 
-        let completed = super::with_runtime(|runtime| runtime.observe(task))
-            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+        let completed = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
         assert_eq!(completed.state(), NativeRunState::COMPLETED);
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -635,14 +625,12 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        let completed = super::with_runtime(|runtime| runtime.observe(task))
-            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+        let completed = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
         assert_eq!(completed.state(), NativeRunState::COMPLETED);
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1088,8 +1076,7 @@ mod tests {
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1195,15 +1182,13 @@ mod tests {
         assert_eq!(LOCKED.load(Ordering::Relaxed), 0);
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.resolve_task(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::observe(task)
                 .state(),
             NativeRunState::COMPLETED
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1282,8 +1267,7 @@ mod tests {
         .expect("fixture runtime must be active");
 
         assert!(
-            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1375,8 +1359,7 @@ mod tests {
         assert_eq!(STARTED_DESTROYED.load(Ordering::Relaxed), 0);
 
         assert!(
-            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1432,8 +1415,7 @@ mod tests {
         );
 
         assert!(
-            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("runtime remains active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1562,8 +1544,7 @@ mod tests {
         );
 
         assert!(
-            super::super::state::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -1609,8 +1590,7 @@ mod tests {
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(task))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(task)
                 .is_success()
         );
 
@@ -2190,8 +2170,7 @@ mod tests {
         );
 
         loop {
-            let outcome = super::with_runtime(|runtime| runtime.observe(root))
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+            let outcome = super::super::fixtures::poll(&super::super::fixtures::task(root));
 
             if outcome.state() != NativeRunState::PENDING {
                 assert_eq!(outcome.state(), NativeRunState::COMPLETED);
@@ -2215,28 +2194,23 @@ mod tests {
         assert!(DEEP_AWAIT_COMPETITOR_AT.load(Ordering::Relaxed) < DEEP_AWAIT_DEPTH);
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.scheduler.task_count())
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
-                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            crate::event::NativeCallback::task_count(),
             2
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.observe(competitor))
-                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
+            super::super::fixtures::poll(&super::super::fixtures::task(competitor))
                 .state(),
             NativeRunState::COMPLETED
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(root))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(root)
                 .is_success()
         );
 
         assert!(
-            super::with_runtime(|runtime| runtime.resolve_task_retirement(competitor))
-                .expect("fixture runtime must be active")
+            super::super::fixtures::complete(competitor)
                 .is_success()
         );
 

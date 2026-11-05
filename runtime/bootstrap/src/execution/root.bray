@@ -19,6 +19,8 @@ internal struct Configuration
     invoke: DataPointer<u8>;
     admit_context: DataPointer<u8>;
     release_context: DataPointer<u8>;
+    scope_enter: usize;
+    scope_finish: usize;
 }
 
 @copy

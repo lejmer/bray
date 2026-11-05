@@ -51,6 +51,7 @@ internal struct Context
     mut binding: Uninit<(Binding?)>;
     mut attachment: Uninit<(bray.runtime.bootstrap.host.attachment.Owner?)>;
     mut previous: Uninit<(bray.runtime.bootstrap.host.ExecutionOwner?)>;
+    mut provider: Uninit<(NativeProviderScope?)>;
     phase: core.atomic.Atomic<u32>;
     views: core.atomic.Atomic<usize>;
     thread: u64;
