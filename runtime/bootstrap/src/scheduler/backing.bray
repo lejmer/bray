@@ -14,25 +14,26 @@ internal union Backing
     Execution(pos execution: bray.runtime.bootstrap.execution.Reference);
 }
 
-internal predicate backing_retained(owner: &Backing) = (owner matches Backing.External(_) && retained(owner = backing_queue(owner))) || (owner matches Backing.Execution(_) && bray.runtime.bootstrap.execution.retained(owner = backing_execution(owner)));
+trusted internal predicate backing_storage_retained(owner: &Backing);
 
-// An execution-backed value owns one pin until its service completes. An
-// external value owns an independent queue-storage count.
-internal predicate backing_owned(owner: &Backing) = (owner matches Backing.External(_) && owned_reference(owner = backing_queue(owner))) || (owner matches Backing.Execution(_) && bray.runtime.bootstrap.execution.pinned(owner = backing_execution(owner)));
+internal predicate backing_retained(owner: &Backing) =
+    (owner matches Backing.External(_) || owner matches Backing.Execution(_))
+    && backing_storage_retained(owner = owner);
 
-internal const func rejected_backing<T>(pos value: &Result<T, (Backing, u32)>) -> &Backing
-    requires(value matches Error(_))
-    executes(pure, total)
-{
-    return match value
-    {
-        case Error((owner, _)) { yield &owner; }
-        case Ok(_) { panic("successful service creation has no rejected backing"); }
-    };
-}
+// This claim belongs to the complete Backing. Its constructors and consuming
+// transfers preserve the actual queue count or execution pin it owns.
+trusted internal predicate backing_owned(owner: &Backing);
 
-internal const func backing_queue(pos owner: &Backing) -> &Reference
+trusted internal const func backing_queue(pos owner: &Backing) -> &Reference
     requires(owner matches Backing.External(_))
+    when(trusted backing_storage_retained(owner = owner))
+    {
+        ensures(trusted retained(owner = result))
+    }
+    when(trusted backing_owned(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = result))
+    }
     executes(pure, total)
 {
     return match owner
@@ -70,8 +71,16 @@ trusted internal func backing_scheduler(pos owner: &Backing) -> &Reference
     };
 }
 
-internal const func backing_execution(pos owner: &Backing) -> &bray.runtime.bootstrap.execution.Reference
+trusted internal const func backing_execution(pos owner: &Backing) -> &bray.runtime.bootstrap.execution.Reference
     requires(owner matches Backing.Execution(_))
+    when(trusted backing_storage_retained(owner = owner))
+    {
+        ensures(trusted bray.runtime.bootstrap.execution.retained(owner = result))
+    }
+    when(trusted backing_owned(owner = owner))
+    {
+        ensures(trusted bray.runtime.bootstrap.execution.pinned(owner = result))
+    }
     executes(pure, total)
 {
     return match owner

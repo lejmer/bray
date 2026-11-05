@@ -177,14 +177,7 @@ trusted internal func wake_service(pos owner: &Services, pos reference: &Referen
 
     let invoke = trusted std.memory.callable_from_pointer<WakeService>(owner.wake);
 
-    let pointer = std.memory.address_of<Reference>(reference);
-    let authorize = trusted lambda(pos reference: &Reference, pos slot: &DataPointer<Reference>)
-        requires(trusted retained(owner = reference))
-        ensures(trusted reference_slot(owner = slot))
-        executes(pure, total) {};
-
-    trusted authorize(reference, &pointer);
-    _ = trusted invoke(pointer, cause);
+    _ = trusted invoke(trusted native_pointer(reference), cause);
 }
 
 trusted internal func cancel_wait_service(

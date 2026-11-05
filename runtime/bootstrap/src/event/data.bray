@@ -51,7 +51,7 @@ trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
 
 trusted internal predicate owned_reference(owner: &Reference);
 
-trusted internal predicate release_entry(pointer: DataPointer<Reference>);
+trusted internal predicate release_entry(pointer: &DataPointer<Reference>);
 
 // Native names are owned by the resident host, separately from event state.
 internal struct DirectoryEntry

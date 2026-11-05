@@ -87,8 +87,16 @@ trusted internal func native_owner_current(pos mut output: DataPointer<Owner>) -
         return 1;
     }
 
-    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(bound_execution(&selected)));
-    return 0;
+    match consume trusted try_retain_owner(bound_execution(&selected))
+    {
+        case ?acquired
+        {
+            _ = std.memory.uninit_write<Owner>(storage, acquired);
+            return 0;
+        }
+        case none { return 4; }
+    }
+
 }
 
 @abi(c)
@@ -100,7 +108,7 @@ trusted internal func native_owner_clone(pos input: DataPointer<Owner>, pos mut 
     let address = output;
     let storage = trusted borrow_native_owner_output(&mut output, address);
 
-    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(&owner.execution));
+    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(owner));
 }
 
 @abi(c)
@@ -139,40 +147,25 @@ trusted internal func native_owner_release(pos input: DataPointer<Owner>, pos sc
     ensures(trusted native_scope_initialized(owner = &scope))
     uses(raw_memory, intrinsic)
 {
-    let selected = trusted current();
-
-    if selected.status != 0
-    {
-        trusted core.target.abort();
-    }
-
-    let take = trusted lambda(pos input: DataPointer<Owner>) -> Owner
-        requires(trusted native_owner_slot(owner = &input))
+    let take = trusted lambda(pos input: &DataPointer<Owner>) -> Owner
+        requires(trusted native_owner_slot(owner = input))
         ensures(trusted service_owner(owner = &result), trusted retained(owner = &result.execution), trusted pinned(owner = &result.execution))
         uses(raw_memory, intrinsic)
     {
-        let permit = trusted lambda(pos input: DataPointer<Owner>)
-            requires(trusted native_owner_slot(owner = &input))
-            ensures(trusted core.memory.valid_read<Owner>(pointer = input, count = 1), trusted core.memory.aligned_for<Owner>(pointer = input), trusted core.memory.initialized_as<Owner>(pointer = input))
+        let pointer = trusted std.memory.read<DataPointer<Owner>>(std.memory.address_of<DataPointer<Owner>>(input));
+        let permit = trusted lambda(pos input: &DataPointer<Owner>, pos pointer: DataPointer<Owner>)
+            requires(trusted native_owner_slot(owner = input))
+            ensures(trusted core.memory.valid_read<Owner>(pointer = pointer, count = 1), trusted core.memory.aligned_for<Owner>(pointer = pointer), trusted core.memory.initialized_as<Owner>(pointer = pointer))
             executes(pure, total) {};
 
-        trusted permit(input);
-        return trusted std.memory.read<Owner>(input);
+        trusted permit(input, pointer);
+        return trusted std.memory.read<Owner>(pointer);
     };
 
     let entered = trusted borrow_native_scope(&scope);
-    let caller = if entered.current.status == 0
-    {
-        yield &entered.current;
-    }
-    else
-    {
-        yield &selected;
-    };
-
     // Closing can defer worker joins on work held by the initiating caller,
     // even while cleanup is bound to another execution. Keep both contexts.
-    return trusted release_pin(trusted close_owner(caller, trusted take(input)));
+    return trusted release_pin(trusted close_owner(&entered.current, trusted take(&input)));
 }
 
 // The same-domain case borrows the actual installed context, including its
@@ -216,7 +209,7 @@ trusted internal func owner_entry_scope(pos owner: &Owner) -> EntryScope
 
 @abi(c)
 trusted internal func native_owner_scope_enter(
-    pos storage: DataPointer<u8>,
+    pos mut storage: DataPointer<u8>,
     pos bytes: usize,
     pos align: usize,
     pos owner: DataPointer<Owner>
@@ -225,5 +218,7 @@ trusted internal func native_owner_scope_enter(
     ensures(trusted native_scope_initialized(owner = &storage), trusted native_owner_slot(owner = &owner))
 {
     trusted validate_native_scope(bytes, align);
-    return trusted publish_native_scope(&storage, bytes, align, trusted owner_entry_scope(borrow_native_owner(&owner)));
+    let output = trusted borrow_native_scope_output(&mut storage, bytes, align);
+
+    return trusted publish_native_scope(output, trusted owner_entry_scope(borrow_native_owner(&owner)));
 }

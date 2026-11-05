@@ -164,6 +164,10 @@ trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
 
 trusted internal func entry_scope(pos isolate: bool) -> EntryScope
     ensures(trusted view_owned(owner = &result.current.acquisition), (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.previous)))
+    when(trusted bray.runtime.bootstrap.entry.native_entry())
+    {
+        ensures(trusted bray.runtime.bootstrap.entry.native_entry())
+    }
     uses(intrinsic)
 {
     let selected = trusted current();

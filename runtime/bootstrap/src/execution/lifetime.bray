@@ -97,7 +97,7 @@ trusted internal func close_owner_binding(pos owner: Owner) -> Reference
 
 trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> bray.runtime.bootstrap.execution.Reference
     requires(blocking_execution(),
-        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution), trusted service_owner(owner = &owner), trusted pinned(owner = &owner.execution),
         trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -116,7 +116,7 @@ trusted internal func close_owner(pos selected: &Current, pos owner: Owner) -> b
     if previous == 1
     {
         let service = trusted workers(&owner.execution);
-        let deferred = trusted must_defer_shutdown(selected) && service matches ?_;
+        let deferred = selected.status == 0 && trusted must_defer_shutdown(selected) && service matches ?_;
 
         core.atomic.store<u32, 2>(&value.completion, if deferred { yield 2; } else { yield 1; });
 
