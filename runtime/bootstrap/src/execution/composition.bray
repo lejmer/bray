@@ -93,15 +93,16 @@ trusted internal func composition_parent(
 // Admission checks proposed continuation requirements against the retained
 // execution domain. It does not replace or widen the producer's current lane.
 @abi(c)
-trusted internal func composition_readiness(pos mut pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+trusted internal func composition_readiness(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
     )
     ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
 {
-    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut pointer, pointer);
     let selected = trusted current();
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
 
     if selected.status != 0
     {
@@ -118,7 +119,7 @@ trusted internal func composition_readiness(pos mut pointer: DataPointer<bray.ru
     let (_, status) = trusted select_lane(
         trusted bound_execution(&selected),
         core.atomic.load<u64, 0>(&(trusted context(&selected)).registration),
-        trusted bray.runtime.bootstrap.activation.callback.execution(owner),
+        trusted bray.runtime.bootstrap.activation.callback.execution(&owner),
         none
     );
 

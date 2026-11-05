@@ -33,15 +33,16 @@ trusted internal func task_services() -> bray.runtime.bootstrap.task.Services
 }
 
 @abi(c)
-trusted internal func invoke_task(pos mut pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+trusted internal func invoke_task(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
     )
     ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation_returned(pointer = pointer))
 {
-    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut pointer, pointer);
     let selected = trusted current();
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
 
     if selected.status != 0
     {
@@ -50,7 +51,7 @@ trusted internal func invoke_task(pos mut pointer: DataPointer<bray.runtime.boot
         return;
     }
 
-    let (previous, callback, resumable) = trusted enter_producer(&selected, owner);
+    let (previous, callback, resumable) = trusted enter_producer(&selected, &owner);
 
     if has_execution(&selected)
     {
@@ -109,13 +110,14 @@ trusted internal func leave_producer(pos selected: &Current, pos previous: usize
 }
 
 @abi(c)
-trusted internal func action_readiness(pos mut pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+trusted internal func action_readiness(pos pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
     requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
     ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
 {
-    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut pointer, pointer);
+    let mut address = pointer;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
 
-    owner.admission = trusted readiness_status(owner);
+    owner.admission = trusted readiness_status(&owner);
 }
 
 trusted internal func readiness_status(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> u32

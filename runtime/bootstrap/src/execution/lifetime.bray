@@ -275,12 +275,12 @@ trusted internal func destroy_domain(pos owner: Reference)
         return (value.scheduler, value.workers, value.deadlines, value.failure, value.reports);
     };
 
-    let (queue_owner, worker_cell, deadline_cell, failure_state, report_state) = trusted take(owner);
+    let (queue_owner, worker_cell, deadline_cell, failure_state, retired_reports) = trusted take(owner);
 
     _ = worker_cell;
     _ = deadline_cell;
     _ = failure_state;
-    _ = report_state;
+    _ = retired_reports;
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(queue_owner);
     trusted bray.runtime.bootstrap.host.release_execution_domain();
 }
