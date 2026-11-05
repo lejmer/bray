@@ -211,5 +211,5 @@ trusted internal func native_owner_scope_enter(
     ensures(trusted native_scope_initialized(owner = &storage), trusted native_owner_slot(owner = &owner))
 {
     trusted validate_native_scope(bytes, align);
-    return trusted publish_native_scope(storage, bytes, align, trusted owner_entry_scope(borrow_native_owner(&owner)));
+    return trusted publish_native_scope(&storage, bytes, align, trusted owner_entry_scope(borrow_native_owner(&owner)));
 }

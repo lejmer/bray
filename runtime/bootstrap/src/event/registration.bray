@@ -151,9 +151,9 @@ trusted internal func publish_event_wait(
             {
                 let tail = trusted bray.runtime.bootstrap.task.wait_slot(&mut entries, previous);
 
-                if let ?registration = tail.registration
+                if let ?prior_wait = tail.registration
                 {
-                    registration.next = parent;
+                    prior_wait.next = parent;
                 }
                 else
                 {

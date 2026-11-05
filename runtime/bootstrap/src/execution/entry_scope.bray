@@ -46,7 +46,7 @@ trusted internal func native_scope_enter(
         trusted core.target.abort();
     }
 
-    return trusted publish_native_scope(storage, bytes, align, trusted entry_scope(isolate != 0));
+    return trusted publish_native_scope(&storage, bytes, align, trusted entry_scope(isolate != 0));
 }
 
 internal func validate_native_scope(pos bytes: usize, pos align: usize)
@@ -61,19 +61,20 @@ internal func validate_native_scope(pos bytes: usize, pos align: usize)
 
 }
 
-trusted internal func publish_native_scope(pos storage: DataPointer<u8>, pos bytes: usize, pos align: usize, pos scope: EntryScope) -> u64
-    requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align), trusted entry_scope_owned(owner = &scope))
-    ensures(trusted native_scope_initialized(owner = &storage))
+trusted internal func publish_native_scope(pos storage: &DataPointer<u8>, pos bytes: usize, pos align: usize, pos scope: EntryScope) -> u64
+    requires(trusted native_scope_storage(owner = storage, bytes = bytes, align = align), trusted entry_scope_owned(owner = &scope))
+    ensures(trusted native_scope_initialized(owner = storage))
     uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
 {
     let status = scope.status;
-    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+    let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(storage));
+    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(address);
     let permit = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>, pos bytes: usize, pos align: usize)
         requires(trusted native_scope_storage(owner = storage, bytes = bytes, align = align))
         ensures(trusted core.memory.valid_write<EntryScope>(pointer = pointer, count = 1), trusted core.memory.aligned_for<EntryScope>(pointer = pointer))
         executes(pure, total) {};
 
-    trusted permit(&storage, pointer, bytes, align);
+    trusted permit(storage, pointer, bytes, align);
     trusted std.memory.write<EntryScope>(pointer, scope);
     // The high word publishes initialization independently from entry status.
     // A containing native boundary returns zero if construction unwinds.
@@ -120,7 +121,8 @@ trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
     requires(trusted native_scope_initialized(owner = &storage))
     uses(raw_memory, layout_reinterpret, intrinsic)
 {
-    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+    let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(&storage));
+    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(address);
     let take = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>) -> EntryScope
         requires(trusted native_scope_initialized(owner = storage))
         ensures(trusted entry_scope_owned(owner = &result))
