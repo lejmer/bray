@@ -75,6 +75,16 @@ pub(crate) struct NativeCallback {
 }
 
 impl NativeCallback {
+    #[cfg(test)]
+    pub(crate) fn task_owner(task: bray_runtime_abi::NativeTaskHandle) -> Option<Arc<Resources>> {
+        let callbacks = CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        callbacks.values().find(|binding| {
+            matches!(binding.resources.as_ref(), Resources::SourceTask { .. })
+                && binding.resources.reference().task() == task
+        }).map(|binding| Arc::clone(&binding.resources))
+    }
+
     pub(crate) fn root_cancellation(&self) -> RootCancellationHandle {
         let owner = Self::resources(self.identity);
 

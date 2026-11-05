@@ -60,6 +60,8 @@ pub struct NativeRuntimeConfiguration {
     invoke: Option<extern "C" fn(&mut crate::NativeActivationInvocation<'_>, usize, crate::NativeSchedulerLane)>,
     admit_context: Option<extern "C" fn(crate::NativeTaskReference, u32) -> u32>,
     release_context: Option<extern "C" fn(usize)>,
+    scope_enter: usize,
+    scope_finish: usize,
 }
 
 impl NativeRuntimeConfiguration {
@@ -72,19 +74,26 @@ impl NativeRuntimeConfiguration {
             invoke: None,
             admit_context: None,
             release_context: None,
+            scope_enter: 0,
+            scope_finish: 0,
         }
     }
 
     /// Retains these native code hooks through execution and terminal cleanup.
-    pub const fn with_native_callbacks(
+    pub fn with_native_callbacks<Scope>(
         mut self,
         invoke: extern "C" fn(&mut crate::NativeActivationInvocation<'_>, usize, crate::NativeSchedulerLane),
         admit_context: extern "C" fn(crate::NativeTaskReference, u32) -> u32,
         release_context: extern "C" fn(usize),
+        scope_enter: extern "C" fn(&mut std::mem::MaybeUninit<Scope>, usize, usize) -> u32,
+        scope_finish: extern "C" fn(&mut Scope),
     ) -> Self {
+        assert!(size_of::<Scope>() <= 128 && align_of::<Scope>() <= 8, "native provider scope fits its private Source storage");
         self.invoke = Some(invoke);
         self.admit_context = Some(admit_context);
         self.release_context = Some(release_context);
+        self.scope_enter = scope_enter as *const u8 as usize;
+        self.scope_finish = scope_finish as *const u8 as usize;
         self
     }
 

@@ -126,6 +126,8 @@ pub(in crate::native) fn native_configuration(configuration: NativeRuntimeConfig
         super::super::task::bray_runtime_execution_invocation,
         super::super::task::bray_runtime_execution_context_admission,
         super::super::task::bray_runtime_execution_context_release,
+        super::super::bridge::enter_provider,
+        super::super::bridge::finish_provider,
     )
 }
 
