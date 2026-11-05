@@ -2335,6 +2335,48 @@ fn raw_read_uses_declared_storage_obligations() {
 }
 
 #[test]
+fn moving_raw_contents_preserves_allocation_ownership_until_deallocation() {
+    for (completion, valid) in [
+        ("return value;", true),
+        (
+            "trusted core.memory.deallocate(address, bytes = 1, align = 1); return value;",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+
+            using core.memory;
+            struct Payload {{ value: u8; }}
+            trusted func take(pos pointer: DataPointer<Payload>) -> Payload
+                requires(
+                    trusted core.memory.owned_allocation(pointer = core.memory.byte_address<Payload>(pointer), bytes = 1, align = 1),
+                    trusted core.memory.valid_read<Payload>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Payload>(pointer = pointer),
+                    trusted core.memory.initialized_as<Payload>(pointer = pointer),
+                )
+                uses(raw_memory, manual_alloc)
+            {{
+                let value = trusted core.memory.read<Payload>(pointer);
+                let address = core.memory.byte_address<Payload>(pointer);
+                trusted core.memory.deallocate(address, bytes = 1, align = 1);
+                {completion}
+            }}
+            "#,
+        );
+        let compilation = compilation(&source);
+
+        assert_eq!(
+            !compilation.check_diagnostics().has_errors(),
+            valid,
+            "{source}: {:?}",
+            compilation.check_diagnostics()
+        );
+    }
+}
+
+#[test]
 fn ordinary_field_copy_does_not_outlive_its_witness() {
     let compilation = compilation(
         r#"

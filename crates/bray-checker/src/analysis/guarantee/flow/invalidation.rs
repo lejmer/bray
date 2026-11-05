@@ -509,7 +509,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.invalidate_referents(
                 &observed,
                 if content_only {
-                    &self.spatial_predicates
+                    &self.content_predicates
                 } else {
                     &unstable
                 },
@@ -652,7 +652,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             state.invalidate_contents(
                 &changed_places,
                 invalidated_values,
-                &self.spatial_predicates,
+                &self.content_predicates,
                 &stable_values,
             );
         } else {

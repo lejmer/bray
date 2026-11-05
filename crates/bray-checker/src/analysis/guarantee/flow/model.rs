@@ -90,6 +90,8 @@ pub(crate) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     >,
     pub(in crate::analysis::guarantee) spatial_predicates:
         BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
+    pub(in crate::analysis::guarantee) content_predicates:
+        BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) owned_allocation:
         Option<bray_symbols::PredicateDefinitionSymbolId>,
     pub(in crate::analysis::guarantee) initialized_range:
