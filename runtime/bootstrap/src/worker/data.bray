@@ -6,36 +6,35 @@ using core.memory;
 using std.memory;
 using std.sync;
 using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.host;
 using internal std.sync.spin_lock;
 
+@layout(c)
 internal struct Marker
 {
 }
 
+@layout(c)
 internal struct Reference
 {
     marker: Marker;
     pointer: DataPointer<Domain>;
 }
 
-// This reference borrows the actual OS-entry scope, never a numeric thread ID.
-internal struct ScopeReference
-{
-    marker: Marker;
-    pointer: DataPointer<Scope>;
-}
-
 internal callable Operation = @abi(c) trusted func(
     pos context: usize,
     pos operation: u32,
+    pos pool: DataPointer<Reference>,
     pos scope: DataPointer<DataPointer<Scope>>,
-    pos argument: DataPointer<u64>,
+    pos argument: u64,
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(
+        operation != 4 || blocking_execution(),
         trusted callback_authorized(
             context = context,
             operation = operation,
+            pool = pool,
             scope = scope,
             argument = argument,
             outcome = outcome
@@ -52,8 +51,9 @@ internal callable Operation = @abi(c) trusted func(
 trusted internal predicate callback_authorized(
     context: usize,
     operation: u32,
+    pool: DataPointer<Reference>,
     scope: DataPointer<DataPointer<Scope>>,
-    argument: DataPointer<u64>,
+    argument: u64,
     outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 );
 
@@ -79,8 +79,11 @@ internal struct Failure
 
 internal struct Domain
 {
-    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    backing: bray.runtime.bootstrap.scheduler.Backing;
     callback: Callback;
+    demand_service: Demand;
+    stop_service: Stop;
+    detach_service: Detach;
     state: std.sync.SpinLock<State>;
 }
 
@@ -131,7 +134,8 @@ trusted internal predicate descriptor_owned(owner: &Marker);
 internal struct Scope
 {
     marker: Marker;
-    worker: &Descriptor;
+    worker: Descriptor;
+    mut execution: Uninit<(bray.runtime.bootstrap.host.ExecutionOwner?)>;
     attachment: u64;
     native_thread: u64;
 }
@@ -140,9 +144,9 @@ trusted internal predicate retained(owner: &Marker);
 
 trusted internal predicate retiring(owner: &Reference);
 
-trusted internal predicate reference_slot(pointer: DataPointer<DataPointer<Domain>>);
+trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 
-trusted internal predicate retirement_entry(pointer: DataPointer<DataPointer<Domain>>);
+trusted internal predicate retirement_entry(pointer: DataPointer<Reference>);
 
 trusted internal predicate callback_slot(pointer: DataPointer<Callback>);
 
@@ -172,7 +176,7 @@ internal func no_failure() -> Failure
 
 internal union FormationChoice
 {
-    Existing(pos pointer: DataPointer<Worker>);
+    Existing(pos owner: WorkerReference);
     Created(pos formation: Descriptor);
     Backing;
 }

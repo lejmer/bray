@@ -171,7 +171,7 @@ pub(super) fn runtime_source_contract_matches(
             | RuntimeAbiRole::WorkerPointerEntry
             | RuntimeAbiRole::WorkerWordEntry
             | RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::ThreadAttachmentLeave
             | RuntimeAbiRole::ThreadAttachmentEnter
             | RuntimeAbiRole::ThreadAttachmentMarkMain
@@ -345,7 +345,7 @@ pub(super) fn runtime_role_abi(
     if matches!(
         role,
         RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerWordEntry
     ) && compilation
         .selected_target()
@@ -434,7 +434,7 @@ mod tests {
                 "thread_attachment_mark_main",
             ),
             (RuntimeAbiRole::ThreadStorageExit, "thread_storage_exit"),
-            (RuntimeAbiRole::ControlStorageExit, "control_storage_exit"),
+            (RuntimeAbiRole::ContextStorageExit, "context_storage_exit"),
             (
                 RuntimeAbiRole::ThreadAttachmentLeave,
                 "thread_attachment_leave",
@@ -761,8 +761,8 @@ mod tests {
                 "thread_attachment_leave",
                 "thread_storage_exit",
                 "attachment_destructor_address",
-                "control_storage_exit",
-                "control_destructor_address",
+                "context_storage_exit",
+                "context_destructor_address",
                 "load_control",
                 "store_control",
                 "invoke_control",
@@ -943,7 +943,7 @@ mod tests {
 
                 for role in [
                     RuntimeAbiRole::ThreadStorageExit,
-                    RuntimeAbiRole::ControlStorageExit,
+                    RuntimeAbiRole::ContextStorageExit,
                 ] {
                     assert_eq!(
                         runtime_source_signature_matches(

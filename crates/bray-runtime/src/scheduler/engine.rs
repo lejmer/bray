@@ -374,9 +374,11 @@ impl TaskRegistration {
     /// Returns a transferable wake for this exact admitted registration.
     pub fn wake_handle(&self) -> TaskWakeHandle {
         TaskWakeHandle {
-            task: self.task,
-            registration: self.registration,
-            scheduler: self.scheduler.clone(),
+            owner: WakeOwner::Scheduler {
+                task: self.task,
+                registration: self.registration,
+                scheduler: self.scheduler.clone(),
+            },
         }
     }
 
@@ -486,12 +488,33 @@ fn unregister_task(scheduler: &SchedulerData, task: TaskId, registration: Option
 /// Transferable wake for one generation-checked Bray registration.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
-    pub(super) task: TaskId,
-    pub(super) registration: u64,
-    pub(super) scheduler: Weak<SchedulerData>,
+    owner: WakeOwner,
+}
+
+// A generic registration borrows its scheduler. A native wake owns an actual
+// Source storage reference, which retains execution independently of TLS.
+#[derive(Clone, Debug)]
+enum WakeOwner {
+    Scheduler {
+        task: TaskId,
+        registration: u64,
+        scheduler: Weak<SchedulerData>,
+    },
+    Native(CancellationContext),
 }
 
 impl TaskWakeHandle {
+    pub(crate) fn native(cancellation: CancellationContext) -> Self {
+        Self { owner: WakeOwner::Native(cancellation) }
+    }
+
+    pub(crate) fn native_cancellation(&self) -> &CancellationContext {
+        match &self.owner {
+            WakeOwner::Native(owner) => owner,
+            WakeOwner::Scheduler { .. } => panic!("Source task context retains its native wake owner"),
+        }
+    }
+
     /// Coalesces a wake and reports whether it adds a new ready entry.
     pub fn wake(&self) -> Result<bool, SchedulerError> {
         self.wake_with_cause(TaskWakeCause::Explicit)
@@ -501,22 +524,29 @@ impl TaskWakeHandle {
     }
 
     pub(crate) fn wake_with_cause(&self, cause: TaskWakeCause) -> Result<bool, SchedulerError> {
-        let scheduler = self
-            .scheduler
-            .upgrade()
-            .ok_or(SchedulerError::UnknownTask(self.task))?;
+        let (task, status) = match &self.owner {
+            WakeOwner::Scheduler { task, registration, scheduler } => {
+                let scheduler = scheduler
+                    .upgrade()
+                    .ok_or(SchedulerError::UnknownTask(*task))?;
 
-        let status = native::bray_runtime_scheduler_wake(
-            &scheduler.source.reference,
-            self.registration,
-            native::cause(cause),
-            scheduler.ticks(),
-        );
+                (*task, native::bray_runtime_scheduler_wake(
+                    &scheduler.source.reference,
+                    *registration,
+                    native::cause(cause),
+                    scheduler.ticks(),
+                ))
+            }
+            WakeOwner::Native(owner) => (
+                TaskId::from_bray_handle(owner.native_reference().task()),
+                owner.wake_native(cause),
+            ),
+        };
 
         match status {
             0 => Ok(false),
             1 => Ok(true),
-            2 => Err(SchedulerError::UnknownTask(self.task)),
+            2 => Err(SchedulerError::UnknownTask(task)),
             _ => panic!("Bray wake returned unknown status {status}"),
         }
     }

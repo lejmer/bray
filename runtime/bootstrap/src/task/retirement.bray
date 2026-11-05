@@ -9,11 +9,12 @@ using std.sync;
 using internal std.sync.spin_lock;
 using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.execution;
 using internal bray.runtime.bootstrap.host.product;
 
 // The native owner transfers exactly one internal storage reference. A borrowed
 // view or a source Task identity cannot satisfy this consumption contract.
-trusted internal predicate reference_disposal(pointer: DataPointer<Reference>);
+trusted internal predicate reference_disposal(owner: &DataPointer<Reference>);
 
 trusted internal predicate released(owner: &Reference);
 
@@ -42,25 +43,40 @@ trusted internal func last_reference(pos owner: &Reference) -> bool
 @abi(c)
 trusted internal func reference_release(pos pointer: DataPointer<Reference>) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted reference_disposal(pointer = pointer),
+        trusted reference_slot(owner = &pointer),
+        trusted reference_disposal(owner = &pointer),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
-    let reference = trusted read_disposing_reference(pointer);
+    let reference = trusted read_disposing_reference(&pointer);
 
     return trusted dispose_reference(reference);
 }
 
-trusted internal predicate owned_reference(owner: &Reference);
+trusted internal predicate storage_owned(owner: &Marker);
 
-trusted internal func read_disposing_reference(pos pointer: DataPointer<Reference>) -> Reference
-    requires(trusted reference_slot(pointer = pointer), trusted reference_disposal(pointer = pointer))
+internal predicate owned_reference(owner: &Reference) = storage_owned(owner = &owner.acquisition);
+
+trusted internal func read_disposing_reference(pos owner: &DataPointer<Reference>) -> Reference
+    requires(trusted reference_slot(owner = owner), trusted reference_disposal(owner = owner))
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    uses(raw_memory)
 {
-    return trusted read_reference(pointer);
+    let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+    let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(owner = owner), trusted reference_disposal(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<Reference>(pointer = pointer),
+            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    return trusted std.memory.read<Reference>(pointer);
 }
 
+@abi(c)
 trusted internal func dispose_reference(pos reference: Reference) -> u32
     requires(
         trusted retained(owner = &reference),
@@ -90,16 +106,17 @@ trusted internal func dispose_reference(pos reference: Reference) -> u32
         yield trusted take_released(&lease, &mut anchor, &reference);
     };
 
-    _ = retired;
+    let (control, execution) = retired;
 
-    return 0;
+    _ = control;
+    return trusted bray.runtime.bootstrap.execution.release_task_pin(execution);
 }
 
 trusted internal func take_released(
     pos lease: &bray.runtime.bootstrap.host.HostLease,
     pos anchor: &mut bray.runtime.bootstrap.host.HostAnchor,
     pos reference: &Reference
-) -> std.sync.SpinLock<Control>
+) -> (std.sync.SpinLock<Control>, bray.runtime.bootstrap.execution.Reference?)
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
@@ -110,7 +127,8 @@ trusted internal func take_released(
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
         trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted std.sync.spin_lock.valid(&result.prepared.instance)
+        trusted std.sync.spin_lock.valid(&result.0.prepared.instance),
+        trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.1)
     )
     uses(intrinsic)
 {
@@ -166,10 +184,31 @@ trusted internal func take_released(
 
     let retired = trusted materialize(storage);
 
+    let take_execution = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos slot: &mut Slot) -> bray.runtime.bootstrap.execution.Reference?
+        requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+        ensures(trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result))
+        uses(raw_memory, unchecked_init)
+    {
+        let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.execution.Reference?)>(&slot.execution_owner);
+        let permit = trusted lambda(pos lease: &bray.runtime.bootstrap.host.HostLease, pos pointer: DataPointer<(bray.runtime.bootstrap.execution.Reference?)>)
+            requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
+            ensures(trusted core.memory.valid_read<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1), trusted core.memory.valid_write<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer, count = 1), trusted core.memory.initialized_as<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer), trusted core.memory.aligned_for<(bray.runtime.bootstrap.execution.Reference?)>(pointer = pointer))
+            executes(pure, total) {};
+
+        trusted permit(lease, pointer);
+
+        let owner = trusted std.memory.read<(bray.runtime.bootstrap.execution.Reference?)>(pointer);
+
+        trusted std.memory.write<(bray.runtime.bootstrap.execution.Reference?)>(pointer, none);
+        return owner;
+    };
+
+    let execution = trusted take_execution(lease, slot);
+
     slot.runtime = 0;
     slot.next = next;
     host.tasks.free = index;
     host.tasks.active -= 1;
 
-    return retired;
+    return (retired, execution);
 }

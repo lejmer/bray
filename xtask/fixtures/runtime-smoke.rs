@@ -254,7 +254,7 @@ unsafe extern "C" {
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(
         task: TaskHandle,
-        frame: InactiveFrame,
+        frame: usize,
         outcome: &mut RunOutcome,
     ) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
@@ -622,7 +622,7 @@ fn main() {
         report: PanicReport::empty(),
     };
 
-    assert!(bray_runtime_task_start(task, frame, &mut admission) == Status::SUCCESS);
+    assert!(bray_runtime_task_start(task, std::ptr::from_ref(&frame).addr(), &mut admission) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
 
     let mut outcome = RunOutcome {

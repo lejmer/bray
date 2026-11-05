@@ -8,6 +8,7 @@ using std.numeric;
 using internal bray.runtime.bootstrap.provider;
 using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.pool;
+using internal bray.runtime.bootstrap.host;
 
 // The native entry lends the complete immutable binding and dependency array.
 // Reading them creates views. only an actual callback acquisition creates a root.
@@ -211,6 +212,7 @@ trusted internal func prepare_provider(
 
     owner.native =
     {
+        acquisition = bray.runtime.bootstrap.host.Acquisition {},
         context = binding.provider.context,
         callbacks = binding.provider.callbacks
     };

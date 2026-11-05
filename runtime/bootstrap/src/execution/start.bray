@@ -1,0 +1,209 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.activation;
+using internal bray.runtime.bootstrap.scheduler;
+
+// The native caller lends its actual initialized inactive frame and descriptor
+// provider. A successful entry transfers that frame to the admitted root.
+trusted internal predicate frame_input(owner: &usize);
+
+trusted internal func root_frame(pos frame: &usize) -> &bray.runtime.bootstrap.activation.Inactive
+    requires(trusted frame_input(owner = frame))
+    ensures(trusted frame_input(owner = frame), trusted bray.runtime.bootstrap.activation.producer(token = result), trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = result))
+    uses(raw_memory, unchecked_alias, intrinsic)
+{
+    let address = trusted std.memory.read<usize>(std.memory.address_of<usize>(frame));
+    let pointer = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Inactive>(address = address);
+
+    let readable = trusted lambda(pos frame: &usize, pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>)
+        requires(trusted frame_input(owner = frame))
+        ensures(
+            trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.epoch_current<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.synchronized_access<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.movement_stable<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer),
+            trusted core.memory.finalization_pending<bray.runtime.bootstrap.activation.Inactive>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted readable(frame, pointer);
+    return trusted std.memory.borrow_from<bray.runtime.bootstrap.activation.Inactive, usize>(frame, pointer);
+}
+
+@abi(c)
+trusted internal func root_execution(pos frame: usize, pos configuration: Configuration, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> Admission
+    requires(blocking_execution(), trusted frame_input(owner = &frame), trusted native_configuration(owner = &configuration), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    if frame == 0 || frame % std.memory.align_of<bray.runtime.bootstrap.activation.Inactive>() != 0
+    {
+        return { status = 3, task = 0 };
+    }
+
+    let scope = trusted root_scope();
+    let status = scope.status;
+
+    let result = if status == 0
+    {
+        yield trusted start_root(&frame, configuration, outcome);
+    }
+    else
+    {
+        yield Admission { status = status, task = 0 };
+    };
+
+    let ended = trusted finish_entry_scope(scope);
+
+    // A successful transfer keeps its claim even if entry cleanup reports an
+    // independent incident. The native host still resolves the returned handle.
+    return { status = if result.status == 0 { yield ended; } else { yield result.status; }, task = result.task };
+}
+
+trusted internal func start_root(pos frame: &usize, pos configuration: Configuration, pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>) -> Admission
+    requires(blocking_execution(), trusted frame_input(owner = frame), trusted native_configuration(owner = &configuration), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let startup_status = trusted startup(configuration);
+
+    if startup_status != 0 && startup_status != 2
+    {
+        return { status = startup_status, task = 0 };
+    }
+
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        trusted core.target.abort();
+    }
+
+    let active = trusted context(&selected);
+    if !has_execution(&selected)
+    {
+        return { status = 1, task = 0 };
+    }
+
+    let execution = trusted bound_execution(&selected);
+
+    let (reference, admission_status) = trusted admit_source_task(&selected);
+
+    if reference matches none
+    {
+        return { status = admission_status, task = 0 };
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+    let token = trusted root_frame(frame);
+    let status = trusted start_frame(&selected, &owner, token, active.driver, outcome);
+    let handle = owner.handle;
+
+    if status != 0
+    {
+        if trusted destroy_reference(&selected, &owner) != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+
+    return { status = status, task = if status == 0 { yield handle; } else { yield 0; } };
+}
+
+trusted internal func start_frame(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos token: &bray.runtime.bootstrap.activation.Inactive,
+    pos driver: bray.runtime.bootstrap.scheduler.Lane?,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(blocking_execution(), 
+        trusted view_owned(owner = &selected.acquisition), selected.status == 0,
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference), trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.activation.producer(token = token),
+        trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+        trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference), trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+    uses(intrinsic)
+{
+    let active = trusted context(selected);
+    let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
+
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+        let control = trusted guard.get();
+
+        if !(control.phase matches bray.runtime.bootstrap.task.Phase.Admitted)
+        {
+            return 3;
+        }
+    }
+
+    let initial = match consume trusted bray.runtime.bootstrap.activation.requirements.read(token, 0, 0, 0, active.thread)
+    {
+        case ?initial_execution { yield initial_execution; }
+        case none { return 3; }
+    };
+
+    let (lane, status) = trusted select_lane(execution, 0, &initial, driver);
+
+    if status != 0
+    {
+        return status;
+    }
+
+    let registration = trusted register_task(execution, reference.handle, lane, driver);
+
+    if registration == 0
+    {
+        return 4;
+    }
+
+    let failure = trusted demand_lane(execution, lane);
+
+    if failure.stage != 0
+    {
+        trusted withdraw_registration(execution, registration);
+        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(outcome, trusted bray.runtime.bootstrap.worker.failure_outcome(&failure));
+        return 5;
+    }
+
+    let authorize = trusted lambda(pos selected: &Current, pos token: &bray.runtime.bootstrap.activation.Inactive)
+        requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.activation.producer(token = token), trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token))
+        ensures(trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = (trusted context(selected)).thread))
+        executes(pure, total) {};
+
+    trusted authorize(selected, token);
+
+    let root = trusted bray.runtime.bootstrap.activation.begin(token, active.thread);
+
+    if root == 0
+    {
+        trusted withdraw_registration(execution, registration);
+        return 3;
+    }
+
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+
+        let control = trusted guard.get();
+
+        control.registration = registration;
+        trusted bray.runtime.bootstrap.task.publish(control, root, initial);
+    }
+
+    _ = trusted wake_reference(reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+    return 0;
+}

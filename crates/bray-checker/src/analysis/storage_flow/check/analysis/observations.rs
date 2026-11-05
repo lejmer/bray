@@ -95,7 +95,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
 
-        for (root, markers) in &self.input.stable_identities {
+        for (root, markers) in &self.input.footprint.identities {
             if matches!(
                 self.storage.identity(*root),
                 Some(bray_bound_tree::StorageIdentity::Static(_))
@@ -108,7 +108,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         // A shared referent retains its empty markers unless a raw alias is
         // exposed. A reference slot alone does not establish a pointee owner.
-        for (reference, markers) in &self.input.borrowed_identities {
+        for (reference, markers) in &self.input.footprint.borrowed_identities {
             let location = match reference.access_id(self.storage) {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
                 Some(access) => self.input.reference_target(memory, self.storage, access),
@@ -125,7 +125,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for marker in markers {
                 // Only immutable markers use exposure from before this invocation.
                 // Payload observations still see every newly published address.
-                let visible_exposure = if self.input.empty_markers.contains(marker) {
+                let visible_exposure = if self.input.footprint.empty_markers.contains(marker) {
                     marker_exposure.unwrap_or(&exposed)
                 } else {
                     &exposed
@@ -218,7 +218,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 if capability.kind() == bray_symbols::BorrowKind::Mutable {
-                    stable_descriptors.extend(self.input.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
+                    stable_descriptors.extend(self.input.footprint.discriminants.get(&path.root).into_iter().flatten().filter(|descriptor| {
                         descriptor.contains(path)
                             && matches!(path.projections.get(descriptor.projections.len()), Some(bray_bound_tree::StorageProjection::NullableValue | bray_bound_tree::StorageProjection::ActiveUnionPayloadField { .. }))
                     }).cloned());
@@ -226,7 +226,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let discriminants = self.input.discriminants.get(&path.root);
+                let discriminants = self.input.footprint.discriminants.get(&path.root);
 
                 let mut values = self
                     .input
@@ -234,7 +234,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .range(path.clone()..)
                     .take_while(|value| path.contains(value))
                     .chain(
-                        self.input
+                        self.input.footprint
                             .borrowed_identities
                             .get(path)
                             .into_iter()
@@ -264,10 +264,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    pub(super) fn preserve_assignment_values(
+    pub(super) fn preserve_store_values(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         invalidation: &mut StorageInvalidation,
+        tags: bool,
         contents: bool,
     ) {
         let (StorageInvalidation::All {
@@ -285,10 +286,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let exposed = memory.raw_exposed_regions();
 
-        // The checked store contains no tags or references and runs no replacement
-        // cleanup. Inexact aliasing cannot turn that store into a variant replacement.
+        if tags {
+        // Tag-free stores run no replacement cleanup. Inexact aliasing
+        // cannot turn one into a variant replacement.
         stable_descriptors.extend(
-            self.input
+            self.input.footprint
                 .discriminants
                 .iter()
                 .filter(|(root, _)| {
@@ -300,11 +302,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 })
                 .flat_map(|(_, paths)| paths.iter().cloned()),
         );
+        }
 
         if contents {
-            // A plain data store cannot replace empty ownership markers, even
-            // when its physical destination has inexact aliases.
-            stable_values.extend(self.input.empty_markers.iter().cloned());
+            // Plain assignments and typed data stores cannot transfer empty
+            // ownership markers, even when their destination has inexact aliases.
+            stable_values.extend(self.input.footprint.empty_markers.iter().cloned());
         }
     }
 
@@ -419,7 +422,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut invalidation = if atomic {
             let frame = self
                 .input
-                .atomic_observations
+                .footprint
+                .atomic
                 .as_ref()
                 .expect("atomic effects prepare their observation frame");
 
@@ -624,9 +628,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(target) = target.observation_path() else {
+            if !target.is_exact() {
                 continue;
-            };
+            }
 
             observations.insert(
                 StoragePath {
@@ -638,7 +642,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .copied()
                         .collect(),
                 },
-                target,
+                target.clone(),
             );
         }
 

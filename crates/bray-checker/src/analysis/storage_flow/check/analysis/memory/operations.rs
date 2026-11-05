@@ -205,7 +205,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Unknown physical provenance remains unknown after a checked conversion.
                     // It is not syntax recovery and does not erase the body's other facts.
                     if let Some(source) = self.expression_reference(state, arguments[pointer]) {
-                        source.transfer(&mut state.memory, result);
+                        if let CheckedMemoryOperationKind::BorrowFrom { pointee, .. } = operation.kind() {
+                            source.transfer(&mut state.memory, result.clone());
+                            state.memory.borrow_view(&result, *pointee);
+                        } else {
+                            source.transfer(&mut state.memory, result);
+                        }
                     } else {
                         state.memory.clear(&result);
                     }

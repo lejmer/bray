@@ -195,8 +195,9 @@ pub(super) struct Context {
 pub(crate) extern "C" fn invoke(
     context: usize,
     operation: u32,
+    _pool: &NativeWorkerReference,
     scope: &bray_runtime_abi::NativeWorkerScope,
-    argument: &mut u64,
+    argument: u64,
     outcome: &mut bray_runtime_abi::NativeRunOutcome,
 ) -> u32 {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -204,7 +205,7 @@ pub(crate) extern "C" fn invoke(
             0 => NativeCallback::retain_worker(context),
             1 => NativeCallback::release_worker(context),
             2 => {
-                let workload = match *argument {
+                let workload = match argument {
                     0 => ExecutionWorkload::Cooperative,
                     1 => ExecutionWorkload::Blocking,
                     2 => ExecutionWorkload::Compute,
@@ -263,7 +264,8 @@ pub(crate) extern "C" fn invoke(
                 let runtime =
                     super::state::current_runtime().expect("Source retains the worker context");
 
-                *argument = runtime.scheduler.worker_wait_milliseconds();
+                return u32::try_from(runtime.scheduler.worker_wait_milliseconds())
+                    .expect("worker waits fit their millisecond ABI");
             }
             7 => {
                 let runtime = super::state::current_runtime()

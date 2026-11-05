@@ -158,7 +158,7 @@ pub(super) struct Contents {
 }
 
 impl Contents {
-    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self, target: &Target) -> bool {
         let previous_exposure = self.exposed;
         let previous_escape = self.escaped;
 
@@ -170,7 +170,7 @@ impl Contents {
         match (self.storage_type, incoming.storage_type) {
             (Some(left), Some(right)) => assert_eq!(
                 left, right,
-                "one physical storage path has one declared type"
+                "one physical storage path has one declared type: {target:?}"
             ),
             (None, Some(ty)) => self.storage_type = Some(ty),
             _ => {}
@@ -400,7 +400,7 @@ fn merge_contents(
 
     for (key, contents) in target.iter_mut() {
         match incoming.get(key) {
-            Some(incoming) => changed |= contents.merge(incoming),
+            Some(incoming) => changed |= contents.merge(incoming, key),
             None => {
                 changed |= !contents.initialized.is_empty();
                 contents.initialized.clear();

@@ -89,7 +89,8 @@ trusted internal func retain_locked(
     {
         return
         {
-            pointer = std.memory.address_of<Slot>(slot),
+            acquisition = bray.runtime.bootstrap.task.Marker {},
+                pointer = std.memory.address_of<Slot>(slot),
             runtime = runtime,
             handle = handle
         };
@@ -120,12 +121,15 @@ trusted internal func retain_locked(
 @layout(c)
 internal struct Reference
 {
+    acquisition: Marker;
     pointer: DataPointer<Slot>;
     runtime: u64;
     handle: u64;
 }
 
-trusted internal predicate retained(owner: &Reference);
+trusted internal predicate storage_retained(owner: &Marker);
+
+internal predicate retained(owner: &Reference) = storage_retained(owner = &owner.acquisition);
 
 // Presence carries one admitted storage reference. Its status is separate from
 // this noncopy owner, so consuming it never splits another witness carrier.
@@ -134,6 +138,10 @@ trusted internal predicate retained_option(owner: &(Reference?));
 trusted internal func take_retained(pos owner: Reference?) -> Reference
     requires(owner matches ?_, trusted retained_option(owner = &owner))
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    when(trusted resolution_owner_option(owner = &owner))
+    {
+        ensures(trusted resolution_owner(owner = &result))
+    }
     uses(intrinsic)
 {
     return match consume owner
@@ -143,26 +151,32 @@ trusted internal func take_retained(pos owner: Reference?) -> Reference
     };
 }
 
-// The native caller lends its retained reference for this whole callback. It
-// keeps the corresponding host/provider and cell allocation alive through return.
-trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
+// The native caller lends this exact input slot and retains the referenced
+// cell until the enclosing native call returns.
+trusted internal predicate reference_slot(owner: &DataPointer<Reference>);
 
-trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
-    requires(trusted reference_slot(pointer = pointer))
-    ensures(trusted retained(owner = &result))
-    uses(raw_memory)
+trusted internal func borrow_reference(pos owner: &DataPointer<Reference>) -> &Reference
+    requires(trusted reference_slot(owner = owner))
+    ensures(trusted retained(owner = result))
+    uses(raw_memory, unchecked_alias)
 {
-    let permit = trusted lambda(pos pointer: DataPointer<Reference>)
-        requires(trusted reference_slot(pointer = pointer))
+    let pointer = trusted std.memory.read<DataPointer<Reference>>(std.memory.address_of<DataPointer<Reference>>(owner));
+    let permit = trusted lambda(pos owner: &DataPointer<Reference>, pos pointer: DataPointer<Reference>)
+        requires(trusted reference_slot(owner = owner))
         ensures(
             trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = pointer),
-            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Reference>(pointer = pointer),
+            trusted core.memory.epoch_current<Reference>(pointer = pointer),
+            trusted core.memory.synchronized_access<Reference>(pointer = pointer),
+            trusted core.memory.movement_stable<Reference>(pointer = pointer),
+            trusted core.memory.finalization_pending<Reference>(pointer = pointer)
         )
         executes(pure, total) {};
 
-    trusted permit(pointer);
-    return trusted std.memory.read<Reference>(pointer);
+    trusted permit(owner, pointer);
+    return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(owner, pointer);
 }
 
 trusted internal func cell(pos owner: &Reference) -> &Slot
@@ -235,7 +249,15 @@ trusted internal func lock_cell(pos owner: &Reference) -> std.sync.SpinLockGuard
 // from the already admitted slot, without another external runtime/handle check.
 trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
     requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    ensures(trusted retained(owner = owner), trusted retained(owner = &result), trusted owned_reference(owner = &result))
+    when(trusted owned_reference(owner = owner))
+    {
+        ensures(trusted owned_reference(owner = owner))
+    }
+    when(trusted resolution_owner(owner = owner))
+    {
+        ensures(trusted resolution_owner(owner = owner))
+    }
     uses(intrinsic)
 {
     let runtime = owner.runtime;
@@ -263,7 +285,8 @@ trusted internal func duplicate_reference(pos owner: &Reference) -> Reference
     {
         return
         {
-            pointer = std.memory.address_of<Slot>(slot),
+            acquisition = bray.runtime.bootstrap.task.Marker {},
+                pointer = std.memory.address_of<Slot>(slot),
             runtime = runtime,
             handle = handle
         };

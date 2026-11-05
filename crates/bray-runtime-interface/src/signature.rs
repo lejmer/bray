@@ -34,6 +34,8 @@ pub enum RuntimeAbiType {
     TaskAllocation,
     /// Inactive lease epoch and descriptor address.
     InactiveFrame,
+    /// Whole producer invocation and its independently owned output slots.
+    ActivationInvocation,
     /// Frame progress kind, state and payload.
     FrameProgress,
     /// Frame affinity and required execution lanes.

@@ -83,7 +83,7 @@ pub(super) fn with_execution<T>(
 
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
-pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecution) -> u32 {
+pub(in crate::native) extern "C" fn readiness(mut invocation: bray_runtime_abi::NativeActivationInvocation<'_>) -> bray_runtime_abi::NativeActivationInvocation<'_> {
     if let Some(task) = super::super::state::current_services()
         && task.has_worker_failure()
     {
@@ -91,7 +91,8 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
             let mut wait = task.suspended_wait.lock().expect("task wait transport is available");
 
             if wait.as_ref().is_some_and(|wait| !wait.is_ready()) {
-                return NativeRuntimeStatus::PENDING.code();
+                invocation.admission = NativeRuntimeStatus::PENDING.code();
+                return invocation;
             }
 
             wait.take()
@@ -100,13 +101,18 @@ pub(in crate::native) extern "C" fn readiness(snapshot: &NativeActivationExecuti
         drop(completed);
     }
 
-    bray_runtime_activation_action_readiness(snapshot)
+    bray_runtime_activation_action_readiness(invocation)
 }
 
 /// Checks a synchronous action without replacing the enclosing run's continuation.
 pub extern "C" fn bray_runtime_activation_action_readiness(
-    snapshot: &NativeActivationExecution,
-) -> u32 {
+    mut invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
+) -> bray_runtime_abi::NativeActivationInvocation<'_> {
+    invocation.admission = action_readiness(invocation.execution);
+    invocation
+}
+
+fn action_readiness(snapshot: &NativeActivationExecution) -> u32 {
     let current = crate::context::current_task_execution_lane()
         .map(crate::scheduler::native::to_native)
         .unwrap_or_default();
@@ -214,7 +220,7 @@ mod tests {
             };
 
             assert_eq!(
-                super::bray_runtime_activation_action_readiness(&snapshot),
+                super::action_readiness(&snapshot),
                 expected.code()
             );
         }

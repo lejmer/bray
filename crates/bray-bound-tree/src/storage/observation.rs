@@ -48,7 +48,7 @@ impl StorageMutation {
 /// Value observations and required storage lifetimes are distinct relationships.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct StorageCompletion {
-    references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+    references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
     borrow_origins: std::collections::BTreeMap<
         crate::BoundExecutionSite,
         std::collections::BTreeSet<crate::StoragePath>,
@@ -58,7 +58,7 @@ pub struct StorageCompletion {
 impl StorageCompletion {
     /// Creates a completion from exact value observations and all possible local borrowed owners.
     pub fn new(
-        references: std::collections::BTreeMap<crate::StoragePath, crate::StoragePath>,
+        references: std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget>,
         borrow_origins: std::collections::BTreeMap<
             crate::BoundExecutionSite,
             std::collections::BTreeSet<crate::StoragePath>,
@@ -70,10 +70,10 @@ impl StorageCompletion {
         }
     }
 
-    /// Returns exact current aliases used to observe mutated referents.
+    /// Returns established referents without discarding entry layers or returned origins.
     pub fn references(
         &self,
-    ) -> &std::collections::BTreeMap<crate::StoragePath, crate::StoragePath> {
+    ) -> &std::collections::BTreeMap<crate::StoragePath, crate::StorageTarget> {
         &self.references
     }
 
@@ -111,6 +111,7 @@ impl StorageCompletion {
 #[cfg(test)]
 mod tests {
     use super::StorageCompletion;
+    use crate::StorageTarget;
     use std::collections::{BTreeMap, BTreeSet};
     #[test]
     fn completion_merge_intersects_exact_aliases_and_unions_required_origins() {
@@ -123,12 +124,12 @@ mod tests {
         let argument = crate::BoundExpressionId::from_slot(unit, 0);
 
         let mut left = StorageCompletion::new(
-            BTreeMap::from([(path(0), path(1))]),
+            BTreeMap::from([(path(0), StorageTarget::storage(path(1)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(1)]))]),
         );
 
         let right = StorageCompletion::new(
-            BTreeMap::from([(path(0), path(2))]),
+            BTreeMap::from([(path(0), StorageTarget::storage(path(2)))]),
             BTreeMap::from([(argument.into(), BTreeSet::from([path(2)]))]),
         );
 

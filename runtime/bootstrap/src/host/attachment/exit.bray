@@ -24,182 +24,134 @@ internal struct AttachmentExit
     identity: u64;
     native_thread: u64;
     mut cleanup: AttachmentCleanup?;
-    mut ready: bool;
-    mut incidents: (&mut u32)?;
 
-    trusted destruct()
-        uses(foreign_call, raw_memory, unchecked_alias, intrinsic)
+}
+
+// Finish the selected closing owner explicitly. The caller retains its native
+// exit scope through domain cleanup, execution retirement and epoch release.
+trusted internal func complete_attachment_exit(pos owner: AttachmentExit) -> u32
+    requires(trusted attachment_exit_selected(owner = &owner))
+{
+    // Validate the closing epoch under the reacquired lease before issuing
+    // retirement authority. This producer is local to the selected owner.
+    let retire = trusted lambda(
+        pos identity: u64,
+        pos native_thread: u64,
+        pos retired_domains: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
+    ) -> AttachmentRetirement
         requires(
-            (!self.ready && trusted attachment_exit_inactive(owner = &self)) || (self.ready &&
-                trusted attachment_exit_selected(owner = &self))
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
         )
-        when(!self.ready)
-        {
-            executes(total)
-        }
+        ensures(
+            result.lease.active,
+            trusted host_access_live(owner = &result.lease.acquisition),
+            trusted attachment_cleanup_completed(owner = &result),
+        )
+        uses(intrinsic)
     {
-        if self.ready
+        let mut lease: HostLease = trusted host_access();
+
+        if !lease.active
         {
-            // Validate the closing epoch under the reacquired lease before issuing
-            // retirement authority. This producer is local to the selected owner.
-            let retire = trusted lambda(
-                pos identity: u64,
-                pos native_thread: u64,
-                pos retired_domains: &mut(std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
-            ) -> AttachmentRetirement
-                requires(
-                    trusted bray.runtime.bootstrap.host.product.native_host(),
-                    trusted bray.runtime.bootstrap.pool.protocol_access()
-                )
-                ensures(
-                    result.lease.active,
-                    trusted host_access_live(owner = &result.lease.acquisition),
-                    trusted attachment_cleanup_completed(owner = &result),
-                )
-                uses(intrinsic)
+            trusted core.target.abort();
+        }
+
+        let pointers: (DataPointer<Attachment>, DataPointer<usize>, usize) =
+        {
+            let mut anchor: HostAnchor = trusted host_anchor(&lease);
+            let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
+
+            let payload: &mut HostStorage = if let ?storage = host.storage
             {
-                let mut lease: HostLease = trusted host_access();
-
-                if !lease.active
-                {
-                    trusted core.target.abort();
-                }
-
-                let pointers: (DataPointer<Attachment>, DataPointer<usize>, usize) =
-                {
-                    let mut anchor: HostAnchor = trusted host_anchor(&lease);
-                    let host: &mut HostOwner = trusted host_value(&lease, &mut anchor);
-
-                    let payload: &mut HostStorage = if let ?storage = host.storage
-                    {
-                        yield &mut storage;
-                    }
-                    else
-                    {
-                        yield trusted core.target.abort();
-                    };
-
-                    let record: DataPointer<Attachment> =
-                    {
-                        let row = trusted find_attachment(payload, identity, 0);
-
-                        yield match consume row
-                        {
-                            case ?entry
-                            {
-                                if !entry.closing || entry.native_thread != native_thread
-                                {
-                                    trusted core.target.abort();
-                                }
-
-                                trusted internal std.memory.swap_values<
-                                    (std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
-                                >(&mut entry.domains, retired_domains);
-
-                                yield std.memory.address_of_mut<Attachment>(entry);
-                            }
-                            case none { yield trusted core.target.abort(); }
-                        };
-                    };
-
-                    if payload.active == 0
-                    {
-                        trusted core.target.abort();
-                    }
-
-                    yield (record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
-                };
-
-                let (record, active, remaining_active): (DataPointer<Attachment>, DataPointer<usize>, usize) = pointers;
-
-                return AttachmentRetirement
-                {
-                    lease = lease,
-                    identity = identity,
-                    native_thread = native_thread,
-                    record = record,
-                    active = active,
-                    remaining_active = remaining_active
-                };
-            };
-
-            let authorize = trusted lambda(pos owner: &AttachmentExit)
-                requires(trusted attachment_exit_selected(owner = owner))
-                ensures(
-                    trusted bray.runtime.bootstrap.host.product.native_host(),
-                    trusted bray.runtime.bootstrap.pool.protocol_access()
-                )
-                executes(pure, total) {};
-
-            trusted authorize(&self);
-            trusted bray.runtime.bootstrap.host.product.cleanup_domains(self.identity);
-
-            // Source TLS cleanup has completed. Clear both native callback slots before
-            // the optional external callback, while its selected owner still retains context.
-            let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
-                trusted bray.runtime.bootstrap.domain.synchronization_storage(),
-                trusted synchronization_pointer()
-            );
-
-            let callback_key = core.atomic.load<u64, 1>(&synchronization.key);
-            let context_key = core.atomic.load<u64, 1>(&synchronization.cleanup_key);
-
-            if callback_key != 0
-            {
-                let status = trusted internal std.thread.platform_thread_storage_store(
-                    callback_key - 1,
-                    std.memory.null<u8>()
-                );
-
-                if status.category != 0
-                {
-                    trusted core.target.abort();
-                }
-            }
-
-            if context_key != 0
-            {
-                let status = trusted internal std.thread.platform_thread_storage_store(
-                    context_key - 1,
-                    std.memory.null<u8>()
-                );
-
-                if status.category != 0
-                {
-                    trusted core.target.abort();
-                }
-            }
-
-            let incidents: u32 = if let ?cleanup = self.cleanup
-            {
-                yield cleanup(self.identity);
+                yield &mut storage;
             }
             else
             {
-                yield 0;
+                yield trusted core.target.abort();
             };
 
-            if let ?destination = self.incidents
+            let record: DataPointer<Attachment> =
             {
-                _ = trusted std.memory.replace_value<u32>(destination, incidents);
-            }
+                let row = trusted find_attachment(payload, identity, 0);
 
-            let mut retired_domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>? = none;
+                yield match consume row
+                {
+                    case ?entry
+                    {
+                        if !entry.closing || entry.native_thread != native_thread
+                        {
+                            trusted core.target.abort();
+                        }
 
-            if trusted bray.runtime.bootstrap.entry.bridge.store_control(synchronization, none) != 0
+                        trusted internal std.memory.swap_values<
+                            (std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>?)
+                        >(&mut entry.domains, retired_domains);
+
+                        yield std.memory.address_of_mut<Attachment>(entry);
+                    }
+                    case none { yield trusted core.target.abort(); }
+                };
+            };
+
+            if payload.active == 0
             {
                 trusted core.target.abort();
             }
 
-            {
-                let completed: AttachmentRetirement = trusted retire(
-                    self.identity,
-                    self.native_thread,
-                    &mut retired_domains
-                );
-            }
+            yield (record, std.memory.address_of_mut<usize>(&mut payload.active), payload.active - 1);
+        };
+
+        let (record, active, remaining_active): (DataPointer<Attachment>, DataPointer<usize>, usize) = pointers;
+
+        let synchronization = trusted lease_synchronization(&lease);
+
+        if trusted bray.runtime.bootstrap.entry.bridge.store_control(synchronization, none) != 0
+        {
+            trusted core.target.abort();
         }
+
+        return AttachmentRetirement
+        {
+            lease = lease,
+            identity = identity,
+            native_thread = native_thread,
+            record = record,
+            active = active,
+            remaining_active = remaining_active
+        };
+    };
+
+    let authorize = trusted lambda(pos owner: &AttachmentExit)
+        requires(trusted attachment_exit_selected(owner = owner))
+        ensures(
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        executes(pure, total) {};
+
+    trusted authorize(&owner);
+
+    let mut execution = trusted take_attachment_execution(&owner);
+
+    let mut incidents = trusted cleanup_attachment_domains(&owner, &mut execution);
+
+    if execution matches ?_
+    {
+        incidents += trusted retire_attachment_execution(execution, &owner);
     }
+
+    let mut retired_domains: std.memory.RawBuffer<bray.runtime.bootstrap.host.product.ThreadDomain>? = none;
+
+    {
+        let completed: AttachmentRetirement = trusted retire(
+            owner.identity,
+            owner.native_thread,
+            &mut retired_domains
+        );
+    }
+
+    return incidents;
 }
 
 internal struct AttachmentRetirement
@@ -234,6 +186,7 @@ internal struct AttachmentRetirement
                 context_bridge = none,
                 report_observer = none,
                 cleanup = none,
+                execution = none,
                 domains = none
             }
         );
@@ -263,8 +216,7 @@ trusted internal predicate retained_attachment_exit(slot: &AttachmentSlot, lease
 
 trusted internal func take_attachment_exit(
     pos lease: &HostLease,
-    pos slot: &AttachmentSlot,
-    pos incidents: &mut u32
+    pos slot: &AttachmentSlot
 ) -> AttachmentExit
     requires(
         trusted host_access_live(owner = &lease.acquisition),
@@ -279,7 +231,6 @@ trusted internal func take_attachment_exit(
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = lease),
-        result.ready,
         trusted attachment_exit_selected(owner = &result)
     )
     executes(total)
@@ -287,11 +238,9 @@ trusted internal func take_attachment_exit(
 {
     let value = slot.value;
     let storage = slot.storage;
-    let mut selected: AttachmentExit = trusted std.memory.read<AttachmentExit>(value);
+    let selected: AttachmentExit = trusted std.memory.read<AttachmentExit>(value);
 
     trusted std.memory.write<(AttachmentExit?)>(storage, none);
-    selected.incidents = incidents;
-    selected.ready = true;
     return selected;
 }
 
@@ -299,10 +248,9 @@ trusted internal func release_attachment_exit(pos lease: HostLease, pos selected
     requires(
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_access_idle(owner = &lease),
-        selected.ready,
         trusted attachment_exit_selected(owner = &selected)
     )
-    ensures(result.ready, trusted attachment_exit_selected(owner = &result))
+    ensures(trusted attachment_exit_selected(owner = &result))
     executes(total)
 {
     return selected;
@@ -522,27 +470,23 @@ trusted internal func select_attachment_slot(
 trusted internal func finish_attachment(pos scope: &bray.runtime.bootstrap.thread.destruction.ExitScope) -> u32
     requires(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = scope))
 {
-    let mut incidents: u32 = 0;
-
+    let selected: AttachmentExit =
     {
-        let destination: &mut u32 = &mut incidents;
+        let (lease, request) = trusted request_attachment_exit(scope);
+        let mut anchor = trusted host_anchor(&lease);
+        let selected = trusted select_attachment_slot(&lease, &mut anchor, &request);
 
-        let selected: AttachmentExit =
+        if !selected.pending
         {
-            let (lease, request) = trusted request_attachment_exit(scope);
-            let mut anchor = trusted host_anchor(&lease);
-            let selected = trusted select_attachment_slot(&lease, &mut anchor, &request);
+            return selected.status;
+        }
 
-            if !selected.pending
-            {
-                return selected.status;
-            }
+        let owner = trusted take_attachment_exit(&lease, &selected.slot);
 
-            let owner = trusted take_attachment_exit(&lease, &selected.slot, destination);
+        yield trusted release_attachment_exit(lease, owner);
+    };
 
-            yield trusted release_attachment_exit(lease, owner);
-        };
-    }
+    let incidents = trusted complete_attachment_exit(selected);
 
     if incidents != 0
     {
@@ -590,4 +534,72 @@ trusted internal func completed_active_pointer(pos completed: &AttachmentRetirem
     executes(pure, total)
 {
     return completed.active;
+}
+
+// The selected closing epoch and its execution owner outlive every TLS and
+// native callback. Cleanup cannot transfer either owner to the callback.
+trusted internal func cleanup_attachment_domains(
+    pos owner: &AttachmentExit,
+    pos execution: &mut(ExecutionOwner?)
+) -> u32
+    requires(
+        trusted attachment_exit_selected(owner = owner),
+        execution matches none || trusted execution_option_owned(owner = &execution),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted attachment_exit_selected(owner = owner),
+        execution matches none || trusted execution_option_owned(owner = &execution)
+    )
+    uses(foreign_call, raw_memory, unchecked_alias, intrinsic)
+{
+    if execution matches ?_
+    {
+        trusted enter_attachment_execution(execution);
+    }
+
+    trusted bray.runtime.bootstrap.host.product.cleanup_domains(owner.identity);
+
+    // Source TLS cleanup has completed. Clear both native callback slots before
+    // the optional external callback, while its selected owner still retains context.
+    let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
+        trusted bray.runtime.bootstrap.domain.synchronization_storage(),
+        trusted synchronization_pointer()
+    );
+
+    let callback_key = core.atomic.load<u64, 1>(&synchronization.key);
+    let context_key = core.atomic.load<u64, 1>(&synchronization.cleanup_key);
+
+    if callback_key != 0
+    {
+        let status = trusted internal std.thread.platform_thread_storage_store(
+            callback_key - 1,
+            std.memory.null<u8>()
+        );
+
+        if status.category != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    if context_key != 0
+    {
+        let status = trusted internal std.thread.platform_thread_storage_store(
+            context_key - 1,
+            std.memory.null<u8>()
+        );
+
+        if status.category != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    return match owner.cleanup
+    {
+        case ?cleanup { yield cleanup(owner.identity); }
+        case none { yield 0; }
+    };
 }

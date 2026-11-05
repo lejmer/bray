@@ -99,7 +99,7 @@ where
         {
             let block = self.resolve_scopes(block, catch.scope_depth, exit, false);
 
-            self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
+            self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, Some(super::model::AnalysisRefinement::CaughtResult { expression: catch.expression, succeeded: false }));
 
             return;
         }
@@ -222,7 +222,7 @@ where
             if let Some(catch) = catch {
                 let failure = self.resolve_scopes(failure_entry, catch.scope_depth, exit, false);
 
-                self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
+                self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, Some(super::model::AnalysisRefinement::CaughtResult { expression: catch.expression, succeeded: false }));
             } else {
                 let failure = self.resolve_scopes(failure_entry, 0, exit, false);
 

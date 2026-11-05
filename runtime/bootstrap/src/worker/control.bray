@@ -20,32 +20,35 @@ trusted internal func acquisition(
     requires(trusted scope_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
     uses(intrinsic)
 {
-    let reference = trusted read_scope(pointer);
-    let scope = trusted scope_value(&reference);
-    let row = trusted worker(&reference);
+    let reference = trusted read_scope(&pointer, pointer);
+
+    if let ?selected = trusted acquire_ready(reference, lanes)
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.scheduler.Observation>(output, selected);
+        return 1;
+    }
+
+    return 0;
+}
+
+trusted internal func acquire_ready(pos owner: &Scope, pos lanes: u32) -> bray.runtime.bootstrap.scheduler.Observation?
+    requires(trusted scope_live(owner = &owner.marker))
+    ensures(trusted scope_live(owner = &owner.marker))
+    uses(intrinsic)
+{
+    let row = trusted worker(owner);
     let mut guard = trusted lock(&row.pool);
     let state = trusted locked_state(&row.pool, &mut guard);
 
     if state.stopping
     {
-        return 0;
+        return none;
     }
 
-    let scheduler = trusted scheduler_pointer(&row.pool);
+    let scheduler = trusted scheduler_reference(&row.pool);
+    let selected = bray.runtime.bootstrap.scheduler.acquire(scheduler, owner.attachment, lanes);
 
-    let authorize_scheduler = trusted lambda(
-        pos owner: &Reference,
-        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
-    )
-        requires(trusted retained(owner = &owner.marker))
-        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
-        executes(pure, total) {};
-
-    trusted authorize_scheduler(&row.pool, scheduler);
-
-    let selected = trusted bray.runtime.bootstrap.scheduler.acquisition(scheduler, scope.attachment, lanes, output);
-
-    if selected == 1 && row.workload == 1
+    if selected matches ?_ && row.workload == 1
     {
         if state.idle_blocking == 0
         {
@@ -59,15 +62,22 @@ trusted internal func acquisition(
 }
 
 @abi(c)
-trusted internal func notification(pos pointer: DataPointer<DataPointer<Domain>>)
+trusted internal func notification(pos pointer: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = pointer))
     uses(raw_memory)
 {
-    let reference = trusted read_reference(pointer);
+    trusted notify_reference(trusted borrow_reference(&pointer, pointer));
+}
+
+trusted internal func notify_reference(pos reference: &Reference)
+    requires(trusted retained(owner = &reference.marker))
+    ensures(trusted retained(owner = &reference.marker))
+    uses(raw_memory)
+{
 
     {
-        let mut guard = trusted lock(&reference);
-        let state = trusted locked_state(&reference, &mut guard);
+        let mut guard = trusted lock(reference);
+        let state = trusted locked_state(reference, &mut guard);
 
         if let ?entries = state.entries
         {
@@ -84,47 +94,44 @@ trusted internal func notification(pos pointer: DataPointer<DataPointer<Domain>>
         }
     }
 
-    trusted notify_scheduler(&reference);
+    trusted notify_scheduler(reference);
 }
 
 trusted internal func notify_scheduler(pos reference: &Reference)
     requires(trusted retained(owner = &reference.marker))
+    ensures(trusted retained(owner = &reference.marker))
 {
-    let pointer = trusted scheduler_pointer(reference);
-
-    let authorize = trusted lambda(
-        pos reference: &Reference,
-        pos pointer: DataPointer<bray.runtime.bootstrap.scheduler.Reference>
-    )
-        requires(trusted retained(owner = &reference.marker))
-        ensures(trusted bray.runtime.bootstrap.scheduler.reference_slot(pointer = pointer))
-        executes(pure, total) {};
-
-    trusted authorize(reference, pointer);
-    trusted bray.runtime.bootstrap.scheduler.notification(pointer);
+    bray.runtime.bootstrap.scheduler.notify_ready(trusted scheduler_reference(reference));
 }
 
 @abi(c)
-trusted internal func stop(pos pointer: DataPointer<DataPointer<Domain>>)
+trusted internal func stop(pos pointer: DataPointer<Reference>)
     requires(trusted stop_entry(), blocking_execution())
     uses(intrinsic, raw_memory)
 {
-    let authorize = trusted lambda(pos pointer: DataPointer<DataPointer<Domain>>)
+    let authorize = trusted lambda(pos pointer: DataPointer<Reference>)
         requires(trusted stop_entry())
         ensures(trusted reference_slot(pointer = pointer))
         executes(pure, total) {};
 
     trusted authorize(pointer);
 
-    let reference = trusted read_reference(pointer);
+    trusted stop_reference(trusted borrow_reference(&pointer, pointer));
+}
+
+trusted internal func stop_reference(pos reference: &Reference, pos defer: bool = false)
+    requires(trusted retained(owner = &reference.marker), blocking_execution())
+    ensures(trusted retained(owner = &reference.marker))
+    uses(intrinsic, raw_memory)
+{
     let native = internal std.thread.current_platform_identity();
-    let mut from_worker: bool = false;
+    let mut from_worker: bool = defer;
     let mut count: usize = 0;
     let mut retire: bool = false;
 
     {
-        let mut guard = trusted lock(&reference);
-        let state = trusted locked_state(&reference, &mut guard);
+        let mut guard = trusted lock(reference);
+        let state = trusted locked_state(reference, &mut guard);
 
         state.stopping = true;
 
@@ -160,49 +167,11 @@ trusted internal func stop(pos pointer: DataPointer<DataPointer<Domain>>)
 
     if retire
     {
-        let wire = std.memory.null<Scope>();
-        let mut argument: u64 = 0;
-
-        let mut outcome: bray.runtime.bootstrap.ReportOutcome =
-        {
-            state = bray.runtime.bootstrap.RUN_COMPLETED,
-            payload = 0,
-            report = bray.runtime.bootstrap.empty_panic_report()
-        };
-
-        let scope_pointer = std.memory.address_of<DataPointer<Scope>>(&wire);
-        let argument_pointer = std.memory.address_of_mut<u64>(&mut argument);
-        let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
-        let value = trusted domain(&reference);
-        let context = value.callback.context;
-
-        let authorize_completion = trusted lambda(
-            pos context: usize,
-            pos scope: DataPointer<DataPointer<Scope>>,
-            pos argument: DataPointer<u64>,
-            pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
-        )
-            requires(trusted stop_entry())
-            ensures(
-                trusted callback_authorized(
-                    context = context,
-                    operation = 8,
-                    scope = scope,
-                    argument = argument,
-                    outcome = outcome
-                )
-            )
-            executes(pure, total) {};
-
-        trusted authorize_completion(context, scope_pointer, argument_pointer, output);
-
-        if trusted perform(value.callback.call, context, 8, scope_pointer, argument_pointer, output) != 0
-        {
-            trusted core.target.abort();
-        }
+        trusted invoke_pool(reference, 8);
+        trusted invoke_pool(reference, 1);
     }
 
-    trusted notify_scheduler(&reference);
+    trusted notify_scheduler(reference);
 
     let mut index: usize = 0;
 
@@ -232,8 +201,7 @@ trusted internal func stop(pos pointer: DataPointer<DataPointer<Domain>>)
             return trusted core.target.abort();
         };
 
-        let loan = trusted reference_loan(&reference);
-        let selected_worker = trusted selected(&loan, index);
+        let selected_worker = trusted selected(reference, index);
         let row = trusted retained_worker_value(&selected_worker);
 
         while core.atomic.load<u32, 1>(&row.formation) == 0

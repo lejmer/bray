@@ -43,7 +43,7 @@ internal func choose_lane(pos capabilities: u32, pos main: u64, pos requirements
             return (empty, 6);
         }
 
-        if (capabilities & 32) == 0
+        if (capabilities & 32) == 0 || main == 0
         {
             return (empty, 5);
         }
@@ -105,10 +105,24 @@ trusted internal func selection(
 {
     let requirements = trusted read_requirements(requirements_pointer);
     let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+    let (lane, status) = trusted select(&owner, registration, requirements);
+
+    if status == 0
+    {
+        trusted bray.runtime.bootstrap.host.product.publish_provider<Lane>(output, lane);
+    }
+
+    return status;
+}
+
+trusted internal func select(pos owner: &Reference, pos registration: u64, pos requirements: Requirements) -> (Lane, u32)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+    let value = trusted domain(owner);
     let (mut lane, status) = choose_lane(value.capabilities, value.main, requirements);
 
-    if status == 0 && registration != 0 && lane.placement == 0
+    if status == 0 && registration != 0
     {
         let mut guard = trusted lock(value);
         let state = trusted guard.get();
@@ -116,12 +130,12 @@ trusted internal func selection(
 
         if index == 0
         {
-            return 7;
+            return (lane, 7);
         }
 
         if let ?driver = trusted entry(state, index).driver
         {
-            if (driver.workload & lane.workload) == lane.workload
+            if (driver.workload & lane.workload) == lane.workload && (lane.placement == 0 || lane.thread == driver.thread) && (lane.placement != 3 || driver.placement == 3)
             {
                 lane =
                 {
@@ -133,12 +147,7 @@ trusted internal func selection(
         }
     }
 
-    if status == 0
-    {
-        trusted bray.runtime.bootstrap.host.product.publish_provider<Lane>(output, lane);
-    }
-
-    return status;
+    return (lane, status);
 }
 
 // The native caller owns a continuing root driver through resolution of this

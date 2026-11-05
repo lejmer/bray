@@ -147,6 +147,7 @@ pub(super) struct LoopContext {
 
 #[derive(Clone, Copy)]
 pub(super) struct CatchContext {
+    pub(super) expression: BoundExpressionId,
     pub(super) target: AnalysisBlockId,
     pub(super) scope_depth: usize,
 }

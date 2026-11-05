@@ -238,6 +238,10 @@ pub(crate) enum AnalysisRefinement {
         expression: BoundExpressionId,
         succeeded: bool,
     },
+    CaughtResult {
+        expression: BoundExpressionId,
+        succeeded: bool,
+    },
     PatternOutcome {
         subject: BoundExpressionId,
         pattern: BoundPatternId,
@@ -679,6 +683,7 @@ impl ControlFlowGraph {
             Some(
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::PropagationOutcome { expression, .. }
+                | AnalysisRefinement::CaughtResult { expression, .. }
                 | AnalysisRefinement::GeneratorStorageFailure(expression)
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,

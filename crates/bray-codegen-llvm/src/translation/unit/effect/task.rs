@@ -139,8 +139,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(starting);
 
+        let frame_storage = self.allocate_temporary(frame.get_type(), "task.frame.transfer.storage")?;
+
+        llvm(self.builder.build_store(frame_storage, frame))?;
+
+        let frame_transfer = llvm(self.builder.build_ptr_to_int(
+            frame_storage,
+            self.pointer_integer_type(),
+            "task.frame.transfer",
+        ))?;
+
         let status = self
-            .invoke_native_runtime(start, &[task.into(), frame, context.into()])?
+            .invoke_native_runtime(start, &[task.into(), frame_transfer.into(), context.into()])?
             .expect("task start returns its ownership transition status")
             .into_int_value();
 

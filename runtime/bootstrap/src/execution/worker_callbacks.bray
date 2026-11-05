@@ -1,0 +1,187 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using std.numeric;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.host;
+
+@abi(c)
+trusted internal func worker_callback(
+    pos context: usize,
+    pos operation: u32,
+    pos pool: DataPointer<bray.runtime.bootstrap.worker.Reference>,
+    pos scope: DataPointer<DataPointer<bray.runtime.bootstrap.worker.Scope>>,
+    pos argument: u64,
+    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+) -> u32
+    requires(operation != 4 || blocking_execution(), trusted bray.runtime.bootstrap.worker.callback_authorized(context = context, operation = operation, pool = pool, scope = scope, argument = argument, outcome = outcome))
+    ensures(
+        trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
+        trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
+        trusted bray.runtime.bootstrap.worker.callback_returned(outcome = outcome)
+    )
+    uses(raw_memory, unchecked_init)
+{
+    let reference = trusted bray.runtime.bootstrap.worker.callback_pool(context, operation, pool, scope, argument, outcome, &pool);
+    let owner = trusted bray.runtime.bootstrap.worker.execution_reference(reference);
+    let status: u32 = match operation
+    {
+        case 0 { yield trusted core.target.abort(); }
+        case 1
+        {
+            _ = trusted release_pin(trusted bray.runtime.bootstrap.worker.take_execution_backing(context, reference, pool, scope, argument, outcome));
+            yield 0;
+        }
+        case 2
+        {
+            let selected = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
+            let failure = trusted create_worker_context(selected, owner);
+
+            yield if failure.stage != 0
+            {
+                trusted bray.runtime.bootstrap.worker.startup_failure(selected, &failure);
+                yield 1;
+            }
+            else
+            {
+                yield 0;
+            };
+        }
+        case 3
+        {
+            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
+            let selected = trusted worker_current(actual);
+
+            if selected.status != 0
+            {
+                trusted core.target.abort();
+            }
+
+            trusted poll_deadlines(owner);
+            yield if trusted acquire_worker_ready(actual, &selected) { yield 1; } else { yield 0; };
+        }
+        case 4
+        {
+            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
+            let selected = trusted worker_current(actual);
+
+            if selected.status != 0
+            {
+                trusted core.target.abort();
+            }
+
+            trusted dispatch_ready(&selected, owner);
+            yield 0;
+        }
+        case 5
+        {
+            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
+            let selected = trusted worker_current(actual);
+
+            if !trusted driver_idle(&selected) || !trusted begin_driver_close(&selected)
+            {
+                trusted core.target.abort();
+            }
+
+            yield 0;
+        }
+        case 6
+        {
+            yield trusted deadline_wait(owner, 1000);
+        }
+        case 7
+        {
+            let incoming = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome);
+            let failure: bray.runtime.bootstrap.worker.Failure =
+            {
+                stage = incoming.report.worker_stage,
+                category = incoming.report.worker_category,
+                native_code = incoming.report.worker_native_code
+            };
+
+            if incoming.report.cause != 8 || incoming.report.reserved != 0 || incoming.report.outgoing_count != 0
+            {
+                trusted core.target.abort();
+            }
+
+            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
+            let selected = trusted worker_current(actual);
+
+            if selected.status != 0
+            {
+                trusted core.target.abort();
+            }
+
+            trusted record_worker_failure(&selected, owner, failure);
+            yield 0;
+        }
+        case 8
+        {
+            if core.atomic.load<u32, 1>(&(trusted domain(owner)).completion) == 2
+            {
+                trusted finish_services(owner, 2);
+            }
+
+            yield 0;
+        }
+        case _ { yield trusted core.target.abort(); }
+    };
+
+    trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(outcome,
+        { state = 0, payload = 0, report = bray.runtime.bootstrap.empty_panic_report() }
+    );
+    return status;
+}
+
+trusted internal func acquire_worker_ready(pos scope: &bray.runtime.bootstrap.worker.Scope, pos selected: &Current) -> bool
+    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &selected.acquisition))
+    uses(raw_memory, unchecked_init)
+{
+    let ready = match consume trusted bray.runtime.bootstrap.worker.acquire_ready(scope, (trusted context(selected)).lanes)
+    {
+        case ?value { yield value; }
+        case none { return false; }
+    };
+
+    let pending: bray.runtime.bootstrap.scheduler.Observation? = ready;
+
+    trusted std.memory.write<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected), pending);
+    return true;
+}
+
+trusted internal func record_worker_failure(pos selected: &Current, pos owner: &Reference, pos failure: bray.runtime.bootstrap.worker.Failure)
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted retained(owner = owner), trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted view_owned(owner = &selected.acquisition))
+    uses(raw_memory)
+{
+    let ready = match trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(trusted pending_storage(selected))
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    let (reference, status) = trusted retain_task(owner, ready.task);
+
+    if reference matches none
+    {
+        trusted core.target.abort();
+    }
+
+    let task = trusted bray.runtime.bootstrap.task.take_retained(reference);
+
+    {
+        let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(&task);
+
+        trusted guard.get().failure = failure;
+    }
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(task);
+}

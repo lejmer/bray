@@ -14,7 +14,14 @@ typedef struct
 typedef struct
 {
     uintptr_t context;
-    uint32_t (*call)(uintptr_t, uint32_t, const WorkerSmokeReference*, uint64_t*, RunOutcome*);
+    uint32_t (*call)(
+        uintptr_t,
+        uint32_t,
+        const WorkerSmokeReference*,
+        const WorkerSmokeReference*,
+        uint64_t,
+        RunOutcome*
+    );
 } WorkerSmokeCallback;
 
 extern uint32_t bray_runtime_worker_creation(
@@ -84,13 +91,16 @@ static uint32_t worker_smoke_cleanup(uint64_t identity)
 static uint32_t worker_smoke_callback(
     uintptr_t context,
     uint32_t operation,
+    const WorkerSmokeReference* pool,
     const WorkerSmokeReference* scope,
-    uint64_t* argument,
+    uint64_t argument,
     RunOutcome* outcome
 )
 {
     (void)context;
     (void)scope;
+    (void)pool;
+    (void)argument;
     (void)outcome;
 
     switch (operation)
@@ -129,8 +139,7 @@ static uint32_t worker_smoke_callback(
             atomic_fetch_add(&worker_unbound, 1);
             break;
         case 6:
-            *argument = 1;
-            break;
+            return 1;
         case 8:
             if (atomic_load(&worker_cleanups) != 1)
                 atomic_store(&worker_ordering_failure, 1);
@@ -190,8 +199,8 @@ static int check_worker_runtime(void)
         atomic_load(&worker_ordering_failure) ||
         atomic_load(&worker_create_attempts) != created + 2 ||
         atomic_load(&worker_joins) != joined + 1 ||
-        atomic_load(&worker_retains) != 2 ||
-        atomic_load(&worker_releases) != 2 ||
+        atomic_load(&worker_retains) != 1 ||
+        atomic_load(&worker_releases) != 1 ||
         atomic_load(&worker_bound) != 1 ||
         atomic_load(&worker_unbound) != 1 ||
         atomic_load(&worker_cleanups) != 1 ||

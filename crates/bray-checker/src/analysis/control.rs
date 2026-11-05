@@ -526,6 +526,7 @@ where
         let join = self.push_block();
 
         self.catches.push(CatchContext {
+            expression: id,
             target: join,
             scope_depth: self.scope_depth(),
         });
@@ -545,7 +546,7 @@ where
 
         self.catches.pop();
         self.storage.replace_report_boundary(parent);
-        self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
+        self.push_edge(completion, join, AnalysisEdgeKind::Sequential, Some(AnalysisRefinement::CaughtResult { expression: id, succeeded: true }));
 
         Some(Some(join))
     }

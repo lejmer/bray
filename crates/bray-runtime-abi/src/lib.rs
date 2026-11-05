@@ -27,7 +27,10 @@ mod temporal;
 pub use event::{NativeEventCallback, NativeEventReference};
 pub use task::{NativeTaskObservationGlue, NativeValueCleanupFactory};
 
-pub use activation::{NativeActivationDescriptor, NativeActivationExecution};
+pub use activation::{
+    NativeActivationDescriptor, NativeActivationExecution, NativeActivationInvocation,
+    NativeActivationOperation,
+};
 pub use numeric::{NativeComplexBits, NativeRealBits};
 pub use panic::{
     NativePanicCause, NativePanicMessage, NativePanicMessageCopy, NativePanicMessageRelease,

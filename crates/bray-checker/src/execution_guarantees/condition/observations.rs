@@ -390,7 +390,7 @@ pub(crate) struct Set {
 
 impl Set {
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {
-        if let Some((root, path)) = value.observation_path() {
+        if let Some((root, path)) = Self::indexed_path(&value) {
             self.paths.entry(root).or_default().insert(path);
         }
 
@@ -402,7 +402,7 @@ impl Set {
             return true;
         }
 
-        let Some((root, path)) = value.observation_path() else {
+        let Some((root, path)) = Self::indexed_path(value) else {
             return false;
         };
 
@@ -418,7 +418,7 @@ impl Set {
             return true;
         }
 
-        let Some((root, path)) = value.observation_path() else {
+        let Some((root, path)) = Self::indexed_path(value) else {
             return false;
         };
 
@@ -428,5 +428,20 @@ impl Set {
                 .next()
                 .is_some_and(|candidate| candidate.starts_with(&path))
         })
+    }
+
+    fn indexed_path(
+        value: &ExecutionCondition,
+    ) -> Option<(ExecutionCondition, Vec<bray_symbols::ConstantProjectionKind>)> {
+        match value {
+            // Retaining a borrow preserves that view and its projections. It
+            // cannot retain or retire the referent's ownership on its own.
+            ExecutionCondition::Borrowed(referent) => {
+                let (root, path) = referent.observation_path()?;
+
+                Some((root.borrowed(), path))
+            }
+            value => value.observation_path(),
+        }
     }
 }

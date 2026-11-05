@@ -153,7 +153,7 @@ impl State {
 
                 for (slot, mut contents) in transfer.payloads {
                     contents.initialized.clear();
-                    self.contents.entry(slot).or_default().merge(&contents);
+                    self.contents.entry(slot.clone()).or_default().merge(&contents, &slot);
                 }
 
                 super::references::merge_deferred(&mut self.deferred, &transfer.deferred);

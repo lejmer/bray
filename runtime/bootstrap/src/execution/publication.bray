@@ -1,0 +1,109 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+
+trusted internal func install_previous(pos owner: &Current, pos previous: bray.runtime.bootstrap.host.ExecutionOwner?)
+    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0, (previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &previous)))
+    ensures(trusted view_owned(owner = &owner.acquisition))
+    uses(raw_memory, unchecked_init)
+{
+    let value = trusted context(owner);
+    let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&value.previous);
+
+    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>)
+        requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+        ensures(
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+    trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer, previous);
+}
+
+trusted internal func take_previous(pos owner: &Current) -> bray.runtime.bootstrap.host.ExecutionOwner?
+    requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+    ensures(trusted view_owned(owner = &owner.acquisition), (result matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result)))
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let value = trusted context(owner);
+    let pointer = std.memory.uninit_pointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>(&value.previous);
+
+    let permit = trusted lambda(pos owner: &Current, pos pointer: DataPointer<(bray.runtime.bootstrap.host.ExecutionOwner?)>)
+        requires(trusted view_owned(owner = &owner.acquisition), owner.status == 0)
+        ensures(
+            trusted core.memory.valid_read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer),
+            trusted core.memory.valid_write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(owner, pointer);
+
+    let previous = trusted std.memory.read<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer);
+
+    trusted std.memory.write<(bray.runtime.bootstrap.host.ExecutionOwner?)>(pointer, none);
+    return previous;
+}
+
+// On failure the complete unpublished owner returns to the caller. Its view is
+// gone before the caller retires the context and finishes its attachment.
+trusted internal func publish_driver(pos execution: bray.runtime.bootstrap.host.ExecutionOwner) -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
+    requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = &execution))
+    ensures((result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)))
+    uses(intrinsic)
+{
+    let resource = execution.resource;
+    let selected = trusted borrow_execution(&execution);
+    let mut previous: bray.runtime.bootstrap.host.ExecutionOwner? = execution;
+    let published = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut previous);
+
+    if published != 0
+    {
+        return (published, previous);
+    }
+
+    trusted install_previous(&selected, previous);
+
+    match consume trusted bray.runtime.bootstrap.host.execution_context(resource)
+    {
+        case Ok(_) { return (0, none); }
+        case Error(status)
+        {
+            let mut withdrawn = trusted take_previous(&selected);
+
+            if trusted bray.runtime.bootstrap.host.exchange_attachment_execution(&mut withdrawn) != 0
+            {
+                trusted core.target.abort();
+            }
+
+            return (status, withdrawn);
+        }
+    }
+}
+
+trusted internal func commit_driver(pos allocation: DataPointer<u8>, pos value: Context) -> u32
+    requires(
+        trusted context_owned(owner = &value),
+        trusted core.memory.owned_allocation(pointer = allocation, bytes = std.memory.stride_of<Context>(), align = std.memory.align_of<Context>()),
+        trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Context>())
+    )
+{
+    let execution = trusted initialize_context(allocation, value);
+    let (status, unpublished) = trusted publish_driver(execution);
+
+    if unpublished matches ?_
+    {
+        _ = trusted bray.runtime.bootstrap.host.retire_execution(unpublished, 0);
+    }
+
+    return status;
+}

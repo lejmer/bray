@@ -9,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Default)]
 pub(in crate::analysis::storage_flow) struct StorageFlowInput {
+    pub(in crate::analysis::storage_flow) footprint: crate::storage::observation::Footprint,
     pub(in crate::analysis::storage_flow) variant_payloads:
         BTreeMap<bray_bound_tree::StoragePath, BTreeSet<bray_bound_tree::StoragePath>>,
     expression_places:
@@ -18,19 +19,10 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
     storage_last_uses: BTreeMap<bray_bound_tree::BoundExecutionSite, Vec<StorageIdentityId>>,
-    pub(in crate::analysis::storage_flow) atomic_observations:
-        Option<bray_bound_tree::StorageInvalidation>,
-    pub(in crate::analysis::storage_flow) discriminants:
-        BTreeMap<StorageIdentityId, BTreeSet<bray_bound_tree::StoragePath>>,
     /// Assignments preserving tags, with whether their write domain is limited to contents.
     pub(in crate::analysis::storage_flow) tag_preserving_assignments:
         BTreeMap<bray_bound_tree::BoundExecutionSite, bool>,
-    pub(in crate::analysis::storage_flow) borrowed_identities:
-        BTreeMap<bray_bound_tree::StoragePath, Vec<bray_bound_tree::StoragePath>>,
     pub(in crate::analysis::storage_flow) opaque_values: BTreeSet<bray_bound_tree::StoragePath>,
-    pub(in crate::analysis::storage_flow) stable_identities:
-        BTreeMap<StorageIdentityId, Vec<bray_bound_tree::StoragePath>>,
-    pub(in crate::analysis::storage_flow) empty_markers: BTreeSet<bray_bound_tree::StoragePath>,
     pub(in crate::analysis::storage_flow) opaque_candidates: Vec<bray_bound_tree::StoragePath>,
     pub(super) unused_entry_storage: BTreeSet<StorageIdentityId>,
     pub(super) cleanup_free_storage: BTreeSet<StorageIdentityId>,
@@ -50,7 +42,6 @@ pub(in crate::analysis::storage_flow) struct StorageFlowInput {
     >,
     pub(in crate::analysis::storage_flow) lifecycle_references:
         BTreeMap<bray_symbols::CallableInstanceData, Vec<bray_bound_tree::BoundCallReference>>,
-    pub(in crate::analysis::storage_flow) complete_reference_types: std::sync::Arc<BTreeMap<bray_symbols::TypeId, bool>>,
     pub(in crate::analysis::storage_flow) raw_buffers:
         BTreeMap<bray_symbols::TypeId, (crate::representation::RawBufferFields, bool)>,
     pub(in crate::analysis::storage_flow) reference_paths:
@@ -113,16 +104,6 @@ impl StorageFlowInput {
             }
         }
 
-        let atomic_operations = memory.operations().iter().any(|operation| {
-            matches!(
-                operation.kind(),
-                bray_bound_tree::CheckedMemoryOperationKind::AtomicStore { .. }
-                    | bray_bound_tree::CheckedMemoryOperationKind::AtomicExchange { .. }
-                    | bray_bound_tree::CheckedMemoryOperationKind::AtomicCompareExchange { .. }
-                    | bray_bound_tree::CheckedMemoryOperationKind::AtomicFetch { .. }
-            )
-        });
-
         let atomic = dependencies
             .calls()
             .values()
@@ -150,12 +131,11 @@ impl StorageFlowInput {
                             ..
                         }
                 )
-            })
-            || atomic_operations;
+            });
 
         // Returned reference origins are needed even when a body has no memory effects.
         // Share the same type-shape preparation with mutation observations.
-        let footprint = crate::storage::observation::prepare(request, storage)?;
+        let footprint = crate::storage::observation::prepare(request, storage, memory, atomic)?;
 
         let tag_preserving_assignments = Self::prepare_assignment_observations(
             cleanup_shapes,
@@ -178,13 +158,6 @@ impl StorageFlowInput {
                 .insert((std::sync::Arc::clone(&path.projections), *ty));
         }
 
-        let atomic_observations = atomic.then_some(footprint.atomic);
-
-        let stable_identities = footprint.identities;
-        let borrowed_identities = footprint.borrowed_identities;
-        let discriminants = footprint.discriminants;
-        let scalar_values = footprint.scalars;
-
         let owned_descriptors = storage
             .identity_entries()
             .filter_map(|(root, identity)| {
@@ -192,27 +165,27 @@ impl StorageFlowInput {
             })
             .map(bray_bound_tree::StoragePath::root);
 
-        let opaque_values = stable_identities
+        let opaque_values = footprint.identities
             .values()
-            .chain(scalar_values.values())
+            .chain(footprint.scalars.values())
             .flatten()
             .cloned()
             .collect::<BTreeSet<_>>();
 
         let opaque_candidates = owned_descriptors
             .chain(
-                stable_identities
+                footprint.identities
                     .keys()
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),
             )
             .chain(
-                borrowed_identities
+                footprint.borrowed_identities
                     .keys()
                     .cloned(),
             )
             .chain(
-                discriminants
+                footprint.discriminants
                     .keys()
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),
@@ -223,14 +196,9 @@ impl StorageFlowInput {
             .collect();
 
         let mut input = Self {
-            empty_markers: footprint.empty_markers,
-            complete_reference_types: footprint.complete_reference_types.into(),
-            atomic_observations,
+            footprint,
             opaque_values,
             opaque_candidates,
-            stable_identities,
-            borrowed_identities,
-            discriminants,
             tag_preserving_assignments,
             retained_storage,
             initialization_destinations,
@@ -250,7 +218,6 @@ impl StorageFlowInput {
 
         input.prepare_locations(storage, cleanup);
         input.prepare_report_dependencies(storage, liveness, dependencies, cleanup);
-        input.prepare_variant_payloads(footprint.references.iter().map(|(path, _)| path));
 
         input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
@@ -335,7 +302,7 @@ impl StorageFlowInput {
                 .expect("assignment retains its destination type")
                 .reached_type();
 
-            let content_only = footprint.tag_free_values.get(&ty).copied();
+            let content_only = footprint.tag_free_store(ty);
 
             let preserves = builtin
                 && content_only.is_some()
@@ -406,19 +373,12 @@ impl StorageFlowInput {
             self.definitions.entry(node).or_default().push(storage);
         }
 
-        self.prepare_variant_payloads(
-            storage
-                .access_entries()
-                .filter_map(|(access, _)| storage.logical_path(access))
-                .chain(cleanup.represented_paths()),
-        );
-    }
-
-    fn prepare_variant_payloads<'a>(
-        &mut self,
-        paths: impl IntoIterator<Item = &'a bray_bound_tree::StoragePath>,
-    ) {
-        for path in paths {
+        for path in storage
+            .access_entries()
+            .filter_map(|(access, _)| storage.logical_path(access))
+            .chain(cleanup.represented_paths())
+            .chain(self.footprint.references.iter().map(|(path, _)| path))
+        {
             for (depth, projection) in path.projections.iter().enumerate() {
                 if matches!(
                     projection,

@@ -119,7 +119,7 @@ trusted internal func retain_event(pos owner: &Reference) -> Reference
 
 @abi(c)
 trusted internal func release(pos pointer: DataPointer<Reference>)
-    requires(trusted reference_slot(pointer = pointer), trusted release_entry(pointer = pointer))
+    requires(trusted reference_slot(owner = &pointer), trusted release_entry(pointer = pointer))
 {
     trusted release_event(trusted read_owned_reference(pointer));
 }
@@ -170,12 +170,12 @@ trusted internal func take_optional_reference(pos owner: Reference?) -> Referenc
 }
 
 trusted internal func read_owned_reference(pos pointer: DataPointer<Reference>) -> Reference
-    requires(trusted reference_slot(pointer = pointer), trusted release_entry(pointer = pointer))
+    requires(trusted reference_slot(owner = &pointer), trusted release_entry(pointer = pointer))
     ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     uses(raw_memory)
 {
     let permit = trusted lambda(pos pointer: DataPointer<Reference>)
-        requires(trusted reference_slot(pointer = pointer), trusted release_entry(pointer = pointer))
+        requires(trusted reference_slot(owner = &pointer), trusted release_entry(pointer = pointer))
         ensures(
             trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = pointer),

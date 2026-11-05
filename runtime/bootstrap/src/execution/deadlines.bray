@@ -1,0 +1,56 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using std.memory;
+using std.sync;
+using internal std.sync.once;
+using internal bray.runtime.bootstrap.deadline;
+
+@abi(c)
+trusted internal func deadlines_startup() -> u32
+    requires(blocking_execution(), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    let owner = trusted bound_execution(&selected);
+    let value = trusted domain(owner);
+
+    if core.atomic.load<usize, 1>(&value.owners) == 0
+    {
+        return 4;
+    }
+
+    match consume trusted value.deadlines.claim()
+    {
+        case none { return 0; }
+        case ?attempt
+        {
+            let backing = trusted bray.runtime.bootstrap.scheduler.execution_backing(trusted pin(owner));
+
+            match consume bray.runtime.bootstrap.deadline.create(backing, value.configuration.timers)
+            {
+                case Ok(service)
+                {
+                    _ = trusted attempt.publish(service);
+                    return 0;
+                }
+                case Error((rejected, status))
+                {
+                    trusted discard_backing(rejected);
+                    return status;
+                }
+            }
+        }
+    }
+}

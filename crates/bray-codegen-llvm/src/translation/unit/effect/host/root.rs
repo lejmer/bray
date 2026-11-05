@@ -230,6 +230,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .const_named_struct(&[
                     usize.const_int(capacity, false).into(),
                     usize.const_all_ones().into(),
+                    self.types.context().i32_type().const_int(63, false).into(),
+                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
+                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
+                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
                 ]);
 
         let start = self

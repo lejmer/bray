@@ -46,16 +46,6 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_task_start(
-        task: NativeTaskHandle,
-        frame: NativeInactiveFrame,
-        outcome: &mut NativeRunOutcome,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_start(task, frame, outcome)
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_task_resolution(
         task: NativeTaskHandle,
         destination: *mut u8,
@@ -127,17 +117,9 @@ native_adapter! {
 
 native_adapter! {
     pub extern "C" fn bray_runtime_activation_callback(
-        execution: &bray_runtime_abi::NativeActivationExecution,
-        descriptor: &bray_runtime_abi::NativeActivationDescriptor,
-        context: usize,
-        operation: u32,
-        argument: usize,
-        destination: &mut NativeFrameProgress,
-        records: &mut bray_runtime_abi::NativeReportRecords,
-    ) {
-        implementation::bray_runtime_activation_callback(
-            execution, descriptor, context, operation, argument, destination, records,
-        )
+        invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
+    ) -> bray_runtime_abi::NativeActivationInvocation<'_> {
+        implementation::bray_runtime_activation_callback(invocation)
     }
 }
 
@@ -152,8 +134,8 @@ native_adapter! {
 
 native_adapter! {
     pub extern "C" fn bray_runtime_activation_action_readiness(
-        execution: &bray_runtime_abi::NativeActivationExecution,
-    ) -> u32 {
-        implementation::bray_runtime_activation_action_readiness(execution)
+        invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
+    ) -> bray_runtime_abi::NativeActivationInvocation<'_> {
+        implementation::bray_runtime_activation_action_readiness(invocation)
     }
 }

@@ -136,6 +136,11 @@ fn transfers(
                 Some(AnalysisRefinement::PatternOutcome { subject, .. }) => {
                     transfer.generated.insert(subject);
                 }
+                Some(AnalysisRefinement::CaughtResult { expression, succeeded }) => {
+                    if succeeded {
+                        transfer.generated.extend(unit.view().expression(expression).expect("catch edge retains its expression").child_expressions());
+                    }
+                }
                 // Invocation operands remain live through the sibling admission continuation.
                 Some(AnalysisRefinement::PreconditionFailure(_)) => {}
                 // These edges select control flow without reading another cached value.

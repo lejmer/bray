@@ -1,0 +1,208 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.host;
+
+using core.memory;
+using core.target;
+using std.memory;
+using std.memory.function;
+using internal std.memory;
+using internal bray.runtime.bootstrap;
+
+// Exchange whole, thread-bound execution owners on the actual current
+// attachment. Their acquisition or OS-entry scope keeps that attachment live.
+trusted internal func exchange_attachment_execution(
+    pos execution: &mut(ExecutionOwner?)
+) -> u32
+    requires((execution matches none || trusted execution_option_owned(owner = &execution)))
+    ensures((execution matches none || trusted execution_option_owned(owner = &execution)))
+    when(execution matches ?_)
+    {
+        ensures(result == 0 || execution matches ?_)
+    }
+    uses(intrinsic)
+{
+    let mut needs_exit = false;
+
+    {
+        let lease = trusted host_access();
+
+        if !lease.active
+        {
+            return 4;
+        }
+
+        let identity = trusted current_attachment_locked(&lease);
+        let mut anchor = trusted host_anchor(&lease);
+        let host = trusted host_value(&lease, &mut anchor);
+
+        if let ?storage = host.storage
+        {
+            let selected = trusted find_attachment(&mut storage, identity, 0);
+
+            if let ?entry = selected
+            {
+                if entry.closing
+                {
+                    return 4;
+                }
+
+                needs_exit = entry.cleanup matches none && execution matches ?_;
+            }
+            else
+            {
+                return 4;
+            }
+        }
+        else
+        {
+            return 4;
+        }
+    }
+
+    if needs_exit
+    {
+        let status = trusted publish_attachment_cleanup(trusted prepare_attachment_cleanup(none));
+
+        if status != 0
+        {
+            return status;
+        }
+    }
+
+    let lease = trusted host_access();
+
+    if !lease.active
+    {
+        return 4;
+    }
+
+    let identity = trusted current_attachment_locked(&lease);
+    let mut anchor = trusted host_anchor(&lease);
+    let host = trusted host_value(&lease, &mut anchor);
+
+    if let ?storage = host.storage
+    {
+        let selected = trusted find_attachment(&mut storage, identity, 0);
+
+        if let ?entry = selected
+        {
+            if entry.closing
+            {
+                return 4;
+            }
+
+            trusted internal std.memory.swap_values<(ExecutionOwner?)>(&mut entry.execution, execution);
+            return 0;
+        }
+    }
+
+    return 4;
+}
+
+trusted internal func take_attachment_execution(pos owner: &AttachmentExit) -> ExecutionOwner?
+    requires(trusted attachment_exit_selected(owner = owner))
+    ensures(trusted attachment_exit_selected(owner = owner), (result matches none || trusted execution_option_owned(owner = &result)))
+    uses(intrinsic)
+{
+    let lease = trusted host_access();
+
+    if !lease.active
+    {
+        trusted core.target.abort();
+    }
+
+    let mut anchor = trusted host_anchor(&lease);
+    let host = trusted host_value(&lease, &mut anchor);
+
+    if let ?storage = host.storage
+    {
+        let selected = trusted find_attachment(&mut storage, owner.identity, 0);
+
+        if let ?entry = selected
+        {
+            if !entry.closing
+            {
+                trusted core.target.abort();
+            }
+
+            return std.memory.replace_value<(ExecutionOwner?)>(&mut entry.execution, none);
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func take_execution_owner(pos owner: ExecutionOwner?) -> ExecutionOwner
+    requires(owner matches ?_, (owner matches none || trusted execution_option_owned(owner = &owner)))
+    ensures(trusted execution_owned(owner = &result))
+    executes(pure, total)
+    uses(intrinsic)
+{
+    return match consume owner
+    {
+        case ?value { yield value; }
+        case none { yield trusted core.target.abort(); }
+    };
+}
+
+trusted internal func enter_attachment_execution(pos owner: &mut(ExecutionOwner?))
+    requires(owner matches none || trusted execution_option_owned(owner = &owner))
+    ensures(owner matches none || trusted execution_option_owned(owner = &owner))
+    when(trusted execution_exit())
+    {
+        ensures(trusted execution_exit())
+    }
+    uses(foreign_call, intrinsic)
+{
+    if owner matches none
+    {
+        match consume trusted execution_context(std.memory.null<u8>())
+        {
+            case Ok(_) { return; }
+            case Error(_) { trusted core.target.abort(); }
+        }
+    }
+
+    // The native call owns the complete context for its duration. Retire the
+    // slot's old evidence when taking it, then restore the returned owner.
+    let take = trusted lambda(pos owner: &mut(ExecutionOwner?)) -> ExecutionOwner?
+        requires(owner matches none || trusted execution_option_owned(owner = &owner))
+        ensures(
+            owner matches none,
+            result matches none || trusted execution_option_owned(owner = &result)
+        )
+        uses(intrinsic)
+    {
+        return trusted std.memory.take_nullable<ExecutionOwner>(owner);
+    };
+
+    let previous = trusted take(owner);
+    let selected = trusted take_execution_owner(previous);
+    let bind = selected.bind;
+    let entered = trusted bind(selected);
+
+    owner = entered;
+}
+
+trusted internal func retire_attachment_execution(pos owner: ExecutionOwner?, pos scope: &AttachmentExit) -> u32
+    requires(owner matches ?_, (owner matches none || trusted execution_option_owned(owner = &owner)), trusted attachment_exit_selected(owner = scope))
+{
+    let authorize = trusted lambda(pos scope: &AttachmentExit)
+        requires(trusted attachment_exit_selected(owner = scope))
+        ensures(trusted execution_exit())
+        executes(pure, total) {};
+
+    trusted authorize(scope);
+    return trusted retire_execution(owner, scope.identity);
+}
+
+trusted internal func retire_execution(pos owner: ExecutionOwner?, pos identity: u64) -> u32
+    requires(owner matches ?_, (owner matches none || trusted execution_option_owned(owner = &owner)), identity == 0 || trusted execution_exit())
+    uses(foreign_call)
+{
+    let execution = trusted take_execution_owner(owner);
+    let retire = execution.retire;
+
+    return trusted retire(execution, identity);
+}
+

@@ -1,7 +1,7 @@
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::{DeclaredStorageShape, DependencyProjection, TypeData, TypeId};
+use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
 /// Resolves one checked value projection while preserving declaration diagnostics and substitution.
 pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
@@ -71,30 +71,26 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
             },
             projection,
         ) => {
-            let representation = request.declared_type_representation(*definition)?;
-
-            let (representation, declaration_diagnostics) = representation.into_parts();
-
-            diagnostics.add_range(declaration_diagnostics);
-
-            let template = match (representation.storage(), projection) {
-                (
-                    DeclaredStorageShape::Structure(members),
-                    DependencyProjection::ProductField(field),
-                ) => members
-                    .iter()
-                    .find(|member| member.field() == Some(field))
-                    .map(|member| member.ty()),
-                (
-                    DeclaredStorageShape::Union(variants),
-                    DependencyProjection::UnionPayloadField(field),
-                ) => variants
-                    .iter()
-                    .flat_map(|variant| variant.members())
-                    .find(|member| member.field() == Some(field))
-                    .map(|member| member.ty()),
+            let member = match (*definition, projection) {
+                (bray_symbols::NamedTypeSymbolId::Struct(structure), DependencyProjection::ProductField(field))
+                    if request.context().struct_field(field)?.is_some_and(|field| field.containing_symbol() == structure.into()) => Some(field.into()),
+                (bray_symbols::NamedTypeSymbolId::Union(union), DependencyProjection::UnionPayloadField(field)) => {
+                    let variant = request.context().union_payload_field(field)?.and_then(|field| match field.containing_symbol() {
+                        bray_symbols::AnySymbolId::UnionVariant(variant) => Some(variant),
+                        _ => None,
+                    });
+                    match variant {
+                        Some(variant) if request.context().union_variant(variant)?.is_some_and(|variant| variant.containing_symbol() == union.into()) => Some(field.into()),
+                        _ => None,
+                    }
+                }
                 _ => None,
             };
+            let queried = member.map(|member| request.context().storage_member_type(member)).transpose()?;
+            let template = queried.as_ref().map(|queried| {
+                diagnostics.add_range(queried.diagnostics().iter().cloned());
+                queried.value()
+            });
 
             if let Some(template) = template {
                 let checked =

@@ -21,7 +21,7 @@ trusted internal func acquire_invocation(pos context: usize, pos operation: u32)
     {
         acquisition =
         {
-            claim = CallbackClaim
+            claim = Marker
             {
             },
             context = trusted core.target.from_exposed_address<Context>(address = context),
@@ -91,15 +91,15 @@ trusted internal func access_state(pos owner: &mut Invocation) -> &mut State
 
 // Polling borrows the one source claim retained by the observation. Its cell
 // reference independently pins storage and cannot create another source owner.
-trusted internal func task_pointer(pos owner: &Invocation) -> DataPointer<bray.runtime.bootstrap.task.Reference>
+trusted internal func task_reference(pos owner: &Invocation) -> &bray.runtime.bootstrap.task.Reference
     requires(trusted invoked(owner = &owner.acquisition.claim))
     ensures(
         trusted invoked(owner = &owner.acquisition.claim),
-        trusted bray.runtime.bootstrap.task.reference_slot(pointer = result),
-        trusted bray.runtime.bootstrap.task.resolution_entry(reference = result)
+        trusted bray.runtime.bootstrap.task.retained(owner = result),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = result)
     )
 {
-    return std.memory.address_of<bray.runtime.bootstrap.task.Reference>(&(trusted read_state(owner)).reference);
+    return &(trusted read_state(owner)).reference;
 }
 
 trusted internal func read_state(pos owner: &Invocation) -> &State

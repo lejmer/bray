@@ -293,7 +293,7 @@ impl StorageFlowState {
         let mut memory = crate::analysis::storage_flow::memory::State::for_storage(
             storage,
             &input.cleanup_free_storage,
-            &input.complete_reference_types,
+            &input.footprint.complete_reference_types,
         );
 
         for capability in &active_borrows {

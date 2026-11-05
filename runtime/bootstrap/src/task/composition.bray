@@ -8,8 +8,8 @@ using internal bray.runtime.bootstrap.activation.composition;
 
 // The current native invocation lends its complete task reference, inactive
 // token and admission callback. It retains their providers through composition.
-trusted internal predicate composition_entry(
-    reference: DataPointer<Reference>,
+trusted internal predicate composition_slot(
+    owner: &DataPointer<Reference>,
     token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
@@ -31,20 +31,6 @@ internal struct CompositionParent
 }
 
 trusted internal predicate composition_parent(owner: &CompositionParent);
-
-trusted internal func read_composition_reference(
-    pos reference: DataPointer<Reference>,
-    pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-    pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
-) -> Reference
-    requires(
-        trusted reference_slot(pointer = reference),
-        trusted composition_entry(reference = reference, token = token, ready = ready)
-    )
-    ensures(trusted retained(owner = &result), trusted composition_input(owner = &result, token = token, ready = ready))
-{
-    return trusted read_reference(reference);
-}
 
 trusted internal func select_composition_parent(
     pos owner: &Reference,
@@ -89,20 +75,28 @@ trusted internal func composition(
     pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 ) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted composition_entry(reference = pointer, token = token, ready = ready),
+        trusted reference_slot(owner = &pointer),
+        trusted composition_slot(owner = &pointer, token = token, ready = ready),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     uses(intrinsic)
 {
+    let borrow = trusted lambda(pos slot: &DataPointer<Reference>, pos token: DataPointer<bray.runtime.bootstrap.activation.Inactive>, pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>) -> &Reference
+        requires(trusted reference_slot(owner = slot), trusted composition_slot(owner = slot, token = token, ready = ready))
+        ensures(trusted retained(owner = result), trusted composition_input(owner = result, token = token, ready = ready))
+    {
+        return trusted borrow_reference(slot);
+    };
+
+    let reference = trusted borrow(&pointer, token, ready);
+
     if disposition > 2
     {
         return 3;
     }
 
-    let reference = trusted read_composition_reference(pointer, token, ready);
-    let selected = trusted select_composition_parent(&reference, token, ready);
+    let selected = trusted select_composition_parent(reference, token, ready);
 
     if selected.address == 0
     {

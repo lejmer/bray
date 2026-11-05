@@ -155,7 +155,6 @@ trusted internal func prepare_attachment_cleanup(
             count = 1
         ),
         !result.1.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.1.slot.storage),
-        !result.2.ready,
         trusted attachment_exit_inactive(owner = &result.2),
         trusted prepared_attachment_exit(owner = &result.2, slot = &result.1.slot, lease = &result.0)
     )
@@ -176,9 +175,7 @@ trusted internal func prepare_attachment_cleanup(
         {
             identity = identity,
             native_thread = native_thread,
-            cleanup = cleanup,
-            ready = false,
-            incidents = none
+            cleanup = cleanup
         }
     );
 }
@@ -193,7 +190,6 @@ trusted internal func publish_attachment_cleanup(pos prepared: (HostLease, Attac
             count = 1
         ),
         !prepared.1.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = prepared.1.slot.storage),
-        !prepared.2.ready,
         trusted attachment_exit_inactive(owner = &prepared.2),
         trusted prepared_attachment_exit(owner = &prepared.2, slot = &prepared.1.slot, lease = &prepared.0)
     )
@@ -218,7 +214,6 @@ trusted internal func store_attachment_cleanup(
             count = 1
         ),
         !selected.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = selected.slot.storage),
-        !owner.ready,
         trusted attachment_exit_inactive(owner = &owner),
         trusted prepared_attachment_exit(owner = &owner, slot = &selected.slot, lease = lease)
     )
