@@ -2041,6 +2041,46 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
 }
 
 #[test]
+fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
+    let source = r#"
+        trusted module app;
+        struct Marker {}
+        struct Owner
+        {
+            marker: Marker;
+            const func token() -> &Marker executes(pure, total) { return &self.marker; }
+        }
+        union Backing { Empty; Owned(pos owner: Owner); }
+        trusted predicate live(owner: &Marker);
+        const func owner(pos backing: &Backing) -> &Owner
+            requires(backing matches Backing.Owned(_))
+            executes(pure, total)
+        {
+            return match backing
+            {
+                case Backing.Owned(value) { yield &value; }
+                case Backing.Empty { panic("missing owner"); }
+            };
+        }
+        predicate retained(backing: &Backing) = backing matches Backing.Owned(_) && live(owner(backing).token());
+        func observe(pos marker: &Marker) requires(trusted live(marker)) executes(pure, total) {}
+        func caller(pos backing: &Backing) requires(trusted retained(backing))
+        {
+            if backing matches Backing.Owned(_)
+            {
+                observe(owner(backing).token());
+                let selected = owner(backing);
+                observe(selected.token());
+            }
+        }
+    "#;
+    let application = compilation(source);
+    let diagnostics = application.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:#?}");
+}
+
+#[test]
 fn typed_data_writes_preserve_borrowed_ownership_markers() {
     for (pointee, value, valid) in [
         ("u32", "1", true),
