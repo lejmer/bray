@@ -294,8 +294,7 @@ trusted internal func destroy_reference(pos owner: Reference)
                 align = result.2.align
             ),
             trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.0),
-            trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0),
-            result.0.execution matches none
+            trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.0)
         )
         uses(raw_memory)
     {
@@ -305,7 +304,6 @@ trusted internal func destroy_reference(pos owner: Reference)
                 trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
                 trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing),
                 trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing),
-                result.backing.execution matches none,
                 trusted core.memory.owned_allocation(
                     pointer = std.memory.byte_address<Domain>(owner.pointer),
                     bytes = std.memory.stride_of<Domain>(),

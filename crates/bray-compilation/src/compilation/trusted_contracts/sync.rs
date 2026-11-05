@@ -2182,6 +2182,65 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
 }
 
 #[test]
+fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
+    for (body, valid) in [
+        ("let owner = view(&pointer, pointer); visit(owner, callback); visit(owner, callback);", true),
+        ("let owner = view(&pointer, pointer); loop { visit(owner, callback); if !again { return; } }", true),
+        ("let owner = view(&pointer, pointer); pointer = std.memory.null<Owner>(); visit(owner, callback);", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            using core.memory;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; backing: DataPointer<u8>; }}
+            callable Callback = @abi(c) trusted func();
+            trusted predicate slot(pointer: DataPointer<Owner>);
+            trusted predicate held(marker: &Marker);
+            trusted func view(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>) -> &Owner
+                requires(trusted slot(pointer = address))
+                ensures(trusted held(marker = &result.marker))
+                executes(pure, total)
+                uses(raw_memory, unchecked_alias)
+            {{
+                let permit = trusted lambda(pos address: DataPointer<Owner>)
+                    requires(trusted slot(pointer = address))
+                    ensures(
+                        trusted core.memory.valid_read<Owner>(pointer = address, count = 1),
+                        trusted core.memory.aligned_for<Owner>(pointer = address),
+                        trusted core.memory.initialized_as<Owner>(pointer = address),
+                        trusted core.memory.shared_alias_valid<Owner>(pointer = address),
+                        trusted core.memory.epoch_current<Owner>(pointer = address),
+                        trusted core.memory.synchronized_access<Owner>(pointer = address),
+                        trusted core.memory.movement_stable<Owner>(pointer = address),
+                        trusted core.memory.finalization_pending<Owner>(pointer = address)
+                    )
+                    executes(pure, total) {{}};
+                trusted permit(address);
+                return trusted std.memory.borrow_from<Owner, DataPointer<Owner>>(input, address);
+            }}
+            trusted func visit(pos owner: &Owner, pos callback: Callback)
+                requires(trusted held(marker = &owner.marker))
+                ensures(trusted held(marker = &owner.marker))
+                uses(foreign_call)
+            {{
+                callback();
+            }}
+            func caller(pos mut pointer: DataPointer<Owner>, pos callback: Callback, pos again: bool)
+                requires(trusted slot(pointer = pointer))
+            {{
+                {body}
+            }}
+        "#);
+        let application = production_sync_compilation(&source);
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("fixture callable must lower successfully");
+
+        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {:?}", checked.diagnostics());
+    }
+}
+
+#[test]
 fn typed_data_transfers_preserve_borrowed_ownership_markers() {
     for (pointee, value, valid) in [
         ("u32", "1", true),
@@ -2192,9 +2251,9 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             false,
         ),
     ] {
-        for operation in [
-            format!("trusted core.memory.write<{pointee}>(destination, {value});"),
-            format!("_ = trusted core.memory.read<{pointee}>(destination);"),
+        for (operation, capabilities) in [
+            (format!("trusted core.memory.write<{pointee}>(destination, {value});"), "raw_memory, unchecked_init"),
+            (format!("_ = trusted core.memory.read<{pointee}>(destination);"), "raw_memory"),
         ] {
         let source = format!(
             r#"
@@ -2222,7 +2281,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 requires(trusted held(&owner.marker)) executes(pure, total) {{}}
             trusted func caller(pos owner: &Owner)
                 requires(trusted held(&owner.marker))
-                uses(raw_memory, unchecked_init)
+                uses({capabilities})
             {{
                 _ = core.memory.address_of<Owner>(owner);
                 let destination = pointer(owner);

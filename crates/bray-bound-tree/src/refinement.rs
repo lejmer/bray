@@ -31,17 +31,17 @@ pub enum StorageInvalidation {
     },
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
-    /// Flow-resolved accesses and logical component observations changed through them.
-    /// Alias resolution is complete. Consumers must not reinterpret these as physical roots.
+    /// Flow-resolved access paths and their current physical observations.
+    /// Access paths are logical. Snapshot targets retain their established origins.
     Observed {
         /// Mutation confinement established while resolving the actual target identities.
         scope: StorageMutationScope,
         /// Logical paths whose contents may change, indexed by their checked access.
         accesses: BTreeMap<StorageAccessId, Vec<crate::StoragePath>>,
         /// Exact current observations mapped to their physical representative.
-        /// Self mappings start fresh contents; aliases read that updated snapshot.
+        /// Keep the origin, epoch and borrow layer until the consumer interprets them.
         /// These identities preserve no entry facts and establish no guarantees.
-        snapshots: BTreeMap<crate::StoragePath, crate::StoragePath>,
+        snapshots: BTreeMap<crate::StoragePath, crate::StorageTarget>,
         /// References whose reachable contents may change while their address value survives.
         referents: BTreeSet<crate::StoragePath>,
         /// Slice descriptors proven disjoint from all writes to their reachable elements.
@@ -618,8 +618,8 @@ mod tests {
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![first.clone()])].into(),
             snapshots: [
-                (first.clone(), first.clone()),
-                (alias.clone(), first.clone()),
+                (first.clone(), crate::StorageTarget::storage(first.clone())),
+                (alias.clone(), crate::StorageTarget::storage(first.clone())),
             ]
             .into(),
             referents: [first.clone()].into(),
@@ -630,7 +630,7 @@ mod tests {
         let right = super::StorageInvalidation::Observed {
             scope: super::StorageMutationScope::Unbounded,
             accesses: [(access, vec![second.clone()])].into(),
-            snapshots: [(first.clone(), first.clone()), (alias, second.clone())].into(),
+            snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone())), (alias, crate::StorageTarget::storage(second.clone()))].into(),
             referents: [second.clone()].into(),
             stable_descriptors: [first.clone()].into(),
             stable_values: [first.clone()].into(),
@@ -656,7 +656,7 @@ mod tests {
             super::StorageInvalidation::Observed {
                 scope: super::StorageMutationScope::Unbounded,
                 accesses: [(access, vec![first.clone(), second.clone()])].into(),
-                snapshots: [(first.clone(), first.clone())].into(),
+                snapshots: [(first.clone(), crate::StorageTarget::storage(first.clone()))].into(),
                 stable_descriptors: [first.clone()].into(),
                 stable_values: [first.clone()].into(),
                 referents: [first, second].into(),

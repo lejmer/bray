@@ -683,12 +683,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            self.observe_references(
-                state,
-                snapshots
-                    .iter()
-                    .map(|(path, target)| (path, target.clone())),
-            );
+            self.observe_references(state, snapshots);
         }
     }
     fn extend_static_changes(
@@ -735,20 +730,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    pub(in crate::analysis) fn observe_references<'a>(
+    pub(in crate::analysis) fn observe_references(
         &self,
         state: &mut ExecutionState,
-        observations: impl IntoIterator<
-            Item = (
-                &'a bray_bound_tree::StoragePath,
-                bray_bound_tree::StoragePath,
-            ),
-        >,
+        observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageTarget>,
     ) {
         // Read all targets before assigning aliases, so map order cannot change the result.
         let aliases = observations
-            .into_iter()
+            .iter()
             .filter_map(|(path, target)| {
+                if let bray_bound_tree::StorageOrigin::Entry { reference, .. } = &target.origin
+                    && !self.storage.storage_type(reference.root).is_some_and(|ty| {
+                        matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+                    })
+                {
+                    // A raw pointer's entry referent is a separate object. Its slot's
+                    // current value observes the address, not that object's contents.
+                    return None;
+                }
+
+                let target = target.observation_path()?;
+
                 if *path == target {
                     return None;
                 }
