@@ -129,6 +129,7 @@ trusted internal func create_worker_context(
         case Error(binding_status)
         {
             trusted finish_native_provider_option(provider);
+
             _ = trusted bray.runtime.bootstrap.host.retire_execution(execution, 0);
 
             return

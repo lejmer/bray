@@ -583,10 +583,12 @@ mod tests {
         assert!(root.contains(&field));
         assert_eq!(payload.allocation_region(), Some(payload.clone()));
         assert_eq!(root.relationship(&thread), StorageRelationship::Disjoint);
+
         assert_eq!(
             root.relationship(&StorageTarget::storage(slot(0))),
             StorageRelationship::Disjoint
         );
+
         assert_eq!(root.relationship(&payload), StorageRelationship::Disjoint);
 
         let borrowed = StorageTarget {
