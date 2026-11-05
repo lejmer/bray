@@ -100,8 +100,7 @@ mod tests {
         _: bray_runtime_abi::NativeWakeCallback,
         _: usize,
     ) -> bray_runtime_abi::NativeRunOutcome {
-        super::super::state::with_runtime(|runtime| runtime.observe(task))
-            .expect("fixture runtime is active")
+        super::super::fixtures::observe(task)
     }
 
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -120,13 +119,15 @@ mod tests {
 
     use super::{
         bray_runtime_execution_shutdown, bray_runtime_main_thread_lane_drive,
-        bray_runtime_main_thread_lane_startup, bray_runtime_root_completion_resolution,
+        bray_runtime_root_completion_resolution,
         bray_runtime_root_execution, bray_runtime_root_terminal_observation,
         bray_runtime_suspension_registration, bray_runtime_task_allocation,
         bray_runtime_task_destruction, bray_runtime_task_event_creation,
         bray_runtime_task_event_destruction, bray_runtime_task_event_signal,
         bray_runtime_task_start, bray_runtime_wake,
     };
+
+    use super::super::fixtures::startup as bray_runtime_main_thread_lane_startup;
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
     static ROOT_DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -165,6 +166,8 @@ mod tests {
 
     #[test]
     fn root_completion_accepts_large_and_overaligned_backing() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         extern "C-unwind" fn check_alignment(alignment: usize, destination: usize) {
             assert_ne!(destination, 0);
             assert_eq!(destination % alignment, 0);
@@ -216,6 +219,8 @@ mod tests {
 
     #[test]
     fn root_execution_moves_completion_before_frame_destruction() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         ROOT_DESTROYED.store(0, Ordering::Relaxed);
         ROOT_COMPLETION_DESTINATION.store(0, Ordering::Relaxed);
 
@@ -270,6 +275,8 @@ mod tests {
 
     #[test]
     fn movable_native_root_runs_on_the_host_cooperative_lane() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         extern "C-unwind" fn check_admission(
             destination: &mut NativeFrameProgress,
             context: usize,
@@ -335,6 +342,8 @@ mod tests {
 
     #[test]
     fn awaited_blocking_children_wake_the_cooperative_parent() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         AWAITED_BLOCKING_COMPLETIONS.store(0, Ordering::Relaxed);
 
         let start = execute_test_root(
@@ -400,6 +409,8 @@ mod tests {
 
     #[test]
     fn main_thread_parent_drives_a_blocking_child_on_its_exact_lane() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         EXACT_BLOCKING_PARENT_RESUMES.store(0, Ordering::Relaxed);
 
         assert_eq!(
@@ -471,6 +482,8 @@ mod tests {
 
     #[test]
     fn stale_wakes_recheck_event_and_awaited_readiness() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         EVENT_CHILD_RESUMES.store(0, Ordering::Relaxed);
         EVENT_PARENT_RESUMES.store(0, Ordering::Relaxed);
 
@@ -575,6 +588,8 @@ mod tests {
 
     #[test]
     fn parent_cleanup_incident_uses_the_restored_parent_execution_origin() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         ORIGIN_PARENT_RESUMES.store(0, Ordering::Relaxed);
         ORIGIN_CHILD_RESUMES.store(0, Ordering::Relaxed);
 
@@ -670,6 +685,8 @@ mod tests {
 
     #[test]
     fn root_terminal_observation_waits_for_real_suspend_and_resume() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         SUSPENDED_RESUMES.store(0, Ordering::Relaxed);
 
         let start = execute_test_root(
@@ -709,6 +726,8 @@ mod tests {
 
     #[test]
     fn host_cancellation_wakes_a_suspended_root_into_cancellation_entry() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         CANCEL_ENTRIES.store(0, Ordering::Relaxed);
 
         let frame = super::super::fixtures::admit(
@@ -764,6 +783,8 @@ mod tests {
 
     #[test]
     fn cleanup_callback_failures_are_owned_until_host_drain() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         for fail_completion in [false, true] {
             let frame = super::super::fixtures::admit(
                 0,
@@ -887,6 +908,8 @@ mod tests {
 
     #[test]
     fn frame_callbacks_retain_written_reports_before_unwind() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         for phase in 0..4 {
             FRAME_BRIDGE_RELEASES.store(0, Ordering::Relaxed);
 
@@ -972,6 +995,8 @@ mod tests {
 
     #[test]
     fn runtime_failure_after_suspension_resolves_the_retained_frame() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         FAILURE_RESUMES.store(0, Ordering::Relaxed);
         FAILURE_BROADCASTS.store(0, Ordering::Relaxed);
         FAILURE_RESOLUTIONS.store(0, Ordering::Relaxed);
@@ -1032,6 +1057,8 @@ mod tests {
 
     #[test]
     fn native_runtime_boundary_starts_executes_and_shuts_down() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         assert_eq!(
             bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(8, 8)),
             NativeRuntimeStatus::SUCCESS
@@ -1078,6 +1105,8 @@ mod tests {
 
     #[test]
     fn native_runtime_boundary_validates_state_and_capacities() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         assert_eq!(
             bray_runtime_execution_shutdown(),
             NativeRuntimeStatus::NOT_INITIALIZED
@@ -1486,6 +1515,8 @@ mod tests {
 
     #[test]
     fn task_registration_does_not_readmit_unused_incident_storage() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         static DESTROYED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
         extern "C-unwind" fn destroy(_: usize) {
@@ -1543,6 +1574,8 @@ mod tests {
 
     #[test]
     fn frame_contract_failures_are_not_published_as_panics() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         assert!(
             bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
                 .is_success()
@@ -1587,6 +1620,8 @@ mod tests {
 
     #[test]
     fn invalid_callback_progress_fails_fast() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         const CHILD: &str = "BRAY_TEST_INVALID_CALLBACK_PROGRESS";
 
         if std::env::var_os(CHILD).is_some() {
@@ -1631,22 +1666,29 @@ mod tests {
         frame: NativeInactiveFrame,
         configuration: NativeRuntimeConfiguration,
     ) -> super::NativeRootStart {
-        let transfer = NativeInactiveFrameTransfer::new(&frame);
+        let retained = match super::super::state::retain_current_runtime() {
+            Ok(owner) => owner,
+            Err(status) => return super::NativeRootStart::failure(status),
+        };
+
+        if retained.is_none() {
+            let status = bray_runtime_main_thread_lane_startup(configuration);
+
+            if !status.is_success() {
+                return super::NativeRootStart::failure(status);
+            }
+        }
 
         bray_runtime_root_execution(
-            transfer,
-            configuration,
-            &mut bray_runtime_abi::NativeRunOutcome::new(
-                bray_runtime_abi::NativeRunState::COMPLETED,
-                0,
-            ),
+            NativeInactiveFrameTransfer::new(&frame).address(),
+            &mut bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0),
         )
     }
 
     fn start_test_task(task: NativeTaskHandle, frame: NativeInactiveFrame) -> NativeRuntimeStatus {
         bray_runtime_task_start(
             task,
-            frame,
+            NativeInactiveFrameTransfer::new(&frame).address(),
             &mut bray_runtime_abi::NativeRunOutcome::new(
                 bray_runtime_abi::NativeRunState::COMPLETED,
                 0,
@@ -1656,6 +1698,8 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_reports_and_resolves_panic() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         let mut outcome = bray_runtime_synchronous_root_execution(propagate_test_panic, 0);
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
@@ -1669,6 +1713,8 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_current_run_cancellation() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         let outcome = bray_runtime_synchronous_root_execution(propagate_test_cancellation, 0);
 
         assert_eq!(outcome.state(), NativeRunState::CANCELLED);
@@ -1677,6 +1723,8 @@ mod tests {
 
     #[test]
     fn foreign_callback_boundary_attaches_threads_for_the_callback_lifetime() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         let (outcome, attached_after_return) = std::thread::spawn(|| {
             assert!(crate::bootstrap::current_runtime_thread().is_none());
 
@@ -1698,6 +1746,8 @@ mod tests {
 
     #[test]
     fn foreign_callback_boundary_reuses_an_attached_runtime_thread() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         let _thread = crate::bootstrap::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
@@ -1709,6 +1759,8 @@ mod tests {
 
     #[test]
     fn parent_failure_cleans_a_suspended_child_and_preserves_its_incident() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         PENDING_CHILD_RESUMES.store(0, Ordering::Relaxed);
         PENDING_CHILD_BROADCASTS.store(0, Ordering::Relaxed);
         PENDING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
@@ -1771,6 +1823,8 @@ mod tests {
 
     #[test]
     fn inactive_composition_resolves_captures_without_entering_the_body() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         static BODY_ENTRIES: AtomicUsize = AtomicUsize::new(0);
         static RESUMES: AtomicUsize = AtomicUsize::new(0);
         static RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
@@ -1906,6 +1960,8 @@ mod tests {
 
     #[test]
     fn direct_await_combines_workloads_without_an_extra_task_or_quota_slot() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         COMBINED_PARENT_RESUMES.store(0, Ordering::Relaxed);
         COMBINED_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
@@ -1945,6 +2001,8 @@ mod tests {
 
     #[test]
     fn rejected_child_admission_leaves_the_inactive_frame_with_its_caller() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         REJECTED_CHILD_MOVES.store(0, Ordering::Relaxed);
         REJECTED_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
 
@@ -1986,6 +2044,8 @@ mod tests {
 
     #[test]
     fn awaited_failures_transfer_original_outcomes_without_further_admission() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         AWAITED_REPORT_RELEASES.store(0, Ordering::Relaxed);
 
         for kind in 1..=2 {
@@ -2081,6 +2141,8 @@ mod tests {
 
     #[test]
     fn deep_direct_awaits_are_iterative_and_yield_to_ready_work() {
+        let _isolation = super::super::state::test_runtime_isolation();
+
         for state in &DEEP_AWAIT_STATES {
             state.store(0, Ordering::Relaxed);
         }

@@ -1,3 +1,8 @@
+use std::cell::RefCell;
+use std::marker::PhantomData;
+use std::mem::{ManuallyDrop, MaybeUninit};
+use std::rc::Rc;
+
 use bray_runtime_abi::{NativeRunOutcome, NativeRuntimeStatus};
 
 use crate::bootstrap::{RuntimeThreadEntry, RuntimeThreadScope};
@@ -70,30 +75,67 @@ extern "C" fn observe(
     .code()
 }
 
-/// Registration cannot leave this thread or outlive its enclosing native provider call.
+// One provider registration owns its original callbacks. Independent native
+// and Source driver scopes retain that same exact-thread owner until the last
+// scope ends, including when a driver outlives the call that created it.
+struct Provider {
+    thread: bray_platform::RuntimeThread,
+    previous: Callbacks,
+    scopes: usize,
+}
+
+thread_local! {
+    static PROVIDER: ManuallyDrop<RefCell<Option<Provider>>> = const { ManuallyDrop::new(RefCell::new(None)) };
+}
+
+/// Retains the exact-thread provider through its attachment and nested cleanup.
 pub(crate) struct Scope {
-    registration: Option<(Callbacks, RuntimeThreadEntry)>,
+    attachment: Option<RuntimeThreadEntry>,
+    _thread: PhantomData<Rc<()>>,
 }
 
 impl Scope {
-    pub(crate) fn enter() -> Result<Self, NativeRuntimeStatus> {
-        // Worker and enclosing entry scopes already secure this attachment's cleanup.
-        // Resuming admitted work must not accept another allocation-dependent owner.
-        let attachment = RuntimeThreadScope::enter_or_reuse()?;
-        let mut previous = Callbacks::default();
-        let status = bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
+    fn empty() -> Self {
+        Self { attachment: None, _thread: PhantomData }
+    }
 
-        if status != 0 {
-            if attachment.finish() != 0 {
-                super::host::record_cleanup_failure(1);
+    pub(crate) fn enter() -> Result<Self, NativeRuntimeStatus> {
+        let attachment = RuntimeThreadScope::enter_or_reuse()?;
+        let runtime = attachment.runtime().clone();
+        let retained = PROVIDER.with(|provider| {
+            let mut provider = provider.borrow_mut();
+
+            let Some(provider) = provider.as_mut() else {
+                return false;
+            };
+
+            assert_eq!(provider.thread.id(), runtime.id(), "the native provider belongs to this live exact-thread epoch");
+
+            provider.scopes = provider.scopes.checked_add(1).expect("live provider scope count fits its native word");
+
+            true
+        });
+
+        if !retained {
+            let mut previous = Callbacks::default();
+            let status = bray_runtime_entry_context_registration(&Callbacks::selected(), &mut previous);
+
+            if status != 0 {
+                if attachment.finish() != 0 {
+                    super::host::record_cleanup_failure(1);
+                }
+
+                return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
             }
 
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+            PROVIDER.with(|provider| {
+                let replaced = provider.borrow_mut().replace(Provider { thread: runtime, previous, scopes: 1 });
+
+                assert!(replaced.is_none(), "provider registration publishes once before callbacks can reenter");
+            });
         }
 
-        Ok(Self {
-            registration: Some((previous, attachment)),
-        })
+        Ok(Self { attachment: Some(attachment), _thread: PhantomData })
     }
 
     pub(crate) fn finish(mut self) -> usize {
@@ -101,38 +143,68 @@ impl Scope {
     }
 
     fn retire(&mut self) -> usize {
-        let Some((previous, attachment)) = self.registration.take() else {
+        let Some(attachment) = self.attachment.take() else {
             return 0;
         };
 
-        // Keep the provider installed through cleanup when this scope acquired the
-        // attachment. A borrowed attachment stays live while its caller is restored.
+        let thread = attachment.runtime().id();
+        // No provider-table borrow crosses attachment cleanup. It can retire a
+        // Source context that holds another scope for this same provider.
         let failures = attachment.finish();
+        let retired = PROVIDER.with(|provider| {
+            let mut provider = provider.borrow_mut();
+            let current = provider.as_mut().expect("every live scope retains its provider registration");
+
+            assert_eq!(current.thread.id(), thread, "retirement resolves the provider from its acquired epoch");
+
+            current.scopes = current.scopes.checked_sub(1).expect("each scope releases its provider claim once");
+
+            if current.scopes == 0 { provider.take() } else { None }
+        });
+
+        let Some(provider) = retired else {
+            return failures;
+        };
 
         if crate::bootstrap::current_runtime_thread().is_some() {
             let mut replaced = Callbacks::default();
 
-            assert_eq!(
-                bray_runtime_entry_context_registration(&previous, &mut replaced),
-                0,
-                "a live native bridge scope restores its retained attachment before returning"
-            );
-
-            assert_eq!(
-                replaced,
-                Callbacks::selected(),
-                "native bridge registrations retire in their exact-thread nesting order"
-            );
+            assert_eq!(bray_runtime_entry_context_registration(&provider.previous, &mut replaced), 0, "the last provider scope restores its original callbacks");
+            assert_eq!(replaced, Callbacks::selected(), "the retained provider remains installed through every scope");
         } else {
-            assert_eq!(
-                previous,
-                Callbacks::default(),
-                "the last attachment acquisition cannot retire a retained outer provider"
-            );
+            assert_eq!(provider.previous, Callbacks::default(), "the last attachment cannot retire a retained outer provider");
         }
 
         failures
     }
+}
+
+// Source owns aligned opaque storage for the complete Rust scope. The callbacks
+// share its actual private type, initialize it once, and consume it on that thread.
+#[expect(improper_ctypes_definitions, reason = "only this provider interprets its opaque scope storage")]
+pub(in crate::native) extern "C" fn enter_provider(output: &mut MaybeUninit<Scope>, bytes: usize, align: usize) -> u32 {
+    assert!(bytes >= size_of::<Scope>() && align >= align_of::<Scope>(), "Source provider storage satisfies the native scope layout");
+
+    if crate::bootstrap::current_runtime_thread().is_none() {
+        return NativeRuntimeStatus::NOT_INITIALIZED.code();
+    }
+
+    match Scope::enter() {
+        Ok(scope) => {
+            output.write(scope);
+
+            NativeRuntimeStatus::SUCCESS.code()
+        }
+        Err(status) => status.code(),
+    }
+}
+
+#[expect(improper_ctypes_definitions, reason = "the successful entry initialized this same provider-owned scope type")]
+pub(in crate::native) extern "C" fn finish_provider(scope: &mut Scope) {
+    let acquired = std::mem::replace(scope, Scope::empty());
+    let incidents = acquired.finish();
+
+    assert_eq!(incidents, 0, "a Source-owned scope borrows its existing attachment through retirement");
 }
 
 impl Drop for Scope {
