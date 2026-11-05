@@ -1,0 +1,99 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.memory;
+using std.memory;
+using internal bray.runtime.bootstrap;
+
+// The protected Task owner lends its source claim and concrete, disjoint
+// RunResult destination. Observation moves the outcome before retiring frames.
+trusted internal predicate task_result_destination(
+    task: &u64,
+    destination: DataPointer<u8>,
+    layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+);
+
+@abi(c)
+trusted internal func task_resolution(
+    pos handle: u64,
+    pos destination: DataPointer<u8>,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+) -> u32
+    requires(blocking_execution(), trusted resolution_input(owner = &handle), trusted task_result_destination(task = &handle, destination = destination, layout = layout), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let scope = trusted root_scope();
+    let status = scope.status;
+    let result = if status == 0
+    {
+        yield trusted task_resolution_action(&handle, destination, layout);
+    }
+    else
+    {
+        yield status;
+    };
+
+    let ended = trusted finish_entry_scope(scope);
+
+    return if result != 0 { yield result; } else { yield ended; };
+}
+
+trusted internal func task_resolution_action(
+    pos handle: &u64,
+    pos destination: DataPointer<u8>,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+) -> u32
+    requires(blocking_execution(), trusted resolution_input(owner = handle), trusted task_result_destination(task = handle, destination = destination, layout = layout), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    let (reference, status) = trusted borrow_resolution(trusted bound_execution(&selected), handle);
+
+    if reference matches none
+    {
+        return status;
+    }
+
+    let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
+    let result = trusted transfer_task_result(&selected, &owner, handle, destination, layout);
+
+    _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
+    return result;
+}
+
+trusted internal func transfer_task_result(
+    pos selected: &Current,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
+    pos handle: &u64,
+    pos destination: DataPointer<u8>,
+    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+) -> u32
+    requires(blocking_execution(), trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.task.retained(owner = reference), trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference), trusted task_result_destination(task = handle, destination = destination, layout = layout), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.task.retained(owner = reference), trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+{
+    let mut outcome = trusted observe_reference(selected, reference);
+    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
+    let prepare = trusted lambda(pos handle: &u64, pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>, pos destination: DataPointer<u8>, pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>)
+        requires(trusted task_result_destination(task = handle, destination = destination, layout = layout))
+        ensures(trusted bray.runtime.bootstrap.task.result.transfer_entry(outcome = output, destination = destination, layout = layout))
+        executes(pure, total) {};
+
+    trusted prepare(handle, output, destination, layout);
+    let status = trusted bray.runtime.bootstrap.task.result.transfer(output, destination, layout);
+
+    if status != 0
+    {
+        return status;
+    }
+
+    return trusted retire_reference(selected, reference);
+}

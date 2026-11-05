@@ -33,6 +33,11 @@ pub(super) fn smoke_test(
             42,
         ),
         (
+            "async-root-cleanup",
+            include_str!("../../fixtures/native-execution/async-root-cleanup.bray"),
+            0,
+        ),
+        (
             "ordinary-finalization",
             include_str!("../../fixtures/native-execution/ordinary-finalization.bray"),
             0,

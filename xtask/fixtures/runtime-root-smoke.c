@@ -14,12 +14,33 @@ typedef struct
     uint64_t task;
 } RootAdmission;
 
+typedef struct
+{
+    uintptr_t storage;
+} RootOwner;
+
+typedef struct
+{
+    _Alignas(16) unsigned char storage[128];
+} RootScope;
+
 extern uint32_t bray_runtime_main_thread_lane_startup(RootConfiguration configuration);
 extern uint32_t bray_runtime_main_thread_lane_drive(void);
 extern RootAdmission bray_runtime_root_execution(uintptr_t frame, RunOutcome* outcome);
 extern RunOutcome bray_runtime_root_terminal_observation(uint64_t task);
 extern uint32_t bray_runtime_root_completion_resolution(uint64_t task);
 extern uint32_t bray_runtime_root_cancellation_request(uint64_t task);
+extern uint32_t bray_runtime_execution_owner_current(RootOwner* output);
+extern void bray_runtime_execution_owner_clone(const RootOwner* owner, RootOwner* output);
+extern uint32_t bray_runtime_execution_owner_release(RootOwner* owner);
+extern uint32_t bray_runtime_execution_owner_worker(const RootOwner* owner);
+extern uint64_t bray_runtime_execution_owner_scope_enter(
+    void* storage,
+    uintptr_t bytes,
+    uintptr_t alignment,
+    const RootOwner* owner
+);
+extern uint32_t bray_runtime_execution_scope_finish(void* storage);
 extern void bray_runtime_awaited_frame_composition(
     InactiveActivation frame,
     uint32_t state,
@@ -47,6 +68,16 @@ typedef struct
 static uint64_t root_thread;
 static unsigned root_destructions;
 static unsigned root_child_destructions;
+
+static int enter_root_owner(RootScope* scope, const RootOwner* owner)
+{
+    return bray_runtime_execution_owner_scope_enter(
+        scope->storage,
+        sizeof(*scope),
+        _Alignof(RootScope),
+        owner
+    ) == (UINT64_C(1) << 32);
+}
 
 static void require_root_thread(void)
 {
@@ -220,6 +251,24 @@ static int check_execution_roots(void)
 
     root_thread = bray_runtime_current_native_thread_identity();
 
+    RootOwner retained = { 0 };
+    RootOwner duplicate = { 0 };
+    RootScope scope;
+
+    if (bray_runtime_execution_owner_current(&retained) != 0)
+        return 249;
+
+    bray_runtime_execution_owner_clone(&retained, &duplicate);
+
+    if (
+        !enter_root_owner(&scope, &duplicate) ||
+        bray_runtime_main_thread_lane_drive() != 6 ||
+        bray_runtime_execution_owner_worker(&duplicate) != 0 ||
+        bray_runtime_execution_scope_finish(scope.storage) != 0 ||
+        bray_runtime_execution_owner_release(&duplicate) != 0
+    )
+        return 249;
+
     for (enum RootMode mode = ROOT_SUCCESS; mode <= ROOT_CANCELLED; ++mode)
     {
         CleanupLease lease = { 0 };
@@ -293,6 +342,14 @@ static int check_execution_roots(void)
     }
 
     if (
+        bray_runtime_execution_shutdown() != 0 ||
+        bray_runtime_main_thread_lane_drive() != 1 ||
+        bray_runtime_thread_attachment_enter() != 0 ||
+        !enter_root_owner(&scope, &retained) ||
+        bray_runtime_main_thread_lane_drive() != 3 ||
+        bray_runtime_execution_owner_release(&retained) != 0 ||
+        bray_runtime_execution_scope_finish(scope.storage) != 0 ||
+        bray_runtime_thread_attachment_leave() != 0 ||
         atomic_load(&worker_create_attempts) != worker_attempts ||
         shutdown_product() != 0 ||
         atomic_load(&live_allocations) != 0
