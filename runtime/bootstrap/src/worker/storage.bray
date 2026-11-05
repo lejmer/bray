@@ -24,7 +24,7 @@ trusted internal func creation(
     )
 {
     let callback_owner = trusted read_creation_callback(scheduler, callback);
-    let scheduler_owner = trusted bray.runtime.bootstrap.scheduler.read_reference(scheduler);
+    let scheduler_owner = trusted bray.runtime.bootstrap.scheduler.retain_reference(trusted bray.runtime.bootstrap.scheduler.borrow_reference(&scheduler, scheduler));
 
     match consume create(trusted bray.runtime.bootstrap.scheduler.external_backing(scheduler_owner), callback_owner)
     {
@@ -34,7 +34,11 @@ trusted internal func creation(
             trusted bray.runtime.bootstrap.host.product.publish_provider<Reference>(output, owner);
             return 0;
         }
-        case Error((_, status)) { return status; }
+        case Error((rejected, status))
+        {
+            trusted bray.runtime.bootstrap.scheduler.release_external_backing(rejected);
+            return status;
+        }
     }
 }
 
@@ -324,6 +328,7 @@ trusted internal func destroy_reference(pos owner: Reference)
         requires(trusted retained(owner = &owner.marker), trusted retiring(owner = owner))
         ensures(
             trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
+            result.backing matches bray.runtime.bootstrap.scheduler.Backing.Retired || (trusted bray.runtime.bootstrap.scheduler.backing_retained(owner = &result.backing) && trusted bray.runtime.bootstrap.scheduler.backing_owned(owner = &result.backing)),
             trusted core.memory.owned_allocation(
                 pointer = std.memory.byte_address<Domain>(owner.pointer),
                 bytes = std.memory.stride_of<Domain>(),
@@ -345,7 +350,14 @@ trusted internal func destroy_reference(pos owner: Reference)
         return trusted std.memory.read<Domain>(owner.pointer);
     };
 
-    let value = trusted take(&owner);
+    let backing =
+    {
+        let value = trusted take(&owner);
+
+        yield value.backing;
+    };
+
+    trusted bray.runtime.bootstrap.scheduler.release_external_backing(backing);
 
     trusted bray.runtime.bootstrap.heap.deallocate_bytes(
         std.memory.byte_address<Domain>(owner.pointer),
@@ -380,7 +392,7 @@ trusted internal func execution_reference(pos owner: &Reference) -> &bray.runtim
         trusted core.target.abort();
     }
 
-    return trusted bray.runtime.bootstrap.scheduler.backing_execution(backing);
+    return bray.runtime.bootstrap.scheduler.backing_execution(backing);
 }
 
 trusted internal func scheduler_pointer(pos owner: &Reference) -> DataPointer<bray.runtime.bootstrap.scheduler.Reference>

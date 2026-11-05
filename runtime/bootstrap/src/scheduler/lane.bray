@@ -104,7 +104,7 @@ trusted internal func selection(
     )
 {
     let requirements = trusted read_requirements(requirements_pointer);
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let (lane, status) = trusted select(&owner, registration, requirements);
 
     if status == 0
@@ -165,7 +165,7 @@ trusted internal func recovery(
     uses(intrinsic)
 {
     let selected = trusted bray.runtime.bootstrap.worker.driver_scope(scope);
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let value = trusted domain(&owner);
     let mut guard = trusted lock(value);
     let state = trusted guard.get();

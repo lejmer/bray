@@ -14,14 +14,26 @@ internal union Backing
     Execution(pos execution: bray.runtime.bootstrap.execution.Reference);
 }
 
-trusted internal predicate backing_retained(owner: &Backing);
+internal predicate backing_retained(owner: &Backing) = (owner matches Backing.External(_) && retained(owner = backing_queue(owner))) || (owner matches Backing.Execution(_) && bray.runtime.bootstrap.execution.retained(owner = backing_execution(owner)));
 
 // An execution-backed value owns one pin until its service completes. An
-// external value owns only the caller's admitted queue-access carrier.
-trusted internal predicate backing_owned(owner: &Backing);
+// external value owns an independent queue-storage count.
+internal predicate backing_owned(owner: &Backing) = (owner matches Backing.External(_) && owned_reference(owner = backing_queue(owner))) || (owner matches Backing.Execution(_) && bray.runtime.bootstrap.execution.pinned(owner = backing_execution(owner)));
+
+internal const func backing_queue(pos owner: &Backing) -> &Reference
+    requires(owner matches Backing.External(_))
+    executes(pure, total)
+{
+    return match owner
+    {
+        case Backing.External(queue_owner) { yield &queue_owner; }
+        case Backing.Execution(_) { panic("execution backing is not a queue owner"); }
+        case Backing.Retired { panic("retired backing has no queue owner"); }
+    };
+}
 
 trusted internal func external_backing(pos owner: Reference) -> Backing
-    requires(trusted retained(owner = &owner))
+    requires(trusted retained(owner = &owner), trusted owned_reference(owner = &owner))
     ensures(trusted backing_retained(owner = &result), trusted backing_owned(owner = &result))
 {
     return Backing.External(owner);
@@ -43,20 +55,19 @@ trusted internal func backing_scheduler(pos owner: &Backing) -> &Reference
     {
         case Backing.External(selected_queue) { yield &selected_queue; }
         case Backing.Retired { yield trusted core.target.abort(); }
-        case Backing.Execution(_) { yield trusted bray.runtime.bootstrap.execution.scheduler_reference(trusted backing_execution(owner)); }
+        case Backing.Execution(_) { yield trusted bray.runtime.bootstrap.execution.scheduler_reference(backing_execution(owner)); }
     };
 }
 
-trusted internal func backing_execution(pos owner: &Backing) -> &bray.runtime.bootstrap.execution.Reference
-    requires(trusted backing_retained(owner = owner), owner matches Backing.Execution(_))
-    ensures(trusted backing_retained(owner = owner), trusted bray.runtime.bootstrap.execution.retained(owner = result))
+internal const func backing_execution(pos owner: &Backing) -> &bray.runtime.bootstrap.execution.Reference
+    requires(owner matches Backing.Execution(_))
     executes(pure, total)
 {
     return match owner
     {
-        case Backing.Execution(execution) { yield &execution; }
-        case Backing.External(_) { yield trusted core.target.abort(); }
-        case Backing.Retired { yield trusted core.target.abort(); }
+        case Backing.Execution(execution_owner) { yield &execution_owner; }
+        case Backing.External(_) { panic("queue backing is not an execution owner"); }
+        case Backing.Retired { panic("retired backing has no execution owner"); }
     };
 }
 
@@ -65,15 +76,29 @@ trusted internal func backing_execution(pos owner: &Backing) -> &bray.runtime.bo
 trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime.bootstrap.execution.Reference
     requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = &result), trusted bray.runtime.bootstrap.execution.pinned(owner = &result))
-    uses(raw_memory, intrinsic)
+    uses(intrinsic)
 {
-    return match owner
+    return match consume owner
     {
         case Backing.Execution(execution)
         {
-            yield trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(&execution));
+            yield execution;
         }
         case Backing.External(_) { yield trusted core.target.abort(); }
         case Backing.Retired { yield trusted core.target.abort(); }
     };
+}
+
+// Execution services transfer their pin before retiring their allocation.
+// Native services own a separate queue count and release that actual owner.
+trusted internal func release_external_backing(pos owner: Backing)
+    requires(owner matches Backing.Retired || (trusted backing_retained(owner = &owner) && trusted backing_owned(owner = &owner)))
+    uses(intrinsic)
+{
+    match consume owner
+    {
+        case Backing.External(queue_owner) { trusted destroy_reference(queue_owner); }
+        case Backing.Retired {}
+        case Backing.Execution(_) { trusted core.target.abort(); }
+    }
 }

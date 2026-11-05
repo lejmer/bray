@@ -10,7 +10,7 @@ trusted internal func slot_release(pos pointer: DataPointer<Reference>, pos regi
     requires(trusted reference_slot(pointer = pointer))
     uses(intrinsic)
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     return trusted release_slot(&owner, registration);
 }
@@ -20,7 +20,7 @@ trusted internal func slot_acquisition(pos pointer: DataPointer<Reference>, pos 
     requires(trusted reference_slot(pointer = pointer))
     uses(intrinsic)
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     return trusted acquire_slot(&owner, registration);
 }

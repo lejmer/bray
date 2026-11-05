@@ -23,6 +23,7 @@ trusted internal func initialize_domain(
         trusted core.memory.owned_allocation(pointer = allocation, bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>()),
         trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>()),
         trusted bray.runtime.bootstrap.scheduler.retained(owner = &scheduler),
+        trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &scheduler),
         trusted native_configuration(owner = &configuration)
     )
     ensures(trusted retained(owner = &result.execution), trusted service_owner(owner = &result), trusted pinned(owner = &result.execution))

@@ -45,7 +45,7 @@ trusted internal func acquisition(
 ) -> u32
     requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let selected = acquire(&owner, thread, lanes);
 
     if let ?chosen = selected
@@ -69,7 +69,7 @@ trusted internal func release(
     uses(intrinsic)
 {
     let lane = trusted read_lane(lane_pointer);
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     return trusted release_registration(&owner, registration, lane, cancellation, now);
 }
@@ -82,7 +82,7 @@ trusted internal func snapshot(
 ) -> u32
     requires(trusted reference_slot(pointer = pointer), trusted bray.runtime.bootstrap.host.product.native_host())
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let value = trusted domain(&owner);
 
     let result =

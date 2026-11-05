@@ -372,6 +372,26 @@ static int check_deadline_runtime(void)
     bray_runtime_scheduler_destruction(&scheduler);
 
     if (
+        bray_runtime_scheduler_creation(1, 0, SIZE_MAX, &scheduler) != 0 ||
+        bray_runtime_deadline_creation(&scheduler, 1, &deadlines) != 0
+    )
+        return 252;
+
+    bray_runtime_scheduler_destruction(&scheduler);
+    DeadlineContext retained = { .deadlines = &deadlines };
+    uint64_t retained_id = 0;
+
+    if (
+        register_deadline(&deadlines, 1, 0, &retained, &retained_id) != 0 ||
+        bray_runtime_deadline_dispatch(&deadlines, 1) != 0 ||
+        retained.wakes != 1 ||
+        retained.releases != 1
+    )
+        return 253;
+
+    bray_runtime_deadline_destruction(&deadlines);
+
+    if (
         bray_runtime_task_control_destruction(&target) != 0 ||
         bray_runtime_task_control_reference_release(&target) != 0
     )

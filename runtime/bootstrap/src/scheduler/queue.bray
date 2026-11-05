@@ -194,7 +194,7 @@ trusted internal func wake(
 ) -> u32
     requires(trusted reference_slot(pointer = pointer))
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     return trusted wake_registration(&owner, registration, cause, now);
 }
@@ -203,7 +203,7 @@ trusted internal func wake(
 trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos registration: u64)
     requires(trusted reference_slot(pointer = pointer))
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     trusted withdraw_registration(&owner, registration);
 }
