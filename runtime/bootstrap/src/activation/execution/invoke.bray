@@ -97,10 +97,6 @@ trusted internal func invoke(
         case none { yield trusted core.target.abort(); }
     };
 
-    let selected_execution = std.memory.address_of<bray.runtime.bootstrap.activation.requirements.Execution>(
-        &execution
-    );
-
     // Preparation borrows the same invocation that passed readiness. Its
     // output destinations remain owned while frame records transfer into them.
     let prepare = trusted lambda(pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor, pos invocation: &bray.runtime.bootstrap.activation.callback.Invocation) -> (
@@ -159,10 +155,15 @@ trusted internal func invoke(
         report = bray.runtime.bootstrap.empty_panic_report(),
     };
 
-    let output = std.memory.address_of_mut<bray.runtime.bootstrap.activation.Progress>(&mut outcome);
-    let available = std.memory.address_of_mut<bray.runtime.bootstrap.ReportRecords>(&mut records);
-
-    let prepared_invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(cursor, selected_execution, &description, operation, argument, output, available);
+    let prepared_invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
+        cursor,
+        &execution,
+        &description,
+        operation,
+        argument,
+        &mut outcome,
+        &mut records
+    );
 
     let admit = trusted lambda(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
@@ -213,7 +214,7 @@ trusted internal func invoke(
 
     let (outgoing, incidents, retired) = trusted prepare(cursor, &invocation);
 
-    records = outgoing;
+    trusted bray.runtime.bootstrap.activation.callback.prepare_records(&invocation, outgoing);
 
     if operation < 5
     {

@@ -6,6 +6,23 @@ using internal bray.runtime.bootstrap.worker;
 using internal bray.runtime.bootstrap.task;
 using internal bray.runtime.bootstrap.scheduler;
 
+trusted internal func record_task_failure(pos reference: &bray.runtime.bootstrap.task.Reference, pos failure: bray.runtime.bootstrap.worker.Failure)
+    requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
+{
+    let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
+    let control = trusted guard.get();
+
+    if control.failure.stage == 0
+    {
+        control.failure = failure;
+    }
+}
+
 trusted internal func record_clock_failure(pos owner: &bray.runtime.bootstrap.execution.Reference, pos status: std.platform.PlatformStatus)
     requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
     ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))

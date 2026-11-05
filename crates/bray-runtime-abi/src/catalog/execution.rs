@@ -1903,7 +1903,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.awaited_composition"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [ComposeAwaitedFrame]
             }

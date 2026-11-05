@@ -94,7 +94,7 @@ trusted internal func dispatch_task(
 {
     let reference = &task;
     let value = trusted context(selected);
-    let mut failure = trusted pending_failure(selected, owner, reference);
+    let mut failure = trusted task_failure(reference);
 
     if failure.stage != 0
     {
@@ -136,10 +136,8 @@ trusted internal func dispatch_task(
 
 // Borrow the actual driver, queue owner and retained task throughout this cell
 // observation. No permission or ownership changes when failure state is read.
-trusted internal func pending_failure(pos selected: &Current, pos owner: &bray.runtime.bootstrap.execution.Reference, pos reference: &bray.runtime.bootstrap.task.Reference) -> bray.runtime.bootstrap.worker.Failure
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.execution.retained(owner = owner), trusted bray.runtime.bootstrap.task.retained(owner = reference))
-    ensures(trusted view_owned(owner = &selected.acquisition))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+trusted internal func task_failure(pos reference: &bray.runtime.bootstrap.task.Reference) -> bray.runtime.bootstrap.worker.Failure
+    requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
     ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
     when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     {

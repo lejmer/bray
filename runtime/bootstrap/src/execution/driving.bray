@@ -139,11 +139,32 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
     // the result. This releases the executing queue slot without losing wakes.
     let lane = if kind == 0
     {
-        let (lane, selected_status) = trusted select_lane(owner, ready.registration, &execution, none);
+        let (mut lane, selected_status) = trusted select_lane(owner, ready.registration, &execution, none);
 
         if selected_status != 0
         {
             trusted core.target.abort();
+        }
+
+        if lane.placement == 0 && (trusted task_failure(&dispatched)).stage == 0
+        {
+            let failure = trusted demand_lane(owner, lane);
+
+            if failure.stage != 0
+            {
+                trusted record_task_failure(&dispatched, failure);
+                trusted retain_ready_driver(trusted context(selected), owner, ready.registration);
+                _ = trusted wake_reference(&dispatched, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+
+                let (recovery, recovery_status) = trusted select_lane(owner, ready.registration, &execution, none);
+
+                if recovery_status != 0
+                {
+                    trusted core.target.abort();
+                }
+
+                lane = recovery;
+            }
         }
 
         yield lane;
