@@ -56,25 +56,9 @@ internal struct PanicReportData
 }
 
 @abi(c)
-trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
-    uses(foreign_call)
+trusted internal func runtime_initialization() -> u32
 {
-    let existing_host: bool = trusted bray.runtime.bootstrap.host.initialized();
-    let status: u32 = trusted bray.runtime.bootstrap.host.initialize_host();
-
-    if status != STATUS_SUCCESS
-    {
-        return status;
-    }
-
-    let initialized: u32 = trusted substrate_initialization(worker_capacity, timer_capacity);
-
-    if initialized != STATUS_SUCCESS && !existing_host
-    {
-        _ = trusted bray.runtime.bootstrap.host.shutdown_host();
-    }
-
-    return initialized;
+    return trusted bray.runtime.bootstrap.host.initialize_host();
 }
 
 @abi(c)
@@ -101,8 +85,3 @@ trusted internal func structured_shutdown() -> u32
     return STATUS_SUCCESS;
 }
 
-@link(name = "bray_runtime_host", kind = system)
-@symbol(name = "bray_runtime_substrate_initialization")
-@abi(c)
-extern trusted internal func substrate_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
-    uses(foreign_call);

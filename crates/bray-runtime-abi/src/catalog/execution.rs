@@ -203,9 +203,9 @@ macro_rules! runtime_role_catalog {
             }
             RuntimeInitialization {
                 "Initialize one loaded runtime artifact instance before product entry.", "runtime_initialization",
-                native: (RUNTIME_INITIALIZATION_SYMBOL = "bray_runtime_initialization", [Usize, Usize] -> U32),
+                native: (RUNTIME_INITIALIZATION_SYMBOL = "bray_runtime_initialization", [] -> U32),
                 call_hook: (),
-                compiler: C [Usize, Usize] -> U32,
+                compiler: C [] -> U32,
                 owner: Host, availability: All, bootstrap: ("runtime_initialization"), host_control: false,
                 capabilities: [],
                 effects: [InitializeRuntime]
@@ -257,11 +257,11 @@ macro_rules! runtime_role_catalog {
             }
             RootExecution {
                 "Begin and own the executable root run.", "root_execution",
-                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Usize, Configuration, Pointer] -> RootStart),
+                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Usize, Pointer] -> RootStart),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.root_execution"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [EstablishRootRun, TransferFrame]
             }
@@ -276,9 +276,9 @@ macro_rules! runtime_role_catalog {
             }
             ExecutionScopeEnter {
                 "Transfer a complete Source entry scope into native-owned protected storage.", "execution_scope_enter",
-                native: (EXECUTION_SCOPE_ENTER_SYMBOL = "bray_runtime_execution_scope_enter", [Pointer, Usize, Usize, U32] -> U32),
+                native: (EXECUTION_SCOPE_ENTER_SYMBOL = "bray_runtime_execution_scope_enter", [Pointer, Usize, Usize, U32] -> U64),
                 call_hook: (),
-                compiler: C [Pointer, Usize, Usize, U32] -> U32,
+                compiler: C [Pointer, Usize, Usize, U32] -> U64,
                 owner: Bootstrap, availability: All, bootstrap: ("execution.native_scope_enter"), host_control: false,
                 capabilities: [], effects: []
             }
@@ -590,7 +590,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.root_cancellation"), host_control: true,
                 capabilities: [],
                 effects: [RequestCancellation]
             }
@@ -1256,7 +1256,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_allocation"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AllocateTask]
             }
@@ -1304,7 +1304,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_wake"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [PublishWork, EstablishVisibility]
             }
@@ -1314,7 +1314,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [U64] -> U32,
-                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_cancellation"), host_control: false,
                 capabilities: [],
                 effects: [RequestCancellation]
             }
@@ -1493,7 +1493,7 @@ macro_rules! runtime_role_catalog {
                 service: Host,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.report_incidents"), host_control: true,
                 capabilities: [],
                 effects: [ReportCleanupIncidents]
             }
@@ -1503,7 +1503,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.main_startup"), host_control: false,
                 capabilities: [CooperativeExecution, MainThreadLane],
                 effects: []
             }
@@ -1513,9 +1513,25 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.main_drive"), host_control: false,
                 capabilities: [CooperativeExecution, MainThreadLane],
                 effects: []
+            }
+            ExecutionWorkersStartup {
+                "Form the selected worker service before task publication.", "execution_workers_startup",
+                native: (EXECUTION_WORKERS_STARTUP_SYMBOL = "bray_runtime_execution_workers_startup", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.workers_startup"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            ExecutionDeadlinesStartup {
+                "Form the selected deadline service before task publication.", "execution_deadlines_startup",
+                native: (EXECUTION_DEADLINES_STARTUP_SYMBOL = "bray_runtime_execution_deadlines_startup", [] -> U32),
+                call_hook: (),
+                compiler: C [] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.deadlines_startup"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
             }
             RootTerminalObservation {
                 "Observe the root terminal record without creating a source task.", "root_terminal_observation",
@@ -1523,7 +1539,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.root_observation"), host_control: true,
                 capabilities: [],
                 effects: [AcquireTerminalState, EstablishVisibility]
             }
@@ -1533,7 +1549,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: true,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.root_completion"), host_control: true,
                 capabilities: [],
                 effects: [ReleaseRootCompletion]
             }
@@ -1897,7 +1913,7 @@ macro_rules! runtime_role_catalog {
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [U64] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_destruction"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [DestroyTask]
             }
@@ -1906,7 +1922,7 @@ macro_rules! runtime_role_catalog {
                 native: (EXECUTION_SHUTDOWN_SYMBOL = "bray_runtime_execution_shutdown", [] -> U32),
                 call_hook: (),
                 compiler: C [] -> U32,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.driver_shutdown"), host_control: false,
                 capabilities: [],
                 effects: [StructuredShutdown]
             }

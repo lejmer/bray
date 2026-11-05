@@ -11,6 +11,27 @@ using internal bray.runtime.bootstrap.heap;
 using internal bray.runtime.bootstrap.scheduler;
 
 @abi(c)
+trusted internal func main_startup(pos configuration: Configuration) -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry(), trusted native_configuration(owner = &configuration))
+{
+    let driver = trusted driver_startup();
+
+    if driver != 0 && driver != 2
+    {
+        return driver;
+    }
+
+    let status = trusted startup(configuration);
+
+    if status != 0 && status != 2 && driver == 0
+    {
+        _ = trusted driver_shutdown();
+    }
+
+    return status;
+}
+
+@abi(c)
 trusted internal func startup(pos configuration: Configuration) -> u32
     requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted native_configuration(owner = &configuration))
 {

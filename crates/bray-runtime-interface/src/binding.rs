@@ -65,7 +65,7 @@ pub enum NativeEntryKind {
     RuntimeStatus,
     /// Contain bootstrap identity lookup failures and return the unavailable identity zero.
     RuntimeIdentity,
-    /// Return the selected OS worker entry value without attaching recursively.
+    /// Return the runtime value without attaching or allowing an unexpected unwind.
     RuntimeValue,
     /// Preserve the body outcome and return entry cleanup status independently.
     EntryStatus,
@@ -75,10 +75,16 @@ impl NativeEntryKind {
     /// Selects the non-attaching entry boundary required by a bootstrap role.
     pub const fn for_runtime_role(role: RuntimeAbiRole) -> Option<Self> {
         match role {
-            RuntimeAbiRole::WorkerPointerEntry | RuntimeAbiRole::WorkerWordEntry => {
+            RuntimeAbiRole::WorkerPointerEntry
+            | RuntimeAbiRole::WorkerWordEntry
+            | RuntimeAbiRole::RootExecution
+            | RuntimeAbiRole::RootTerminalObservation
+            | RuntimeAbiRole::TaskAllocation => {
                 Some(Self::RuntimeValue)
             }
-            RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
+            RuntimeAbiRole::ThreadAttachmentIdentity | RuntimeAbiRole::ExecutionScopeEnter => {
+                Some(Self::RuntimeIdentity)
+            }
             RuntimeAbiRole::ThreadStorageExit
             | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerStop => Some(Self::ThreadStorageExit),
@@ -86,8 +92,19 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
             RuntimeAbiRole::EntryContextRegistration
-            | RuntimeAbiRole::ExecutionScopeEnter
             | RuntimeAbiRole::ExecutionScopeFinish
+            | RuntimeAbiRole::MainThreadLaneStartup
+            | RuntimeAbiRole::MainThreadLaneDrive
+            | RuntimeAbiRole::ExecutionWorkersStartup
+            | RuntimeAbiRole::ExecutionDeadlinesStartup
+            | RuntimeAbiRole::RootCompletionResolution
+            | RuntimeAbiRole::RootCancellationRequest
+            | RuntimeAbiRole::TaskStart
+            | RuntimeAbiRole::TaskDestruction
+            | RuntimeAbiRole::TaskCancellationRequest
+            | RuntimeAbiRole::Wake
+            | RuntimeAbiRole::CleanupIncidentReporting
+            | RuntimeAbiRole::ExecutionShutdown
             | RuntimeAbiRole::RuntimeInitialization
             | RuntimeAbiRole::WorkerDemand
             | RuntimeAbiRole::ThreadAttachmentEnter

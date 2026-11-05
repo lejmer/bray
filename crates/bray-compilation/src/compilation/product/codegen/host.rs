@@ -318,7 +318,17 @@ impl Compilation {
 
         if has_async_entries {
             runtime_roles.insert(RuntimeAbiRole::RootExecution);
+            runtime_roles.insert(RuntimeAbiRole::MainThreadLaneStartup);
+            runtime_roles.insert(RuntimeAbiRole::MainThreadLaneDrive);
             runtime_roles.extend(RuntimeAbiRole::host_controls());
+
+            if runtime_roles.contains(&RuntimeAbiRole::TaskStart) {
+                runtime_roles.insert(RuntimeAbiRole::ExecutionWorkersStartup);
+            }
+
+            if runtime_roles.contains(&RuntimeAbiRole::DeadlineRegistration) {
+                runtime_roles.insert(RuntimeAbiRole::ExecutionDeadlinesStartup);
+            }
         }
 
         if kind == ProductKind::Test && !entries.is_empty() {

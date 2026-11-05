@@ -87,18 +87,22 @@ pub fn lower_executable_host(
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
-    if contract
-        .requirements()
-        .requires_role(RuntimeAbiRole::RuntimeInitialization)
-    {
-        builder.push_operation(
-            entry,
-            source.clone(),
-            MirOperationKind::Host(MirHostOperation::InitializeRuntime {
-                runtime: runtime_reference(RuntimeAbiRole::RuntimeInitialization, runtime_abi),
-            }),
-            None,
-        )?;
+    for role in [
+        RuntimeAbiRole::RuntimeInitialization,
+        RuntimeAbiRole::MainThreadLaneStartup,
+        RuntimeAbiRole::ExecutionWorkersStartup,
+        RuntimeAbiRole::ExecutionDeadlinesStartup,
+    ] {
+        if contract.requirements().requires_role(role) {
+            builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Host(MirHostOperation::InitializeRuntime {
+                    runtime: runtime_reference(role, runtime_abi),
+                }),
+                None,
+            )?;
+        }
     }
 
     builder.push_operation(

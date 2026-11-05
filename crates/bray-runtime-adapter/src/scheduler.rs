@@ -1,8 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
-    NativeInactiveFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
-    NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
+    NativeRunResultLayout, NativeRuntimeStatus, NativeTaskHandle,
 };
 
 native_adapter! {
@@ -15,35 +14,9 @@ native_adapter! {
     }
 }
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeInactiveFrameTransfer,
-        configuration: NativeRuntimeConfiguration,
-        outcome: &mut NativeRunOutcome,
-    ) -> NativeRootStart {
-        implementation::bray_runtime_root_execution(frame, configuration, outcome)
-    }
-}
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_main_thread_lane_startup(
-        configuration: NativeRuntimeConfiguration,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_main_thread_lane_startup(configuration)
-    }
-}
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_main_thread_lane_drive() -> NativeRuntimeStatus {
-        implementation::bray_runtime_main_thread_lane_drive()
-    }
-}
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_task_allocation() -> NativeTaskAllocation {
-        implementation::bray_runtime_task_allocation()
-    }
-}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_task_resolution(
@@ -55,13 +28,6 @@ native_adapter! {
     }
 }
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_task_destruction(
-        task: NativeTaskHandle,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_destruction(task)
-    }
-}
 
 native_adapter! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
@@ -100,11 +66,6 @@ native_adapter! {
     }
 }
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
-        implementation::bray_runtime_wake(task)
-    }
-}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_compatible_lane_selection(

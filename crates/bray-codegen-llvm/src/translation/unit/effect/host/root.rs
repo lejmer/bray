@@ -202,19 +202,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             descriptor,
         )?;
 
-        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-            panic!("root execution belongs to an executable host");
-        };
-
         let frame_storage =
             self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
 
         llvm(self.builder.build_store(frame_storage, frame))?;
-
-        let capacity = host
-            .capacity_limits()
-            .tasks()
-            .map_or(u64::MAX, |capacity| u64::from(capacity.get()));
 
         let usize =
             crate::native::pointer_integer_type(self.types.context(), self.request.target());
@@ -225,21 +216,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "root.frame.transfer",
         ))?;
 
-        let configuration =
-            crate::native::runtime_configuration_type(self.types.context(), self.request.target())
-                .const_named_struct(&[
-                    usize.const_int(capacity, false).into(),
-                    usize.const_all_ones().into(),
-                    self.types.context().i32_type().const_int(63, false).into(),
-                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
-                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
-                    self.types.context().ptr_type(inkwell::AddressSpace::default()).const_null().into(),
-                ]);
-
         let start = self
             .invoke_native_runtime(
                 runtime,
-                &[frame_transfer.into(), configuration.into(), outcome.into()],
+                &[frame_transfer.into(), outcome.into()],
             )?
             .and_then(|value| match value {
                 BasicValueEnum::StructValue(value) => Some(value),

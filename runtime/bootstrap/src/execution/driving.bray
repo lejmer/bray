@@ -9,6 +9,40 @@ using internal bray.runtime.bootstrap;
 using internal bray.runtime.bootstrap.scheduler;
 using internal bray.runtime.bootstrap.task;
 
+@abi(c)
+trusted internal func main_drive() -> u32
+    requires(blocking_execution(), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+{
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return selected.status;
+    }
+
+    if !has_execution(&selected)
+    {
+        return 1;
+    }
+
+    if (trusted context(&selected)).driver.placement != 3
+    {
+        return 3;
+    }
+
+    let owner = trusted bound_execution(&selected);
+
+    trusted poll_deadlines(owner);
+
+    if !trusted acquire_ready(&selected, owner)
+    {
+        return 6;
+    }
+
+    trusted dispatch_ready(&selected, owner);
+    return 0;
+}
+
 trusted internal func pending_storage(pos selected: &Current) -> DataPointer<(bray.runtime.bootstrap.scheduler.Observation?)>
     requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
     ensures(

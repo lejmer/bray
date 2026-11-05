@@ -164,7 +164,7 @@ static int check_worker_runtime(void)
     unsigned live = atomic_load(&live_allocations);
 
     if (
-        bray_runtime_initialization(1, 1) != 0 ||
+        bray_runtime_initialization() != 0 ||
         bray_runtime_scheduler_creation(29, 0, 4, &scheduler) != 0 ||
         bray_runtime_worker_creation(&scheduler, &callback, &workers) != 0 ||
         atomic_load(&worker_create_attempts) != created

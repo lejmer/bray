@@ -825,7 +825,7 @@ mod tests {
             .unwrap_or_else(|| panic!("root execution must have a native ABI"));
 
         assert_eq!(root.get_return_type(), None);
-        assert_eq!(root.count_param_types(), 4);
+        assert_eq!(root.count_param_types(), 3);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
@@ -885,7 +885,7 @@ mod tests {
             Some(super::root_start_type(&context).into())
         );
 
-        assert_eq!(root.count_param_types(), 4);
+        assert_eq!(root.count_param_types(), 2);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
