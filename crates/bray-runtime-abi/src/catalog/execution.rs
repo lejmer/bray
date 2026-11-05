@@ -339,6 +339,27 @@ macro_rules! runtime_role_catalog {
                 owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_scope_enter"), host_control: false,
                 capabilities: [], effects: []
             }
+            ExecutionTimeoutPreparation {
+                "Prepare the retained execution's deadline broker and progress worker.", "execution_timeout_preparation",
+                native: (EXECUTION_TIMEOUT_PREPARATION_SYMBOL = "bray_runtime_execution_timeout_preparation", [Pointer, Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer, Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_timeout_prepare"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionTimeoutRegistration {
+                "Register cancellation on the broker owned by the retained execution.", "execution_timeout_registration",
+                native: (EXECUTION_TIMEOUT_REGISTRATION_SYMBOL = "bray_runtime_execution_timeout_registration", [Pointer, U64, Pointer, Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer, U64, Pointer, Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_timeout_registration"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionTimeoutWithdrawal {
+                "Withdraw cancellation while borrowing its actual retained execution owner.", "execution_timeout_withdrawal",
+                native: (EXECUTION_TIMEOUT_WITHDRAWAL_SYMBOL = "bray_runtime_execution_timeout_withdrawal", [Pointer, U64] -> U32),
+                call_hook: (), compiler: C [Pointer, U64] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_timeout_withdrawal"), host_control: false,
+                capabilities: [], effects: []
+            }
             EntryContinuation {
                 "Continue an admitted native entry inside its scoped context bridge.", "entry_continuation",
                 native: (ENTRY_CONTINUATION_SYMBOL = "bray_runtime_entry_continuation", [Pointer, Usize, U32, Pointer] -> U32),

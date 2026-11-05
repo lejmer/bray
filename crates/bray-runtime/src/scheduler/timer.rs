@@ -67,18 +67,6 @@ impl Scheduler {
         self.finish_registration(result, descriptor)
     }
 
-    pub(crate) fn register_callback(
-        &self,
-        deadline_ns: u64,
-        descriptor: NativeEventCallback,
-    ) -> Result<TimerRegistration, SchedulerError> {
-        let result = self
-            .deadlines()
-            .and_then(|deadlines| deadlines.register(deadline_ns, 0, &descriptor));
-
-        self.finish_registration(result, descriptor)
-    }
-
     fn finish_registration(
         &self,
         result: Result<u64, SchedulerError>,
@@ -87,7 +75,7 @@ impl Scheduler {
         match result {
             Ok(identity) => Ok(TimerRegistration {
                 identity,
-                scheduler: Arc::clone(&self.data),
+                owner: TimerOwner::Scheduler(Arc::clone(&self.data)),
             }),
             Err(error) => {
                 // Rejection leaves the descriptor with its native producer.
@@ -153,15 +141,38 @@ impl Scheduler {
 #[derive(Debug)]
 pub struct TimerRegistration {
     identity: u64,
-    scheduler: Arc<SchedulerData>,
+    owner: TimerOwner,
+}
+
+#[derive(Debug)]
+enum TimerOwner {
+    Scheduler(Arc<SchedulerData>),
+    Execution(Arc<crate::event::Resources>),
+}
+
+impl TimerRegistration {
+    pub(crate) fn execution(identity: u64, owner: Arc<crate::event::Resources>) -> Self {
+        assert!(matches!(owner.as_ref(), crate::event::Resources::Timeout { .. }), "an execution timer retains its actual timeout resources");
+
+        Self { identity, owner: TimerOwner::Execution(owner) }
+    }
 }
 
 impl Drop for TimerRegistration {
     fn drop(&mut self) {
-        self.scheduler
-            .deadlines
-            .get()
-            .expect("a registered timer retains its deadline owner")
-            .withdraw(self.identity);
+        match &self.owner {
+            TimerOwner::Scheduler(scheduler) => scheduler
+                .deadlines
+                .get()
+                .expect("a registered timer retains its deadline owner")
+                .withdraw(self.identity),
+            TimerOwner::Execution(owner) => {
+                let crate::event::Resources::Timeout { runtime, .. } = owner.as_ref() else {
+                    unreachable!("execution registration retains its timeout owner");
+                };
+
+                crate::timeout::withdraw(runtime, self.identity);
+            }
+        }
     }
 }

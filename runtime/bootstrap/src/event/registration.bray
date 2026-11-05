@@ -121,7 +121,7 @@ trusted internal func publish_event_wait(
     uses(intrinsic)
 {
     let parent = owner.waiter.handle;
-    let (previous, immediate) =
+    let (previous, immediate): (usize, bool) =
     {
         let retained_event = trusted bray.runtime.bootstrap.task.event_reference(&owner);
         let mut mutation = trusted event_anchor(retained_event, lease);
@@ -135,7 +135,7 @@ trusted internal func publish_event_wait(
             trusted core.target.abort();
         }
 
-        if state.closed || state.generation != observed
+        yield if state.closed || state.generation != observed
         {
             yield (0, true);
         }
@@ -163,7 +163,7 @@ trusted internal func publish_event_wait(
 
             state.tail = parent;
             yield (previous, false);
-        }
+        };
     };
 
     // End the borrow of the registration's event before transferring the whole

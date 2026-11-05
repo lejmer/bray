@@ -87,6 +87,7 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ExecutionOwnerRelease
             | RuntimeAbiRole::ExecutionOwnerWorker
             | RuntimeAbiRole::ExecutionOwnerDetach
+            | RuntimeAbiRole::ExecutionTimeoutWithdrawal
             | RuntimeAbiRole::TaskEventCreation
             | RuntimeAbiRole::SuspensionRegistration => {
                 Some(Self::RuntimeValue)
@@ -106,6 +107,8 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ExecutionScopeFinish
             | RuntimeAbiRole::ExecutionOwnerCurrent
             | RuntimeAbiRole::ExecutionStartup
+            | RuntimeAbiRole::ExecutionTimeoutPreparation
+            | RuntimeAbiRole::ExecutionTimeoutRegistration
             | RuntimeAbiRole::MainThreadLaneStartup
             | RuntimeAbiRole::MainThreadLaneDrive
             | RuntimeAbiRole::ExecutionWorkersStartup

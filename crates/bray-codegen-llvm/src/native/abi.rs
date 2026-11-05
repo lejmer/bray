@@ -87,7 +87,7 @@ pub(crate) fn runtime_attributes(
         for kind in signature.parameters() {
             if matches!(
                 kind,
-                RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration | RuntimeAbiType::ActivationInvocation
+                RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration
             ) {
                 let value = runtime_value_type(context, target, *kind)
                     .expect("indirect aggregate parameter has a native layout");
@@ -157,14 +157,14 @@ fn parameter_type<'context>(
 fn parameter_is_indirect(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     matches!(
         kind,
-        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame | RuntimeAbiType::Configuration | RuntimeAbiType::ActivationInvocation
+        RuntimeAbiType::PanicReport | RuntimeAbiType::InactiveFrame | RuntimeAbiType::Configuration
     ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
 }
 
 fn expands_parameter(target: &CodegenTarget, kind: RuntimeAbiType) -> bool {
     target.machine().architecture() == TargetArchitecture::X86_64
         && !uses_microsoft_x64_abi(target)
-        && !matches!(kind, RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration | RuntimeAbiType::ActivationInvocation)
+        && !matches!(kind, RuntimeAbiType::InactiveFrame | RuntimeAbiType::PanicReport | RuntimeAbiType::Configuration)
         && aggregate_is_indirect(kind)
 }
 

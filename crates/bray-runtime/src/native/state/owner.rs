@@ -129,7 +129,7 @@ pub(in crate::native) fn native_configuration(configuration: NativeRuntimeConfig
     )
 }
 
-pub(in crate::native) fn with_cleanup_runtime<T>(
+pub(crate) fn with_cleanup_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
 ) -> Result<(T, NativeRuntimeStatus), NativeRuntimeStatus> {
