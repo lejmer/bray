@@ -16,6 +16,10 @@ unsafe extern "C" {
         isolate: u32,
     ) -> u64;
     safe fn bray_runtime_execution_scope_finish(storage: *mut u8) -> NativeRuntimeStatus;
+    safe fn bray_runtime_execution_owner_release(
+        owner: &mut super::state::RetainedRuntime,
+        scope: *const u8,
+    ) -> u32;
     safe fn bray_runtime_execution_owner_scope_enter(
         storage: *mut u8,
         bytes: usize,
@@ -94,6 +98,12 @@ impl Scope {
 
     pub(super) fn finish(mut self) -> NativeRuntimeStatus {
         self.retire()
+    }
+
+    pub(super) fn release_owner(&self, owner: &mut super::state::RetainedRuntime) -> u32 {
+        assert!(self.active, "execution release borrows its complete live entry scope");
+
+        bray_runtime_execution_owner_release(owner, self.storage.0.as_ptr().cast())
     }
 
     fn retire(&mut self) -> NativeRuntimeStatus {

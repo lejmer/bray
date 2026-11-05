@@ -313,8 +313,8 @@ macro_rules! runtime_role_catalog {
             }
             ExecutionOwnerRelease {
                 "Consume the actual native execution owner and retire its service claim and pin.", "execution_owner_release",
-                native: (EXECUTION_OWNER_RELEASE_SYMBOL = "bray_runtime_execution_owner_release", [Pointer] -> U32),
-                call_hook: (), compiler: C [Pointer] -> U32,
+                native: (EXECUTION_OWNER_RELEASE_SYMBOL = "bray_runtime_execution_owner_release", [Pointer, Pointer] -> U32),
+                call_hook: (), compiler: C [Pointer, Pointer] -> U32,
                 owner: Bootstrap, availability: All, bootstrap: ("execution.native_owner_release"), host_control: false,
                 capabilities: [], effects: []
             }

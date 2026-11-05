@@ -7,7 +7,6 @@ use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
 unsafe extern "C" {
     safe fn bray_runtime_execution_owner_current(output: &mut RetainedRuntime) -> NativeRuntimeStatus;
     safe fn bray_runtime_execution_owner_clone(input: &RetainedRuntime, output: &mut RetainedRuntime);
-    safe fn bray_runtime_execution_owner_release(input: &mut RetainedRuntime) -> u32;
     safe fn bray_runtime_execution_owner_worker(input: &RetainedRuntime) -> u32;
     safe fn bray_runtime_execution_owner_detach(input: &RetainedRuntime);
     safe fn bray_runtime_execution_startup(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus;
@@ -64,7 +63,7 @@ impl Drop for RetainedRuntime {
             .expect("retained execution release keeps its native attachment available");
         let execution = super::super::scope::Scope::borrow_owner(self)
             .expect("retained execution release keeps its cleanup driver available");
-        let incidents = bray_runtime_execution_owner_release(self);
+        let incidents = execution.release_owner(self);
 
         // Source consumed the actual owner in this slot. The native carrier now
         // has no Source lifecycle obligation, including during Rust unwinding.

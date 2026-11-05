@@ -120,8 +120,9 @@ trusted internal func native_owner_detach(pos input: DataPointer<Owner>)
 }
 
 @abi(c)
-trusted internal func native_owner_release(pos input: DataPointer<Owner>) -> u32
-    requires(blocking_execution(), trusted native_owner_slot(owner = &input), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+trusted internal func native_owner_release(pos input: DataPointer<Owner>, pos scope: DataPointer<u8>) -> u32
+    requires(blocking_execution(), trusted native_owner_slot(owner = &input), trusted native_scope_initialized(owner = &scope), trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted native_scope_initialized(owner = &scope))
     uses(raw_memory, intrinsic)
 {
     let selected = trusted current();
@@ -145,7 +146,19 @@ trusted internal func native_owner_release(pos input: DataPointer<Owner>) -> u32
         return trusted std.memory.read<Owner>(input);
     };
 
-    return trusted release_pin(trusted close_owner(&selected, trusted take(input)));
+    let entered = trusted borrow_native_scope(&scope);
+    let caller = if entered.current.status == 0
+    {
+        yield &entered.current;
+    }
+    else
+    {
+        yield &selected;
+    };
+
+    // Closing can defer worker joins on work held by the initiating caller,
+    // even while cleanup is bound to another execution. Keep both contexts.
+    return trusted release_pin(trusted close_owner(caller, trusted take(input)));
 }
 
 // The same-domain case borrows the actual installed context, including its

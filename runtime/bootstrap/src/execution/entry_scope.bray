@@ -82,6 +82,39 @@ trusted internal func publish_native_scope(pos storage: DataPointer<u8>, pos byt
     return (committed << 32) | (status as u64);
 }
 
+trusted internal func borrow_native_scope(pos input: &DataPointer<u8>) -> &EntryScope
+    requires(trusted native_scope_initialized(owner = input))
+    ensures(trusted native_scope_initialized(owner = input), trusted entry_scope_owned(owner = result))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
+{
+    let storage = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(input));
+    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+    let readable = trusted lambda(pos input: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>)
+        requires(trusted native_scope_initialized(owner = input))
+        ensures(
+            trusted core.memory.valid_read<EntryScope>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<EntryScope>(pointer = pointer),
+            trusted core.memory.aligned_for<EntryScope>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<EntryScope>(pointer = pointer),
+            trusted core.memory.epoch_current<EntryScope>(pointer = pointer),
+            trusted core.memory.synchronized_access<EntryScope>(pointer = pointer),
+            trusted core.memory.movement_stable<EntryScope>(pointer = pointer),
+            trusted core.memory.finalization_pending<EntryScope>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted readable(input, pointer);
+    let owner = trusted std.memory.borrow_from<EntryScope, DataPointer<u8>>(input, pointer);
+    let owned = trusted lambda(pos input: &DataPointer<u8>, pos owner: &EntryScope)
+        requires(trusted native_scope_initialized(owner = input))
+        ensures(trusted entry_scope_owned(owner = owner))
+        executes(pure, total) {};
+
+    trusted owned(input, owner);
+    return owner;
+}
+
 @abi(c)
 trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
     requires(trusted native_scope_initialized(owner = &storage))

@@ -32,7 +32,7 @@ extern uint32_t bray_runtime_root_completion_resolution(uint64_t task);
 extern uint32_t bray_runtime_root_cancellation_request(uint64_t task);
 extern uint32_t bray_runtime_execution_owner_current(RootOwner* output);
 extern void bray_runtime_execution_owner_clone(const RootOwner* owner, RootOwner* output);
-extern uint32_t bray_runtime_execution_owner_release(RootOwner* owner);
+extern uint32_t bray_runtime_execution_owner_release(RootOwner* owner, const void* scope);
 extern uint32_t bray_runtime_execution_owner_worker(const RootOwner* owner);
 extern uint64_t bray_runtime_execution_owner_scope_enter(
     void* storage,
@@ -264,8 +264,8 @@ static int check_execution_roots(void)
         !enter_root_owner(&scope, &duplicate) ||
         bray_runtime_main_thread_lane_drive() != 6 ||
         bray_runtime_execution_owner_worker(&duplicate) != 0 ||
-        bray_runtime_execution_scope_finish(scope.storage) != 0 ||
-        bray_runtime_execution_owner_release(&duplicate) != 0
+        bray_runtime_execution_owner_release(&duplicate, scope.storage) != 0 ||
+        bray_runtime_execution_scope_finish(scope.storage) != 0
     )
         return 249;
 
@@ -347,7 +347,7 @@ static int check_execution_roots(void)
         bray_runtime_thread_attachment_enter() != 0 ||
         !enter_root_owner(&scope, &retained) ||
         bray_runtime_main_thread_lane_drive() != 3 ||
-        bray_runtime_execution_owner_release(&retained) != 0 ||
+        bray_runtime_execution_owner_release(&retained, scope.storage) != 0 ||
         bray_runtime_execution_scope_finish(scope.storage) != 0 ||
         bray_runtime_thread_attachment_leave() != 0 ||
         atomic_load(&worker_create_attempts) != worker_attempts ||
