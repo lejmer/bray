@@ -44,25 +44,37 @@ trusted internal func borrow_native_owner(pos input: &DataPointer<Owner>) -> &Ow
     return owner;
 }
 
-trusted internal func publish_native_owner(pos output: DataPointer<Owner>, pos owner: Owner)
-    requires(trusted native_owner_output(pointer = output), trusted service_owner(owner = &owner), trusted retained(owner = &owner.execution), trusted pinned(owner = &owner.execution))
-    ensures(trusted native_owner_slot(owner = &output))
-    uses(raw_memory, intrinsic)
+trusted internal func borrow_native_owner_output(pos input: &mut DataPointer<Owner>, pos pointer: DataPointer<Owner>) -> &mut Uninit<Owner>
+    requires(trusted native_owner_output(pointer = pointer))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias, layout_reinterpret)
 {
-    let permit = trusted lambda(pos output: DataPointer<Owner>)
-        requires(trusted native_owner_output(pointer = output))
-        ensures(trusted core.memory.valid_write<Owner>(pointer = output, count = 1), trusted core.memory.aligned_for<Owner>(pointer = output))
+    let storage = trusted std.memory.reinterpret<Uninit<Owner>, Owner>(pointer);
+    let permit = trusted lambda(pos pointer: DataPointer<Owner>, pos storage: DataPointer<Uninit<Owner>>)
+        requires(trusted native_owner_output(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_write<Uninit<Owner>>(pointer = storage, count = 1),
+            trusted core.memory.aligned_for<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.initialized_as<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.exclusive_alias_valid<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.epoch_current<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.synchronized_access<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.movement_stable<Uninit<Owner>>(pointer = storage),
+            trusted core.memory.finalization_pending<Uninit<Owner>>(pointer = storage)
+        )
         executes(pure, total) {};
 
-    trusted permit(output);
-    trusted std.memory.write<Owner>(output, owner);
+    trusted permit(pointer, storage);
+    return trusted std.memory.borrow_mut_from<Uninit<Owner>, DataPointer<Owner>>(input, storage);
 }
 
 @abi(c)
-trusted internal func native_owner_current(pos output: DataPointer<Owner>) -> u32
+trusted internal func native_owner_current(pos mut output: DataPointer<Owner>) -> u32
     requires(trusted native_owner_output(pointer = output))
     ensures(result != 0 || trusted native_owner_slot(owner = &output))
 {
+    let address = output;
+    let storage = trusted borrow_native_owner_output(&mut output, address);
     let selected = trusted current();
 
     if selected.status != 0
@@ -75,18 +87,20 @@ trusted internal func native_owner_current(pos output: DataPointer<Owner>) -> u3
         return 1;
     }
 
-    trusted publish_native_owner(output, trusted retain_owner(bound_execution(&selected)));
+    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(bound_execution(&selected)));
     return 0;
 }
 
 @abi(c)
-trusted internal func native_owner_clone(pos input: DataPointer<Owner>, pos output: DataPointer<Owner>)
+trusted internal func native_owner_clone(pos input: DataPointer<Owner>, pos mut output: DataPointer<Owner>)
     requires(trusted native_owner_slot(owner = &input), trusted native_owner_output(pointer = output))
     ensures(trusted native_owner_slot(owner = &input), trusted native_owner_slot(owner = &output))
 {
     let owner = trusted borrow_native_owner(&input);
+    let address = output;
+    let storage = trusted borrow_native_owner_output(&mut output, address);
 
-    trusted publish_native_owner(output, trusted retain_owner(&owner.execution));
+    _ = std.memory.uninit_write<Owner>(storage, trusted retain_owner(&owner.execution));
 }
 
 @abi(c)

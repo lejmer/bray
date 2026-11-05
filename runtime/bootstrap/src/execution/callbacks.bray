@@ -40,9 +40,9 @@ trusted internal func invoke_task(pos pointer: DataPointer<bray.runtime.bootstra
     )
     ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation_returned(pointer = pointer))
 {
-    let selected = trusted current();
     let mut address = pointer;
     let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut address, pointer);
+    let (selected, previous, callback, resumable) = trusted enter_producer(&owner);
 
     if selected.status != 0
     {
@@ -50,8 +50,6 @@ trusted internal func invoke_task(pos pointer: DataPointer<bray.runtime.bootstra
         trusted bray.runtime.bootstrap.activation.callback.execute_producer(owner);
         return;
     }
-
-    let (previous, callback, resumable) = trusted enter_producer(&selected, &owner);
 
     if has_execution(&selected)
     {
@@ -70,28 +68,34 @@ trusted internal func invoke_task(pos pointer: DataPointer<bray.runtime.bootstra
     trusted leave_producer(&selected, previous, callback, resumable);
 }
 
-trusted internal func enter_producer(pos selected: &Current, pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> (usize, usize, bool)
-    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0, trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
-    ensures(trusted view_owned(owner = &selected.acquisition), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
+trusted internal func enter_producer(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> (Current, usize, usize, bool)
+    requires(trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
+    ensures(trusted view_owned(owner = &result.0.acquisition), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
     uses(intrinsic)
 {
-    let value = trusted context(selected);
+    let execution = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
+    let resumable = bray.runtime.bootstrap.activation.callback.resumable(owner.operation);
+    let selected = trusted current();
+
+    if selected.status != 0
+    {
+        return (selected, 0, 0, false);
+    }
+
+    let value = trusted context(&selected);
     let address = trusted core.target.expose_address<bray.runtime.bootstrap.activation.callback.Invocation>(std.memory.address_of<bray.runtime.bootstrap.activation.callback.Invocation>(owner));
     let previous = core.atomic.exchange<usize, 0>(&value.invocation, address);
-
-    let task = trusted current_task(selected);
+    let task = trusted current_task(&selected);
 
     if task matches ?_
     {
         let reference = trusted take_task_view(&task);
-        let execution = trusted bray.runtime.bootstrap.activation.callback.execution(owner);
-        let resumable = bray.runtime.bootstrap.activation.callback.resumable(owner.operation);
         let (callback, was_resumable) = trusted bray.runtime.bootstrap.task.enter_callback(reference, execution, resumable);
 
-        return (previous, callback, was_resumable);
+        return (selected, previous, callback, was_resumable);
     }
 
-    return (previous, 0, false);
+    return (selected, previous, 0, false);
 }
 
 trusted internal func leave_producer(pos selected: &Current, pos previous: usize, pos callback: usize, pos resumable: bool)
