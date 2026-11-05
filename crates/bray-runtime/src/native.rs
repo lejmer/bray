@@ -15,6 +15,7 @@ mod host;
 #[doc(hidden)]
 pub mod implementation;
 mod outgoing;
+mod scope;
 mod state;
 #[cfg(test)]
 pub(crate) use state::test_runtime_isolation;

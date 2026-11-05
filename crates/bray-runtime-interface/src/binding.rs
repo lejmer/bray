@@ -86,6 +86,8 @@ impl NativeEntryKind {
             | RuntimeAbiRole::ForeignCallbackExecution
             | RuntimeAbiRole::EntryContinuation => Some(Self::EntryStatus),
             RuntimeAbiRole::EntryContextRegistration
+            | RuntimeAbiRole::ExecutionScopeEnter
+            | RuntimeAbiRole::ExecutionScopeFinish
             | RuntimeAbiRole::RuntimeInitialization
             | RuntimeAbiRole::WorkerDemand
             | RuntimeAbiRole::ThreadAttachmentEnter
