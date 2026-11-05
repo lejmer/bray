@@ -1108,6 +1108,8 @@ fn reinterpreted_views_do_not_relabel_the_original_typed_storage() {
     );
 
     state.retain_borrow(capability, alias.clone());
+    state.borrow_view(&alias, other);
+    state.expose_address(&alias, other, origins[0]);
     assert_eq!(state.referent(&alias, other), None);
 
     assert_eq!(

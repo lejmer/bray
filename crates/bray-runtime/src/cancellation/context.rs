@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_runtime_abi::NativeTaskReference;
 
-use crate::{CancellationObservation, TaskWakeHandle};
+use crate::{CancellationObservation, TaskWakeCause};
 
 use super::host::{CancellationWake, CancellationWakeRegistration, CancellationWakeRegistrationError, HostContext};
 use super::native::NativeCancellation;
@@ -25,14 +25,21 @@ impl CancellationContext {
         Self { state: State::Host(HostContext::root()) }
     }
 
-    pub(crate) fn native(reference: NativeTaskReference, wake: TaskWakeHandle) -> Self {
-        Self { state: State::Native(Arc::new(NativeCancellation { reference, wake })) }
+    pub(crate) fn native(reference: NativeTaskReference) -> Self {
+        Self { state: State::Native(Arc::new(NativeCancellation { reference })) }
     }
 
     pub(crate) fn native_reference(&self) -> &NativeTaskReference {
         match &self.state {
             State::Native(owner) => &owner.reference,
             State::Host(_) => panic!("native task services require their retained Bray cell"),
+        }
+    }
+
+    pub(crate) fn wake_native(&self, cause: TaskWakeCause) -> u32 {
+        match &self.state {
+            State::Native(owner) => owner.wake(cause),
+            State::Host(_) => panic!("native wakes retain their actual Bray task cell"),
         }
     }
 
@@ -93,7 +100,7 @@ impl CancellationContext {
             State::Host(owner) => owner.leave_shield(),
             State::Native(owner) => {
                 if owner.operation(3) != 0 {
-                    let _ = owner.wake.wake_cancellation();
+                    owner.wake(TaskWakeCause::Cancellation);
                 }
             }
         }

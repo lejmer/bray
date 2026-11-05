@@ -1,0 +1,118 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.heap;
+
+trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope) -> Context
+    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
+    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted context_owned(owner = &result))
+{
+    let value = scope;
+
+    let workload = (trusted bray.runtime.bootstrap.worker.worker(scope)).workload;
+    let lanes: u32 = 0xff0 | 1 | (1 << workload) | if workload == 1 { yield 8; } else { yield 0; };
+
+    return
+    {
+        binding = core.memory.uninit_from<(Binding?)>(none),
+        attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(none),
+        previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
+        phase = core.atomic.initialize<u32>(1),
+        views = core.atomic.initialize<usize>(0),
+        thread = value.attachment,
+        driver = { placement = 1, workload = 3, thread = value.attachment },
+        lanes = lanes,
+        worker = std.memory.byte_address<bray.runtime.bootstrap.worker.Scope>(std.memory.address_of<bray.runtime.bootstrap.worker.Scope>(scope)),
+        task = core.atomic.initialize<usize>(0),
+        registration = core.atomic.initialize<u64>(0),
+        lane = core.atomic.initialize<u32>(0),
+        invocation = core.atomic.initialize<usize>(0),
+        pending = core.memory.uninit_from<(bray.runtime.bootstrap.scheduler.Observation?)>(none)
+    };
+}
+
+trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.worker.Scope, pos owner: &bray.runtime.bootstrap.execution.Reference) -> bray.runtime.bootstrap.worker.Failure
+    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    uses(intrinsic)
+{
+    let authorize = trusted lambda(pos scope: &bray.runtime.bootstrap.worker.Scope)
+        requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
+        ensures(trusted bray.runtime.bootstrap.host.execution_key_access())
+        executes(pure, total) {};
+
+    trusted authorize(scope);
+
+    let status = trusted bray.runtime.bootstrap.host.prepare_execution_storage();
+
+    if status != 0
+    {
+        return { stage = 5, category = status, native_code = 0 };
+    }
+
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return { stage = 6, category = 1, native_code = 0 };
+    }
+
+    let execution = trusted initialize_context(allocation, trusted worker_context(scope));
+    let bound = trusted bray.runtime.bootstrap.host.execution_context(execution.resource);
+
+    match consume bound
+    {
+        case Error(binding_status)
+        {
+            _ = trusted bray.runtime.bootstrap.host.retire_execution(execution, 0);
+            return { stage = 7, category = binding_status, native_code = 0 };
+        }
+        case Ok(previous)
+        {
+            if !std.memory.is_null<u8>(previous)
+            {
+                trusted core.target.abort();
+            }
+        }
+    }
+
+    {
+        let selected = trusted borrow_execution(&execution);
+
+        trusted install_binding(&selected, trusted pin_binding(trusted pin(owner)));
+    }
+
+    trusted bray.runtime.bootstrap.worker.install_execution(scope, execution);
+    return bray.runtime.bootstrap.worker.no_failure();
+}
+
+// A caller running on an OS worker or holding a dispatch cannot join peers
+// that may depend on that continuing execution, including another root's pool.
+trusted internal func must_defer_shutdown(pos selected: &Current) -> bool
+    requires(trusted view_owned(owner = &selected.acquisition), selected.status == 0)
+    ensures(trusted view_owned(owner = &selected.acquisition))
+{
+    let value = trusted context(selected);
+
+    return !std.memory.is_null<u8>(value.worker) || core.atomic.load<usize, 0>(&value.task) != 0 || core.atomic.load<usize, 0>(&value.invocation) != 0;
+}
+
+trusted internal func worker_current(pos scope: &bray.runtime.bootstrap.worker.Scope) -> Current
+    requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
+    ensures(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker), trusted view_owned(owner = &result.acquisition), result.status == 0)
+{
+    let execution = trusted bray.runtime.bootstrap.worker.scope_execution(scope);
+
+    return match execution
+    {
+        case ?owner { yield trusted borrow_execution(&owner); }
+        case none { yield trusted core.target.abort(); }
+    };
+}

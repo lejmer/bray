@@ -159,6 +159,21 @@ fn observation_paths_distinguish_contents_from_containing_identity() {
 }
 
 #[test]
+fn retained_borrow_paths_do_not_retain_the_referents_ownership() {
+    let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let field = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+    let mut retained = super::ObservationSet::default();
+
+    retained.insert(owner.clone().borrowed());
+    assert!(retained.contains(&owner.clone().borrowed()));
+    assert!(retained.contains(&field.clone().borrowed()));
+    assert!(!retained.contains(&owner));
+    assert!(!retained.contains(&field));
+    assert!(!retained.overlaps(&owner));
+    assert!(!retained.overlaps(&field));
+}
+
+#[test]
 fn boolean_proofs_keep_decisive_operands_without_equating_unknowns() {
     use bray_bound_tree::BoundOperator;
 

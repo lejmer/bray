@@ -1,13 +1,12 @@
 use bray_runtime_abi::NativeTaskReference;
 
-use crate::{CancellationObservation, TaskWakeHandle, report_provider};
+use crate::{CancellationObservation, TaskWakeCause, report_provider};
 
 /// One native storage reference, shared by dispatch and external requesters.
 /// Request state and shield depth belong exclusively to the Bray control cell.
 #[derive(Debug)]
 pub(super) struct NativeCancellation {
     pub(super) reference: NativeTaskReference,
-    pub(super) wake: TaskWakeHandle,
 }
 
 impl NativeCancellation {
@@ -19,8 +18,7 @@ impl NativeCancellation {
         let state = self.operation(1);
 
         if state & 2 != 0 {
-            // Scheduler wake transports readiness. Bray owns request and shield policy.
-            let _ = self.wake.wake_cancellation();
+            self.wake(TaskWakeCause::Cancellation);
         }
 
         state & 1 != 0
@@ -30,6 +28,13 @@ impl NativeCancellation {
         let state = self.operation(0);
 
         CancellationObservation::new(state & 1 != 0, state & 2 != 0)
+    }
+
+    pub(super) fn wake(&self, cause: TaskWakeCause) -> u32 {
+        report_provider::bray_runtime_execution_task_wake(
+            &self.reference,
+            crate::scheduler::native::cause(cause),
+        )
     }
 }
 

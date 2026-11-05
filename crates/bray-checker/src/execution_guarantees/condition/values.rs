@@ -116,7 +116,17 @@ impl ExecutionCondition {
         if source != target
             && matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Nullable(element) if *element == source)
         {
-            self.present()
+            // The nullable owns a borrow value, not the reached witness carrier.
+            // Retain that distinction when the same view is stored or forwarded.
+            let value = if matches!(values.type_data(source).as_ref(), bray_symbols::TypeData::Borrow { .. })
+                && !matches!(self, Self::Borrowed(_))
+            {
+                self.borrowed()
+            } else {
+                self
+            };
+
+            value.present()
         } else {
             self
         }

@@ -29,7 +29,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                 .and_then(|access| storage.access(access).map(|access| access.reached_type()))
         };
 
-        self.complete_reference_types.get(&ty?).copied()
+        self.footprint.complete_reference_types.get(&ty?).copied()
     }
 
     pub(in crate::analysis::storage_flow) fn inline_regions(

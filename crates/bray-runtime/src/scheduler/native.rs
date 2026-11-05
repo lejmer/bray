@@ -397,7 +397,7 @@ pub(crate) fn to_native(lane: ExecutionLane) -> NativeSchedulerLane {
     }
 }
 
-pub(super) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
+pub(crate) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
     let thread = || {
         RuntimeThread::from_native_identity(lane.thread)
             .expect("Bray selected a retained nonzero lane attachment")
@@ -423,7 +423,7 @@ pub(super) fn from_native(lane: NativeSchedulerLane) -> ExecutionLane {
     ExecutionLane::new(placement, workload)
 }
 
-pub(super) const fn cause(cause: TaskWakeCause) -> u32 {
+pub(crate) const fn cause(cause: TaskWakeCause) -> u32 {
     match cause {
         TaskWakeCause::Explicit => 1,
         TaskWakeCause::Timer => 2,

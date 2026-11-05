@@ -33,6 +33,19 @@ trusted internal func creation(
     return 0;
 }
 
+internal func create(pos capabilities: u32, pos main: u64, pos limit: usize) -> Reference?
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return none;
+    }
+
+    return trusted initialize(allocation, capabilities, main, limit);
+}
+
 // Consume the actual allocation into one initialized scheduler owner.
 trusted internal func initialize(
     pos allocation: DataPointer<u8>,
@@ -104,19 +117,27 @@ trusted internal func initialize(
 trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
     requires(trusted reference_slot(pointer = pointer))
     ensures(trusted retained(owner = &result))
-    uses(raw_memory)
+    uses(raw_memory, unchecked_alias)
 {
     let permit = trusted lambda(pos pointer: DataPointer<Reference>)
         requires(trusted reference_slot(pointer = pointer))
         ensures(
             trusted core.memory.valid_read<Reference>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Reference>(pointer = pointer),
-            trusted core.memory.initialized_as<Reference>(pointer = pointer)
+            trusted core.memory.initialized_as<Reference>(pointer = pointer),
+            trusted core.memory.shared_alias_valid<Reference>(pointer = pointer),
+            trusted core.memory.epoch_current<Reference>(pointer = pointer),
+            trusted core.memory.synchronized_access<Reference>(pointer = pointer),
+            trusted core.memory.movement_stable<Reference>(pointer = pointer),
+            trusted core.memory.finalization_pending<Reference>(pointer = pointer)
         )
         executes(pure, total) {};
 
     trusted permit(pointer);
-    return trusted std.memory.read<Reference>(pointer);
+    let value = trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(&pointer, pointer);
+
+    return { pointer = value.pointer };
+
 }
 
 trusted internal func domain(pos owner: &Reference) -> &Domain
@@ -169,7 +190,12 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
         return trusted read_reference(slot);
     };
 
-    let owner = trusted retire(pointer);
+    trusted destroy_reference(trusted retire(pointer));
+}
+
+trusted internal func destroy_reference(pos owner: Reference)
+    requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
+{
 
     // Only the actual retiring reference can transfer allocation ownership.
     let take = trusted lambda(pos owner: &Reference) -> Domain

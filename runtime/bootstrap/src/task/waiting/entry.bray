@@ -7,13 +7,19 @@ using internal bray.runtime.bootstrap.host;
 using internal bray.runtime.bootstrap.host.product;
 
 @abi(c)
-trusted internal func wait(
-    pos child: DataPointer<Reference>,
-    pos parent: DataPointer<Reference>,
+trusted internal func wait(pos child: DataPointer<Reference>, pos parent: DataPointer<Reference>, pos retirement: u8) -> u32
+    requires(trusted reference_slot(owner = &child), trusted reference_slot(owner = &parent), trusted bray.runtime.bootstrap.host.product.native_host())
+{
+    return trusted wait_references(trusted borrow_reference(&child), trusted borrow_reference(&parent), retirement);
+}
+
+trusted internal func wait_references(
+    pos child: &Reference,
+    pos parent: &Reference,
     pos retirement: u8
 ) -> u32
     requires(
-        trusted wait_entry(child = child, parent = parent),
+        trusted retained(owner = child), trusted retained(owner = parent),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {

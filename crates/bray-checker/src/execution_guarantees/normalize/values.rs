@@ -313,6 +313,7 @@ pub(super) fn conversion_condition(
     expression: BoundExpressionId,
     bound: &BoundExpression,
     semantics: &CheckedExpressionSemantics,
+    values: &SemanticValueStore,
     resolve: &mut impl FnMut(BoundExpressionId) -> ExecutionCondition,
 ) -> Option<ExecutionCondition> {
     use bray_bound_tree::{
@@ -333,7 +334,11 @@ pub(super) fn conversion_condition(
         ConversionTarget::Identity
         | ConversionTarget::CallableContract
         | ConversionTarget::BuiltInScalar => Some(resolve(conversion.operand())),
-        ConversionTarget::NullablePresent => Some(resolve(conversion.operand()).present()),
+        ConversionTarget::NullablePresent => Some(resolve(conversion.operand()).coerce(
+            values,
+            selected.source_type(),
+            selected.target_type(),
+        )),
         _ => None,
     }
 }

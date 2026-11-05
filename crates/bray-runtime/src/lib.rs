@@ -48,7 +48,7 @@ pub use observation::{
 pub use outcome::{RunOutcome, RunOutcomeKind};
 pub(crate) use root::execute_synchronous_root;
 pub use root::{
-    RootCancellationHandle, RootCancellationSource, RootExecutionError, execute_async_root,
+    RootCancellationHandle, RootCancellationSource,
 };
 pub use scheduler::{
     ReadyTask, Scheduler, SchedulerError, SchedulerLimits, TaskRegistration, TaskWakeHandle,

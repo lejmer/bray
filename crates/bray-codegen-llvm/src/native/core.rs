@@ -155,6 +155,7 @@ pub(crate) fn runtime_indirect_result_type<'context>(
             | RuntimeAbiType::RunOutcome
             | RuntimeAbiType::FrameProgress
             | RuntimeAbiType::InactiveFrame
+            | RuntimeAbiType::ActivationInvocation
     ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
     {
         runtime_value_type(context, target, result)
@@ -366,7 +367,9 @@ pub(crate) fn runtime_configuration_type<'context>(
 ) -> StructType<'context> {
     let usize = pointer_integer_type(context, target);
 
-    context.struct_type(&[usize.into(), usize.into()], false)
+    let pointer = context.ptr_type(AddressSpace::default());
+
+    context.struct_type(&[usize.into(), usize.into(), context.i32_type().into(), pointer.into(), pointer.into(), pointer.into()], false)
 }
 
 pub(super) fn frame_state_type(context: &Context) -> StructType<'_> {
@@ -443,6 +446,7 @@ pub(super) fn aggregate_is_indirect(kind: RuntimeAbiType) -> bool {
             | RuntimeAbiType::TaskAllocation
             | RuntimeAbiType::InactiveFrame
             | RuntimeAbiType::FrameProgress
+            | RuntimeAbiType::ActivationInvocation
     )
 }
 
@@ -468,6 +472,15 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::PanicReport => panic_report_type(context).into(),
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
         RuntimeAbiType::InactiveFrame => inactive_frame_type(context, target).into(),
+        RuntimeAbiType::ActivationInvocation => {
+            let pointer = context.ptr_type(AddressSpace::default());
+            let operation = context.struct_type(&[context.i32_type().into(), usize.into()], false);
+
+            context.struct_type(&[
+                pointer.into(), pointer.into(), usize.into(), operation.into(),
+                pointer.into(), pointer.into(), context.i32_type().into(),
+            ], false).into()
+        },
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
         RuntimeAbiType::LaneResult | RuntimeAbiType::FrameState => context
             .struct_type(

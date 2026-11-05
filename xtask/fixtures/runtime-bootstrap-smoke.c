@@ -1379,17 +1379,32 @@ typedef struct
     uint64_t origin;
 } ActivationExecution;
 
-typedef uint32_t (*ActivationReady)(const ActivationExecution*);
+typedef struct ActivationInvocation ActivationInvocation;
+typedef ActivationInvocation (*ActivationReady)(ActivationInvocation);
 
-typedef void (*ActivationCallback)(
-    const ActivationExecution*,
-    const ActivationDescriptor*,
-    uintptr_t,
-    uint32_t,
-    uintptr_t,
-    ActivationProgress*,
-    ActivationRecords*
-);
+typedef struct
+{
+    uint32_t tag;
+    union
+    {
+        uint32_t cleanup_exit;
+        uintptr_t destination;
+    } value;
+} ActivationOperation;
+
+typedef struct ActivationInvocation
+{
+    const ActivationExecution* execution;
+    const ActivationDescriptor* descriptor;
+    uintptr_t context;
+    ActivationOperation operation;
+    ActivationProgress* progress;
+    ActivationRecords* records;
+    uint32_t admission;
+} ActivationInvocation;
+
+typedef ActivationInvocation (*ActivationCallback)(ActivationInvocation);
+
 
 extern uint32_t bray_runtime_activation_snapshot(const ActivationHeader*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
 extern uint32_t bray_runtime_activation_inspection(const InactiveActivation*, uint32_t, uint32_t, uintptr_t, ActivationExecution*);
@@ -1448,24 +1463,33 @@ static const struct
 
 // This fixture's attached cooperative lane admits no blocking/compute or main
 // work. Origin-affine callbacks must use this exact native thread attachment.
-static uint32_t activation_ready(const ActivationExecution* execution)
+static ActivationInvocation activation_ready(ActivationInvocation invocation)
 {
-    return execution->address != 0 &&
+    const ActivationExecution* execution = invocation.execution;
+
+    invocation.admission = execution->address != 0 &&
         execution->requirements.lanes == 0 &&
         execution->requirements.affinity <= 1 &&
         execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+
+    return invocation;
 }
 
-static void activation_callback(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static ActivationInvocation activation_callback(ActivationInvocation invocation)
 {
+    const ActivationExecution* execution = invocation.execution;
+    const ActivationDescriptor* descriptor = invocation.descriptor;
+    uintptr_t context = invocation.context;
+    uint32_t operation = invocation.operation.tag;
+    uintptr_t argument = 0;
+
+    if (operation == 3)
+        argument = invocation.operation.value.cleanup_exit;
+    else if (operation == 4)
+        argument = invocation.operation.value.destination;
+    ActivationProgress* progress = invocation.progress;
+    ActivationRecords* records = invocation.records;
+
     ActivationHeader* header = (ActivationHeader*)context;
 
     if (operation != 4)
@@ -1487,7 +1511,7 @@ static void activation_callback(
         descriptor->move_completion(context, argument);
         *progress = (ActivationProgress){ .kind = 1 };
 
-        return;
+        return invocation;
     }
 
     if (operation == 5)
@@ -1500,26 +1524,22 @@ static void activation_callback(
         if (descriptor->storage.bytes != bytes || execution->address != context)
             abort();
 
-        return;
+        return invocation;
     }
 
     header->broadcasted = 1;
 
     *progress = (ActivationProgress){ .kind = operation == 3 ? 0 : 1, .state = 7 };
+    return invocation;
 }
 
-static void activation_move_failure(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static ActivationInvocation activation_move_failure(ActivationInvocation invocation)
 {
-    (void)descriptor;
-    (void)records;
+    const ActivationExecution* execution = invocation.execution;
+    uintptr_t context = invocation.context;
+    uint32_t operation = invocation.operation.tag;
+    uintptr_t argument = invocation.operation.value.destination;
+    ActivationProgress* progress = invocation.progress;
 
     if (operation != 4 || execution->address != context || argument == 0)
         abort();
@@ -1529,6 +1549,7 @@ static void activation_move_failure(
         .kind = 3,
         .report = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer },
     };
+    return invocation;
 }
 
 static int check_activation_deferral(ActivationHeader* header, ActivationCallback callback)
@@ -1927,12 +1948,16 @@ static int check_activation_snapshot(ActivationHeader* header)
     return 0;
 }
 
-static uint32_t composition_ready(const ActivationExecution* execution)
+static ActivationInvocation composition_ready(ActivationInvocation invocation)
 {
-    return execution->address != 0 &&
+    const ActivationExecution* execution = invocation.execution;
+
+    invocation.admission = execution->address != 0 &&
         execution->requirements.affinity == 1 &&
         execution->requirements.lanes == 1 &&
         execution->origin == bray_runtime_current_native_thread_identity() ? 0 : 6;
+
+    return invocation;
 }
 
 static int check_activation_composition(ActivationHeader* parent, InactiveActivation* token)
@@ -2231,20 +2256,22 @@ static void chain_release_report(uintptr_t message, uintptr_t length, RunOutcome
     ++chain_reports_released;
 }
 
-static void chain_callback(
-    const ActivationExecution* execution,
-    const ActivationDescriptor* descriptor,
-    uintptr_t context,
-    uint32_t operation,
-    uintptr_t argument,
-    ActivationProgress* progress,
-    ActivationRecords* records
-)
+static ActivationInvocation chain_callback(ActivationInvocation invocation)
 {
+    const ActivationDescriptor* descriptor = invocation.descriptor;
+    uintptr_t context = invocation.context;
+    uint32_t operation = invocation.operation.tag;
+    uintptr_t argument = 0;
+    ActivationProgress* progress = invocation.progress;
+    ActivationRecords* records = invocation.records;
+
+    if (operation == 3)
+        argument = invocation.operation.value.cleanup_exit;
+    else if (operation == 4)
+        argument = invocation.operation.value.destination;
+
     volatile unsigned char stack_marker = 0;
     uintptr_t stack = (uintptr_t)&stack_marker;
-
-    (void)execution;
 
     if (records->count != 0)
         abort();
@@ -2273,7 +2300,7 @@ static void chain_callback(
             .report = { .cause = 1, .primary_present = 1, .consume = bray_runtime_report_consumer },
         };
 
-        return;
+        return invocation;
     }
 
     switch (operation)
@@ -2316,6 +2343,7 @@ static void chain_callback(
         activation_report_retain(0);
         progress->report.provider_callbacks = &activation_report_callbacks;
     }
+    return invocation;
 }
 
 static int check_activation_chain(unsigned depth, enum ChainMode mode)

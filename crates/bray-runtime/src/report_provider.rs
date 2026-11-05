@@ -28,6 +28,10 @@ unsafe extern "C" {
         reference: &bray_runtime_abi::NativeTaskReference,
         operation: u32,
     ) -> u32;
+    pub(crate) safe fn bray_runtime_execution_task_wake(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        cause: u32,
+    ) -> u32;
     pub(crate) safe fn bray_runtime_task_control_snapshot(
         reference: &bray_runtime_abi::NativeTaskReference,
         output: &mut bray_runtime_abi::NativeTaskSnapshot,
@@ -75,6 +79,10 @@ unsafe extern "C" {
     pub(crate) safe fn bray_runtime_task_control_retirement(
         reference: &bray_runtime_abi::NativeTaskReference,
     ) -> bray_runtime_abi::NativeRuntimeStatus;
+    pub(crate) safe fn bray_runtime_task_native_context_publication(
+        reference: &bray_runtime_abi::NativeTaskReference,
+        context: usize,
+    );
     pub(crate) safe fn bray_runtime_task_control_runtime_retirement(context: &crate::native::RuntimeRetirement<'_>)
         -> bray_runtime_abi::NativeRuntimeStatus;
     pub(crate) safe fn bray_runtime_task_control_composition(

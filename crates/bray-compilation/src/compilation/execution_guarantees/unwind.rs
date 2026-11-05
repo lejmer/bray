@@ -244,8 +244,13 @@ impl Compilation {
                         .execution_properties()
                         .contains(&bray_symbols::ExecutionProperty::Total)
                 {
-                    // Argument admission can still panic before this non-cancelling body.
-                    return Ok(UnwindBehavior::PANIC);
+                    // The callable contract owns both admission and body behavior.
+                    // Native bodies cannot unwind through the call boundary, but
+                    // ordinary caller-side requirements can still fail before entry.
+                    return self.unwind_requirements(
+                        callable.phase_behaviors().invocation().predicate_requirements().iter().copied(),
+                        entry,
+                    );
                 }
             }
 
@@ -266,34 +271,16 @@ impl Compilation {
 
         // This analysis has no caller path facts. Value checks can panic and execution
         // requirements need entry authority. Trusted evidence is checked separately.
-        let values = self.semantic_value_store()?;
-        let mut unproved_requirement = predicates.diagnostics().has_errors();
-
-        for clause in predicates
+        let requirements = predicates
             .value()
             .iter()
             .filter(|clause| clause.kind() == bray_symbols::CallableContractClauseKind::Requires)
-        {
-            let Some(predicate) = clause
-                .predicate()
-                .filter(|predicate| !predicate.is_trusted())
-            else {
-                continue;
-            };
+            .filter_map(|clause| clause.predicate());
 
-            let condition = predicate
-                .condition()
-                .map(|term| bray_checker::execution_condition_from_term(values, term, &[]))
-                .transpose()
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            unproved_requirement |= condition.is_none_or(|condition| !entry.contains(&condition));
-        }
-
-        let entry = if unproved_requirement {
+        let entry = if predicates.diagnostics().has_errors() {
             UnwindBehavior::PANIC
         } else {
-            UnwindBehavior::NONE
+            self.unwind_requirements(requirements, entry)?
         };
 
         if let Some(hook) = hook.filter(|hook| *hook != ImplementationHook::AtomicWait) {
@@ -318,6 +305,18 @@ impl Compilation {
             return Ok(entry);
         }
 
+        let signature = context
+            .resolve_symbol_query(bray_symbols::SymbolQueryRequest::<
+                bray_symbols::CallableSignatureQuery,
+            >::new(instance.definition().callable_symbol()))
+            .map_err(crate::compilation::binder::binding_query_error)?;
+
+        if !signature.diagnostics().has_errors()
+            && signature.value().invocation() != bray_symbols::CallableInvocation::Bray
+        {
+            return Ok(entry);
+        }
+
         if let Some(body) = self.callable_body_key(instance.definition())? {
             pending.push(body);
 
@@ -337,6 +336,28 @@ impl Compilation {
 
             UnwindBehavior::new(behavior.may_unwind(), behavior.current_run_cancellation())
         }))
+    }
+
+    fn unwind_requirements(
+        &self,
+        requirements: impl IntoIterator<Item = bray_symbols::PredicateSemanticSummary>,
+        entry: &BTreeSet<bray_checker::ExecutionCondition>,
+    ) -> Result<UnwindBehavior, FactQueryError> {
+        let values = self.semantic_value_store()?;
+
+        for predicate in requirements.into_iter().filter(|predicate| !predicate.is_trusted()) {
+            let condition = predicate
+                .condition()
+                .map(|term| bray_checker::execution_condition_from_term(values, term, &[]))
+                .transpose()
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            if condition.is_none_or(|condition| !entry.contains(&condition)) {
+                return Ok(UnwindBehavior::PANIC);
+            }
+        }
+
+        Ok(UnwindBehavior::NONE)
     }
 
     pub(in crate::compilation) fn checked_unwind(
@@ -661,6 +682,50 @@ mod tests {
             assert_eq!(
                 result.result().value().may_unwind(),
                 expected,
+                "{declarations}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_unwind_inference_preserves_caller_admission_failures() {
+        for (declarations, expected) in [
+            (
+                "callable Native = @abi(c) trusted func(); trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(); }",
+                false,
+            ),
+            (
+                "callable Native = @abi(c) trusted func(pos flag: bool) requires(flag); trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(false); }",
+                true,
+            ),
+            (
+                "callable Native = @abi(c) trusted func(pos flag: bool); func fail() -> bool { panic(\"argument\"); } trusted func invoke(pos callback: Native) uses(foreign_call) { trusted callback(fail()); }",
+                true,
+            ),
+            (
+                "@abi(c) trusted func callback() { panic(\"contained\"); } trusted func invoke() uses(foreign_call) { trusted callback(); }",
+                false,
+            ),
+            (
+                "@abi(c) trusted func callback(pos flag: bool) requires(flag) {} trusted func invoke() uses(foreign_call) { trusted callback(false); }",
+                true,
+            ),
+        ] {
+            let compilation = compilation(&format!("module example; {declarations}"));
+            let key = source_function_body_key(&compilation, "invoke");
+            let result = compilation
+                .unwind_behavior(key, &compilation.state.cancellation)
+                .expect("native invocation must retain its admission and body contracts");
+
+            assert!(
+                !result.result().diagnostics().has_errors(),
+                "{declarations}: {:?}",
+                result.result().diagnostics()
+            );
+            assert_eq!(result.result().value().may_unwind(), expected, "{declarations}");
+            assert_eq!(
+                result.result().value().current_run_cancellation(),
+                bray_symbols::CurrentRunCancellation::NotEntered,
                 "{declarations}"
             );
         }

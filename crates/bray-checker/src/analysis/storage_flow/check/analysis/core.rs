@@ -932,7 +932,7 @@ where
             })
             .unwrap_or_default();
 
-        let marker_exposure = (!escaped.is_empty() && !self.input.borrowed_identities.is_empty())
+        let marker_exposure = (!escaped.is_empty() && !self.input.footprint.borrowed_identities.is_empty())
             .then(|| state.memory.raw_exposed_regions());
 
         if preserve_normal_storage {
@@ -974,7 +974,21 @@ where
             self.preserve_borrowed_values(state, &state.memory, invalidation);
 
             if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
-                self.preserve_assignment_values(&state.memory, invalidation, *contents);
+                self.preserve_store_values(&state.memory, invalidation, true, *contents);
+            }
+
+            if let Some(operation) = occurrence.expression().and_then(|expression| self.memory.operation(expression)) {
+                use bray_bound_tree::CheckedMemoryOperationKind as Operation;
+
+                let pointee = match operation.kind() {
+                    Operation::Write { pointee } | Operation::Copy { pointee, .. } | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
+                    Operation::UninitWrite { element } => Some(*element),
+                    _ => None,
+                };
+
+                if pointee.is_some_and(|pointee| self.input.footprint.marker_free_store(pointee)) {
+                    self.preserve_store_values(&state.memory, invalidation, false, true);
+                }
             }
         }
 
@@ -1064,7 +1078,7 @@ where
             universe,
             self.storage,
             invalidation.as_ref(),
-            &self.input.discriminants,
+            &self.input.footprint.discriminants,
         );
 
         state.refinements = refinements;
@@ -1415,7 +1429,7 @@ where
             state.invalidate_observed_absence(
                 invalidation,
                 self.storage,
-                &self.input.discriminants,
+                &self.input.footprint.discriminants,
             );
         }
 

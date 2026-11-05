@@ -1,0 +1,65 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using std.sync;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.scheduler;
+using internal bray.runtime.bootstrap.worker;
+using internal bray.runtime.bootstrap.deadline;
+
+// Execution owners retain services through root and product cleanup. Pins only
+// preserve backing for admitted callbacks and attachments. Product entry and
+// shutdown eligibility remain exclusively in the resident host.
+trusted internal predicate service_owned(owner: &Acquisition);
+
+internal predicate service_owner(owner: &Owner) = service_owned(owner = &owner.acquisition);
+
+trusted internal predicate pin_owned(owner: &Acquisition);
+
+internal predicate pinned(owner: &Reference) = pin_owned(owner = &owner.acquisition);
+
+trusted internal predicate services_retiring(owner: &Acquisition);
+
+// Execution owns admission and cleanup across scheduler and service lifetimes.
+// A generic queue owner does not establish this execution contract.
+@layout(c)
+internal struct Reference
+{
+    acquisition: Acquisition;
+    pointer: DataPointer<Domain>;
+}
+
+// One service claim owns admission in addition to its storage pin. Closing
+// consumes this owner and returns that same pin with no service claim.
+@layout(c)
+internal struct Owner
+{
+    acquisition: Acquisition;
+    execution: Reference;
+}
+
+trusted internal predicate reference_retained(owner: &Acquisition);
+
+internal predicate retained(owner: &Reference) = reference_retained(owner = &owner.acquisition);
+
+trusted internal predicate domain_retiring(owner: &Acquisition);
+
+internal predicate retiring(owner: &Reference) = domain_retiring(owner = &owner.acquisition);
+
+internal struct Domain
+{
+    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    identity: u64;
+    configuration: Configuration;
+    task_services: bray.runtime.bootstrap.task.Services;
+    owners: core.atomic.Atomic<usize>;
+    pins: core.atomic.Atomic<usize>;
+    completion: core.atomic.Atomic<u32>;
+    workers: std.sync.Once<bray.runtime.bootstrap.worker.Reference>;
+    deadlines: std.sync.Once<bray.runtime.bootstrap.deadline.Reference>;
+    failure: std.sync.SpinLock<bray.runtime.bootstrap.worker.Failure>;
+    reports: std.sync.SpinLock<bray.runtime.bootstrap.report.sink.State>;
+}
+

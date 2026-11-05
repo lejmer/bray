@@ -7,6 +7,49 @@ use super::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(super) fn complete_caught_result(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        panicked: bool,
+    ) {
+        let Some(bray_bound_tree::BoundExpression::Structured(operation)) =
+            self.request.view().expression(expression)
+        else {
+            unreachable!("report boundary retains its catch expression");
+        };
+
+        assert_eq!(
+            operation.kind(),
+            bray_bound_tree::BoundStructuredExpressionKind::Catch,
+            "report boundary belongs to catch"
+        );
+
+        let (variant, field) = if panicked {
+            crate::representation::union_payload(
+                self.request, "ResultVariant1Error", "ResultVariant1ErrorError",
+            )
+        } else {
+            crate::representation::union_payload(
+                self.request, "ResultVariant0Ok", "ResultVariant0OkValue",
+            )
+        };
+
+        let value = if panicked {
+            ExecutionCondition::Unknown
+        } else {
+            operation.operands().last().map_or(ExecutionCondition::Unknown, |operand| self.value(state, *operand))
+        };
+
+        let projection = bray_bound_tree::StorageProjection::ActiveUnionPayloadField { variant, field };
+        let result = ExecutionCondition::Constructed(
+            Arc::new(ExecutionCondition::Tagged(variant, Arc::new(ExecutionCondition::Expression(expression)))),
+            [(projection, value)].into(),
+        );
+
+        state.pending_results.insert(expression, result);
+    }
+
     /// Follow the selected frame through Task observations, retaining each result's placement.
     fn deferred_execution<'s>(
         &'s self,

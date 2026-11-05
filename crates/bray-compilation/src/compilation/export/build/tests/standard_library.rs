@@ -93,6 +93,105 @@ fn platform_service_implementations_publish_their_role_with_the_root_template() 
 }
 
 #[test]
+fn raw_buffer_views_share_the_owners_declared_backing_type() {
+    let compilation = standard_library_compilation([
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/policy.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/allocation.bray"),
+        include_str!("../../../../../../../standard-library/std/src/numeric/limits.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/buffer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/function.bray"),
+        r#"
+            trusted module app;
+
+            using std.memory;
+
+            func inspect(
+                pos buffer: std.memory.RawBuffer<u8>,
+                pos use_slice: bool,
+            ) -> std.memory.RawBuffer<u8>
+            {
+                if use_slice
+                {
+                    _ = trusted std.memory.initialized_slice<u8>(&buffer);
+                }
+                else
+                {
+                    _ = std.memory.pointer<u8>(&buffer);
+                }
+
+                return buffer;
+            }
+        "#,
+    ]);
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "inspect"))
+        .expect("buffer views retain their owner's checked storage");
+
+    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+}
+
+#[test]
+fn readdressed_borrowed_views_preserve_the_original_storage_type() {
+    let compilation = standard_library_compilation([
+        include_str!("../../../../../../../standard-library/std/src/std.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/pointer.bray"),
+        include_str!("../../../../../../../standard-library/std/src/memory/storage.bray"),
+        r#"
+            trusted module app;
+            using core.memory;
+            using std.memory;
+
+            struct Acquisition {}
+            struct Owner { acquisition: Acquisition; resource: DataPointer<u8>; }
+            struct Header { value: u64; }
+            trusted predicate held(owner: &Acquisition);
+
+            trusted func header(pos owner: &Owner) -> &Header
+                requires(trusted held(owner = &owner.acquisition))
+                uses(raw_memory, unchecked_alias, layout_reinterpret)
+            {
+                let pointer = trusted std.memory.reinterpret<Header, u8>(owner.resource);
+                let permit = trusted lambda(pos owner: &Owner, pos pointer: DataPointer<Header>)
+                    requires(trusted held(owner = &owner.acquisition))
+                    ensures(
+                        trusted core.memory.valid_read<Header>(pointer = pointer, count = 1),
+                        trusted core.memory.aligned_for<Header>(pointer = pointer),
+                        trusted core.memory.initialized_as<Header>(pointer = pointer),
+                        trusted core.memory.shared_alias_valid<Header>(pointer = pointer),
+                        trusted core.memory.epoch_current<Header>(pointer = pointer),
+                        trusted core.memory.synchronized_access<Header>(pointer = pointer),
+                        trusted core.memory.movement_stable<Header>(pointer = pointer),
+                        trusted core.memory.finalization_pending<Header>(pointer = pointer)
+                    )
+                    executes(pure, total) {};
+
+                trusted permit(owner, pointer);
+                return trusted std.memory.borrow_from<Header, Owner>(owner, pointer);
+            }
+
+            func readdress(pos owner: Owner) -> Owner
+                requires(trusted held(owner = &owner.acquisition))
+            {
+                let selected = trusted header(&owner);
+
+                _ = std.memory.address_of<Header>(selected);
+                return owner;
+            }
+        "#,
+    ]);
+
+    let checked = compilation
+        .lowered_unit(source_function_body_key(&compilation, "readdress"))
+        .expect("a readdressed view preserves its original backing type");
+
+    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+}
+
+#[test]
 fn copied_raw_buffer_fields_do_not_establish_initialized_ownership() {
     for (initialized, access) in [
         (1, "_ = trusted std.memory.initialized_slice<u8>(&buffer);"),

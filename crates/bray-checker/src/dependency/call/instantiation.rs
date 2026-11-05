@@ -10,6 +10,7 @@ use bray_symbols::{
 
 use crate::{CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerUnitView};
 
+#[derive(Debug)]
 enum CallInstantiationInput<'check> {
     Selected {
         expression: BoundExpressionId,
@@ -471,7 +472,7 @@ where
             .or_else(|| {
                 expression.and_then(|expression| expression_access(self.storage, expression))
             })
-            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("resolve_subject requires dependency storage access, root: {root:?}, expression: {expression:?}, requirement: {requirement:?}"));
+            .or_else(|| self.hidden_access(root)).unwrap_or_else(|| panic!("dependency subject requires planned storage access: unit {:?}, input {:?}, subject {subject:?}, expression {expression:?}, requirement {requirement:?}", self.request.unit().key(), self.input));
 
         if let DependencyRequirementKind::BorrowCapabilityActive(kind) = requirement {
             let capability = self

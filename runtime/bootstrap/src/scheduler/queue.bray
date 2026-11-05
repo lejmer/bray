@@ -195,7 +195,26 @@ trusted internal func wake(
     requires(trusted reference_slot(pointer = pointer))
 {
     let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+
+    return trusted wake_registration(&owner, registration, cause, now);
+}
+
+@abi(c)
+trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos registration: u64)
+    requires(trusted reference_slot(pointer = pointer))
+{
+    let owner = trusted read_reference(pointer);
+
+    trusted withdraw_registration(&owner, registration);
+}
+
+
+trusted internal func wake_registration(pos owner: &Reference, pos registration: u64, pos cause: u32, pos now: u64) -> u32
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
+{
+
+    let value = trusted domain(owner);
 
     let notifications: u32 =
     {
@@ -240,12 +259,13 @@ trusted internal func wake(
     return 1;
 }
 
-@abi(c)
-trusted internal func withdrawal(pos pointer: DataPointer<Reference>, pos registration: u64)
-    requires(trusted reference_slot(pointer = pointer))
+
+trusted internal func withdraw_registration(pos owner: &Reference, pos registration: u64)
+    requires(trusted retained(owner = owner))
+    ensures(trusted retained(owner = owner))
 {
-    let owner = trusted read_reference(pointer);
-    let value = trusted domain(&owner);
+
+    let value = trusted domain(owner);
 
     let notifications: u32 =
     {

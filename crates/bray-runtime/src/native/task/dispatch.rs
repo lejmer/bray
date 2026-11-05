@@ -1,6 +1,6 @@
 use bray_runtime_abi::{
     NativeActivationExecution, NativeFrameProgress, NativeFrameProgressKind, NativeReportRecords,
-    NativeTaskDispatchServices, NativeTaskHandle,
+    NativeTaskDispatchServices,
 };
 
 use crate::{outgoing::OutgoingRecords, report_provider};
@@ -95,10 +95,10 @@ pub(super) extern "C" fn transfer(
     }).expect("incident delivery retains its native runtime");
 }
 
-extern "C" fn wake(identity: u64) {
-    let task = NativeTaskHandle::new(identity).expect("an admitted waiter has a nonzero task identity");
+extern "C" fn wake(reference: &bray_runtime_abi::NativeTaskReference, _cause: u32) -> u32 {
+    // A resolved parent can unregister before notification returns. The actual
+    // retained reference still owns its cell, independently of source resolution.
+    let _ = state::with_runtime(|runtime| runtime.wake(reference.task()));
 
-    // A resolved parent can unregister before the last notification returns.
-    // Its Bray link still owns storage. A stale native wake has no frame claim.
-    let _ = state::with_runtime(|runtime| runtime.wake(task));
+    0
 }

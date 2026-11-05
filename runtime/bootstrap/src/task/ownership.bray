@@ -10,7 +10,19 @@ using internal bray.runtime.bootstrap.host.product;
 
 // The compiler-bound caller holds the protected Task's single source claim.
 // An internal cell reference or a copied identity alone does not establish it.
-trusted internal predicate resolution_entry(reference: DataPointer<Reference>);
+// Storage retention alone does not own source result resolution.
+trusted internal predicate resolution_owner(owner: &Reference);
+
+trusted internal predicate resolution_owner_option(owner: &(Reference?));
+
+trusted internal func borrow_resolution_reference(pos owner: &DataPointer<Reference>) -> &Reference
+    requires(trusted reference_slot(owner = owner), trusted resolution_slot(owner = owner))
+    ensures(trusted retained(owner = result), trusted resolution_owner(owner = result))
+{
+    return trusted borrow_reference(owner);
+}
+
+trusted internal predicate resolution_slot(owner: &DataPointer<Reference>);
 
 // A successful observation transfers one actual terminal outcome into this slot.
 trusted internal predicate terminal_output(pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>);
@@ -21,53 +33,90 @@ trusted internal func observation(
     pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted resolution_entry(reference = pointer),
+        trusted reference_slot(owner = &pointer),
+        trusted resolution_slot(owner = &pointer),
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(result != 0 || trusted terminal_output(pointer = output))
 {
-    let reference = trusted read_reference(pointer);
+    let reference = trusted borrow_resolution_reference(&pointer);
 
-    let outcome =
+
+    match consume observe_reference(reference)
     {
-        let mut guard = trusted lock_cell(&reference);
-        let control = trusted guard.get();
-
-        if !control.source_owner || control.phase matches Phase.Admitted | Phase.Resolved
+        case Ok(outcome)
         {
-            return 7;
+            trusted publish_terminal(output, outcome);
+            return 0;
         }
+        case Error(status) { return status; }
+    }
+}
 
-        if !(control.phase matches Phase.Terminal)
-        {
-            return 6;
-        }
+// Observation transfers the terminal payload. The source claim still owns
+// frame retirement and cell destruction after that payload is consumed.
+trusted internal func observe_reference(pos reference: &Reference) -> Result<bray.runtime.bootstrap.ReportOutcome, u32>
+    requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
+    ensures(trusted retained(owner = reference), trusted resolution_owner(owner = reference))
+    uses(intrinsic)
+{
+    let mut guard = trusted lock_cell(reference);
+    let control = trusted guard.get();
 
-        yield trusted observe(control);
-    };
+    if !control.source_owner || control.phase matches Phase.Admitted | Phase.Resolved
+    {
+        return Error(7);
+    }
 
-    // The release/acquire cell transition publishes body and cleanup effects.
-    // Only this moved outcome owns its report and terminal payload claim.
+    if !(control.phase matches Phase.Terminal)
+    {
+        return Error(6);
+    }
+
+    // Cell transition publishes body and cleanup effects. The moved outcome
+    // becomes the sole owner of its terminal payload and report.
+    return Ok(trusted observe(control));
+}
+
+// This boundary consumes the actual terminal owner and initializes its native
+// destination. An address or an ordinary storage pin cannot publish this fact.
+trusted internal func publish_terminal(pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>, pos outcome: bray.runtime.bootstrap.ReportOutcome)
+    requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(trusted terminal_output(pointer = output))
+    uses(intrinsic)
+{
     trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(output, outcome);
-
-    return 0;
 }
 
 @abi(c)
 trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
     requires(
-        trusted reference_slot(pointer = pointer),
-        trusted resolution_entry(reference = pointer),
+        trusted reference_slot(owner = &pointer),
+        trusted resolution_slot(owner = &pointer),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     uses(intrinsic)
 {
-    let reference = trusted read_reference(pointer);
+    let reference = trusted borrow_resolution_reference(&pointer);
+
+
+    return trusted destroy_claim(reference);
+}
+
+// This cell transition retires the source-resolution claim. Its independent
+// storage reference remains owned by the caller throughout the transition.
+trusted internal func destroy_claim(pos reference: &Reference) -> u32
+    requires(trusted retained(owner = reference), trusted resolution_owner(owner = reference), trusted bray.runtime.bootstrap.pool.protocol_access())
+    ensures(trusted retained(owner = reference))
+    when(trusted owned_reference(owner = reference))
+    {
+        ensures(trusted owned_reference(owner = reference))
+    }
+{
 
     let unused =
     {
-        let mut guard = trusted lock_cell(&reference);
+        let mut guard = trusted lock_cell(reference);
         let control = trusted guard.get();
 
         if !control.source_owner
@@ -79,7 +128,7 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>) -> u32
         {
             // No frame has transferred. Its producer still owns the inactive
             // input, including when low-level start admission was rejected.
-            trusted close_cancellation(&reference);
+            trusted close_cancellation(reference);
 
             control.phase = Phase.Resolved;
 

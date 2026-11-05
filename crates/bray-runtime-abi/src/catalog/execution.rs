@@ -1058,6 +1058,22 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
+            TaskNativeContextPublication {
+                "Transfer an admitted native task context to its retained Source cell.", "task_native_context_publication",
+                native: (TASK_NATIVE_CONTEXT_PUBLICATION_SYMBOL = "bray_runtime_task_native_context_publication", [Pointer, Usize] -> Void),
+                service: Execution,
+                call_hook: (), compiler: C [Pointer, Usize] -> Void,
+                owner: Host, availability: All, bootstrap: ("task.native_context_publication"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
+            ExecutionTaskWake {
+                "Wake a task through its retained Source execution owner.", "execution_task_wake",
+                native: (EXECUTION_TASK_WAKE_SYMBOL = "bray_runtime_execution_task_wake", [Pointer, U32] -> U32),
+                service: Execution,
+                call_hook: (), compiler: C [Pointer, U32] -> U32,
+                owner: Host, availability: All, bootstrap: ("execution.wake_task"), host_control: false,
+                capabilities: [CooperativeExecution], effects: []
+            }
             TaskControlCreation {
                 "Create the runtime identity for resident Bray task control.", "task_control_creation",
                 native: (TASK_CONTROL_CREATION_SYMBOL = "bray_runtime_task_control_creation", [] -> U64),
@@ -1239,11 +1255,11 @@ macro_rules! runtime_role_catalog {
             }
             TaskStart {
                 "Publish a newly initialized task for execution.", "task_start",
-                native: (TASK_START_SYMBOL = "bray_runtime_task_start", [U64, InactiveFrame, Pointer] -> U32),
+                native: (TASK_START_SYMBOL = "bray_runtime_task_start", [U64, Usize, Pointer] -> U32),
                 service: Execution,
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.task_start"), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [TransferFrame, PublishWork]
             }
@@ -1814,17 +1830,17 @@ macro_rules! runtime_role_catalog {
             }
             ActivationCallback {
                 "Contain one native producer callback within its Bray activation.", "activation_callback",
-                native: (ACTIVATION_CALLBACK_SYMBOL = "bray_runtime_activation_callback", [Pointer, Pointer, Usize, U32, Usize, Pointer, Pointer] -> Void),
+                native: (ACTIVATION_CALLBACK_SYMBOL = "bray_runtime_activation_callback", [ActivationInvocation] -> ActivationInvocation),
                 call_hook: (),
-                compiler: C [Pointer, Pointer, Usize, U32, Usize, Pointer, Pointer] -> Void,
+                compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: []
             }
             ActivationActionReadiness {
                 "Check a synchronous described action against its retained caller execution context.", "activation_action_readiness",
-                native: (ACTIVATION_ACTION_READINESS_SYMBOL = "bray_runtime_activation_action_readiness", [Pointer] -> U32),
-                call_hook: (), compiler: C [Pointer] -> U32,
+                native: (ACTIVATION_ACTION_READINESS_SYMBOL = "bray_runtime_activation_action_readiness", [ActivationInvocation] -> ActivationInvocation),
+                call_hook: (), compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution], effects: []
             }
@@ -1878,12 +1894,12 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [StructuredShutdown]
             }
-            ControlStorageExit {
-                "Retire the native execution-control projection without admitting entry.", "control_storage_exit",
-                native: (CONTROL_STORAGE_EXIT_SYMBOL = "bray_runtime_control_storage_exit", [Pointer] -> Void),
+            ContextStorageExit {
+                "Retire a borrowed native context slot without admitting entry.", "context_storage_exit",
+                native: (CONTEXT_STORAGE_EXIT_SYMBOL = "bray_runtime_context_storage_exit", [Pointer] -> Void),
                 call_hook: (),
                 compiler: C [Pointer] -> Void,
-                owner: Bootstrap, availability: All, bootstrap: ("thread.destruction.control_storage_exit"), host_control: false,
+                owner: Bootstrap, availability: All, bootstrap: ("thread.destruction.context_storage_exit"), host_control: false,
                 capabilities: [],
                 effects: []
             }

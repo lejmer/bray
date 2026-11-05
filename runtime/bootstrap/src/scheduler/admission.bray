@@ -58,7 +58,8 @@ trusted internal func try_admit(
     pos owner: &Reference,
     pos prepared: &mut Prepared,
     pos task: u64,
-    pos lane: Lane
+    pos lane: Lane,
+    pos driver: Lane?
 ) -> Result<u64, Growth>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
@@ -171,7 +172,7 @@ trusted internal func try_admit(
             row.cause = 0;
             row.wakes = 0;
             row.slot = false;
-            row.driver = none;
+            row.driver = driver;
             row.queued_at = 0;
 
             yield row.generation;
@@ -206,7 +207,7 @@ trusted internal func admission(
 
     while true
     {
-        let required = match consume trusted try_admit(&owner, &mut prepared, task, lane)
+        let required = match consume trusted try_admit(&owner, &mut prepared, task, lane, none)
         {
             case Ok(registration)
             {

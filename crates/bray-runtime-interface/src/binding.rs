@@ -80,7 +80,7 @@ impl NativeEntryKind {
             }
             RuntimeAbiRole::ThreadAttachmentIdentity => Some(Self::RuntimeIdentity),
             RuntimeAbiRole::ThreadStorageExit
-            | RuntimeAbiRole::ControlStorageExit
+            | RuntimeAbiRole::ContextStorageExit
             | RuntimeAbiRole::WorkerStop => Some(Self::ThreadStorageExit),
             RuntimeAbiRole::SynchronousRootExecution
             | RuntimeAbiRole::ForeignCallbackExecution

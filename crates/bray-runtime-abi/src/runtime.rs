@@ -45,12 +45,16 @@ impl NativeRuntimeStatus {
     }
 }
 
-/// Target-sized capacities selected when runtime infrastructure starts.
+/// Execution limits and the optional native callback provider retained by the host.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub struct NativeRuntimeConfiguration {
     task_capacity: usize,
     timer_capacity: usize,
+    capabilities: u32,
+    invoke: Option<extern "C" fn(&mut crate::NativeActivationInvocation<'_>, usize, crate::NativeSchedulerLane)>,
+    admit_context: Option<extern "C" fn(crate::NativeTaskReference, u32) -> u32>,
+    release_context: Option<extern "C" fn(usize)>,
 }
 
 impl NativeRuntimeConfiguration {
@@ -59,7 +63,24 @@ impl NativeRuntimeConfiguration {
         Self {
             task_capacity,
             timer_capacity,
+            capabilities: 63,
+            invoke: None,
+            admit_context: None,
+            release_context: None,
         }
+    }
+
+    /// Retains these native code hooks through execution and terminal cleanup.
+    pub const fn with_native_callbacks(
+        mut self,
+        invoke: extern "C" fn(&mut crate::NativeActivationInvocation<'_>, usize, crate::NativeSchedulerLane),
+        admit_context: extern "C" fn(crate::NativeTaskReference, u32) -> u32,
+        release_context: extern "C" fn(usize),
+    ) -> Self {
+        self.invoke = Some(invoke);
+        self.admit_context = Some(admit_context);
+        self.release_context = Some(release_context);
+        self
     }
 
     /// Returns the maximum simultaneously executing task count.
@@ -675,9 +696,13 @@ mod tests {
 
     #[test]
     fn runtime_records_have_the_native_abi_layout() {
-        assert_abi_layout!(NativeRuntimeConfiguration, size: 16, align: 8, fields: {
+        assert_abi_layout!(NativeRuntimeConfiguration, size: 48, align: 8, fields: {
             task_capacity: 0,
             timer_capacity: 8,
+            capabilities: 16,
+            invoke: 24,
+            admit_context: 32,
+            release_context: 40,
         });
 
         assert_abi_layout!(NativeRunOutcome, size: 184, align: 8, fields: {

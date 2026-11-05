@@ -343,6 +343,92 @@ fn nullable_acquisition_contract_follows_the_present_owner() {
 }
 
 #[test]
+fn callable_fields_borrow_their_owning_context_in_contracts() {
+    for (predicate, subject) in [
+        ("trusted predicate held(owner: &Owner);", "owner"),
+        ("trusted predicate held(owner: &Token);", "&owner.token"),
+    ] {
+        let retirement_subject = if subject == "owner" { "&owner" } else { subject };
+        for (body, valid) in [
+            ("trusted owner.bind(owner);", true),
+            ("let fake: Owner = { token = Token {}, bind = owner.bind, retire = owner.retire }; trusted fake.bind(&fake);", false),
+        ] {
+            let source = format!(r#"
+                trusted module app;
+                struct Token {{}}
+                {predicate}
+                callable Bind = trusted func(pos owner: &Owner)
+                    requires(trusted held(owner = {subject}))
+                    ensures(trusted held(owner = {subject}));
+                callable Retire = trusted func(pos owner: Owner)
+                    requires(trusted held(owner = {retirement_subject}));
+                struct Owner {{ token: Token; bind: Bind; retire: Retire; }}
+                trusted func caller(pos owner: &Owner)
+                    requires(trusted held(owner = {subject}))
+                    ensures(trusted held(owner = {subject}))
+                {{ {body} }}
+            "#);
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+            if !valid {
+                assert_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+            }
+        }
+    }
+
+    for (body, valid) in [
+        ("let retire = owner.retire; trusted retire(owner);", true),
+        ("let fake: Owner = { retire = owner.retire }; trusted fake.retire(fake);", false),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            trusted predicate held(owner: &Owner);
+            callable Retire = trusted func(pos owner: Owner)
+                requires(trusted held(owner = &owner));
+            struct Owner {{ retire: Retire; }}
+            trusted func caller(pos owner: Owner)
+                requires(trusted held(owner = &owner))
+            {{ {body} }}
+        "#);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+        if !valid {
+            assert_kind(diagnostics, DiagnosticKind::CheckingTrustedObligationNotProven);
+        }
+    }
+}
+
+#[test]
+fn caught_results_preserve_only_the_successful_owner() {
+    for (body, valid) in [
+        ("let value = acquire(); forward(value);", true),
+        ("let caught = catch acquire(); match consume caught { case Ok(value) { forward(value); } case Error(_) {} }", true),
+        ("let caught = catch { yield acquire(); }; match consume caught { case Ok(value) { forward(value); } case Error(_) {} }", true),
+        ("let outer = catch catch acquire(); match consume outer { case Ok(inner) { match consume inner { case Ok(value) { forward(value); } case Error(_) {} } } case Error(_) {} }", true),
+        ("let caught = catch acquire(); let value = match consume caught { case Ok(value) { yield value; } case Error(_) { return; } }; forward(value);", true),
+        ("let caught = catch acquire(); match consume caught { case Ok(_) { let fake: Guard = { active = true }; forward(fake); } case Error(_) {} }", false),
+        ("let caught = catch acquire(); match consume caught { case Ok(_) {} case Error(_) { let fake: Guard = { active = true }; forward(fake); } }", false),
+    ] {
+        let body = body.replace("acquire()", "acquire(fail)");
+        let source = format!(r#"
+            trusted module app;
+            struct Guard {{ active: bool; }}
+            trusted predicate held(owner: &(Guard?));
+            trusted func acquire(pos fail: bool) -> Guard?
+                ensures(trusted held(owner = &result))
+            {{ if fail {{ panic("acquisition failed"); }} let owner: Guard = {{ active = true }}; return owner; }}
+            func forward(pos owner: Guard?) requires(trusted held(owner = &owner)) {{}}
+            func caller(pos fail: bool) {{ {body} }}
+        "#);
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+    }
+}
+
+#[test]
 fn cleanup_keeps_completion_guarantees_for_represented_children() {
     for (guarantee, valid) in [("ensures(trusted live(&self.child))", true), ("", false)] {
         let source = format!(
@@ -1912,6 +1998,98 @@ fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
             bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
                 DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            );
+        }
+    }
+}
+
+#[test]
+fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
+    for binding in [
+        "let token = &project(owner).token;",
+        "let value = project(owner); let token = &value.token;",
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Token {{}}
+            struct Owner {{ token: Token; }}
+            impl Owner {{ func check() executes(pure, total) {{}} }}
+            trusted predicate live(owner: &Token);
+            func project(pos owner: &Owner) -> &Owner
+                requires(trusted live(&owner.token))
+                ensures(trusted live(&result.token))
+                executes(pure, total)
+            {{ return owner; }}
+            func observe(pos token: &Token)
+                requires(trusted live(token)) executes(pure, total) {{}}
+            func caller(pos owner: &Owner)
+                requires(trusted live(&owner.token))
+            {{
+                {binding}
+                observe(token);
+                project(owner).check();
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
+    }
+}
+
+#[test]
+fn typed_data_writes_preserve_borrowed_ownership_markers() {
+    for (pointee, value, valid) in [
+        ("u32", "1", true),
+        ("(u32?)", "none", true),
+        ("Payload", "Payload { marker = Marker {}, value = 1 }", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Marker {{}}
+            struct Payload {{ marker: Marker; value: u32; }}
+            struct Owner {{
+                marker: Marker;
+                mut data: u64;
+                trusted destruct() requires(trusted held(&self.marker)) executes(total) {{}}
+            }}
+            trusted predicate held(marker: &Marker);
+            extern trusted func pointer(pos owner: &Owner) -> DataPointer<{pointee}>
+                requires(trusted held(&owner.marker))
+                ensures(
+                    trusted held(&owner.marker),
+                    trusted core.memory.valid_write<{pointee}>(pointer = result, count = 1),
+                    trusted core.memory.aligned_for<{pointee}>(pointer = result)
+                )
+                executes(pure, total);
+            func observe(pos owner: &Owner)
+                requires(trusted held(&owner.marker)) executes(pure, total) {{}}
+            trusted func caller(pos owner: &Owner)
+                requires(trusted held(&owner.marker))
+                uses(raw_memory, unchecked_init)
+            {{
+                _ = core.memory.address_of<Owner>(owner);
+                let destination = pointer(owner);
+                trusted core.memory.write<{pointee}>(destination, {value});
+                observe(owner);
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
             );
         }
     }
@@ -4470,3 +4648,4 @@ fn independent_witness_survives_a_released_production_guard_in_a_loop() {
         checked.diagnostics()
     );
 }
+

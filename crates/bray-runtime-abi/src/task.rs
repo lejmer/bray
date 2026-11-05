@@ -1,6 +1,6 @@
 use crate::{
-    NativeActivationDescriptor, NativeActivationExecution, NativeCleanupStorageShape,
-    NativeFrameProgress, NativeFrameState, NativeInactiveFrame, NativeReportRecords,
+    NativeActivationExecution, NativeCleanupStorageShape,
+    NativeFrameState, NativeInactiveFrame, NativeReportRecords,
     NativeRunOutcome, NativeTaskHandle, NativeValueCleanupCallback,
 };
 
@@ -97,17 +97,9 @@ pub struct NativeTaskSnapshot {
 #[derive(Debug)]
 pub struct NativeTaskDispatchServices {
     /// Invokes the frame producer and contains native unwinding.
-    pub invoke: extern "C" fn(
-        &NativeActivationExecution,
-        &NativeActivationDescriptor,
-        usize,
-        u32,
-        usize,
-        &mut NativeFrameProgress,
-        &mut NativeReportRecords,
-    ),
+    pub invoke: for<'a> extern "C" fn(crate::NativeActivationInvocation<'a>) -> crate::NativeActivationInvocation<'a>,
     /// Checks the active execution lane without changing the frame.
-    pub ready: extern "C" fn(&NativeActivationExecution) -> u32,
+    pub ready: for<'a> extern "C" fn(crate::NativeActivationInvocation<'a>) -> crate::NativeActivationInvocation<'a>,
     /// Transfers admitted incident records and releases unused records.
     pub transfer: extern "C" fn(
         &NativeActivationExecution,
@@ -115,9 +107,10 @@ pub struct NativeTaskDispatchServices {
         &mut NativeReportRecords,
     ),
     /// Delivers a registered task's wake notification.
-    pub wake: extern "C" fn(u64),
+    pub wake: extern "C" fn(&NativeTaskReference, u32) -> u32,
     /// Withdraws the suspended native wait when Source abandons ordinary work.
     pub cancel_wait: extern "C" fn(),
+
 }
 
 #[cfg(test)]

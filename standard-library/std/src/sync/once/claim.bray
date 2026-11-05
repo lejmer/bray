@@ -17,26 +17,7 @@ impl Once<T>
         )
         uses(raw_memory, unchecked_alias, intrinsic)
     {
-        let state =
-        {
-            let pointer = std.memory.uninit_pointer<std.sync.once.State<T>>(&self.prepared.storage);
-
-            let authorize = trusted lambda(pos pointer: DataPointer<std.sync.once.State<T>>)
-                ensures(
-                    trusted core.memory.valid_read<std.sync.once.State<T>>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.initialized_as<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.shared_alias_valid<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.epoch_current<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.synchronized_access<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.movement_stable<std.sync.once.State<T>>(pointer = pointer),
-                    trusted core.memory.finalization_pending<std.sync.once.State<T>>(pointer = pointer),
-                )
-                executes(pure, total) {};
-
-            authorize(pointer);
-            yield trusted std.memory.borrow_from<std.sync.once.State<T>, Self>(&self, pointer);
-        };
+        let state = trusted self.state();
 
         let thread = &std.sync.once.CURRENT;
 

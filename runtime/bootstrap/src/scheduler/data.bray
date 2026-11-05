@@ -9,6 +9,12 @@ using std.sync;
 // The native binding retains this allocation through every operation and every
 // outstanding dispatch. Copying its address does not create another owner.
 @layout(c)
+internal const WAKE_EXPLICIT: u32 = 1;
+
+internal const WAKE_TIMER: u32 = 2;
+
+internal const WAKE_CANCELLATION: u32 = 3;
+
 internal struct Reference
 {
     pointer: DataPointer<Domain>;
@@ -151,5 +157,15 @@ internal func empty_queue(pos next: usize) -> Queue
         tail = 0,
         previous = 0,
         next = next
+    };
+}
+
+internal func empty_observation() -> Observation
+{
+    return
+    {
+        task = 0, registration = 0,
+        lane = { placement = 0, workload = 0, thread = 0 },
+        phase = 0, cause = 0, wakes = 0, queued_at = 0
     };
 }

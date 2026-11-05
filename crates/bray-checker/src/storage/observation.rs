@@ -5,7 +5,7 @@ use bray_symbols::{DeclaredStorageShape, NamedTypeSymbolId, TypeData, TypeId};
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Observation {
     Mutable,
     Scalar,
@@ -16,6 +16,7 @@ enum Observation {
     Reference(TypeId),
 }
 
+#[derive(Debug)]
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
     complete_value: bool,
@@ -80,17 +81,37 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
     }
 }
 
+#[derive(Debug, Default)]
 pub(crate) struct Footprint {
-    pub(crate) atomic: StorageInvalidation,
+    pub(crate) atomic: Option<StorageInvalidation>,
     pub(crate) references: Vec<(StoragePath, TypeId)>,
-    pub(crate) complete_reference_types: BTreeMap<TypeId, bool>,
+    pub(crate) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) borrowed_identities: BTreeMap<StoragePath, Vec<StoragePath>>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) empty_markers: BTreeSet<StoragePath>,
     pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
-    /// Tag-free types, with whether assigning them also preserves other values' identities.
-    pub(crate) tag_free_values: BTreeMap<TypeId, bool>,
+    shapes: BTreeMap<TypeId, Shape>,
+}
+
+impl Footprint {
+    /// Tag-free stores, with whether they also preserve unrelated identities.
+    pub(crate) fn tag_free_store(&self, ty: TypeId) -> Option<bool> {
+        let shape = self.shapes.get(&ty)?;
+
+        (shape.is_reference_free()
+            && !shape.observations.iter().any(|(_, observation)| *observation == Observation::Discriminant))
+            .then_some(shape.complete_value
+                && !shape.observations.iter().any(|(_, observation)| matches!(observation, Observation::Identity | Observation::Marker)))
+    }
+
+    /// A typed data store cannot transfer an empty ownership marker.
+    pub(crate) fn marker_free_store(&self, ty: TypeId) -> bool {
+        self.shapes.get(&ty).is_some_and(|shape| {
+            shape.is_reference_free()
+                && shape.observations.iter().all(|(_, observation)| matches!(observation, Observation::Scalar | Observation::Discriminant))
+        })
+    }
 }
 
 /// Observations that may include protected atomic payloads, including unknown raw reachability.
@@ -98,6 +119,8 @@ pub(crate) struct Footprint {
 pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
+    memory: &bray_bound_tree::CheckedMemoryOperations,
+    mut atomic: bool,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
     let mut accesses = BTreeMap::new();
     let mut references = Vec::new();
@@ -155,6 +178,22 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
             continue;
         };
+
+        // Logical clauses observe their enclosing context without owning or
+        // mutating its backing. Keep reference slots, and resolve only fields
+        // actually projected by the checked expression. Expanding every pointee
+        // here would demand the callable contracts of unrelated sibling fields.
+        if matches!(storage.kind(), bray_bound_tree::BoundUnitKind::ContractClause | bray_bound_tree::BoundUnitKind::PredicateDefinition)
+        {
+            let path = StoragePath::root(root);
+            if matches!(request.semantic_values().type_data(ty).as_ref(), TypeData::Borrow { .. }) {
+                references.push((path.clone(), ty));
+            }
+            if let Some(access) = access {
+                accesses.insert(access, vec![path]);
+            }
+            continue;
+        }
 
         let shared = match request.semantic_values().type_data(ty).as_ref() {
             TypeData::Borrow {
@@ -266,7 +305,12 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                         None
                     }
                     Observation::Scalar => {
-                        if shared.is_none() && identity.is_invocation_owned(storage.kind()) {
+                        if shared.is_some() {
+                            borrowed_identities
+                                .entry(StoragePath::root(root))
+                                .or_insert_with(Vec::new)
+                                .push(path.clone());
+                        } else if identity.is_invocation_owned(storage.kind()) {
                             scalars
                                 .entry(root)
                                 .or_insert_with(Vec::new)
@@ -305,41 +349,39 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         cached_shape(request, ty, &mut shapes, &mut complete_reference_types)?;
     }
 
-    let tag_free_values = shapes
-        .iter()
-        .filter_map(|(ty, shape)| {
-            (shape.is_reference_free()
-                && !shape
-                    .observations
-                    .iter()
-                    .any(|(_, observation)| *observation == Observation::Discriminant))
-            .then_some((
-                *ty,
-                shape.complete_value
-                    && !shape.observations.iter().any(|(_, observation)| {
-                        matches!(observation, Observation::Identity | Observation::Marker)
-                    }),
-            ))
-        })
-        .collect();
+    // Extend the existing closed-operation preparation. Each concrete pointee
+    // shares the same cached shape used by ordinary assignment observations.
+    for operation in memory.operations() {
+        use bray_bound_tree::CheckedMemoryOperationKind as Operation;
+
+        atomic |= matches!(operation.kind(), Operation::AtomicStore { .. } | Operation::AtomicExchange { .. } | Operation::AtomicCompareExchange { .. } | Operation::AtomicFetch { .. });
+
+        let pointee = match operation.kind() {
+            Operation::Write { pointee } | Operation::Copy { pointee, .. } | Operation::VolatileWrite { pointee, .. } => *pointee,
+            Operation::UninitWrite { element } => *element,
+            _ => continue,
+        };
+
+        cached_shape(request, pointee, &mut shapes, &mut complete_reference_types)?;
+    }
 
     Ok(Footprint {
         empty_markers,
         references,
-        complete_reference_types,
-        atomic: StorageInvalidation::Observed {
+        complete_reference_types: complete_reference_types.into(),
+        atomic: atomic.then_some(StorageInvalidation::Observed {
             scope: bray_bound_tree::StorageMutationScope::Unbounded,
             accesses,
             snapshots: BTreeMap::new(),
             referents: BTreeSet::new(),
             stable_descriptors,
             stable_values: BTreeSet::new(),
-        },
+        }),
         identities,
         scalars,
         borrowed_identities,
         discriminants,
-        tag_free_values,
+        shapes,
     })
 }
 

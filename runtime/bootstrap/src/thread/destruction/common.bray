@@ -10,7 +10,7 @@ trusted internal predicate native_attachment_exit();
 
 // This native callback observes an already cleared scalar control slot. It does
 // not acquire attachment retirement authority.
-trusted internal predicate native_control_exit();
+trusted internal predicate native_context_exit();
 
 // The bound native leave adapter consumes an acquisition held by its caller.
 trusted internal predicate native_attachment_release();

@@ -710,21 +710,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            self.observe_references(state, snapshots);
+            self.observe_references(state, snapshots.iter().map(|(path, target)| (path, target.clone())));
         }
     }
-    pub(in crate::analysis) fn observe_references(
+    pub(in crate::analysis) fn observe_references<'a>(
         &self,
         state: &mut ExecutionState,
-        observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StoragePath>,
+        observations: impl IntoIterator<Item = (&'a bray_bound_tree::StoragePath, bray_bound_tree::StoragePath)>,
     ) {
         // Read all targets before assigning aliases, so map order cannot change the result.
         let aliases = observations
-            .iter()
-            .filter(|(path, target)| path != target)
+            .into_iter()
             .filter_map(|(path, target)| {
+                if *path == target { return None; }
+
                 let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                let target = crate::ExecutionPlace::storage_path(self.storage, target)?;
+                let target = crate::ExecutionPlace::storage_path(self.storage, &target)?;
 
                 let value = target
                     .value_in(&state.current)

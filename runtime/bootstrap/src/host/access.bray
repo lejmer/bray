@@ -9,6 +9,7 @@ using std.memory;
 using internal bray.runtime.bootstrap;
 using internal std.thread;
 
+@layout(c)
 internal struct Acquisition
 {
 }

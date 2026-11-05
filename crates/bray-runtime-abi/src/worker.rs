@@ -14,20 +14,22 @@ pub struct NativeWorkerScope {
     address: usize,
 }
 
-/// Native resources retained by a worker descriptor before publication.
+/// Native resources retained by a worker pool before publication.
 #[repr(C)]
 #[derive(Debug)]
 pub struct NativeWorkerCallback {
     /// Identity of the admitted native resource owner.
     pub context: usize,
-    /// Retains or releases context, binds, selects, drives or unbinds a worker,
+    /// Retains or releases pool context, binds, selects, drives or unbinds a worker,
     /// inspects its wait duration, installs an admission failure, or completes
-    /// service shutdown.
+    /// service shutdown. Operation 3 returns readiness and operation 6 returns
+    /// the wait delay in milliseconds. Other operations return their status.
     pub call: extern "C" fn(
         usize,
         u32,
+        &NativeWorkerReference,
         &NativeWorkerScope,
-        &mut u64,
+        u64,
         &mut crate::NativeRunOutcome,
     ) -> u32,
 }

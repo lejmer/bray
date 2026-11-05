@@ -397,7 +397,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .unwrap_or(&empty);
 
-        self.observe_references(state, observations.references());
+        // Mutation refreshes only current contents. The completion retains entry
+        // layers and returned origins for consumers that can interpret them.
+        self.observe_references(state, observations.references().iter().filter_map(|(path, target)| {
+            target.observation_path().map(|target| (path, target))
+        }));
 
         if input {
             let invocation = operation.occurrence();

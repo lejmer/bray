@@ -11,33 +11,20 @@ struct Attempt<T>
     thread: &core.atomic.Atomic<u8>;
     acquisition: Marker;
 
+    internal trusted func cell() -> &std.sync.Once<T>
+        requires(trusted acquired(&self.acquisition))
+        ensures(trusted acquired(&self.acquisition), trusted valid(&result.prepared.instance))
+        executes(pure, total)
+    {
+        return self.once;
+    }
+
     trusted destruct()
         requires(trusted acquired(&self.acquisition))
         ensures(trusted valid(&self.once.prepared.instance))
         executes(total)
-        uses(raw_memory, unchecked_alias)
     {
-        let state =
-        {
-            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.prepared.storage);
-
-            let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
-                ensures(
-                    trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<State<T>>(pointer = pointer),
-                    trusted core.memory.initialized_as<State<T>>(pointer = pointer),
-                    trusted core.memory.shared_alias_valid<State<T>>(pointer = pointer),
-                    trusted core.memory.epoch_current<State<T>>(pointer = pointer),
-                    trusted core.memory.synchronized_access<State<T>>(pointer = pointer),
-                    trusted core.memory.movement_stable<State<T>>(pointer = pointer),
-                    trusted core.memory.finalization_pending<State<T>>(pointer = pointer),
-                )
-                executes(pure, total) {};
-
-            authorize(pointer);
-
-            yield trusted std.memory.borrow_from<State<T>, std.sync.Once<T>>(self.once, pointer);
-        };
+        let state = (trusted self.cell()).state();
 
         if core.atomic.load<u32, 0>(&state.phase) != INITIALIZED
         {
@@ -52,27 +39,7 @@ struct Attempt<T>
         ensures(trusted valid(&self.once.prepared.instance))
         uses(raw_memory, unchecked_alias, unchecked_init)
     {
-        let state =
-        {
-            let pointer = std.memory.uninit_pointer<State<T>>(&self.once.prepared.storage);
-
-            let authorize = trusted lambda(pos pointer: DataPointer<State<T>>)
-                ensures(
-                    trusted core.memory.valid_read<State<T>>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<State<T>>(pointer = pointer),
-                    trusted core.memory.initialized_as<State<T>>(pointer = pointer),
-                    trusted core.memory.shared_alias_valid<State<T>>(pointer = pointer),
-                    trusted core.memory.epoch_current<State<T>>(pointer = pointer),
-                    trusted core.memory.synchronized_access<State<T>>(pointer = pointer),
-                    trusted core.memory.movement_stable<State<T>>(pointer = pointer),
-                    trusted core.memory.finalization_pending<State<T>>(pointer = pointer),
-                )
-                executes(pure, total) {};
-
-            authorize(pointer);
-
-            yield trusted std.memory.borrow_from<State<T>, std.sync.Once<T>>(self.once, pointer);
-        };
+        let state = (trusted self.cell()).state();
 
         if core.atomic.load<u32, 0>(&state.phase) == REENTERED
         {

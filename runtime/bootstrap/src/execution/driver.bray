@@ -1,0 +1,174 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.execution;
+
+using core.atomic;
+using core.memory;
+using core.target;
+using std.memory;
+using internal bray.runtime.bootstrap;
+using internal bray.runtime.bootstrap.host;
+using internal bray.runtime.bootstrap.host.attachment;
+using internal bray.runtime.bootstrap.heap;
+
+@abi(c)
+trusted internal func driver_startup() -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry())
+{
+    let prepare = trusted lambda()
+        requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.host.native_main_entry())
+        ensures(trusted bray.runtime.bootstrap.host.attachment.native_acquisition(), trusted bray.runtime.bootstrap.host.product.native_host(), trusted bray.runtime.bootstrap.pool.protocol_access())
+        executes(pure, total) {};
+
+    trusted prepare();
+
+    {
+        let selected = trusted current();
+
+        if selected.status == 0
+        {
+            let status = trusted driver_start_status(&selected);
+
+            if status != 0
+            {
+                return status;
+            }
+        }
+        else if selected.status != 1
+        {
+            return selected.status;
+        }
+    }
+
+    let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
+    if attachment.status != 0
+    {
+        return attachment.status;
+    }
+
+    let marked = trusted bray.runtime.bootstrap.host.thread_attachment_mark_main();
+
+    if marked != 0
+    {
+        return marked;
+    }
+
+    let prepared = trusted prepare_driver(&attachment);
+
+    if prepared != 0
+    {
+        return prepared;
+    }
+
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return 4;
+    }
+
+    return trusted commit_driver(allocation, trusted root_context(attachment));
+}
+
+
+// Return an inactive owner only after the scoped view used to withdraw it ends.
+trusted internal func withdraw_current_driver() -> (u32, bray.runtime.bootstrap.host.ExecutionOwner?)
+    ensures((result.1 matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.1)))
+    uses(intrinsic)
+{
+    let previous = trusted current();
+
+    if previous.status != 0
+    {
+        return (if previous.status == 1 { yield 0; } else { yield previous.status; }, none);
+    }
+
+    let status = trusted driver_start_status(&previous);
+
+    if status != 0
+    {
+        return (status, none);
+    }
+
+    return (0, trusted withdraw_inactive_driver(&previous));
+}
+
+// Native and nested origin roots reuse an established driver without granting
+// Main authority. The caller retains a returned root until later observation.
+trusted internal func origin_driver_startup() -> u32
+    requires(trusted bray.runtime.bootstrap.entry.native_entry())
+{
+    {
+        let selected = trusted current();
+
+        if selected.status == 0
+        {
+            let status = trusted driver_start_status(&selected);
+
+            if status != 0
+            {
+                return status;
+            }
+        }
+        else if selected.status != 1
+        {
+            return selected.status;
+        }
+    }
+
+    let prepare = trusted lambda()
+        requires(trusted bray.runtime.bootstrap.entry.native_entry())
+        ensures(trusted bray.runtime.bootstrap.host.attachment.native_acquisition())
+        executes(pure, total) {};
+
+    trusted prepare();
+
+    let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
+
+    if attachment.status != 0
+    {
+        return attachment.status;
+    }
+
+    let prepared = trusted prepare_driver(&attachment);
+
+    if prepared != 0
+    {
+        return prepared;
+    }
+
+    let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return 4;
+    }
+
+    return trusted commit_driver(allocation, trusted origin_context(attachment));
+}
+
+trusted internal func prepare_driver(pos attachment: &bray.runtime.bootstrap.host.attachment.Owner) -> u32
+    requires(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment), attachment.status == 0)
+    ensures(trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment))
+{
+    let status = trusted bray.runtime.bootstrap.host.prepare_execution_key(attachment);
+
+    if status != 0
+    {
+        return status;
+    }
+
+    let (withdrawn, previous) = trusted withdraw_current_driver();
+
+    if withdrawn != 0
+    {
+        return withdrawn;
+    }
+
+    if previous matches ?_
+    {
+        _ = trusted bray.runtime.bootstrap.host.retire_execution(previous, 0);
+    }
+
+    return 0;
+}

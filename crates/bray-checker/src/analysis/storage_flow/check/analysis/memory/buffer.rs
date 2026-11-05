@@ -60,36 +60,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if let Some(result) = destination {
             let inexact = !source.is_exact(&state.memory);
 
-            // This closed intrinsic exposes the owned allocation, not the owner's bytes.
-            let ty = match *operation.kind() {
-                CheckedMemoryOperationKind::RawBufferSparePointer { element } => self
-                    .request
-                    .semantic_values()
-                    .intern_type(bray_symbols::TypeData::Slice(element))
-                    .expect("checked buffer element has a slice type"),
-                CheckedMemoryOperationKind::RawBufferPointer => {
-                    crate::representation::reference_target_type(
-                        self.request,
-                        self.execution
-                            .semantics
-                            .types()
-                            .expression(operation.expression())
-                            .expect("checked pointer retains its result type")
-                            .ty(),
-                    )
-                    .expect("checked buffer pointer has its element type")
-                }
-                _ => self.request.semantic_values().unborrowed_type(
-                    self.execution
-                        .semantics
-                        .types()
-                        .expression(operation.expression())
-                        .expect("checked buffer view has its result type")
-                        .ty(),
-                ),
-            };
-
-            state.memory.owned_region(&owners, Target::storage(result.clone()), ty,
+            // Every view reaches the same allocation of the owner's element type.
+            // A slice or spare-capacity view does not redeclare its backing storage.
+            state.memory.owned_region(&owners, Target::storage(result.clone()), fields.element,
                 bray_bound_tree::StorageProjection::ProductField(fields.pointer), inexact);
 
             if matches!(

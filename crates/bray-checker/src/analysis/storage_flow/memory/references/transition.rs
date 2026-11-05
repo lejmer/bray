@@ -660,13 +660,9 @@ impl State {
             // Older instances share a summary target, so no definite contents survive.
             contents.initialized.clear();
 
-            self.contents
-                .entry(Target {
-                    previous: true,
-                    ..target
-                })
-                .or_default()
-                .merge(&contents);
+            let previous = Target { previous: true, ..target };
+
+            self.contents.entry(previous.clone()).or_default().merge(&contents, &previous);
         }
     }
 

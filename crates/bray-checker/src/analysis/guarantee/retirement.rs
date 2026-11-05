@@ -120,6 +120,14 @@ impl ExecutionState {
                 .any(|observed| invalidated_observations.overlaps(observed))
         };
 
+        let retained_contents = |condition: &ExecutionCondition| {
+            kind.is_write()
+                && condition.observes_only(retained)
+                && condition
+                    .observations()
+                    .any(|value| retained_observations.contains(value))
+        };
+
         let stable = |condition: &ExecutionCondition| {
             let predicate = match condition {
                 ExecutionCondition::Trusted(value) => value.as_ref(),
@@ -130,11 +138,7 @@ impl ExecutionState {
             // the slot that supplied that value. Contents writes neither free nor resize
             // allocations. A changed slot receives a new observation below its caller.
             matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                || kind.is_write()
-                    && condition.observes_only(retained)
-                    && condition
-                        .observations()
-                        .any(|value| retained_observations.contains(value))
+                || retained_contents(condition)
         };
 
         // A surviving carrier keeps facts about immutable captured contents after
@@ -170,7 +174,10 @@ impl ExecutionState {
                         })
                     });
 
+                // Explicitly preserved components still belong to this live
+                // carrier. Only replacement or retirement can end their owner.
                 if (retired
+                    && !retained_contents(condition)
                     && (directly_changed.contains(carrier.owner_identity()) || !stable(condition)))
                     || revokes_guarantee(condition)
                     || address_expired

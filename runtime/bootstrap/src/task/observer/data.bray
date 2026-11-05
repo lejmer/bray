@@ -37,6 +37,7 @@ internal struct Outcomes
 
 internal struct State
 {
+    acquisition: Marker;
     lease: bray.runtime.bootstrap.storage.Lease;
     layout: bray.runtime.bootstrap.task.result.Layout;
     glue: Glue;
@@ -70,15 +71,15 @@ internal const FAILED: u32 = 6;
 
 internal const FAILED_RETIRED: u32 = 7;
 
-// Only a whole callback owner can carry this acquisition. Projection APIs
+// Each acquisition belongs to its complete observer owner. Projection APIs
 // accept that owner and derive its context. None accepts a detached claim.
-internal struct CallbackClaim
+internal struct Marker
 {
 }
 
 internal struct Acquisition
 {
-    claim: CallbackClaim;
+    claim: Marker;
     context: DataPointer<Context>;
     operation: u32;
 }
@@ -99,6 +100,8 @@ internal struct Invocation
 // operation owns the exclusive callback reservation, not just a matching address.
 trusted internal predicate callback_entry(context: usize, operation: u32);
 
-trusted internal predicate invoked(owner: &CallbackClaim);
+trusted internal predicate invoked(owner: &Marker);
 
-trusted internal predicate owned_state(owner: &State);
+trusted internal predicate state_owned(owner: &Marker);
+
+internal predicate owned_state(owner: &State) = state_owned(owner = &owner.acquisition);

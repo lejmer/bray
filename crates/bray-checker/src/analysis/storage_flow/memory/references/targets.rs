@@ -127,6 +127,22 @@ impl State {
             contents.pending.entry(ty).or_default().insert(origin);
         }
     }
+
+    pub(in crate::analysis::storage_flow) fn borrow_view(&mut self, slot: &Place, ty: TypeId) {
+        let Some(references) = self.values.get_mut(&Target::storage(slot.clone())) else {
+            return;
+        };
+
+        if references.is_exact() {
+            let target = references.targets.first().expect("exact reference has one target");
+
+            // A checked borrow may interpret a differently typed region. Keep
+            // its provenance without making the view that region's declaration.
+            references.inexact = self.contents.get(target)
+                .and_then(|contents| contents.storage_type)
+                .is_some_and(|declared| declared != ty);
+        }
+    }
     pub(in crate::analysis::storage_flow::memory) fn references(
         &self,
         slot: &Target,

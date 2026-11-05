@@ -1,9 +1,8 @@
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use bray_runtime_abi::{NativeEventCallback, NativeRuntimeStatus};
 
-use crate::native::NativeRuntimeCore;
 use crate::native::RetainedRuntime;
 use crate::{CancellationContext, RootCancellationHandle, TaskWakeCause, TaskWakeHandle};
 
@@ -13,19 +12,56 @@ use crate::{CancellationContext, RootCancellationHandle, TaskWakeCause, TaskWake
 static CALLBACKS: LazyLock<Mutex<HashMap<usize, Binding>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-enum Resources {
+pub(crate) enum Resources {
     Task {
         cancellation: Option<CancellationContext>,
         wake: TaskWakeHandle,
-        runtime: Option<Weak<NativeRuntimeCore>>,
     },
-    Worker {
-        runtime: Weak<NativeRuntimeCore>,
+    SourceTask {
+        wake: TaskWakeHandle,
+        output: crate::context::TaskOutput,
     },
     Timeout {
         cancellation: RootCancellationHandle,
         runtime: RetainedRuntime,
     },
+}
+
+impl std::fmt::Debug for Resources {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SourceTask { .. } => formatter.debug_tuple("SourceTask").field(&self.reference().task()).finish(),
+            Self::Task { .. } => formatter.write_str("Task"),
+            Self::Timeout { .. } => formatter.write_str("Timeout"),
+        }
+    }
+}
+
+impl Resources {
+    pub(crate) fn reference(&self) -> &bray_runtime_abi::NativeTaskReference {
+        self.wake().native_cancellation().native_reference()
+    }
+
+    pub(crate) fn cancellation(&self) -> &CancellationContext {
+        self.wake().native_cancellation()
+    }
+
+    pub(crate) fn wake(&self) -> &TaskWakeHandle {
+        let Self::SourceTask { wake, .. } = self else {
+            panic!("native dispatch borrows its Source task context");
+        };
+
+        wake
+    }
+
+    pub(crate) fn output(&self) -> &crate::context::TaskOutput {
+        let Self::SourceTask { output, .. } = self else {
+            panic!("native dispatch borrows its Source task output context");
+        };
+
+        output
+    }
+
 }
 
 impl Drop for Resources {
@@ -40,7 +76,6 @@ struct Binding {
     resources: Arc<Resources>,
     native_owner: bool,
     descriptors: usize,
-    retained: Option<Arc<NativeRuntimeCore>>,
 }
 
 pub(crate) struct NativeCallback {
@@ -48,15 +83,19 @@ pub(crate) struct NativeCallback {
 }
 
 impl NativeCallback {
+    pub(crate) fn root_cancellation(&self) -> RootCancellationHandle {
+        let owner = Self::resources(self.identity);
+
+        RootCancellationHandle::new(owner.cancellation().clone())
+    }
+
     pub(crate) fn admit(
-        target: CancellationContext,
-        wake: TaskWakeHandle,
-        owner: &Arc<NativeRuntimeCore>,
+        cancellation: CancellationContext,
+        output: crate::context::TaskOutput,
     ) -> Result<Self, NativeRuntimeStatus> {
-        Self::insert(Resources::Task {
-            cancellation: Some(target),
-            wake,
-            runtime: Some(Arc::downgrade(owner)),
+        Self::insert(Resources::SourceTask {
+            wake: TaskWakeHandle::native(cancellation),
+            output,
         })
     }
 
@@ -67,7 +106,6 @@ impl NativeCallback {
         Self::insert(Resources::Task {
             cancellation,
             wake,
-            runtime: None,
         })
     }
 
@@ -81,81 +119,29 @@ impl NativeCallback {
         })
     }
 
-    pub(crate) fn worker(owner: &Arc<NativeRuntimeCore>) -> Result<Self, NativeRuntimeStatus> {
-        Self::insert(Resources::Worker {
-            runtime: Arc::downgrade(owner),
-        })
+    pub(crate) fn resources(identity: usize) -> Arc<Resources> {
+        let callbacks = CALLBACKS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        Arc::clone(&callbacks.get(&identity).expect("Source retains its admitted native context").resources)
     }
 
-    pub(crate) fn worker_descriptor(&self) -> bray_runtime_abi::NativeWorkerCallback {
-        bray_runtime_abi::NativeWorkerCallback {
-            context: self.identity,
-            call: crate::native::workers::invoke,
-        }
+    pub(crate) fn publish(self) {
+        let owner = Self::resources(self.identity);
+
+        crate::report_provider::bray_runtime_task_native_context_publication(
+            owner.reference(),
+            self.identity,
+        );
+
+        // Source takes the native-owner obligation at publication and returns it
+        // to release_owner after withdrawing this task's wait registration.
+        std::mem::forget(self);
     }
 
-    pub(crate) fn retain_worker(context: usize) {
-        let mut callbacks = CALLBACKS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let binding = callbacks
-            .get_mut(&context)
-            .expect("the Source pool borrows its native callback owner");
-
-        let Resources::Worker { runtime } = binding.resources.as_ref() else {
-            panic!("worker descriptors retain only worker resources");
-        };
-
-        if binding.descriptors == 0 {
-            binding.retained = Some(
-                runtime
-                    .upgrade()
-                    .expect("formation borrows its live runtime"),
-            );
-        }
-
-        binding.descriptors = binding
-            .descriptors
-            .checked_add(1)
-            .expect("worker descriptor counts remain representable");
-    }
-
-    pub(crate) fn worker_runtime(context: usize) -> Arc<NativeRuntimeCore> {
-        let callbacks = CALLBACKS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        Arc::clone(
-            callbacks
-                .get(&context)
-                .expect("Source owns its worker descriptor")
-                .retained
-                .as_ref()
-                .expect("a committed worker retains its runtime"),
-        )
-    }
-
-    pub(crate) fn worker_owner(context: usize) -> Arc<NativeRuntimeCore> {
-        let callbacks = CALLBACKS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let binding = callbacks
-            .get(&context)
-            .expect("the Source pool retains its callback template");
-
-        let Resources::Worker { runtime } = binding.resources.as_ref() else {
-            panic!("worker completion belongs to the actual worker binding");
-        };
-
-        runtime
-            .upgrade()
-            .expect("worker completion retains its retiring runtime")
-    }
-
-    pub(crate) fn release_worker(context: usize) {
-        release(context);
+    pub(crate) fn release_owner(identity: usize) {
+        // Source withdraws its task-cell wait before transferring this owner
+        // back. Descriptors and active callbacks retain this same resource.
+        drop(Self { identity });
     }
 
     fn insert(resources: Resources) -> Result<Self, NativeRuntimeStatus> {
@@ -167,7 +153,6 @@ impl NativeCallback {
             resources,
             native_owner: true,
             descriptors: 0,
-            retained: None,
         };
 
         let mut prepared = HashMap::new();
@@ -227,19 +212,6 @@ impl NativeCallback {
             .get_mut(&self.identity)
             .expect("the native owner retains its event callback");
 
-        if binding.descriptors == 0
-            && let Resources::Task {
-                runtime: Some(runtime),
-                ..
-            } = binding.resources.as_ref()
-        {
-            binding.retained = Some(
-                runtime
-                    .upgrade()
-                    .expect("registration borrows its live runtime"),
-            );
-        }
-
         binding.descriptors = binding
             .descriptors
             .checked_add(1)
@@ -291,7 +263,7 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
             return;
         }
 
-        let (resources, retained) = {
+        let resources = {
             let callbacks = CALLBACKS
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -300,12 +272,10 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
                 .get(&context)
                 .expect("Source invokes a retained callback descriptor");
 
-            (Arc::clone(&binding.resources), binding.retained.clone())
+            Arc::clone(&binding.resources)
         };
 
-        // Neither the collection lock nor the resource-table lock survives entry.
-        let _retained = retained;
-
+        // No resource-table lock survives callback entry.
         match resources.as_ref() {
             Resources::Task {
                 cancellation, wake, ..
@@ -313,7 +283,7 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
                 let _cancellation = cancellation;
                 let _ = wake.wake_with_cause(cause);
             }
-            Resources::Worker { .. } => panic!("worker resources use their typed callback adapter"),
+            Resources::SourceTask { wake, .. } => { let _ = wake.wake_with_cause(cause); }
             Resources::Timeout { cancellation, .. } => {
                 cancellation.request_timeout();
             }
@@ -328,7 +298,7 @@ fn invoke_with(context: usize, notify: u32, cause: TaskWakeCause) -> NativeRunti
 }
 
 fn release(context: usize) {
-    let (retained, removed) = {
+    let removed = {
         let mut callbacks = CALLBACKS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -346,16 +316,14 @@ fn release(context: usize) {
             return;
         }
 
-        let retained = binding.retained.take();
-
         let removed = if binding.native_owner {
             None
         } else {
             callbacks.remove(&context)
         };
 
-        (retained, removed)
+        removed
     };
 
-    drop((retained, removed));
+    drop(removed);
 }
