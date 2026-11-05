@@ -3246,6 +3246,7 @@ static int check_task_cancellation(void)
 static void check_product_teardown(void);
 static void check_thread_product_teardown(void);
 static void check_shutdown_during_product_admission(void);
+static int check_execution_roots(void);
 
 int main(void)
 {
@@ -3453,6 +3454,11 @@ int main(void)
         return 77;
 
     check_shutdown_during_product_admission();
+
+    int root_status = check_execution_roots();
+
+    if (root_status != 0)
+        return root_status;
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0)
         return 7;

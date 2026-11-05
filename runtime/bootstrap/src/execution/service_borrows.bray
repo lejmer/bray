@@ -101,7 +101,7 @@ trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execut
                     executes(pure, total) {};
 
                 trusted retire(owner, &service);
-                trusted bray.runtime.bootstrap.deadline.destroy_reference(service);
+                trusted bray.runtime.bootstrap.deadline.release_reference(service);
             }
         }
     }
@@ -144,7 +144,7 @@ trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execut
                     executes(pure, total) {};
 
                 trusted retire(owner, &service);
-                trusted bray.runtime.bootstrap.worker.destroy_reference(service);
+                trusted bray.runtime.bootstrap.worker.release_reference(service);
             }
         }
     }
