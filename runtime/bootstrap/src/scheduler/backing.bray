@@ -34,7 +34,11 @@ trusted internal const func backing_queue(pos owner: &Backing) -> &Reference
 
 trusted internal func external_backing(pos owner: Reference) -> Backing
     requires(trusted retained(owner = &owner), trusted owned_reference(owner = &owner))
-    ensures(trusted backing_retained(owner = &result), trusted backing_owned(owner = &result))
+    ensures(
+        trusted backing_retained(owner = &result),
+        trusted backing_owned(owner = &result),
+        result.execution matches none
+    )
 {
     return { scheduler = owner, execution = none };
 }

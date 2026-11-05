@@ -49,12 +49,16 @@ trusted internal func root_scope() -> EntryScope
         )
         ensures(
             trusted view_owned(owner = &scope.current.acquisition),
-            scope.current.status == 0,
             trusted bray.runtime.bootstrap.host.attachment.native_acquisition()
         )
         executes(pure, total) {};
 
     trusted access(&scope);
+
+    if scope.current.status != 0
+    {
+        trusted core.target.abort();
+    }
 
     let attachment = trusted bray.runtime.bootstrap.host.attachment.acquire();
 

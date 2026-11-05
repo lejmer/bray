@@ -57,7 +57,12 @@ trusted internal func pending_storage(
         trusted core.memory.valid_read<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result, count = 1),
         trusted core.memory.valid_write<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result, count = 1),
         trusted core.memory.initialized_as<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
-        trusted core.memory.aligned_for<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result)
+        trusted core.memory.aligned_for<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
+        trusted core.memory.shared_alias_valid<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
+        trusted core.memory.epoch_current<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
+        trusted core.memory.synchronized_access<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
+        trusted core.memory.movement_stable<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result),
+        trusted core.memory.finalization_pending<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer = result)
     )
     executes(pure, total)
 {
@@ -74,11 +79,11 @@ trusted internal func acquire_ready(pos selected: &Current, pos owner: &Referenc
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted retained(owner = owner))
-    uses(raw_memory, unchecked_init, intrinsic)
+    uses(raw_memory, unchecked_init, unchecked_alias, intrinsic)
 {
     let pointer = trusted pending_storage(selected);
 
-    if trusted std.memory.read<(bray.runtime.bootstrap.scheduler.Observation?)>(pointer) matches ?_
+    if trusted std.memory.borrow_from<(bray.runtime.bootstrap.scheduler.Observation?), Current>(selected, pointer) matches ?_
     {
         trusted core.target.abort();
     }

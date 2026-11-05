@@ -73,12 +73,12 @@ trusted internal func take_retiring_context(pos owner: &bray.runtime.bootstrap.h
 }
 
 trusted internal func take_context_resources(
-    pos mut owner: Context,
+    pos owner: &Context,
     pos identity: u64
 ) -> (bray.runtime.bootstrap.host.attachment.Owner?, bray.runtime.bootstrap.host.ExecutionOwner?)
     requires(
-        trusted context_owned(owner = &owner),
-        trusted context_binding_released(owner = &owner),
+        trusted context_owned(owner = owner),
+        trusted context_binding_released(owner = owner),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
     ensures(
@@ -114,7 +114,7 @@ trusted internal func take_context_resources(
         )
         executes(pure, total) {};
 
-    trusted prepare(&owner, attachment, previous);
+    trusted prepare(owner, attachment, previous);
 
     return (
         trusted std.memory.read<(bray.runtime.bootstrap.host.attachment.Owner?)>(attachment),
@@ -225,7 +225,7 @@ trusted internal func retire_context_resources(
         )
     )
 {
-    let (attachment, mut previous) = trusted take_context_resources(value, identity);
+    let (attachment, mut previous) = trusted take_context_resources(&value, identity);
 
     if identity != 0
     {

@@ -6,84 +6,7 @@ using core.target;
 using std.memory;
 using internal std.platform;
 
-internal callable Poll = @abi(c) trusted func(pos owner: DataPointer<Reference>, pos output: DataPointer<u32>) ->
-    std.platform.PlatformStatus
-    requires(
-        trusted reference_slot(pointer = owner),
-        trusted core.memory.valid_write<u32>(pointer = output, count = 1),
-        trusted core.memory.exclusive_alias_valid<u32>(pointer = output),
-        trusted core.memory.aligned_for<u32>(pointer = output)
-    );
-
-internal callable Wait = @abi(c) trusted func(
-    pos owner: DataPointer<Reference>,
-    pos maximum: u32,
-    pos output: DataPointer<u32>
-) -> std.platform.PlatformStatus
-    requires(
-        trusted reference_slot(pointer = owner),
-        trusted core.memory.valid_write<u32>(pointer = output, count = 1),
-        trusted core.memory.exclusive_alias_valid<u32>(pointer = output),
-        trusted core.memory.aligned_for<u32>(pointer = output)
-    );
-
-internal callable Close = @abi(c) trusted func(pos owner: DataPointer<Reference>)
-    requires(trusted reference_slot(pointer = owner));
-
 internal func poll(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
-    requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner))
-    uses(foreign_call)
-{
-    let operation = (trusted domain(owner)).poll_service;
-    let mut output: u32 = 0;
-    let status = trusted operation(trusted service_pointer(owner), std.memory.address_of_mut<u32>(&mut output));
-
-    return if status.category == 0
-    {
-        yield Ok(output);
-    }
-    else
-    {
-        yield Error(status);
-    };
-}
-
-internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
-    requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner))
-    uses(foreign_call)
-{
-    let operation = (trusted domain(owner)).wait_service;
-    let mut output: u32 = 0;
-
-    let status = trusted operation(
-        trusted service_pointer(owner),
-        maximum,
-        std.memory.address_of_mut<u32>(&mut output)
-    );
-
-    return if status.category == 0
-    {
-        yield Ok(output);
-    }
-    else
-    {
-        yield Error(status);
-    };
-}
-
-internal func close(pos owner: &Reference)
-    requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner))
-    uses(foreign_call)
-{
-    let operation = (trusted domain(owner)).close_service;
-
-    trusted operation(trusted service_pointer(owner));
-}
-
-internal func poll_reference(pos owner: &Reference) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
 {
@@ -92,7 +15,7 @@ internal func poll_reference(pos owner: &Reference) -> Result<u32, std.platform.
     return Ok(trusted dispatch_reference(owner, now));
 }
 
-internal func wait_reference(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
+internal func wait(pos owner: &Reference, pos maximum: u32) -> Result<u32, std.platform.PlatformStatus>
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
 {
@@ -133,7 +56,7 @@ internal func wait_reference(pos owner: &Reference, pos maximum: u32) -> Result<
     return Ok(maximum);
 }
 
-trusted internal func close_reference(pos owner: &Reference)
+trusted internal func close(pos owner: &Reference)
     requires(trusted retained(owner = owner))
     ensures(trusted retained(owner = owner))
 {
@@ -174,14 +97,6 @@ internal const func optional_view(pos owner: &((&Reference)?)) -> &Reference
     };
 }
 
-trusted internal func service_pointer(pos owner: &Reference) -> DataPointer<Reference>
-    requires(trusted retained(owner = owner))
-    ensures(trusted retained(owner = owner), trusted reference_slot(pointer = result))
-    executes(pure, total)
-{
-    return std.memory.address_of<Reference>(owner);
-}
-
 trusted internal func borrow_reference(
     pos input: &DataPointer<Reference>,
     pos pointer: DataPointer<Reference>
@@ -209,102 +124,3 @@ trusted internal func borrow_reference(
     return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(input, pointer);
 }
 
-@abi(c)
-trusted internal func poll_service(
-    pos owner: DataPointer<Reference>,
-    pos mut output: DataPointer<u32>
-) -> std.platform.PlatformStatus
-    requires(
-        trusted reference_slot(pointer = owner),
-        trusted core.memory.valid_write<u32>(pointer = output, count = 1),
-        trusted core.memory.exclusive_alias_valid<u32>(pointer = output),
-        trusted core.memory.aligned_for<u32>(pointer = output)
-    )
-    uses(raw_memory)
-{
-    let address = output;
-    let storage = trusted borrow_service_output(&mut output, address);
-
-    match consume poll_reference(trusted borrow_reference(&owner, owner))
-    {
-        case Ok(value)
-        {
-            _ = std.memory.uninit_write<u32>(storage, value);
-
-            return internal std.platform.success_status();
-        }
-        case Error(status) { return status; }
-    }
-}
-
-@abi(c)
-trusted internal func wait_service(
-    pos owner: DataPointer<Reference>,
-    pos maximum: u32,
-    pos mut output: DataPointer<u32>
-) -> std.platform.PlatformStatus
-    requires(
-        trusted reference_slot(pointer = owner),
-        trusted core.memory.valid_write<u32>(pointer = output, count = 1),
-        trusted core.memory.exclusive_alias_valid<u32>(pointer = output),
-        trusted core.memory.aligned_for<u32>(pointer = output)
-    )
-    uses(raw_memory)
-{
-    let address = output;
-    let storage = trusted borrow_service_output(&mut output, address);
-
-    match consume wait_reference(trusted borrow_reference(&owner, owner), maximum)
-    {
-        case Ok(value)
-        {
-            _ = std.memory.uninit_write<u32>(storage, value);
-
-            return internal std.platform.success_status();
-        }
-        case Error(status) { return status; }
-    }
-}
-
-trusted internal func borrow_service_output(
-    pos owner: &mut DataPointer<u32>,
-    pos address: DataPointer<u32>
-) -> &mut Uninit<u32>
-    requires(
-        trusted core.memory.valid_write<u32>(pointer = address, count = 1),
-        trusted core.memory.exclusive_alias_valid<u32>(pointer = address),
-        trusted core.memory.aligned_for<u32>(pointer = address)
-    )
-    executes(pure, total)
-    uses(raw_memory, unchecked_alias, layout_reinterpret)
-{
-    let pointer = trusted std.memory.reinterpret<Uninit<u32>, u32>(address);
-
-    let permit = trusted lambda(pos address: DataPointer<u32>, pos pointer: DataPointer<Uninit<u32>>)
-        requires(
-            trusted core.memory.valid_write<u32>(pointer = address, count = 1),
-            trusted core.memory.exclusive_alias_valid<u32>(pointer = address),
-            trusted core.memory.aligned_for<u32>(pointer = address)
-        )
-        ensures(
-            trusted core.memory.valid_write<Uninit<u32>>(pointer = pointer, count = 1),
-            trusted core.memory.aligned_for<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.initialized_as<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.exclusive_alias_valid<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.epoch_current<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.synchronized_access<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.movement_stable<Uninit<u32>>(pointer = pointer),
-            trusted core.memory.finalization_pending<Uninit<u32>>(pointer = pointer)
-        )
-        executes(pure, total) {};
-
-    trusted permit(address, pointer);
-    return trusted std.memory.borrow_mut_from<Uninit<u32>, DataPointer<u32>>(owner, pointer);
-}
-
-@abi(c)
-trusted internal func close_service(pos owner: DataPointer<Reference>)
-    requires(trusted reference_slot(pointer = owner))
-{
-    trusted close_reference(trusted borrow_reference(&owner, owner));
-}

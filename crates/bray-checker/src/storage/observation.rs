@@ -176,10 +176,14 @@ impl Footprint {
             );
 
             let pointee = match operation.kind() {
-                Operation::Write { pointee }
+                Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
+                | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
+                | Operation::Write { pointee }
                 | Operation::Copy { pointee, .. }
                 | Operation::VolatileWrite { pointee, .. } => *pointee,
-                Operation::UninitWrite { element } => *element,
+                Operation::UninitMove { element }
+                | Operation::UninitAssumeInitialized { element }
+                | Operation::UninitWrite { element } => *element,
                 _ => continue,
             };
 
@@ -210,12 +214,12 @@ impl Footprint {
         )
     }
 
-    /// A typed data store cannot transfer an empty ownership marker.
-    pub(crate) fn marker_free_store(&self, ty: TypeId) -> bool {
+    /// A typed data transfer cannot move an empty ownership marker.
+    pub(crate) fn marker_free_transfer(&self, ty: TypeId) -> bool {
         self.shapes.get(&ty).is_some_and(|shape| {
             shape.is_reference_free()
                 && shape.observations.iter().all(|(_, observation)| {
-                    matches!(observation, Observation::Scalar | Observation::Discriminant)
+                    matches!(observation, Observation::Scalar | Observation::Discriminant | Observation::Address)
                 })
         })
     }
