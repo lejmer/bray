@@ -88,12 +88,6 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
 
     if identity == 0 || !trusted bray.runtime.bootstrap.host.acquire_execution_domain()
     {
-        let retire = trusted lambda(pos owner: &bray.runtime.bootstrap.scheduler.Reference)
-            requires(trusted bray.runtime.bootstrap.scheduler.retained(owner = owner))
-            ensures(trusted bray.runtime.bootstrap.scheduler.retiring(owner = owner))
-            executes(pure, total) {};
-
-        trusted retire(&scheduler);
         trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
         trusted bray.runtime.bootstrap.heap.deallocate_bytes(allocation, std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
         return 4;

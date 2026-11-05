@@ -167,9 +167,13 @@ static int check_worker_runtime(void)
         bray_runtime_initialization(1, 1) != 0 ||
         bray_runtime_scheduler_creation(29, 0, 4, &scheduler) != 0 ||
         bray_runtime_worker_creation(&scheduler, &callback, &workers) != 0 ||
-        atomic_load(&worker_create_attempts) != created ||
-        bray_runtime_worker_demand(&workers, 0, &failure) != 0
+        atomic_load(&worker_create_attempts) != created
     )
+        return 248;
+
+    bray_runtime_scheduler_destruction(&scheduler);
+
+    if (bray_runtime_worker_demand(&workers, 0, &failure) != 0)
         return 248;
 
     while (atomic_load(&worker_ready) == 0)
@@ -190,7 +194,6 @@ static int check_worker_runtime(void)
     bray_runtime_worker_stop(&workers);
     bray_runtime_worker_stop(&workers);
     bray_runtime_worker_destruction(&workers);
-    bray_runtime_scheduler_destruction(&scheduler);
     uint32_t shutdown = shutdown_product();
     atomic_store(&reject_allocations, 0);
 

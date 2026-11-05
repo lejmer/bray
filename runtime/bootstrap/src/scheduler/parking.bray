@@ -14,7 +14,7 @@ using internal std.atomic;
 trusted internal func parking_registration(pos pointer: DataPointer<Reference>) -> u32
     requires(trusted reference_slot(pointer = pointer))
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     return trusted register_parking(&owner);
 }
@@ -24,7 +24,7 @@ trusted internal func parking_withdrawal(pos pointer: DataPointer<Reference>, po
     requires(trusted reference_slot(pointer = pointer))
     uses(intrinsic)
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     trusted withdraw_parking(&owner, group);
 }
@@ -67,7 +67,7 @@ trusted internal func notify(pos value: &Domain, pos notifications: u32)
 trusted internal func notification(pos pointer: DataPointer<Reference>)
     requires(trusted reference_slot(pointer = pointer))
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     trusted notify_ready(&owner);
 }
@@ -77,7 +77,7 @@ trusted internal func parking(pos pointer: DataPointer<Reference>, pos group: u3
     requires(trusted reference_slot(pointer = pointer))
     requires(blocking_execution())
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
 
     trusted park_reference(&owner, group, milliseconds);
 }

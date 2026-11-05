@@ -248,7 +248,7 @@ trusted internal func destroy_domain(pos owner: &Reference)
             trusted std.sync.spin_lock.valid(&result.failure.prepared.instance),
             trusted std.sync.spin_lock.valid(&result.reports.prepared.instance),
             trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.scheduler),
-            trusted bray.runtime.bootstrap.scheduler.retiring(owner = &result.scheduler),
+            trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.scheduler),
             trusted core.memory.owned_allocation(pointer = std.memory.byte_address<Domain>(owner.pointer), bytes = std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>())
         )
         uses(raw_memory)

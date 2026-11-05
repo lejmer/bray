@@ -35,6 +35,7 @@ trusted internal func creation(
 
 internal func create(pos capabilities: u32, pos main: u64, pos limit: usize) -> Reference?
     requires(trusted bray.runtime.bootstrap.host.product.native_host())
+    ensures(result matches none || (trusted retained(owner = optional_reference(&result)) && trusted owned_reference(owner = optional_reference(&result))))
 {
     let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Domain>(), align = std.memory.align_of<Domain>());
 
@@ -61,7 +62,7 @@ trusted internal func initialize(
         ),
         trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
     )
-    ensures(trusted retained(owner = &result))
+    ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
     uses(raw_memory, unchecked_init)
 {
     let typed = trusted lambda(pos allocation: DataPointer<u8>) -> DataPointer<Domain>
@@ -87,6 +88,7 @@ trusted internal func initialize(
     trusted std.memory.write<Domain>(
         pointer,
         {
+            references = core.atomic.initialize<usize>(1),
             capabilities = capabilities,
             main = main,
             limit = limit,
@@ -110,13 +112,15 @@ trusted internal func initialize(
 
     return
     {
+        acquisition = bray.runtime.bootstrap.host.Acquisition {},
         pointer = pointer
     };
 }
 
-trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Reference
+trusted internal func borrow_reference(pos input: &DataPointer<Reference>, pos pointer: DataPointer<Reference>) -> &Reference
     requires(trusted reference_slot(pointer = pointer))
-    ensures(trusted retained(owner = &result))
+    ensures(trusted retained(owner = result))
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let permit = trusted lambda(pos pointer: DataPointer<Reference>)
@@ -134,9 +138,7 @@ trusted internal func read_reference(pos pointer: DataPointer<Reference>) -> Ref
         executes(pure, total) {};
 
     trusted permit(pointer);
-    let value = trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(&pointer, pointer);
-
-    return { pointer = value.pointer };
+    return trusted std.memory.borrow_from<Reference, DataPointer<Reference>>(input, pointer);
 
 }
 
@@ -176,7 +178,8 @@ trusted internal func lock(pos value: &Domain) -> std.sync.SpinLockGuard<State>
     return trusted value.state.lock();
 }
 
-// This entry belongs to the sole native owner after all domain borrowers retire.
+// The native caller transfers its actual queue owner exactly once. Other
+// retained queue owners remain independent of this native handle.
 trusted internal predicate retirement_entry(pointer: DataPointer<Reference>);
 
 @abi(c)
@@ -185,17 +188,33 @@ trusted internal func destruction(pos pointer: DataPointer<Reference>)
 {
     let retire = trusted lambda(pos slot: DataPointer<Reference>) -> Reference
         requires(trusted reference_slot(pointer = slot), trusted retirement_entry(pointer = slot))
-        ensures(trusted retained(owner = &result), trusted retiring(owner = &result))
+        ensures(trusted retained(owner = &result), trusted owned_reference(owner = &result))
+        uses(raw_memory)
     {
-        return trusted read_reference(slot);
+        let permit = trusted lambda(pos slot: DataPointer<Reference>)
+            requires(trusted reference_slot(pointer = slot), trusted retirement_entry(pointer = slot))
+            ensures(
+                trusted core.memory.valid_read<Reference>(pointer = slot, count = 1),
+                trusted core.memory.initialized_as<Reference>(pointer = slot),
+                trusted core.memory.aligned_for<Reference>(pointer = slot)
+            )
+            executes(pure, total) {};
+
+        trusted permit(slot);
+        return trusted std.memory.read<Reference>(slot);
     };
 
     trusted destroy_reference(trusted retire(pointer));
 }
 
-trusted internal func destroy_reference(pos owner: Reference)
-    requires(trusted retained(owner = &owner), trusted retiring(owner = &owner))
+trusted internal func destroy_reference(pos reference: Reference)
+    requires(trusted retained(owner = &reference), trusted owned_reference(owner = &reference))
 {
+    let owner = match consume trusted release_reference(reference)
+    {
+        case ?last { yield last; }
+        case none { return; }
+    };
 
     // Only the actual retiring reference can transfer allocation ownership.
     let take = trusted lambda(pos owner: &Reference) -> Domain
@@ -225,6 +244,7 @@ trusted internal func destroy_reference(pos owner: Reference)
 
     let value = trusted take(&owner);
 
+    _ = value;
     trusted bray.runtime.bootstrap.heap.deallocate_bytes(
         std.memory.byte_address<Domain>(owner.pointer),
         std.memory.stride_of<Domain>(),
@@ -236,7 +256,7 @@ trusted internal func destroy_reference(pos owner: Reference)
 trusted internal func worker_admission_state(pos pointer: DataPointer<Reference>, pos close: u32) -> u32
     requires(trusted reference_slot(pointer = pointer))
 {
-    let owner = trusted read_reference(pointer);
+    let owner = trusted borrow_reference(&pointer, pointer);
     let value = trusted domain(&owner);
     let mut guard = trusted lock(value);
     let state = trusted guard.get();
