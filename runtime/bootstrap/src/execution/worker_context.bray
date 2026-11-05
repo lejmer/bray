@@ -61,7 +61,7 @@ trusted internal func create_worker_context(pos scope: &bray.runtime.bootstrap.w
     let provider = match consume create_native_provider(&(trusted domain(owner)).configuration)
     {
         case Ok(value) { yield value; }
-        case Error(failure) { return { stage = 9, category = failure, native_code = 0 }; }
+        case Error(failure) { return { stage = 10, category = failure, native_code = 0 }; }
     };
 
     let allocation = trusted bray.runtime.bootstrap.heap.allocate(std.memory.stride_of<Context>(), align = std.memory.align_of<Context>());

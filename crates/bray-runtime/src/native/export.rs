@@ -95,14 +95,6 @@ fn contain_status(callback: impl FnOnce() -> NativeRuntimeStatus) -> NativeRunti
 
 #[cfg(test)]
 mod tests {
-    fn observe_task(
-        task: bray_runtime_abi::NativeTaskHandle,
-        _: bray_runtime_abi::NativeWakeCallback,
-        _: usize,
-    ) -> bray_runtime_abi::NativeRunOutcome {
-        super::super::fixtures::poll(&super::super::fixtures::task(task))
-    }
-
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
@@ -1023,7 +1015,7 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        let outcome = observe_task(task, ignore_wake, 0);
+        let outcome = super::super::fixtures::poll(&super::super::fixtures::task(task));
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_ne!(outcome.payload(), 0);
@@ -1257,7 +1249,7 @@ mod tests {
         assert!(bray_runtime_main_thread_lane_drive().is_success());
 
         assert_eq!(
-            observe_task(task, ignore_wake, 0).state(),
+            super::super::fixtures::poll(&super::super::fixtures::task(task)).state(),
             NativeRunState::COMPLETED
         );
 
@@ -1424,7 +1416,7 @@ mod tests {
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 0);
 
         assert_eq!(
-            observe_task(task, ignore_wake, 0).state(),
+            super::super::fixtures::poll(&super::super::fixtures::task(task)).state(),
             NativeRunState::COMPLETED
         );
 
@@ -1469,7 +1461,7 @@ mod tests {
         );
 
         assert_eq!(
-            observe_task(task, ignore_wake, 0).state(),
+            super::super::fixtures::poll(&super::super::fixtures::task(task)).state(),
             NativeRunState::RUNTIME_FAILURE
         );
 
@@ -2644,8 +2636,6 @@ mod tests {
     extern "C-unwind" fn panic_action(_: usize) {
         panic!("cleanup action failed");
     }
-
-    extern "C" fn ignore_wake(_: usize) {}
 
     extern "C-unwind" fn ignore_resolution(
         _: &mut NativeFrameProgress,
