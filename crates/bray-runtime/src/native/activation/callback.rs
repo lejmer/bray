@@ -64,16 +64,15 @@ pub extern "C" fn bray_runtime_activation_callback_admission(
 /// Retaining operations keep their frame live. Destruction may release it, while
 /// the descriptor and provider code remain live until the callback returns.
 /// Admission retains the selected task execution context through this call.
-pub extern "C" fn bray_runtime_activation_callback(mut invocation: NativeActivationInvocation<'_>) -> NativeActivationInvocation<'_> {
+pub extern "C" fn bray_runtime_activation_callback(invocation: &mut NativeActivationInvocation<'_>) {
     let execution = invocation.execution;
 
     if invocation.operation.is_resumable() || crate::context::current_task_execution_lane().is_some() {
-        super::execution::with_execution(execution, || invoke_producer(&mut invocation));
+        super::execution::with_execution(execution, || invoke_producer(invocation));
     } else {
-        invoke_producer(&mut invocation);
+        invoke_producer(invocation);
     }
 
-    invocation
 }
 
 // Source owns callback entry and restoration. Native dispatch lends the same
@@ -256,7 +255,7 @@ mod tests {
 
             let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
-            super::bray_runtime_activation_callback(NativeActivationInvocation {
+            super::bray_runtime_activation_callback(&mut NativeActivationInvocation {
                 admission: 0,
                 execution: &bray_runtime_abi::NativeActivationExecution::default(),
                 descriptor: &descriptor,
@@ -319,7 +318,7 @@ mod tests {
                 let mut progress =
                     NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
-                super::bray_runtime_activation_callback(NativeActivationInvocation {
+                super::bray_runtime_activation_callback(&mut NativeActivationInvocation {
                 admission: 0,
                     execution: &execution,
                     descriptor: &descriptor,
@@ -375,7 +374,7 @@ mod tests {
         for operation in [NativeActivationOperation::Broadcast, NativeActivationOperation::Resolve(NativeFrameExit::RETAINED_DESTRUCTION), NativeActivationOperation::Resolve(NativeFrameExit::SYNCHRONOUS_DISPOSAL), NativeActivationOperation::Move(37), NativeActivationOperation::Destroy] {
             let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
 
-            super::bray_runtime_activation_callback(NativeActivationInvocation {
+            super::bray_runtime_activation_callback(&mut NativeActivationInvocation {
                 admission: 0,
                 execution: &execution,
                 descriptor: &descriptor,

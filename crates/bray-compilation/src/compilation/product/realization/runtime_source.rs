@@ -36,14 +36,6 @@ const PANIC_REPORT_FIELDS: [AbiField; NATIVE_PANIC_REPORT_FIELDS.len()] = {
 const PANIC_REPORT: AbiField = AbiField::Struct(&PANIC_REPORT_FIELDS);
 const RUN_OUTCOME: AbiField = AbiField::Struct(&[U32, USIZE, PANIC_REPORT]);
 const FRAME_PROGRESS: AbiField = AbiField::Struct(&[U32, U32, USIZE, PANIC_REPORT]);
-const ACTIVATION_EXIT: AbiField = AbiField::TaggedUnion {
-    tag: RepresentationRole::ScalarU32,
-    variants: &[&[], &[], &[], &[], &[], &[], &[]],
-};
-const ACTIVATION_OPERATION: AbiField = AbiField::TaggedUnion {
-    tag: RepresentationRole::ScalarU32,
-    variants: &[&[], &[], &[], &[ACTIVATION_EXIT], &[USIZE], &[]],
-};
 const PRODUCT_IDENTITY_FIELDS: &[AbiField] = &[AbiField::Array {
     element: RepresentationRole::ScalarU8,
     length: 32,
@@ -99,10 +91,6 @@ macro_rules! define_runtime_source_fields {
     (@field TaskAllocation) => { AbiField::Struct(&[U32, U64]) };
     (@field RunOutcome) => { RUN_OUTCOME };
     (@field FrameProgress) => { FRAME_PROGRESS };
-    (@field ActivationInvocation) => { AbiField::Struct(&[
-        AbiField::Struct(&[]), AbiField::NativePointer, AbiField::NativePointer,
-        USIZE, ACTIVATION_OPERATION, AbiField::NativePointer, AbiField::NativePointer, U32,
-    ]) };
     (@field InactiveFrame) => { AbiField::Struct(&[
         AbiField::Struct(&[USIZE, USIZE, USIZE, U64, USIZE]), AbiField::NativePointer,
     ]) };
@@ -711,47 +699,6 @@ mod tests {
     }
 
     #[test]
-    fn source_invocation_checks_the_tag_and_each_operation_payload() {
-        for (tag, move_payload, accepted) in [
-            ("u32", "usize", true),
-            ("u8", "usize", false),
-            ("u32", "u32", false),
-        ] {
-            let compilation = compilation(&format!(r#"
-                module native_abi;
-
-                @layout(c, tag = u32)
-                union Exit {{ Completed; Cancelled; Panicked; RuntimeFailure; Quiescence; RetainedDestruction; SynchronousDisposal; }}
-
-                @layout(c, tag = {tag})
-                union Operation {{ Resume; Cancel; Broadcast; Resolve(pos cleanup_exit: Exit); Move(pos destination: {move_payload}); Destroy; }}
-            "#));
-
-            let symbols = compilation.symbol_graph().expect("native operation declarations bind");
-            let operation = symbols.unions().iter().find(|union| {
-                symbols.member_name(union.id().into()).is_some_and(|name| name.as_str() == "Operation")
-            }).expect("the fixture declares its native operation");
-
-            let ty = crate::compilation::substitution::named_type(
-                compilation.semantic_value_store().expect("native operations have semantic types"),
-                bray_symbols::NamedTypeSymbolId::Union(operation.id()),
-            ).expect("native operation types resolve");
-
-            let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
-            let matched = super::abi_type_matches(
-                &compilation,
-                ty,
-                &super::ACTIVATION_OPERATION,
-                &CancellationToken::new(),
-                &mut diagnostics,
-            ).expect("native operation ABI checks complete");
-
-            assert!(!diagnostics.has_errors(), "{diagnostics:?}");
-            assert_eq!(matched, accepted, "tag={tag}, move payload={move_payload}");
-        }
-    }
-
-    #[test]
     fn record_roles_accept_typed_raw_pointers_and_require_void_results() {
         let compilation = compilation("module app;\n");
 
@@ -771,6 +718,7 @@ mod tests {
             .expect("fixture unary representation must resolve")
             .expect("successful fixture query must contain its expected result");
 
+        for role in [RuntimeAbiRole::ReportRecordAppend, RuntimeAbiRole::ActivationCallback, RuntimeAbiRole::ActivationActionReadiness] {
         for (parameter, result, expected) in [
             (pointer, CodegenResultMapping::Void, true),
             (usize, CodegenResultMapping::Void, false),
@@ -781,10 +729,9 @@ mod tests {
             ),
         ] {
             let signature = CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(parameter, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                ],
+                std::iter::once(CodegenParameterMapping::direct(parameter, None, [])).chain(
+                    (role == RuntimeAbiRole::ReportRecordAppend).then(|| CodegenParameterMapping::direct(pointer, None, []))
+                ),
                 result,
                 CallableAbi::C,
                 false,
@@ -793,7 +740,7 @@ mod tests {
             assert_eq!(
                 runtime_source_signature_matches(
                     &compilation,
-                    RuntimeAbiRole::ReportRecordAppend,
+                    role,
                     &signature,
                     &CancellationToken::new(),
                     &mut bray_diagnostics::DiagnosticBag::new(),
@@ -801,6 +748,7 @@ mod tests {
                 .expect("fixture runtime signature must be checked"),
                 Some(expected)
             );
+        }
         }
     }
 

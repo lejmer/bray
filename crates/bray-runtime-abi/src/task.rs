@@ -97,9 +97,9 @@ pub struct NativeTaskSnapshot {
 #[derive(Debug)]
 pub struct NativeTaskDispatchServices {
     /// Invokes the frame producer and contains native unwinding.
-    pub invoke: for<'a> extern "C" fn(crate::NativeActivationInvocation<'a>) -> crate::NativeActivationInvocation<'a>,
+    pub invoke: for<'a> extern "C" fn(&mut crate::NativeActivationInvocation<'a>),
     /// Checks the active execution lane without changing the frame.
-    pub ready: for<'a> extern "C" fn(crate::NativeActivationInvocation<'a>) -> crate::NativeActivationInvocation<'a>,
+    pub ready: for<'a> extern "C" fn(&mut crate::NativeActivationInvocation<'a>),
     /// Transfers admitted incident records and releases unused records.
     pub transfer: extern "C" fn(
         &NativeActivationExecution,

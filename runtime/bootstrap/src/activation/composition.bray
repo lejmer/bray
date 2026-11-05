@@ -226,7 +226,7 @@ trusted internal func compose(
     let description: bray.runtime.bootstrap.activation.Descriptor? = none;
     let mut progress = bray.runtime.bootstrap.activation.empty_progress();
     let mut records = bray.runtime.bootstrap.empty_records();
-    let invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
+    let mut invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
         &mut cursor,
         &requested,
         &description,
@@ -235,9 +235,9 @@ trusted internal func compose(
         &mut progress,
         &mut records
     );
-    let admitted = trusted admit(invocation);
+    trusted bray.runtime.bootstrap.activation.callback.admit(admit, &mut invocation);
 
-    if admitted.admission != 0
+    if invocation.admission != 0
     {
         return 0;
     }
