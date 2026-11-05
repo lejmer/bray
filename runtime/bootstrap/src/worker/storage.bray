@@ -163,6 +163,7 @@ trusted internal func initialize(
             demand_service = demand_service,
             stop_service = stop_service,
             detach_service = detach_service,
+            release_service = destroy_reference,
             state = trusted std.sync.SpinLock<State>(
                 {
                     stopping = false,

@@ -132,6 +132,7 @@ trusted internal func initialize(
             poll_service = poll_service,
             wait_service = wait_service,
             close_service = close_service,
+            release_service = destroy_reference,
             state = trusted std.sync.SpinLock<State>(
                 {
                     next = 1,
