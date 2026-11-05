@@ -33,24 +33,24 @@ trusted internal func task_services() -> bray.runtime.bootstrap.task.Services
 }
 
 @abi(c)
-trusted internal func invoke_task(pos mut owner: bray.runtime.bootstrap.activation.callback.Invocation) -> bray.runtime.bootstrap.activation.callback.Invocation
+trusted internal func invoke_task(pos mut pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition),
-        trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition)
+        trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer)
     )
-    ensures(trusted bray.runtime.bootstrap.activation.callback.returned(owner = &result.acquisition))
+    ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation_returned(pointer = pointer))
 {
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut pointer, pointer);
     let selected = trusted current();
 
     if selected.status != 0
     {
         // A synchronous producer outside a runtime retains no task metadata.
-        trusted bray.runtime.bootstrap.activation.callback.execute_producer(&mut owner);
-        return owner;
+        trusted bray.runtime.bootstrap.activation.callback.execute_producer(owner);
+        return;
     }
 
-    let (previous, callback, resumable) = trusted enter_producer(&selected, &owner);
+    let (previous, callback, resumable) = trusted enter_producer(&selected, owner);
 
     if has_execution(&selected)
     {
@@ -58,16 +58,15 @@ trusted internal func invoke_task(pos mut owner: bray.runtime.bootstrap.activati
 
         if let ?invoke = native
         {
-            trusted bray.runtime.bootstrap.activation.callback.execute_native(&mut owner, invoke, trusted current_native_context(&selected), trusted selected_lane(&selected));
+            trusted bray.runtime.bootstrap.activation.callback.execute_native(owner, invoke, trusted current_native_context(&selected), trusted selected_lane(&selected));
             trusted leave_producer(&selected, previous, callback, resumable);
-            return owner;
+            return;
         }
     }
 
-    trusted bray.runtime.bootstrap.activation.callback.execute_producer(&mut owner);
+    trusted bray.runtime.bootstrap.activation.callback.execute_producer(owner);
 
     trusted leave_producer(&selected, previous, callback, resumable);
-    return owner;
 }
 
 trusted internal func enter_producer(pos selected: &Current, pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> (usize, usize, bool)
@@ -110,12 +109,13 @@ trusted internal func leave_producer(pos selected: &Current, pos previous: usize
 }
 
 @abi(c)
-trusted internal func action_readiness(pos mut owner: bray.runtime.bootstrap.activation.callback.Invocation) -> bray.runtime.bootstrap.activation.callback.Invocation
-    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &owner.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &owner.acquisition))
-    ensures(trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &result.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &result.acquisition))
+trusted internal func action_readiness(pos mut pointer: DataPointer<bray.runtime.bootstrap.activation.callback.Invocation>)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
+    ensures(trusted bray.runtime.bootstrap.activation.callback.native_invocation(pointer = pointer))
 {
-    owner.admission = trusted readiness_status(&owner);
-    return owner;
+    let owner = trusted bray.runtime.bootstrap.activation.callback.borrow_invocation(&mut pointer, pointer);
+
+    owner.admission = trusted readiness_status(owner);
 }
 
 trusted internal func readiness_status(pos owner: &bray.runtime.bootstrap.activation.callback.Invocation) -> u32

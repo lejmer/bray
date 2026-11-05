@@ -155,7 +155,7 @@ trusted internal func invoke(
         report = bray.runtime.bootstrap.empty_panic_report(),
     };
 
-    let prepared_invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
+    let mut invocation = trusted bray.runtime.bootstrap.activation.callback.prepare_invocation(
         cursor,
         &execution,
         &description,
@@ -168,9 +168,9 @@ trusted internal func invoke(
     let admit = trusted lambda(
         pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
         pos ready: bray.runtime.bootstrap.activation.callback.Ready,
-        pos invocation: bray.runtime.bootstrap.activation.callback.Invocation,
+        pos invocation: &mut bray.runtime.bootstrap.activation.callback.Invocation,
         pos operation: u32,
-    ) -> bray.runtime.bootstrap.activation.callback.Invocation
+    )
         requires(
             trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
             trusted bray.runtime.bootstrap.entry.native_entry(),
@@ -178,19 +178,18 @@ trusted internal func invoke(
             trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &invocation.acquisition),
             trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition),
         )
-        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &result.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &result.acquisition))
+        ensures(trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor), trusted bray.runtime.bootstrap.activation.callback.authorized(owner = &invocation.acquisition), trusted bray.runtime.bootstrap.activation.callback.outputs_owned(owner = &invocation.acquisition))
     {
-        let completed = trusted ready(invocation);
+        trusted bray.runtime.bootstrap.activation.callback.admit(ready, invocation);
 
-        if completed.admission == bray.runtime.bootstrap.STATUS_SUCCESS && operation == 3
+        if invocation.admission == bray.runtime.bootstrap.STATUS_SUCCESS && operation == 3
         {
             trusted bray.runtime.bootstrap.entry.control.enter_cleanup();
         }
 
-        return completed;
     };
 
-    let invocation = trusted admit(cursor, ready, prepared_invocation, operation);
+    trusted admit(cursor, ready, &mut invocation, operation);
     let status = invocation.admission;
 
     if status != bray.runtime.bootstrap.STATUS_SUCCESS

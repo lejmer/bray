@@ -83,7 +83,7 @@ pub(super) fn with_execution<T>(
 
 /// Checks the selected lane before the Bray dispatcher enters a producer callback.
 /// The exact live snapshot and exclusive activation owner remain with the caller.
-pub(in crate::native) extern "C" fn readiness(mut invocation: bray_runtime_abi::NativeActivationInvocation<'_>) -> bray_runtime_abi::NativeActivationInvocation<'_> {
+pub(in crate::native) extern "C" fn readiness(invocation: &mut bray_runtime_abi::NativeActivationInvocation<'_>) {
     if let Some(task) = super::super::state::current_services()
         && task.has_worker_failure()
     {
@@ -92,7 +92,7 @@ pub(in crate::native) extern "C" fn readiness(mut invocation: bray_runtime_abi::
 
             if wait.as_ref().is_some_and(|wait| !wait.is_ready()) {
                 invocation.admission = NativeRuntimeStatus::PENDING.code();
-                return invocation;
+                return;
             }
 
             wait.take()
@@ -106,10 +106,9 @@ pub(in crate::native) extern "C" fn readiness(mut invocation: bray_runtime_abi::
 
 /// Checks a synchronous action without replacing the enclosing run's continuation.
 pub extern "C" fn bray_runtime_activation_action_readiness(
-    mut invocation: bray_runtime_abi::NativeActivationInvocation<'_>,
-) -> bray_runtime_abi::NativeActivationInvocation<'_> {
+    invocation: &mut bray_runtime_abi::NativeActivationInvocation<'_>,
+) {
     invocation.admission = action_readiness(invocation.execution);
-    invocation
 }
 
 fn action_readiness(snapshot: &NativeActivationExecution) -> u32 {

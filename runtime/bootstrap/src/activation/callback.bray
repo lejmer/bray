@@ -61,25 +61,21 @@ trusted internal predicate outputs_owned(owner: &CallAcquisition);
 
 trusted internal predicate returned(owner: &CallAcquisition);
 
-// Admission borrows the complete call without changing its owner or outputs.
-// Operation identity distinguishes synchronous disposal from a resumable entry.
-internal callable Ready = @abi(c) trusted func(pos mut owner: Invocation) -> Invocation
+// Both callbacks borrow the same Source-owned call. Admission changes only its
+// status, while invocation fills the independently retained output slots.
+internal callable Ready = @abi(c) trusted func(pos pointer: DataPointer<Invocation>)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted authorized(owner = &owner.acquisition),
-        trusted outputs_owned(owner = &owner.acquisition)
+        trusted native_invocation(pointer = pointer)
     )
-    ensures(trusted authorized(owner = &result.acquisition), trusted outputs_owned(owner = &result.acquisition));
+    ensures(trusted native_invocation(pointer = pointer));
 
-// Invocation adapters consume and return the complete call scope. Returning
-// ownership keeps the outputs available after consuming frame destruction.
-internal callable Invoke = @abi(c) trusted func(pos mut owner: Invocation) -> Invocation
+internal callable Invoke = @abi(c) trusted func(pos pointer: DataPointer<Invocation>)
     requires(
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted authorized(owner = &owner.acquisition),
-        trusted outputs_owned(owner = &owner.acquisition),
+        trusted native_invocation(pointer = pointer),
     )
-    ensures(trusted returned(owner = &result.acquisition));
+    ensures(trusted native_invocation_returned(pointer = pointer));
 
 // Source retains the whole invocation on its stack while the native adapter
 // borrows it. Metadata and lane are observations of that actual call entry.
@@ -160,7 +156,48 @@ trusted internal predicate native_invocation(pointer: DataPointer<Invocation>);
 
 trusted internal predicate native_invocation_returned(pointer: DataPointer<Invocation>);
 
-trusted internal func invoke(pos callback: Invoke, pos owner: Invocation) -> (
+trusted internal func native_pointer(pos owner: &mut Invocation) -> DataPointer<Invocation>
+    requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition), trusted native_invocation(pointer = result))
+    executes(pure, total)
+{
+    return std.memory.address_of_mut<Invocation>(owner);
+}
+
+trusted internal func borrow_invocation(pos input: &mut DataPointer<Invocation>, pos pointer: DataPointer<Invocation>) -> &mut Invocation
+    requires(trusted native_invocation(pointer = pointer))
+    ensures(trusted authorized(owner = &result.acquisition), trusted outputs_owned(owner = &result.acquisition))
+    executes(pure, total)
+    uses(raw_memory, unchecked_alias)
+{
+    let permit = trusted lambda(pos pointer: DataPointer<Invocation>)
+        requires(trusted native_invocation(pointer = pointer))
+        ensures(
+            trusted core.memory.valid_read<Invocation>(pointer = pointer, count = 1),
+            trusted core.memory.valid_write<Invocation>(pointer = pointer, count = 1),
+            trusted core.memory.initialized_as<Invocation>(pointer = pointer),
+            trusted core.memory.aligned_for<Invocation>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<Invocation>(pointer = pointer),
+            trusted core.memory.epoch_current<Invocation>(pointer = pointer),
+            trusted core.memory.synchronized_access<Invocation>(pointer = pointer),
+            trusted core.memory.movement_stable<Invocation>(pointer = pointer),
+            trusted core.memory.finalization_pending<Invocation>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(pointer);
+    return trusted std.memory.borrow_mut_from<Invocation, DataPointer<Invocation>>(input, pointer);
+}
+
+trusted internal func admit(pos callback: Ready, pos owner: &mut Invocation)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    uses(foreign_call)
+{
+    trusted callback(trusted native_pointer(owner));
+}
+
+trusted internal func invoke(pos callback: Invoke, pos mut owner: Invocation) -> (
         bray.runtime.bootstrap.activation.Progress,
         bray.runtime.bootstrap.ReportRecords
     )
@@ -170,11 +207,20 @@ trusted internal func invoke(pos callback: Invoke, pos owner: Invocation) -> (
         trusted outputs_owned(owner = &owner.acquisition),
     )
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.0.report))
+{
+    trusted execute_callback(callback, &mut owner);
+
+    return trusted take_returned(owner);
+}
+
+// The foreign callback ends its borrowed entry before Source consumes outputs
+// from the same invocation, including after a frame-consuming operation.
+trusted internal func execute_callback(pos callback: Invoke, pos owner: &mut Invocation)
+    requires(trusted bray.runtime.bootstrap.entry.native_entry(), trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
+    ensures(trusted returned(owner = &owner.acquisition))
     uses(foreign_call)
 {
-    let completed = trusted callback(owner);
-
-    return trusted take_returned(completed);
+    trusted callback(trusted native_pointer(owner));
 }
 
 trusted internal func take_returned(pos owner: Invocation) -> (

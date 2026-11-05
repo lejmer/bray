@@ -11,7 +11,6 @@ use bray_symbols::{
     CallableAbi, CallableExecution, CallableSignatureTemplate, CallableTrust, DeclaredLayoutMode,
     FunctionSymbolId, GenericArgument, NamedTypeSymbolId, SemanticValueStore, StructFieldTypeQuery,
     StructSymbolId, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
-    UnionPayloadFieldTypeQuery,
     diagnostic_callable_abi, diagnostic_callable_execution,
 };
 use bray_syntax::FunctionDeclarationSyntax;
@@ -640,10 +639,6 @@ pub(in crate::compilation) enum AbiField {
     },
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
-    TaggedUnion {
-        tag: RepresentationRole,
-        variants: &'static [&'static [AbiField]],
-    },
     PointerStruct(&'static [AbiField]),
 }
 
@@ -822,9 +817,6 @@ pub(in crate::compilation) fn abi_type_matches(
         AbiField::Struct(fields) => {
             c_struct_matches(compilation, ty, fields, cancellation, diagnostics)
         }
-        AbiField::TaggedUnion { tag, variants } => {
-            c_union_matches(compilation, ty, *tag, variants, cancellation, diagnostics)
-        }
         AbiField::PointerStruct(fields) => {
             let Some(target) = raw_pointer_target(compilation, ty)? else {
                 return Ok(false);
@@ -833,83 +825,6 @@ pub(in crate::compilation) fn abi_type_matches(
             c_struct_matches(compilation, target, fields, cancellation, diagnostics)
         }
     }
-}
-
-fn c_union_matches(
-    compilation: &Compilation,
-    ty: TypeId,
-    expected_tag: RepresentationRole,
-    variants: &[&[AbiField]],
-    cancellation: &CancellationToken,
-    diagnostics: &mut DiagnosticBag,
-) -> Result<bool, FactQueryError> {
-    let values = compilation.semantic_value_store()?;
-    let data = values.type_data(ty);
-
-    let TypeData::Named { definition: NamedTypeSymbolId::Union(union), substitution } = data.as_ref() else {
-        return Ok(false);
-    };
-
-    if !values.generic_substitution_data(*substitution).bindings().is_empty() {
-        return Ok(false);
-    }
-
-    let representation = compilation.declared_type_representation_with_cancellation((*union).into(), cancellation)?;
-    diagnostics.extend(representation.diagnostics().iter().cloned());
-
-    if representation.value().layout() != DeclaredLayoutMode::C {
-        return Ok(false);
-    }
-
-    let Some(tag) = representation.value().union_tag_type() else {
-        return Ok(false);
-    };
-
-    if !type_has_representation(compilation, tag, expected_tag)? {
-        return Ok(false);
-    }
-
-    let binding = compilation.binding_context(cancellation)?;
-    let declaration = binding.union(*union)
-        .map_err(super::super::super::binder::binding_query_error)?
-        .ok_or_else(|| ForeignQueryFailure::missing(ForeignQueryContext::Symbol((*union).into()), ForeignDataKind::UnionRecord))?;
-
-    if declaration.variants().len() != variants.len() {
-        return Ok(false);
-    }
-
-    for (index, (variant, fields)) in declaration.variants().iter().zip(variants).enumerate() {
-        let tag = representation.value().union_tags().iter().find(|tag| tag.variant() == *variant)
-            .expect("checked tagged unions retain each variant's exact discriminant");
-
-        if tag.value().to_u64() != Some(u64::try_from(index).expect("native union variants fit the tag range")) {
-            return Ok(false);
-        }
-
-        let variant = binding.union_variant(*variant)
-            .map_err(super::super::super::binder::binding_query_error)?
-            .ok_or_else(|| ForeignQueryFailure::missing(ForeignQueryContext::Symbol((*variant).into()), ForeignDataKind::UnionVariantRecord))?;
-
-        if variant.payload_fields().len() != fields.len() {
-            return Ok(false);
-        }
-
-        for (field, expected) in variant.payload_fields().iter().zip(*fields) {
-            let field = binding.resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(*field))
-                .map_err(super::super::super::binder::binding_query_error)?;
-            diagnostics.extend(field.diagnostics().iter().cloned());
-
-            let Some(ty) = resolve_template_type(compilation, field.value(), cancellation, diagnostics)? else {
-                return Ok(false);
-            };
-
-            if !abi_type_matches(compilation, ty, expected, cancellation, diagnostics)? {
-                return Ok(false);
-            }
-        }
-    }
-
-    Ok(true)
 }
 
 fn platform_status_matches(

@@ -153,14 +153,8 @@ internal func completed_producer_progress() -> bray.runtime.bootstrap.activation
 trusted internal func execute_native(pos owner: &mut Invocation, pos callback: NativeInvoke, pos metadata: usize, pos lane: bray.runtime.bootstrap.scheduler.Lane)
     requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
     ensures(trusted returned(owner = &owner.acquisition))
-    uses(foreign_call, intrinsic)
+    uses(foreign_call)
 {
-    let pointer = std.memory.address_of_mut<Invocation>(owner);
-    let permit = trusted lambda(pos owner: &Invocation, pos pointer: DataPointer<Invocation>)
-        requires(trusted authorized(owner = &owner.acquisition), trusted outputs_owned(owner = &owner.acquisition))
-        ensures(trusted native_invocation(pointer = pointer))
-        executes(pure, total) {};
-
-    trusted permit(&owner, pointer);
+    let pointer = trusted native_pointer(owner);
     trusted callback(pointer, metadata, lane);
 }

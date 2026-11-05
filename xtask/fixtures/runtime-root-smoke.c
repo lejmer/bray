@@ -41,18 +41,18 @@ extern uint64_t bray_runtime_execution_owner_scope_enter(
     const RootOwner* owner
 );
 extern uint32_t bray_runtime_execution_scope_finish(void* storage);
-extern ActivationInvocation bray_runtime_activation_callback(ActivationInvocation invocation);
-extern ActivationInvocation bray_runtime_activation_action_readiness(ActivationInvocation invocation);
+extern void bray_runtime_activation_callback(ActivationInvocation* invocation);
+extern void bray_runtime_activation_action_readiness(ActivationInvocation* invocation);
 extern void bray_runtime_inactive_frame_broadcast(
     InactiveActivation* token,
-    ActivationInvocation (*invoke)(ActivationInvocation),
-    ActivationInvocation (*ready)(ActivationInvocation),
+    void (*invoke)(ActivationInvocation*),
+    void (*ready)(ActivationInvocation*),
     RunOutcome* outcome
 );
 extern void bray_runtime_inactive_frame_resolution(
     InactiveActivation* token,
-    ActivationInvocation (*invoke)(ActivationInvocation),
-    ActivationInvocation (*ready)(ActivationInvocation),
+    void (*invoke)(ActivationInvocation*),
+    void (*ready)(ActivationInvocation*),
     RunOutcome* outcome
 );
 extern void bray_runtime_awaited_frame_composition(
