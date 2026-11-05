@@ -17,6 +17,77 @@ internal struct EntryScope
     mut status: u32;
 }
 
+internal predicate entry_scope_owned(owner: &EntryScope) =
+    view_owned(owner = &owner.current.acquisition)
+    && (owner.previous matches none || bray.runtime.bootstrap.host.execution_option_owned(owner = &owner.previous));
+
+// The native RAII owner lends exclusive, aligned storage for this complete
+// Source value. It does not inspect or copy the value's private representation.
+// Entry and completion run on the same attachment in strict nesting order.
+trusted internal predicate native_scope_storage(owner: &DataPointer<u8>, bytes: usize, align: usize);
+
+trusted internal predicate native_scope_initialized(owner: &DataPointer<u8>);
+
+@abi(c)
+trusted internal func native_scope_enter(
+    pos storage: DataPointer<u8>,
+    pos bytes: usize,
+    pos align: usize,
+    pos isolate: u32
+) -> u32
+    requires(trusted native_scope_storage(owner = &storage, bytes = bytes, align = align))
+    ensures(trusted native_scope_initialized(owner = &storage))
+    uses(raw_memory, unchecked_init, layout_reinterpret, intrinsic)
+{
+    // A mismatched private ABI is a provider bug. Check before changing entry
+    // ownership, so no live Source value can be stranded in undersized storage.
+    if bytes < std.memory.stride_of<EntryScope>()
+        || align < std.memory.align_of<EntryScope>()
+        || isolate > 1
+    {
+        trusted core.target.abort();
+    }
+
+    let scope = trusted entry_scope(isolate != 0);
+    let status = scope.status;
+    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+    let permit = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>, pos bytes: usize, pos align: usize)
+        requires(trusted native_scope_storage(owner = storage, bytes = bytes, align = align))
+        ensures(trusted core.memory.valid_write<EntryScope>(pointer = pointer, count = 1), trusted core.memory.aligned_for<EntryScope>(pointer = pointer))
+        executes(pure, total) {};
+
+    trusted permit(&storage, pointer, bytes, align);
+    trusted std.memory.write<EntryScope>(pointer, scope);
+    return status;
+}
+
+@abi(c)
+trusted internal func native_scope_finish(pos storage: DataPointer<u8>) -> u32
+    requires(trusted native_scope_initialized(owner = &storage))
+    uses(raw_memory, layout_reinterpret, intrinsic)
+{
+    let pointer = trusted std.memory.reinterpret<EntryScope, u8>(storage);
+    let take = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>) -> EntryScope
+        requires(trusted native_scope_initialized(owner = storage))
+        ensures(trusted entry_scope_owned(owner = &result))
+        uses(raw_memory, intrinsic)
+    {
+        let permit = trusted lambda(pos storage: &DataPointer<u8>, pos pointer: DataPointer<EntryScope>)
+            requires(trusted native_scope_initialized(owner = storage))
+            ensures(
+                trusted core.memory.valid_read<EntryScope>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<EntryScope>(pointer = pointer),
+                trusted core.memory.initialized_as<EntryScope>(pointer = pointer)
+            )
+            executes(pure, total) {};
+
+        trusted permit(storage, pointer);
+        return trusted std.memory.read<EntryScope>(pointer);
+    };
+
+    return trusted finish_entry_scope(trusted take(&storage, pointer));
+}
+
 trusted internal func entry_scope(pos isolate: bool) -> EntryScope
     ensures(trusted view_owned(owner = &result.current.acquisition), (result.previous matches none || trusted bray.runtime.bootstrap.host.execution_option_owned(owner = &result.previous)))
     uses(intrinsic)

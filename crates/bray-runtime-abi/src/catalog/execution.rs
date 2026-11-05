@@ -274,6 +274,22 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: []
             }
+            ExecutionScopeEnter {
+                "Transfer a complete Source entry scope into native-owned protected storage.", "execution_scope_enter",
+                native: (EXECUTION_SCOPE_ENTER_SYMBOL = "bray_runtime_execution_scope_enter", [Pointer, Usize, Usize, U32] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Usize, Usize, U32] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_scope_enter"), host_control: false,
+                capabilities: [], effects: []
+            }
+            ExecutionScopeFinish {
+                "Consume the complete saved Source scope and restore its displaced owners.", "execution_scope_finish",
+                native: (EXECUTION_SCOPE_FINISH_SYMBOL = "bray_runtime_execution_scope_finish", [Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Bootstrap, availability: All, bootstrap: ("execution.native_scope_finish"), host_control: false,
+                capabilities: [], effects: []
+            }
             EntryContinuation {
                 "Continue an admitted native entry inside its scoped context bridge.", "entry_continuation",
                 native: (ENTRY_CONTINUATION_SYMBOL = "bray_runtime_entry_continuation", [Pointer, Usize, U32, Pointer] -> U32),

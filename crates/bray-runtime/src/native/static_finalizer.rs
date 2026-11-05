@@ -92,9 +92,14 @@ pub(crate) fn with_static_cleanup_context<T>(
             .then(super::bridge::Scope::enter)
             .transpose()?;
 
-        let result = super::state::with_independent_execution_context(callback);
+        // A closing attachment already owns its cleanup driver and rejects a
+        // context exchange. Borrow it through completion instead of reentering.
+        let execution = super::scope::Scope::enter(!crate::bootstrap::in_thread_cleanup())?;
+        let result = crate::context::with_independent_execution_context(callback);
+        let execution_status = execution.finish();
         let incidents = bridge.map_or(0, super::bridge::Scope::finish);
-        let incident = (incidents != 0).then(OwnedCleanupIncident::runtime_failure);
+        let incident = (incidents != 0 || !execution_status.is_success())
+            .then(OwnedCleanupIncident::runtime_failure);
 
         return Ok((result, incident));
     };

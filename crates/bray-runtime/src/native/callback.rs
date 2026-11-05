@@ -31,7 +31,7 @@ fn execute_native_thread(
     cancellation: NativeThreadCancellationCallback,
     cancellation_context: usize,
 ) -> NativeRunOutcome {
-    super::state::with_independent_execution_context(|| {
+    crate::context::with_independent_execution_context(|| {
         crate::context::with_native_thread_cancellation(cancellation, cancellation_context, || {
             execute_callback_boundary(|outcome| callback(context, outcome), |_| {}, false)
         })
@@ -53,9 +53,13 @@ fn execute_callback_boundary(
     let mut published = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
 
     let thread = super::bridge::Scope::enter();
+    let execution = thread
+        .as_ref()
+        .map_err(|status| *status)
+        .and_then(|_| super::scope::Scope::enter(true));
 
-    let outcome = match &thread {
-        Ok(_) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
+    let outcome = match (&thread, &execution) {
+        (Ok(_), Ok(_)) if !main_thread || crate::bootstrap::mark_current_runtime_thread_as_main() => {
             execute_synchronous_root(
                 || {
                     published = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
@@ -65,7 +69,12 @@ fn execute_callback_boundary(
                 &mut admitted,
             )
         }
-        Ok(_) | Err(_) => RunOutcome::Completed(()),
+        (Err(status), _) | (_, Err(status)) => {
+            published = runtime_failure(*status);
+
+            RunOutcome::Completed(())
+        }
+        _ => RunOutcome::Completed(()),
     };
 
     let mut outcome = match outcome {
@@ -79,7 +88,12 @@ fn execute_callback_boundary(
         }
     };
 
-    let cleanup_incidents = thread.map_or(0, super::bridge::Scope::finish);
+    // Restore the complete Source context while this bridge still owns the
+    // attachment and native callbacks needed by its terminal cleanup.
+    let execution_incidents = execution
+        .map(|scope| usize::from(!scope.finish().is_success()))
+        .unwrap_or(0);
+    let cleanup_incidents = execution_incidents + thread.map_or(0, super::bridge::Scope::finish);
 
     if cleanup_incidents != 0 {
         super::host::record_cleanup_failure(cleanup_incidents);
