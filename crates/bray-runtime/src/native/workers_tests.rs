@@ -469,6 +469,11 @@ use std::sync::atomic::Ordering;
             let primary = primary.expect("the operational or original panic stays primary");
 
             assert_eq!(primary.worker_failure().is_none(), mode == 2);
+            if let Some(failure) = primary.worker_failure() {
+                assert_eq!(failure.stage, 10);
+                assert_eq!(failure.category, NativeRuntimeStatus::RUNTIME_FAILURE.code());
+                assert_eq!(failure.native_code, 0);
+            }
             assert_eq!(count, usize::from(mode == 2));
 
             let mut report = NativePanicReport::new(primary, crate::report_provider::bray_runtime_report_consumer);

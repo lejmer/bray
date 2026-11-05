@@ -105,7 +105,6 @@ fn independent_entry_restores_the_complete_source_context_after_unwind() {
     let mut rejected = bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
 
     assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&frame).addr(), &mut rejected).is_success());
-    assert!(export::bray_runtime_main_thread_lane_drive().is_success());
     assert_eq!(fixtures::observe(task).state(), bray_runtime_abi::NativeRunState::COMPLETED);
     assert!(fixtures::complete(task).is_success());
     assert!(super::shutdown().is_success());
