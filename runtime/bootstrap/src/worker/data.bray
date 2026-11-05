@@ -142,7 +142,9 @@ internal struct Scope
 
 trusted internal predicate retained(owner: &Marker);
 
-trusted internal predicate retiring(owner: &Reference);
+trusted internal predicate retirement_owned(owner: &Marker);
+
+internal predicate retiring(owner: &Reference) = retirement_owned(owner = &owner.marker);
 
 trusted internal predicate reference_slot(pointer: DataPointer<Reference>);
 
