@@ -615,6 +615,12 @@ fn main() {
         bray_runtime_main_thread_lane_startup(Configuration {
             task_capacity: 8,
             timer_capacity: 8,
+            capabilities: 63,
+            invoke: std::ptr::null(),
+            admit_context: std::ptr::null(),
+            release_context: std::ptr::null(),
+            scope_enter: 0,
+            scope_finish: 0,
         }) == Status::SUCCESS
     );
 

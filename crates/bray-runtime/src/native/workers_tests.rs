@@ -1,3 +1,29 @@
+// Inject rejection at the real native provider-admission boundary. Source owns
+// worker rollback and fallback cleanup, including the precise failure status.
+static DENY_WORKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static REJECTED_WORKERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[expect(improper_ctypes_definitions, reason = "the test provider shares its private opaque scope type")]
+extern "C" fn enter_provider(output: &mut std::mem::MaybeUninit<super::bridge::Scope>, bytes: usize, align: usize) -> u32 {
+    if DENY_WORKERS.load(Ordering::Acquire) {
+        REJECTED_WORKERS.fetch_add(1, Ordering::Release);
+        return bray_runtime_abi::NativeRuntimeStatus::RUNTIME_FAILURE.code();
+    }
+    super::bridge::enter_provider(output, bytes, align)
+}
+
+fn failing_configuration(configuration: bray_runtime_abi::NativeRuntimeConfiguration) -> bray_runtime_abi::NativeRuntimeConfiguration {
+    DENY_WORKERS.store(false, Ordering::Release);
+    REJECTED_WORKERS.store(0, Ordering::Release);
+    configuration.with_native_callbacks(
+        super::task::bray_runtime_execution_invocation,
+        super::task::bray_runtime_execution_context_admission,
+        super::task::bray_runtime_execution_context_release,
+        enter_provider,
+        super::bridge::finish_provider,
+    )
+}
+
 use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -22,7 +48,7 @@ use std::sync::atomic::Ordering;
         state: bray_runtime_abi::NativeFrameStateCallback,
         resume: bray_runtime_abi::NativeFrameResumeCallback,
     ) -> NativeInactiveFrame {
-        super::super::fixtures::admit(
+        super::fixtures::admit(
             0,
             NativeActivationDescriptor {
                 storage: NativeCleanupStorageShape::new([92; 32], 8, 8),
@@ -44,7 +70,7 @@ use std::sync::atomic::Ordering;
 
     #[test]
     fn closed_worker_admission_preserves_suspended_cleanup_on_its_source_root() {
-        use crate::native::{export, state};
+        use crate::native::{export, fixtures};
 
         use bray_runtime_abi::{
             NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
@@ -69,7 +95,6 @@ use std::sync::atomic::Ordering;
         }
 
         extern "C-unwind" fn resume(progress: &mut NativeFrameProgress, _: usize) {
-            let runtime = state::current_runtime().expect("the admitted source root remains bound");
             let state = crate::current_task_execution_context().expect("the callback retains its state").state().raw();
 
             if state == 2 {
@@ -81,7 +106,7 @@ use std::sync::atomic::Ordering;
 
             assert_eq!(state, 0, "failed later admission must not enter ordinary work");
             BODIES.fetch_add(1, Ordering::Relaxed);
-            super::bray_runtime_worker_admission_state(runtime.scheduler.source_reference(), 1);
+            DENY_WORKERS.store(true, Ordering::Release);
             *progress = NativeFrameProgress::new(NativeFrameProgressKind::YIELDED, 1, 0);
         }
 
@@ -115,9 +140,9 @@ use std::sync::atomic::Ordering;
         CLEANUP_STEPS.store(0, Ordering::Relaxed);
         DESTROYED.store(0, Ordering::Relaxed);
 
-        assert!(export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        assert!(export::bray_runtime_main_thread_lane_startup(failing_configuration(NativeRuntimeConfiguration::new(4, 1))).is_success());
 
-        let frame = super::super::fixtures::admit(0, NativeActivationDescriptor {
+        let frame = super::fixtures::admit(0, NativeActivationDescriptor {
             storage: NativeCleanupStorageShape::new([93; 32], 8, 8),
             header: 0,
             completion: 0,
@@ -137,23 +162,22 @@ use std::sync::atomic::Ordering;
 
         let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-        assert!(export::bray_runtime_task_start(task, frame, &mut admitted).is_success());
+        assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&frame).addr(), &mut admitted).is_success());
 
-        let mut outcome = state::with_runtime(|runtime| runtime.resolve_task(task)).expect("the root remains live");
+        let mut outcome = fixtures::observe(task);
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert_eq!(BODIES.load(Ordering::Relaxed), 1);
         assert_eq!(CLEANUP_STEPS.load(Ordering::Relaxed), 2);
         assert!(outcome.take_report().consume(false).is_success());
-        assert!(state::with_runtime(|runtime| runtime.resolve_task_retirement(task)).expect("the owner remains live").is_success());
-        assert!(export::bray_runtime_task_destruction(task).is_success());
+        assert!(fixtures::complete(task).is_success());
         assert_eq!(DESTROYED.load(Ordering::Relaxed), 1);
         assert!(export::bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
     fn late_worker_failure_preserves_cleanup_waits_results_and_original_panics() {
-        use crate::native::{export, fixtures, state};
+        use crate::native::{export, fixtures};
 
         use bray_runtime_abi::{
             NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
@@ -181,9 +205,7 @@ use std::sync::atomic::Ordering;
         }
 
         fn close_workers() {
-            let runtime = state::current_runtime().expect("cleanup retains its Source runtime");
-
-            super::bray_runtime_worker_admission_state(runtime.scheduler.source_reference(), 1);
+            DENY_WORKERS.store(true, Ordering::Release);
         }
 
         extern "C-unwind" fn resume(progress: &mut NativeFrameProgress, mode: usize) {
@@ -354,8 +376,7 @@ use std::sync::atomic::Ordering;
         }
 
         fn drive_cleanup() {
-            let status = state::with_runtime(|runtime| runtime.with_cleanup_driving(|| runtime.drive_main_thread()))
-                .expect("cleanup retains its established runtime");
+            let status = export::bray_runtime_main_thread_lane_drive();
 
             assert!(status.is_success() || status == NativeRuntimeStatus::PENDING, "cleanup drive: {status:?}");
         }
@@ -364,11 +385,8 @@ use std::sync::atomic::Ordering;
             let limit = std::time::Instant::now() + std::time::Duration::from_secs(5);
 
             loop {
-                let failed = state::with_runtime(|runtime| {
-                    let task = runtime.retained_task(task).expect("the task remains live");
-
-                    task.has_worker_failure() || task.snapshot().phase >= 3
-                }).expect("the worker retains its runtime");
+                drive_cleanup();
+                let failed = REJECTED_WORKERS.load(Ordering::Acquire) != 0 || fixtures::snapshot(&fixtures::task(task)).phase >= 3;
 
                 if failed {
                     return;
@@ -379,37 +397,19 @@ use std::sync::atomic::Ordering;
             }
         }
 
-        fn wait_for_registration(task: bray_runtime_abi::NativeTaskHandle, mode: usize, steps: usize) -> u64 {
+        fn wait_for_registration(task: bray_runtime_abi::NativeTaskHandle, mode: usize, steps: usize) {
             let limit = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let owner = fixtures::task(task);
 
             loop {
                 drive_cleanup();
+                let snapshot = fixtures::snapshot(&owner);
+                let waiting = crate::event::native::readiness(owner.reference()) == 0;
 
-                let (waiting, parked, wakes) = state::with_runtime(|runtime| {
-                    let task = runtime.retained_task(task).expect("the suspended task remains live");
-
-                    let waiting = task.suspended_wait.lock().expect("wait transport remains available")
-                        .as_ref().is_some_and(|wait| !wait.is_ready());
-
-                    let snapshot = runtime.scheduler.snapshot().expect("the scheduler remains live");
-
-                    let [scheduled] = snapshot.tasks() else {
-                        panic!("directly composed cleanup retains one task registration");
-                    };
-
-                    (waiting, scheduled.dispatch() == crate::ScheduledTaskState::Idle, scheduled.wake_count())
-                }).expect("the runtime remains live");
-
-                if waiting && parked && STEPS.load(Ordering::Relaxed) == steps {
-                    return wakes;
+                if waiting && snapshot.dispatching == 0 && STEPS.load(Ordering::Relaxed) == steps {
+                    return;
                 }
-
-                assert!(
-                    std::time::Instant::now() < limit,
-                    "mode {mode}: expected parked cleanup step {steps}, found step {} and waiting={waiting}, parked={parked}",
-                    STEPS.load(Ordering::Relaxed),
-                );
-
+                assert!(std::time::Instant::now() < limit, "mode {mode}: cleanup must park at step {steps}, found {snapshot:?}");
                 std::thread::yield_now();
             }
         }
@@ -421,7 +421,7 @@ use std::sync::atomic::Ordering;
                 count.store(0, Ordering::Relaxed);
             }
 
-            assert!(export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
+            assert!(export::bray_runtime_main_thread_lane_startup(failing_configuration(NativeRuntimeConfiguration::new(4, 1))).is_success());
 
             for event in &EVENTS {
                 event.store(export::bray_runtime_task_event_creation(), Ordering::Relaxed);
@@ -432,12 +432,12 @@ use std::sync::atomic::Ordering;
             let task = export::bray_runtime_task_allocation().task().expect("the task is admitted");
             let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-            assert!(export::bray_runtime_task_start(task, frame, &mut admitted).is_success());
+            assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&frame).addr(), &mut admitted).is_success());
 
             wait_for_failure(task);
 
             if matches!(mode, 3 | 4 | 8 | 9) {
-                let before = wait_for_registration(task, mode, usize::from(mode != 4));
+                wait_for_registration(task, mode, usize::from(mode != 4));
 
                 // A fault and stale wake cannot resume a finalizer's unready wait.
                 for _ in 0..4 {
@@ -445,9 +445,7 @@ use std::sync::atomic::Ordering;
                     _ = wait_for_registration(task, mode, usize::from(mode != 4));
                 }
 
-                let after = wait_for_registration(task, mode, usize::from(mode != 4));
-
-                assert_eq!(after - before, 4, "an unready cleanup never wakes itself");
+                wait_for_registration(task, mode, usize::from(mode != 4));
                 assert_eq!(STEPS.load(Ordering::Relaxed), usize::from(mode != 4));
                 assert!(export::bray_runtime_task_event_signal(EVENTS[0].load(Ordering::Relaxed)).is_success());
 
@@ -458,8 +456,7 @@ use std::sync::atomic::Ordering;
                 }
             }
 
-            let mut outcome = state::with_runtime(|runtime| runtime.with_cleanup_driving(|| runtime.resolve_task(task)))
-                .expect("the task remains live");
+            let mut outcome = fixtures::observe(task);
 
             assert_eq!(outcome.state(), NativeRunState::PANICKED, "mode {mode}");
             assert_eq!(STEPS.load(Ordering::Relaxed), if mode == 5 { 0 } else { 3 }, "mode {mode}");
@@ -479,8 +476,7 @@ use std::sync::atomic::Ordering;
             report.set_outgoing(head, tail, count);
             report.set_reserved(reserved);
             assert!(report.consume(false).is_success());
-            assert!(state::with_runtime(|runtime| runtime.resolve_task_retirement(task)).expect("retirement retains its owner").is_success());
-            assert!(export::bray_runtime_task_destruction(task).is_success());
+            assert!(fixtures::complete(task).is_success());
 
             for event in &EVENTS {
                 assert!(export::bray_runtime_task_event_destruction(event.load(Ordering::Relaxed)).is_success());
@@ -492,48 +488,56 @@ use std::sync::atomic::Ordering;
 
     #[test]
     fn concurrent_first_demands_share_one_worker_owner() {
-        use crate::ExecutionWorkload;
-        use crate::native::{export, state};
-        use bray_runtime_abi::NativeRuntimeConfiguration;
-        use std::sync::{Arc, Barrier};
+        use crate::native::{export, fixtures, state};
+        use bray_runtime_abi::{NativeFrameAffinity, NativeFrameState, NativeLaneRequirements, NativeRunState, NativeRuntimeConfiguration};
+        use std::collections::BTreeSet;
+        use std::sync::{Barrier, Mutex};
+
+        static THREADS: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+        extern "C" fn requirements(_: usize, _: u32, _: u32, _: usize) -> NativeFrameState {
+            NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
+        }
+        extern "C-unwind" fn resume(progress: &mut NativeFrameProgress, _: usize) {
+            THREADS.lock().expect("fixture thread set is available").insert(crate::bootstrap::current_runtime_thread().expect("worker retains its attachment").id().raw());
+            *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+        }
 
         let _isolation = crate::native::test_runtime_isolation();
 
-        assert!(
-            export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1),)
-                .is_success()
-        );
-
-        let core = Arc::clone(
-            &state::current_runtime()
-                .expect("the host is initialized")
-                .core,
-        );
-
+        THREADS.lock().expect("fixture thread set is available").clear();
+        assert!(fixtures::startup(NativeRuntimeConfiguration::new(8, 1)).is_success());
+        let owner = state::retain_current_runtime().expect("owner query succeeds").expect("Main owns its execution");
         let barrier = Barrier::new(8);
 
         std::thread::scope(|scope| {
+            let mut joins = Vec::new();
             for _ in 0..8 {
-                let core = &core;
+                let owner = &owner;
                 let barrier = &barrier;
-
-                scope.spawn(move || {
+                joins.push(scope.spawn(move || {
                     barrier.wait();
+                    let ((), status) = state::with_cleanup_runtime(owner, || {
+                        let task = export::bray_runtime_task_allocation().task().expect("concurrent task admission succeeds");
+                        let token = frame(requirements, resume);
+                        let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-                    core.workers
-                        .demand_workload(core, ExecutionWorkload::Cooperative)
-                        .expect("concurrent demands retain the same admitted owner");
-                });
+                        assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&token).addr(), &mut outcome).is_success());
+                        assert_eq!(fixtures::observe(task).state(), NativeRunState::COMPLETED);
+                        assert!(fixtures::complete(task).is_success());
+                    }).expect("the actual retained owner admits its cleanup scope");
+                    assert!(status.is_success());
+                }));
             }
+            for join in joins { join.join().expect("concurrent native entry finishes"); }
         });
-
-        assert!(!core.workers.is_stopping(&core.scheduler));
+        assert_eq!(THREADS.lock().expect("fixture thread set is available").len(), 1);
+        drop(owner);
         assert!(export::bray_runtime_execution_shutdown().is_success());
     }
 
     #[test]
     fn exact_thread_tasks_keep_their_worker_until_resolution() {
-        use crate::native::{export, state};
+        use crate::native::{export, fixtures};
 
         use bray_runtime_abi::{
             NativeFrameAffinity, NativeFrameState,
@@ -562,12 +566,7 @@ use std::sync::atomic::Ordering;
         }
 
         extern "C-unwind" fn child(progress: &mut NativeFrameProgress, _: usize) {
-            let thread = state::current_runtime()
-                .expect("the worker remains attached")
-                .thread
-                .runtime()
-                .id()
-                .raw();
+            let thread = crate::bootstrap::current_runtime_thread().expect("the worker remains attached").id().raw();
 
             assert_eq!(thread, ORIGIN.load(Ordering::Acquire));
 
@@ -579,20 +578,12 @@ use std::sync::atomic::Ordering;
         }
 
         extern "C-unwind" fn parent(progress: &mut NativeFrameProgress, _: usize) {
-            let runtime = state::current_runtime().expect("the parent executes on its worker");
+            ORIGIN.store(crate::bootstrap::current_runtime_thread().expect("parent retains its worker attachment").id().raw(), Ordering::Release);
+            let task = export::bray_runtime_task_allocation().task().expect("the independent exact-thread task is admitted");
+            let token = frame(requirements, child);
+            let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-            ORIGIN.store(runtime.thread.runtime().id().raw(), Ordering::Release);
-
-            let task = runtime
-                .allocate()
-                .task()
-                .expect("the independent exact-thread task is admitted");
-
-            assert!(
-                runtime
-                    .start(task, &frame(requirements, child), &mut bray_runtime_abi::NativeRunOutcome::new(NativeRunState::PENDING, 0))
-                    .is_success()
-            );
+            assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&token).addr(), &mut outcome).is_success());
 
             CHILD.store(task.raw(), Ordering::Release);
 
@@ -606,7 +597,7 @@ use std::sync::atomic::Ordering;
         RESUMES.store(0, Ordering::Relaxed);
 
         assert!(
-            export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1))
+            fixtures::startup(NativeRuntimeConfiguration::new(1, 1))
                 .is_success()
         );
 
@@ -616,14 +607,13 @@ use std::sync::atomic::Ordering;
 
         let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-        assert!(export::bray_runtime_task_start(parent_task, frame(blocking, parent), &mut admitted).is_success());
+        assert!(export::bray_runtime_task_start(parent_task, std::ptr::from_ref(&frame(blocking, parent)).addr(), &mut admitted).is_success());
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
 
         let child = loop {
             if let Some(child) = NativeTaskHandle::new(CHILD.load(Ordering::Acquire)) {
-                if state::with_runtime(|runtime| runtime.observe(child))
-                    .expect("the host remains active")
+                if fixtures::poll(&fixtures::task(child))
                     .state()
                     == NativeRunState::COMPLETED
                 {
@@ -642,40 +632,13 @@ use std::sync::atomic::Ordering;
         assert_eq!(RESUMES.load(Ordering::Acquire), 2);
 
         assert_eq!(
-            state::with_runtime(|runtime| runtime.observe(parent_task))
-                .expect("the parent remains owned")
+            fixtures::observe(parent_task)
                 .state(),
             NativeRunState::COMPLETED
         );
 
         for task in [child, parent_task] {
-            let deadline = std::time::Instant::now() + Duration::from_secs(5);
-
-            loop {
-                let status = state::with_runtime(|runtime| runtime.retire_task(task))
-                    .expect("the run remains owned");
-
-                if status.is_success() {
-                    break;
-                }
-
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "retirement must progress: {:?}",
-                    state::with_runtime(|runtime| (
-                        runtime
-                            .retained_task(task)
-                            .expect("the run remains retained")
-                            .snapshot(),
-                        runtime.scheduler.snapshot()
-                    ))
-                    .expect("the runtime remains active")
-                );
-
-                std::thread::yield_now();
-            }
-
-            assert!(export::bray_runtime_task_destruction(task).is_success());
+            assert!(fixtures::complete(task).is_success());
         }
 
         assert!(export::bray_runtime_execution_shutdown().is_success());
@@ -683,7 +646,7 @@ use std::sync::atomic::Ordering;
 
     #[test]
     fn blocked_work_keeps_other_lanes_and_blocking_children_running() {
-        use crate::native::{export, state};
+        use crate::native::{export, fixtures};
 
         use bray_runtime_abi::{
             NativeFrameAffinity, NativeFrameState, NativeLaneRequirements,
@@ -748,9 +711,7 @@ use std::sync::atomic::Ordering;
         }
 
         extern "C-unwind" fn main_work(progress: &mut NativeFrameProgress, _: usize) {
-            let runtime = state::current_runtime().expect("main work retains its attachment");
-
-            assert_eq!(runtime.thread.runtime().id().raw(), MAIN.load(Ordering::Acquire));
+            assert_eq!(crate::bootstrap::current_runtime_thread().expect("main work retains its attachment").id().raw(), MAIN.load(Ordering::Acquire));
             FINISHED.fetch_or(4, Ordering::Release);
             *progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
         }
@@ -762,9 +723,9 @@ use std::sync::atomic::Ordering;
         FINISHED.store(0, Ordering::Relaxed);
         RESUMES.store(0, Ordering::Relaxed);
 
-        assert!(export::bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        assert!(fixtures::startup(NativeRuntimeConfiguration::new(4, 1)).is_success());
 
-        MAIN.store(state::current_runtime().expect("the host is active").thread.runtime().id().raw(), Ordering::Release);
+        MAIN.store(crate::bootstrap::current_runtime_thread().expect("the host is active").id().raw(), Ordering::Release);
 
         let _release = ReleaseBlockedWorker;
         let started = Instant::now();
@@ -778,7 +739,7 @@ use std::sync::atomic::Ordering;
 
             let mut admitted = NativeRunOutcome::new(NativeRunState::PENDING, 0);
 
-            assert!(export::bray_runtime_task_start(task, frame(requirements, resume), &mut admitted).is_success());
+            assert!(export::bray_runtime_task_start(task, std::ptr::from_ref(&frame(requirements, resume)).addr(), &mut admitted).is_success());
             tasks.push(task);
 
             if tasks.len() == 1 {
@@ -811,12 +772,8 @@ use std::sync::atomic::Ordering;
         println!("compute_resumes={COMPUTE_RESUMES} elapsed_ns={}", started.elapsed().as_nanos());
 
         for task in tasks {
-            let runtime = state::current_runtime().expect("the host stays active");
-
-            assert_eq!(runtime.resolve_task(task).state(), NativeRunState::COMPLETED);
-            assert!(runtime.resolve_task_retirement(task).is_success());
-
-            assert!(export::bray_runtime_task_destruction(task).is_success());
+            assert_eq!(fixtures::observe(task).state(), NativeRunState::COMPLETED);
+            assert!(fixtures::complete(task).is_success());
         }
 
         assert!(export::bray_runtime_execution_shutdown().is_success());

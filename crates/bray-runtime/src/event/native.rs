@@ -29,7 +29,7 @@ unsafe extern "C" {
         descriptor: &NativeEventCallback,
     ) -> NativeRuntimeStatus;
     #[link_name = "bray_runtime_event_readiness"]
-    pub(super) safe fn readiness(reference: &NativeTaskReference) -> u32;
+    pub(crate) safe fn readiness(reference: &NativeTaskReference) -> u32;
     #[link_name = "bray_runtime_event_withdrawal"]
     pub(super) safe fn withdrawal(reference: &NativeTaskReference) -> u32;
     #[link_name = "bray_runtime_event_signal"]

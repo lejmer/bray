@@ -155,7 +155,7 @@ mod tests {
             outcome: &mut bray_runtime_abi::NativeRunOutcome,
             _: &mut bray_runtime_abi::NativeReportRecords,
         ) {
-            let isolated = super::super::state::with_runtime(|_| ()).is_err();
+            let isolated = super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_none();
 
             *outcome = bray_runtime_abi::NativeRunOutcome::new(
                 bray_runtime_abi::NativeRunState::COMPLETED,
@@ -183,12 +183,12 @@ mod tests {
 
             assert_eq!(outcome.state(), bray_runtime_abi::NativeRunState::COMPLETED);
             assert_eq!(outcome.payload(), 1);
-            assert!(super::super::state::with_runtime(|_| ()).is_ok());
+            assert!(super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_some());
         })
         .expect("fixture static cleanup context must be installed");
 
         assert!(incident.is_none());
-        assert!(super::super::state::with_runtime(|_| ()).is_err());
+        assert!(super::super::state::retain_current_runtime().expect("Source owner query succeeds").is_none());
         assert!(crate::bootstrap::current_runtime_thread().is_none());
     }
 

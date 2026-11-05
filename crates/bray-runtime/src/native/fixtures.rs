@@ -254,7 +254,7 @@ mod tests {
     use bray_runtime_abi::{
         NativeActivationDescriptor, NativeActivationExecution, NativeCleanupStorageShape,
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrameTransfer, NativeLaneRequirements,
+        NativeFrameState, NativeLaneRequirements,
         NativeRuntimeConfiguration,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -348,8 +348,10 @@ mod tests {
         assert_eq!(QUERIES.load(Ordering::Relaxed), 2);
 
         let root = super::super::export::bray_runtime_root_execution(
-            NativeInactiveFrameTransfer::new(&token),
-            NativeRuntimeConfiguration::new(1, 1),
+            {
+                assert!(super::startup(NativeRuntimeConfiguration::new(1, 1)).is_success());
+                std::ptr::from_ref(&token).addr()
+            },
             &mut bray_runtime_abi::NativeRunOutcome::new(
                 bray_runtime_abi::NativeRunState::COMPLETED,
                 0,

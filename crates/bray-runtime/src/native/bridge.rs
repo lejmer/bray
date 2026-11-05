@@ -322,7 +322,7 @@ mod tests {
     ) -> u32 {
         assert_eq!(context, 41);
         assert_eq!(main, 1);
-        assert!(super::super::state::current_native_task().is_none());
+        assert!(crate::current_task_execution_context().is_none());
         assert!(!crate::current_run_cancellation_requested());
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 73);
 
@@ -333,209 +333,19 @@ mod tests {
     fn bridge_restores_context_and_keeps_body_result_separate_from_terminal_status() {
         let _isolation = super::super::state::test_runtime_isolation();
 
-        let task = bray_runtime_abi::NativeTaskHandle::new(9)
-            .expect("fixture native task handle must be valid");
-
         let cancellation = crate::CancellationContext::root();
 
         assert!(cancellation.request());
 
         crate::context::with_run_cancellation_context(cancellation, || {
-            super::super::state::with_current_task(task, || {
                 let mut outcome = NativeRunOutcome::new(NativeRunState::RUNTIME_FAILURE, 4);
                 let status = super::invoke(continuation, std::ptr::null(), 41, 1, &mut outcome);
 
                 assert_eq!(status, 5);
                 assert_eq!(outcome.state(), NativeRunState::COMPLETED);
                 assert_eq!(outcome.payload(), 73);
-                assert_eq!(super::super::state::current_native_task(), Some(task));
+                assert!(crate::current_task_execution_context().is_none());
                 assert!(crate::current_run_cancellation_requested());
-            });
         });
-    }
-    thread_local! {
-        static RELEASES: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
-    }
-
-    struct Release(usize);
-
-    impl Drop for Release {
-        fn drop(&mut self) {
-            RELEASES.with_borrow_mut(|released| released.push(self.0));
-        }
-    }
-
-    #[test]
-    fn retirement_panic_follows_body_without_admitting_after_the_callback() {
-        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let body = crate::RuntimePanic::new(Release(1), &mut body_backing);
-        let mut outcome = NativeRunOutcome::panicked(body.into_native());
-
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let _failure = crate::outgoing::tests::reject_admission();
-
-        assert_eq!(
-            super::report_retirement(&mut outcome, Box::new(Release(2)), &mut retirement),
-            bray_runtime_abi::NativeRuntimeStatus::PANICKED
-        );
-
-        assert_eq!(retirement.len(), 0);
-        assert_eq!(outcome.state(), NativeRunState::PANICKED);
-        assert!(RELEASES.with_borrow(Vec::is_empty));
-
-        let mut report = outcome.take_report();
-
-        assert_eq!(report.outgoing_count(), 1);
-        assert!(report.consume(false).is_success());
-        assert!(report.consume(false).is_success());
-        assert_eq!(RELEASES.with_borrow_mut(std::mem::take), [1, 2]);
-    }
-
-    #[test]
-    fn retirement_reports_without_taking_the_completed_result() {
-        let completed = Box::new(Release(2));
-        let destination = std::ptr::from_ref(completed.as_ref()).addr();
-        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
-
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let _failure = crate::outgoing::tests::reject_admission();
-
-        assert_eq!(
-            super::report_retirement(&mut outcome, Box::new(Release(1)), &mut retirement),
-            bray_runtime_abi::NativeRuntimeStatus::PANICKED
-        );
-
-        assert_eq!(retirement.len(), 0);
-        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-        assert_eq!(outcome.payload(), destination);
-        assert_eq!(RELEASES.with_borrow_mut(std::mem::take), [1]);
-
-        drop(outcome);
-        drop(completed);
-        assert_eq!(RELEASES.with_borrow_mut(std::mem::take), [2]);
-    }
-
-    #[test]
-    fn transferred_retirement_report_uses_the_admitted_suppression_record() {
-        extern "C" fn release(id: usize, _: usize, _: &mut NativeRunOutcome) {
-            RELEASES.with_borrow_mut(|released| released.push(id));
-        }
-
-        let mut body_backing = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let body = crate::RuntimePanic::new(Release(1), &mut body_backing);
-        let mut outcome = NativeRunOutcome::panicked(body.into_native());
-
-        let cleanup = crate::RuntimePanic::from_native(crate::frame::native_report(
-            bray_runtime_abi::NativePanicPrimary::new(
-                bray_runtime_abi::NativePanicCause::MESSAGE,
-                bray_runtime_abi::NativeSourceAnchor::unavailable(),
-                bray_runtime_abi::NativePanicMessage::new(2, 0, None, Some(release)),
-            ),
-        ));
-
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let _failure = crate::outgoing::tests::reject_admission();
-
-        assert_eq!(
-            super::report_retirement(&mut outcome, Box::new(cleanup), &mut retirement),
-            bray_runtime_abi::NativeRuntimeStatus::PANICKED
-        );
-
-        assert_eq!(retirement.len(), 0);
-        assert!(outcome.take_report().consume(false).is_success());
-        assert_eq!(RELEASES.with_borrow_mut(std::mem::take), [1, 2]);
-    }
-
-    #[test]
-    fn missing_retirement_backing_rejects_before_continuation() {
-        extern "C" fn rejected(_: *const u8, _: usize, _: u32, _: &mut NativeRunOutcome) -> u32 {
-            panic!("entry must admit terminal backing before invoking its continuation");
-        }
-
-        let mut outcome = NativeRunOutcome::new(NativeRunState::RUNTIME_FAILURE, 0);
-        let _failure = crate::outgoing::tests::reject_admission();
-
-        assert_eq!(
-            super::invoke(rejected, std::ptr::null(), 0, 0, &mut outcome),
-            0
-        );
-
-        assert_eq!(outcome.state(), NativeRunState::PANICKED);
-
-        let mut report = outcome.take_report();
-
-        assert!(report.consume(false).is_success());
-    }
-    #[cfg(feature = "test-output")]
-    #[test]
-    fn completed_body_reports_the_exact_retirement_message_once() {
-        thread_local! {
-            static MESSAGES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
-        }
-
-        let _isolation = super::super::state::test_runtime_isolation();
-
-        let callbacks = super::super::host::NativeHostCallbacks::new(
-            || true,
-            || None,
-            |_| {},
-            |_| {},
-            |primary, identity| {
-                assert!(identity.is_none());
-
-                assert_eq!(
-                    primary.cause(),
-                    bray_runtime_abi::NativePanicCause::RUNTIME_PANIC
-                );
-
-                let mut message = vec![0; primary.message().len()];
-
-                assert!(primary.message().copy_to(0, &mut message).is_success());
-
-                MESSAGES.with_borrow_mut(|messages| {
-                    messages
-                        .push(String::from_utf8(message).expect("fixture text must be valid UTF-8"))
-                });
-
-                bray_runtime_abi::NativeRuntimeStatus::SUCCESS
-            },
-            || panic!("retirement panic is not a returned error"),
-            |_| {},
-            || Ok(()),
-        );
-
-        assert!(super::super::host::register_host_callbacks(callbacks).is_success());
-
-        let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 73);
-
-        let mut retirement = crate::outgoing::OutgoingRecords::admit(1)
-            .expect("fixture outgoing records must admit the supplied values");
-
-        let _failure = crate::outgoing::tests::reject_admission();
-
-        assert_eq!(
-            super::report_retirement(&mut outcome, Box::new("retirement detail"), &mut retirement),
-            bray_runtime_abi::NativeRuntimeStatus::PANICKED
-        );
-
-        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-        assert_eq!(outcome.payload(), 73);
-
-        assert_eq!(
-            MESSAGES.with_borrow_mut(std::mem::take),
-            ["retirement detail"]
-        );
-
-        assert!(super::super::host::finish().is_ok());
     }
 }

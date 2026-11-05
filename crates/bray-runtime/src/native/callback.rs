@@ -109,7 +109,7 @@ fn execute_callback_boundary(
 #[cfg(test)]
 mod tests {
     use bray_runtime_abi::{
-        NativeRunOutcome, NativeRunState, NativeTaskHandle, NativeThreadOperationCallback,
+        NativeRunOutcome, NativeRunState, NativeThreadOperationCallback,
     };
 
     use super::{bray_runtime_native_thread_execution, execute_native_thread};
@@ -128,7 +128,7 @@ mod tests {
     }
 
     extern "C-unwind" fn assert_independent_native_task(_: usize, outcome: &mut NativeRunOutcome) {
-        assert_eq!(super::super::state::current_native_task(), None);
+        assert!(crate::current_task_execution_context().is_none());
         assert!(!crate::current_run_cancellation_requested());
 
         #[cfg(feature = "test-output")]
@@ -140,7 +140,6 @@ mod tests {
     fn assert_reentrant_entry_isolates_and_restores_outer_context(
         execute: extern "C" fn(NativeThreadOperationCallback, usize) -> NativeRunOutcome,
     ) {
-        let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
         let cancellation = crate::CancellationContext::root();
 
         assert!(cancellation.request());
@@ -154,21 +153,19 @@ mod tests {
         crate::context::with_native_thread_cancellation(cancellation_requested, 0, || {
             crate::context::with_run_cancellation_context(cancellation, || {
                 crate::context::with_task_output(output, || {
-                    super::super::state::with_current_task(task, || {
                         let outcome = execute(assert_independent_native_task, 0);
 
                         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-                        assert_eq!(super::super::state::current_native_task(), Some(task));
+                        assert!(crate::current_task_execution_context().is_none());
                         assert!(crate::current_run_cancellation_requested());
 
                         #[cfg(feature = "test-output")]
                         assert!(crate::context::current_task_output().is_some());
-                    });
                 });
             });
         });
 
-        assert_eq!(super::super::state::current_native_task(), None);
+        assert!(crate::current_task_execution_context().is_none());
     }
 
     #[test]
