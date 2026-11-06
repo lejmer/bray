@@ -588,6 +588,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             branch
                 .assumptions
                 .extend(candidate.selection.iter().cloned());
+
             branch.assumptions.extend(entry.assumptions.iter().cloned());
 
             if !self.owned_normal_completion(&branch.assumptions, source, &entry, root) {

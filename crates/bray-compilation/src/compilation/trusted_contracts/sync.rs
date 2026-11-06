@@ -550,14 +550,18 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 }}
             "#
             );
+
             let application = compilation(&source);
+
             assert!(
                 !application.syntax_tree_result().diagnostics().has_errors(),
                 "{source}"
             );
+
             let checked = application
                 .lowered_unit(source_function_body_key(&application, "caller"))
                 .expect("complete protocol owners retain their checked storage context");
+
             assert_eq!(
                 !checked.diagnostics().has_errors(),
                 valid,
@@ -590,14 +594,18 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
             func caller(pos pointer: DataPointer<u32>) requires(trusted slot(owner = &pointer)) {{ {body} }}
         "#
         );
+
         let application = compilation(&source);
+
         assert!(
             !application.syntax_tree_result().diagnostics().has_errors(),
             "{source}"
         );
+
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
             .expect("entry slot authority retains its actual pointer owner");
+
         assert_eq!(
             !checked.diagnostics().has_errors(),
             valid,
@@ -621,14 +629,18 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
             return core.memory.read<u32>(pointer);
         }
     "#;
+
     let application = compilation(source);
+
     assert!(
         !application.syntax_tree_result().diagnostics().has_errors(),
         "{source}"
     );
+
     let checked = application
         .lowered_unit(source_function_body_key(&application, "caller"))
         .expect("unowned memory permissions retain their checked failure");
+
     assert!(
         checked
             .diagnostics()
@@ -663,14 +675,18 @@ fn guarded_owner_authority_uses_entry_values_after_mutation_and_opaque_calls() {
             }}
         "#
         );
+
         let application = compilation(&source);
+
         assert!(
             !application.syntax_tree_result().diagnostics().has_errors(),
             "{source}"
         );
+
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
             .expect("owner guards retain their actual entry values");
+
         assert_eq!(
             !checked.diagnostics().has_errors(),
             valid,
