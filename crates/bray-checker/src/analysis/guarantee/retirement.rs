@@ -151,7 +151,7 @@ impl ExecutionState {
         };
 
         self.assumptions
-            .retain(|(condition, _)| !condition.observes_live_where(observes));
+            .retain(|(condition, _)| retained_contents(condition) || !condition.observes_live_where(observes));
 
         let mut retired_conditions = BTreeSet::new();
 
