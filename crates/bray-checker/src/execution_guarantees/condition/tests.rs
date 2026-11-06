@@ -523,4 +523,8 @@ fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
     assert!(declared.implies(&published));
     assert!(trusted.implies(&ordinary));
     assert!(!ordinary.implies(&trusted));
+
+    let unresolved = or(ordinary, ExecutionCondition::Unknown);
+
+    assert!(!unresolved.implies(&unresolved));
 }

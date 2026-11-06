@@ -105,6 +105,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     target,
                 )?;
 
+                if let Some(bray_bound_tree::StorageIdentity::Static(declaration)) =
+                    self.storage.identity(target.root)
+                {
+                    // Physical storage paths group a static declaration's instances.
+                    // Keep the exact selected instance from the evaluated input.
+                    let input = self.current_input(state, input);
+                    let (ExecutionCondition::Input(mut place), _) = input.observation_path()?
+                    else {
+                        return None;
+                    };
+
+                    if place.selected_static() != Some(declaration) {
+                        return None;
+                    }
+
+                    place.projections = std::sync::Arc::new([]);
+
+                    let place = place.project(&target.projections)?;
+
+                    return Some(
+                        place
+                            .value_in(&state.current)
+                            .unwrap_or(ExecutionCondition::Input(place)),
+                    );
+                }
+
                 Some(self.storage_path_value(state, &target))
             };
 

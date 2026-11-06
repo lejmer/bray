@@ -206,7 +206,10 @@ trusted internal func native_owner_release(pos input: DataPointer<Owner>, pos sc
 
     // Closing can defer worker joins on work held by the initiating caller,
     // even while cleanup is bound to another execution. Keep both contexts.
-    return trusted release_owned_pin(trusted close_owner(&entered.current, trusted take(&input)));
+    let mut owner = trusted take(&input);
+
+    trusted close_owner(&entered.current, &mut owner);
+    return trusted release_owned_pin(owner);
 }
 
 // The same-domain case borrows the actual installed context, including its
