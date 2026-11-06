@@ -34,7 +34,11 @@ trusted internal func initialize(
         )
     };
 
-    let records = owner.records;
+    let records = std.memory.replace_value<bray.runtime.bootstrap.ReportRecords>(
+        &mut owner.records,
+        bray.runtime.bootstrap.empty_records()
+    );
+
     let protocol = trusted form_state(owner, reference, header, completion, cancellation);
 
     trusted place_state(protocol, description);

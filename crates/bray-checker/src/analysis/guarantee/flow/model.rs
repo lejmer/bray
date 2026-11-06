@@ -467,21 +467,7 @@ impl<C: CheckerRequestContext + ?Sized> FixedPointDomain for ExecutionFlowDomain
             }
 
             for (condition, subject) in &contracts.required_witnesses {
-                let mut root = subject.clone();
-
-                root.projections = std::sync::Arc::new([]);
-
-                let subject = ExecutionCondition::Input(subject.clone());
-
-                let carrier = self
-                    .observed_types
-                    .get(&root)
-                    .copied()
-                    .flatten()
-                    .and_then(|ty| subject.witness_carrier(self.request.semantic_values(), ty))
-                    .map_or(subject, |(carrier, _)| carrier);
-
-                state.carry_guarantee(carrier, condition.clone());
+                state.carry_guarantee(ExecutionCondition::Input(subject.clone()), condition.clone());
             }
 
             for (condition, owner) in self.allocation_subjects(&contracts.requirements) {

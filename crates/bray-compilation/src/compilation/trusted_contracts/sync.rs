@@ -2612,41 +2612,46 @@ fn independent_tuple_carriers_remain_whole_after_destructuring() {
 
 #[test]
 fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
-    for (result, body, valid) in [
-        ("Guard", "return guard;", true),
-        ("Marker", "return guard.marker;", false),
-        (
-            "Guard",
-            "return { owner = other, marker = guard.marker };",
-            false,
-        ),
-    ] {
-        let source = format!(
-            r#"
-            trusted module app;
-            struct Lock {{ tag: u32; }}
-            struct Marker {{}}
-            struct Guard {{ owner: &Lock; marker: Marker; }}
-            trusted predicate held(marker: &Marker);
-            func transfer(pos guard: Guard, pos other: &Lock) -> {result}
-                requires(trusted held(&guard.marker)) {{ {body} }}
-        "#
-        );
+    for (input, subject) in [("Guard", "guard"), ("Envelope", "guard.inner")] {
+        for (result, body, valid) in [
+            ("Guard", "return guard;", true),
+            ("Marker", "return guard.marker;", false),
+            (
+                "Guard",
+                "return { owner = other, marker = guard.marker };",
+                false,
+            ),
+        ] {
+            let body = body.replace("guard", subject);
 
-        let application = compilation(&source);
-        let diagnostics = application.check_diagnostics();
-
-        assert_eq!(
-            !diagnostics.has_errors(),
-            valid,
-            "{source}: {diagnostics:#?}"
-        );
-
-        if !valid {
-            bray_testing::assert_goal_state_diagnostic_kind(
-                diagnostics,
-                DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+            let source = format!(
+                r#"
+                trusted module app;
+                struct Lock {{ tag: u32; }}
+                struct Marker {{}}
+                struct Guard {{ owner: &Lock; marker: Marker; }}
+                struct Envelope {{ inner: Guard; label: u32; }}
+                trusted predicate held(marker: &Marker);
+                func transfer(pos guard: {input}, pos other: &Lock) -> {result}
+                    requires(trusted held(&{subject}.marker)) {{ {body} }}
+            "#
             );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:#?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+                );
+            }
         }
     }
 }

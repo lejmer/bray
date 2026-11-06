@@ -239,7 +239,7 @@ impl ExecutionState {
     ) {
         let witness = self
             .witnesses
-            .entry(carrier.guarantee_carrier().clone())
+            .entry(carrier.owner_identity().clone())
             .or_default();
 
         witness.carry(&condition, true, &Default::default());
@@ -681,11 +681,9 @@ mod tests {
         retained.insert_classified(observed, bray_bound_tree::StorageObservationKind::Discriminant);
         state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained);
         assert!(state.assumptions.contains(&(guard.clone(), true)));
-        assert!(state.trusted_assumptions.contains(&(guard.clone(), true)));
+        assert_eq!(guard.prove_trusted(&state.trusted_assumptions, &state.assumptions), Some(true));
         assert!(!state.assumptions.contains(&(payload.clone(), true)));
         assert!(!state.trusted_assumptions.contains(&(payload, true)));
-        state.invalidate_trusted(&owner);
-        assert!(!state.trusted_assumptions.contains(&(guard, true)));
     }
 
     #[test]

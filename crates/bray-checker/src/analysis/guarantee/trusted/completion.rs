@@ -239,18 +239,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }));
 
         let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
-            && let Some((expression, call)) = self.observation_call(invocation)
+            && let Some((_, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
-            self.refresh_borrowed_arguments(state, invocation, &mut arguments, observations);
-
             self.prepare_call_observations(
                 state,
-                expression,
+                invocation,
                 call,
                 &mut arguments,
                 &entry.addresses,
-                observations.borrow_origins(),
+                observations,
                 !guarantees.is_empty(),
             )
         } else {
@@ -342,7 +340,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     state
                         .witnesses
-                        .entry(carrier.guarantee_carrier().clone())
+                        .entry(carrier.owner_identity().clone())
                         .or_default()
                         .carry(&guarantee, true, &addresses);
                 }
@@ -406,7 +404,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let witness = state
             .witnesses
-            .entry(carrier.guarantee_carrier().clone())
+            .entry(carrier.owner_identity().clone())
             .or_default();
 
         if !dependencies.is_subset(&witness.dependencies) {
@@ -435,7 +433,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 {
                     state
                         .allocation_owners
-                        .insert(predicate.clone(), carrier.guarantee_carrier().clone());
+                        .insert(predicate.clone(), carrier.owner_identity().clone());
                 }
                 _ => {}
             }

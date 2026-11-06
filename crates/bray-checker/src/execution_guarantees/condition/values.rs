@@ -27,66 +27,37 @@ impl ExecutionCondition {
         }
     }
 
-    /// Identifies the complete nominal carrier within tuple, array and nullable wrappers.
-    /// The supplied type is the checked type of the root input or completion result.
-    pub fn witness_carrier(
-        &self,
-        values: &bray_symbols::SemanticValueStore,
-        mut ty: bray_symbols::TypeId,
-    ) -> Option<(Self, bray_symbols::TypeId)> {
-        let mut path = Vec::new();
-        let mut subject = self;
-
-        let mut carrier = loop {
-            match subject {
-                Self::Projection(projection, parent) => {
-                    path.push(*projection);
-                    subject = parent;
-                }
-                Self::Borrowed(parent) => subject = parent,
-                Self::Result => break Self::Result,
-                Self::Input(place) => {
-                    path.extend(place.projections.iter().rev().copied());
-
-                    let mut root = place.clone();
-
-                    root.projections = Arc::new([]);
-                    break Self::Input(root);
-                }
-                _ => return None,
-            }
+    /// Retains the predicate's checked subject, or the value containing its marker or address field.
+    /// Enclosing aggregates do not replace an independently typed child owner.
+    pub fn witness_carrier(&self, containing_value: bool) -> Self {
+        let subject = match self {
+            Self::Borrowed(value) => value.as_ref(),
+            value => value,
         };
 
-        for projection in path.into_iter().rev() {
-            while let bray_symbols::TypeData::Borrow { target, .. } = values.type_data(ty).as_ref()
-            {
-                ty = *target;
-            }
-
-            let data = values.type_data(ty);
-
-            ty = match (data.as_ref(), projection) {
-                (
-                    bray_symbols::TypeData::Tuple(elements),
-                    bray_symbols::ConstantProjectionKind::TupleElement(index),
-                ) => *elements
-                    .get(usize::try_from(index.raw()).expect("checked tuple ordinal fits usize"))
-                    .expect("checked carrier projection retains a tuple element"),
-                (
-                    bray_symbols::TypeData::Nullable(inner),
-                    bray_symbols::ConstantProjectionKind::NullableValue,
-                )
-                | (
-                    bray_symbols::TypeData::Array { element: inner, .. },
-                    bray_symbols::ConstantProjectionKind::ArrayElementOrdinal(_),
-                ) => *inner,
-                _ => break,
-            };
-
-            carrier = carrier.component(projection);
+        if !containing_value {
+            return subject.clone();
         }
 
-        Some((carrier, ty))
+        match subject {
+            Self::Input(place) if place.projections.last().is_some_and(|projection| matches!(
+                projection,
+                bray_symbols::ConstantProjectionKind::ProductField(_)
+                    | bray_symbols::ConstantProjectionKind::UnionPayloadField(_)
+            )) => {
+                let mut owner = place.clone();
+
+                owner.projections = owner.projections[..owner.projections.len() - 1].into();
+
+                Self::Input(owner)
+            }
+            Self::Projection(
+                bray_symbols::ConstantProjectionKind::ProductField(_)
+                    | bray_symbols::ConstantProjectionKind::UnionPayloadField(_),
+                parent,
+            ) => parent.as_ref().clone(),
+            value => value.clone(),
+        }
     }
 
     pub(crate) fn call(
