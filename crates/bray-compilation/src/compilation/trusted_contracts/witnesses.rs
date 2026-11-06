@@ -225,9 +225,15 @@ impl Compilation {
                             }
 
                             let subject = if argument.observes_completion_result() {
-                                if let Some(result) = result {
-                                    if !self.trusted_result_is_witness(
-                                        result,
+                                if result.is_some() {
+                                    let subject = argument.witness_carrier(self.trusted_subject_needs_owner(
+                                        ty, cancellation, diagnostics,
+                                    )?);
+
+                                    // A named container carries its field guarantees. A standalone
+                                    // address retains its copyable storage facts, including in tuples.
+                                    if subject == argument.witness_carrier(false) && !self.trusted_result_is_witness(
+                                        values.unborrowed_type(ty),
                                         std::slice::from_ref(guarantee),
                                         cancellation,
                                         diagnostics,
@@ -235,9 +241,7 @@ impl Compilation {
                                         continue;
                                     }
 
-                                    argument.witness_carrier(self.trusted_subject_needs_owner(
-                                        ty, cancellation, diagnostics,
-                                    )?)
+                                    subject
                                 } else {
                                     ExecutionCondition::Result
                                 }

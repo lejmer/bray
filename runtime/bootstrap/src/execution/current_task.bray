@@ -91,18 +91,15 @@ trusted internal func selected_lane(pos selected: &Current) -> bray.runtime.boot
 trusted internal func dispatch_task(
     pos selected: &Current,
     pos owner: &bray.runtime.bootstrap.execution.Reference,
-    pos task: bray.runtime.bootstrap.task.Reference,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
     pos registration: u64,
     pos lane: bray.runtime.bootstrap.scheduler.Lane
-) -> (
-        bray.runtime.bootstrap.task.Reference,
-        (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32)
-    )
+) -> (bray.runtime.bootstrap.activation.Progress, bray.runtime.bootstrap.activation.requirements.Execution, u32)
     requires(
         trusted view_owned(owner = &selected.acquisition),
         selected.status == 0,
-        trusted bray.runtime.bootstrap.task.retained(owner = &task),
-        trusted bray.runtime.bootstrap.task.owned_reference(owner = &task),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = reference),
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -111,12 +108,11 @@ trusted internal func dispatch_task(
     ensures(
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
-        trusted bray.runtime.bootstrap.task.retained(owner = &result.0),
-        trusted bray.runtime.bootstrap.task.owned_reference(owner = &result.0)
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = reference)
     )
     uses(intrinsic)
 {
-    let reference = &task;
     let value = trusted context(selected);
     let mut failure = trusted task_failure(reference);
 
@@ -160,7 +156,7 @@ trusted internal func dispatch_task(
     core.atomic.store<u64, 0>(&value.registration, previous_registration);
     core.atomic.store<usize, 0>(&value.task, previous_task);
     trusted bray.runtime.bootstrap.task.release_dispatch(claim, &failure);
-    return (task, returned);
+    return returned;
 }
 
 // Borrow the actual driver, queue owner and retained task throughout this cell

@@ -96,16 +96,18 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                 .unwrap_or(crate::ExecutionCondition::Unknown);
 
             for (index, projection) in input.projections.iter().enumerate() {
-                if (state.directly_carries_witness(&value)
-                    || state
-                        .witnesses
-                        .get(value.owner_identity())
-                        .is_some_and(|witness| {
-                            witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
-                        }))
+                let container = reached_container(&value);
+                let witness = state.witnesses.get(container.owner_identity());
+
+                if witness.is_some_and(|witness| {
+                        state.directly_carries_witness(container)
+                            || witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
+                    })
                     && input.projections[index..].iter().any(|projection| {
                         *projection != bray_symbols::ConstantProjectionKind::NullableValue
                     })
+                    && !independent_result_owner(domain, invocation, entry, transfer,
+                        &input, witness.expect("a partial witness retains its owning contract"))
                 {
                     let condition =
                         cases
@@ -145,6 +147,65 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
             }
         }
     }
+}
+
+fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
+    domain: &ExecutionFlowDomain<'_, '_, C>,
+    invocation: bray_bound_tree::BoundExecutionSite,
+    entry: &crate::ExecutionCallEvidence,
+    transfer: &bray_symbols::DependencyOwnedTransfer,
+    input: &crate::ExecutionPlace,
+    parent: &crate::execution_guarantees::ExecutionWitness,
+) -> bool {
+    let capture = |condition: &crate::ExecutionCondition| condition.capture_entry(
+        &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+        &entry.trusted_assumptions, &entry.assumptions,
+        &mut { crate::ExecutionCondition::WORK_LIMIT },
+    );
+
+    let ordinary = crate::TrustedCallContract::default();
+
+    let declared = domain.request.trusted_contracts()
+        .and_then(|contracts| contracts.calls.get(&invocation)).unwrap_or(&ordinary);
+
+    // Use the same checked carrier selection as completion. An independently
+    // introduced result owner may receive a component, but cannot transport the
+    // parent's authority through that component.
+    let (_, subjects) = domain.completion_guarantees(invocation, declared, &capture);
+
+    let path = crate::storage::owned_storage_projections(domain.dependencies, transfer.output());
+    let output = path.iter().copied().fold(crate::ExecutionCondition::Result, |value, projection| value.project(projection));
+
+    if !subjects.iter().any(|(_, subject)| subject.observes_completion_result()
+        && output.is_owned_projection_of(subject)) {
+        return false;
+    }
+
+    let Some(source) = input.value_in(&entry.arguments) else { return false; };
+
+    let result = crate::ExecutionCondition::Result.with_component(transfer.output(), source, Some(&path));
+    let mut potential = BTreeSet::new();
+
+    for (guarantee, subject) in &subjects {
+        if !subject.observes_completion_result() { continue; }
+
+        let guarantee = guarantee.substitute(
+            &|place| place.value_in(&entry.arguments).unwrap_or(crate::ExecutionCondition::Unknown),
+            &result, &mut { crate::ExecutionCondition::WORK_LIMIT },
+        );
+
+        // Ignore ordinary guards when checking which trusted authority could
+        // escape. A later branch can establish a guard after this transfer.
+        for claim in guarantee.observations().filter(|claim| matches!(claim, crate::ExecutionCondition::Trusted(_))) {
+            claim.clone().assume(true, &mut potential);
+        }
+    }
+
+    !potential.is_empty() && !parent.conditions.iter().any(|(condition, guarantee)| {
+        guarantee.witness
+            && condition.prove(&entry.assumptions, &mut { crate::ExecutionCondition::WORK_LIMIT }) != Some(true)
+            && condition.prove_trusted(&potential, &entry.assumptions) == Some(true)
+    })
 }
 
 pub(super) fn check_witness_transfers<C: CheckerRequestContext + ?Sized>(
@@ -230,7 +291,7 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
     for (index, projection) in path.iter().enumerate() {
         // Unwrapping presence moves the complete contained carrier. Other ownership
         // projections must not detach any component of a directly carrying value.
-        if state.directly_carries_witness(&value)
+        if state.directly_carries_witness(reached_container(&value))
             && path[index..]
                 .iter()
                 .any(|projection| *projection != bray_bound_tree::StorageProjection::NullableValue)
@@ -242,4 +303,16 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
     }
 
     false
+}
+
+// A field projection crosses borrow layers into reached storage. The loan's
+// own contract does not make that loan the owner of the reached aggregate.
+fn reached_container(value: &crate::ExecutionCondition) -> &crate::ExecutionCondition {
+    let mut value = value.owner_identity();
+
+    while let crate::ExecutionCondition::Borrowed(reached) = value {
+        value = reached.owner_identity();
+    }
+
+    value
 }

@@ -295,14 +295,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             // immutable markers. Borrowing a reference slot protects only that slot.
             let protected_referent = memory.borrow_targets(*borrow).is_some_and(|targets| {
                 !targets.is_empty()
-                    && targets.iter().all(|target| {
-                        matches!(
-                            target.origin,
-                            bray_bound_tree::StorageOrigin::Entry { .. }
-                                | bray_bound_tree::StorageOrigin::Returned { .. }
-                                | bray_bound_tree::StorageOrigin::Static { .. }
-                        )
-                    })
             });
 
             for path in self
@@ -311,8 +303,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .into_iter()
                 .chain(referent.as_ref())
             {
-                // An address formed from this borrow can be used by native code to replace
-                // its allocation. The temporary borrow does not bound that opaque effect.
+                // Exposure can reach mutable state, while this live loan still
+                // protects its classified inline observations.
                 let exposed_referent = memory.borrow_regions(*borrow).is_none_or(|targets| {
                     targets.iter().any(|target| {
                         exposed.iter().any(|raw| {
@@ -337,19 +329,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let discriminants = self.input.footprint.discriminants.get(&path.root);
 
-                let borrowed = (0..=path.projections.len()).rev().find_map(|length| {
-                    self.input.footprint.borrowed_observations.get(&StoragePath {
-                        root: path.root,
-                        projections: path.projections[..length].into(),
-                    })
-                });
-
                 let mut values = self.input.opaque_values
                     .range(path.clone()..)
                     .take_while(|value| path.contains(value))
                     .filter(|_| !exposed_referent)
-                    .chain(borrowed.into_iter().flat_map(|(_, observations)| observations)
-                        .filter(|(value, observation)| protected_referent && path.contains(value)
+                    .chain(self.input.footprint.observations(path)
+                        .filter(|(_, observation)| protected_referent
                             && *observation != bray_bound_tree::StorageObservationKind::Discriminant
                             && (!exposed_referent || opaque && observation.is_immutable_inline()))
                         .map(|(value, _)| value))
