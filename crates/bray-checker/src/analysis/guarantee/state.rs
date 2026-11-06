@@ -668,7 +668,7 @@ mod tests {
         )));
 
         let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent]);
-        let payload = observed.clone().component(ConstantProjectionKind::NullableValue);
+        let payload = observed.clone().component(ConstantProjectionKind::NullableValue).borrowed();
         let mut state = ExecutionState::default();
 
         state.assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);

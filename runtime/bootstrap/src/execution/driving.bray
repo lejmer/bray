@@ -164,8 +164,8 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
         trusted core.target.abort();
     }
 
-    let reference = trusted bray.runtime.bootstrap.task.take_retained(task);
-    let (dispatched, returned) = trusted dispatch_task(selected, owner, reference, ready.registration, ready.lane);
+    let dispatched = trusted bray.runtime.bootstrap.task.take_retained(task);
+    let returned = trusted dispatch_task(selected, owner, &dispatched, ready.registration, ready.lane);
     let (progress, execution, kind) = returned;
 
     if kind == 0 && progress.kind == 6

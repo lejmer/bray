@@ -148,6 +148,8 @@ classification instead of reconstructing it from paths. Checked projections reta
 publication and forwarding. Predicate contracts select their carrier using the checked subject type, retaining a complete
 child owner rather than promoting it to an enclosing aggregate. Completion borrows the checked storage context to identify
 current input owners. A newly returned loan retains its own value identity and dependency lifetime.
+Completion and transfer checks share that carrier selection. Invocation inputs bound observations without becoming the
+owners of child or result guarantees, and access through a loan does not give it ownership of the reached aggregate.
 
 The same indexed observation context governs contents writes,
 referent effects, and opaque cleanup. Invocation effects retain classified entry and result observations separately from

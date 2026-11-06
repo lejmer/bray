@@ -325,6 +325,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             for carrier in &carriers {
                 if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
+                    // The input bounds this observation, but the checked subject
+                    // owns the guarantee. A child owner does not become its parent.
+                    let owner = match &condition {
+                        ExecutionCondition::Borrowed(value)
+                            if value.owner_identity() == carrier.owner_identity() => carrier,
+                        value => value,
+                    };
+
                     let addresses = self.input_guarantee_addresses(
                         invocation,
                         &state
@@ -340,7 +348,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     state
                         .witnesses
-                        .entry(carrier.owner_identity().clone())
+                        .entry(owner.owner_identity().clone())
                         .or_default()
                         .carry(&guarantee, true, &addresses);
                 }
