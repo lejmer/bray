@@ -967,7 +967,12 @@ where
             .flatten();
 
         if let Some(invalidation) = &mut invalidation {
-            self.preserve_operation_values(state, kind, call_effects.as_deref(), invalidation);
+            self.preserve_operation_values(
+                state,
+                kind,
+                call_effects.as_deref().or_else(|| assignment_effect.as_ref().map(std::slice::from_ref)),
+                invalidation,
+            );
         }
 
         if !completing {
@@ -1075,6 +1080,10 @@ where
 
         if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
             self.preserve_store_values(&state.memory, invalidation, true, *contents);
+        }
+
+        if self.input.footprint.empty_markers.is_empty() {
+            return;
         }
 
         let operation = occurrence

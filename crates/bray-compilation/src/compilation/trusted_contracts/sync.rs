@@ -2888,12 +2888,13 @@ fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier
         for mutation in [
             "guard.payload.value = true;",
             "if flag { guard.payload.value = true; } else { guard.payload.value = false; }",
+            "let index: usize = if flag { yield 0; } else { yield 1; }; guard.payload.counts[index] += 1; opaque();",
         ] {
             let source = format!(
                 r#"
                 trusted module app;
                 struct Marker {{}}
-                struct Payload {{ mut value: bool; }}
+                struct Payload {{ mut value: bool; mut counts: [u32; 2]; }}
                 struct Guard {{ marker: Marker; payload: &mut Payload; }}
                 trusted predicate held(value: &{ty});
                 trusted func acquire(pos payload: &mut Payload) -> Guard
@@ -2901,8 +2902,9 @@ fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier
                 {{ return {{ marker = Marker {{}}, payload = payload }}; }}
                 func observe(pos guard: &Guard)
                     requires(trusted held({argument})) executes(pure, total) {{}}
+                extern func opaque();
                 func caller(pos flag: bool) {{
-                    let mut payload: Payload = {{ value = false }};
+                    let mut payload: Payload = {{ value = false, counts = [0, 0] }};
                     let mut guard = acquire(&mut payload);
                     {mutation}
                     observe(&guard);

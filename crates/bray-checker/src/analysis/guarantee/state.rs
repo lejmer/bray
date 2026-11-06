@@ -450,11 +450,17 @@ impl ExecutionState {
 
         let mut retained = BTreeSet::new();
 
+        // A changed contents snapshot can still contain an unchanged observation
+        // of the original complete carrier. Ownership transitions retire that
+        // carrier separately, so do not reconstruct its identity from the snapshot.
+        let retains_owner = |carrier: &ExecutionCondition| {
+            stable_owners.iter().any(|owner| {
+                carrier.is_owned_projection_of(owner) || owner.is_owned_projection_of(carrier)
+            })
+        };
+
         self.witnesses.retain(|carrier, witness| {
-            if !stable_owners
-                .iter()
-                .any(|owner| carrier.is_owned_projection_of(owner))
-            {
+            if !retains_owner(carrier) {
                 return false;
             }
 
@@ -497,9 +503,7 @@ impl ExecutionState {
 
         self.allocation_owners.retain(|condition, owner| {
             condition.observes_only(stable_values)
-                && stable_owners
-                    .iter()
-                    .any(|stable| owner.is_owned_projection_of(stable))
+                && retains_owner(owner)
         });
 
         for entry in self.pending_entries_mut(&|entry| {
@@ -707,6 +711,37 @@ mod tests {
 
     fn input(ordinal: u32) -> ExecutionCondition {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))
+    }
+
+    #[test]
+    fn cleanup_preserves_a_live_carrier_through_its_unchanged_component() {
+        let owner = input(0);
+        let marker = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
+
+        let condition = ExecutionCondition::Trusted(Arc::new(ExecutionCondition::Predicate(
+            symbol.into(),
+            crate::test_support::empty_substitution(symbol.into()),
+            [marker.clone().borrowed()].into(),
+        )));
+
+        let mut state = ExecutionState::default();
+
+        state.carry_guarantee(owner.clone(), condition.clone());
+        state.trusted_assumptions.insert((condition.clone(), true));
+        state.invalidate_cleanup(
+            &BTreeSet::from([marker.clone(), marker.clone().borrowed()]),
+            &BTreeSet::from([marker]),
+        );
+
+        assert_eq!(state.witnesses.len(), 1);
+        assert!(state.witnesses.contains_key(&owner));
+        assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
+
+        state.invalidate_trusted(&owner);
+
+        assert!(state.witnesses.is_empty());
+        assert!(!state.trusted_assumptions.contains(&(condition, true)));
     }
 
     fn permission(ordinal: u32) -> ExecutionCondition {

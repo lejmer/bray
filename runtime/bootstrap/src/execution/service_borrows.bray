@@ -76,6 +76,25 @@ internal func deadlines(
     return none;
 }
 
+// Retirement owns the initialized cell while its complete execution remains live.
+// Establish its value contract at extraction, before later replacement can fail.
+trusted internal func read_service<T>(
+    pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos pointer: DataPointer<std.sync.Once<T>>
+) -> std.sync.Once<T>
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.execution.retiring(owner = owner),
+        trusted core.memory.valid_read<std.sync.Once<T>>(pointer = pointer, count = 1),
+        trusted core.memory.initialized_as<std.sync.Once<T>>(pointer = pointer),
+        trusted core.memory.aligned_for<std.sync.Once<T>>(pointer = pointer)
+    )
+    ensures(trusted std.sync.once.valid(&result.prepared.instance))
+    uses(raw_memory)
+{
+    return trusted std.memory.read<std.sync.Once<T>>(pointer);
+}
+
 trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execution.Reference)
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
@@ -130,7 +149,7 @@ trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execut
 
             trusted permit(owner, pointer);
 
-            let cell = trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(pointer);
+            let cell = trusted read_service<bray.runtime.bootstrap.deadline.Reference>(owner, pointer);
 
             trusted std.memory.write<std.sync.Once<bray.runtime.bootstrap.deadline.Reference>>(
                 pointer,
@@ -210,7 +229,7 @@ trusted internal func release_services(pos owner: &bray.runtime.bootstrap.execut
 
             trusted permit(owner, pointer);
 
-            let cell = trusted std.memory.read<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(pointer);
+            let cell = trusted read_service<bray.runtime.bootstrap.worker.Reference>(owner, pointer);
 
             trusted std.memory.write<std.sync.Once<bray.runtime.bootstrap.worker.Reference>>(
                 pointer,

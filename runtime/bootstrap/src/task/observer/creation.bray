@@ -124,10 +124,19 @@ trusted internal func acquire_provider(pos owner: &mut Prepared) -> bool
     requires(trusted prepared(owner = &owner), trusted bray.runtime.bootstrap.host.product.native_host())
     ensures(trusted prepared(owner = &owner))
 {
-    return trusted bray.runtime.bootstrap.provider.acquire(
+    let mut provider = trusted bray.runtime.bootstrap.provider.resident_reference();
+    let status = trusted bray.runtime.bootstrap.provider.acquire(
         owner.input.glue.provider,
-        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut owner.provider)
-    ) == 0;
+        std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut provider)
+    );
+
+    if status != 0
+    {
+        return false;
+    }
+
+    owner.provider = provider;
+    return true;
 }
 
 trusted internal func failure(pos input: Input) -> bray.runtime.bootstrap.activation.Inactive
