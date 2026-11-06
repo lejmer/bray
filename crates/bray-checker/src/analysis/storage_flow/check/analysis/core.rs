@@ -886,7 +886,7 @@ where
                 .as_ref()
                 .zip(assignment_mutation)
                 .map(|(target, kind)| {
-                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind, None)
+                    crate::analysis::storage_flow::memory::Effect::Mutation(target.clone(), kind)
                 });
 
         let assignment_roots = assignment_mutation.map(|_| self.assignment_roots(state, kind));

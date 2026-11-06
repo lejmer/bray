@@ -480,7 +480,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut effects = targets
             .into_iter()
-            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire, None))
+            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire))
             .collect::<Vec<_>>();
 
         if has_backing && *elements {
