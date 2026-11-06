@@ -380,7 +380,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         assignment: Option<&Target>,
         effects: Option<&[Effect]>,
         roots: Option<&[Target]>,
-        marker_exposure: Option<&BTreeSet<Target>>,
     ) -> Option<StorageInvalidation> {
         let mut observed = effects
             .map(|effects| {
@@ -389,12 +388,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     kind.occurrence(),
                     effects,
                     roots.unwrap_or(&[]),
-                    marker_exposure,
                 )
             })
             .or_else(|| {
                 roots.map(|roots| {
-                    self.opaque_observations(&state.memory, roots.iter().cloned(), marker_exposure)
+                    self.opaque_observations(&state.memory, roots.iter().cloned())
                 })
             })
             .or_else(|| {

@@ -75,7 +75,7 @@ trusted internal func create_native_provider(pos configuration: &Configuration) 
     requires(trusted native_configuration(owner = configuration))
     ensures(
         trusted native_configuration(owner = configuration),
-        result matches Error(_) || trusted native_provider_option_owned(owner = created_native_provider(&result))
+        !(result matches Ok(_)) || trusted native_provider_option_owned(owner = created_native_provider(&result))
     )
     uses(intrinsic, foreign_call, layout_reinterpret)
 {

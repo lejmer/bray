@@ -29,7 +29,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     self.opaque_observations(
                         &state.memory,
                         self.invocation_roots(state, occurrence),
-                        None,
                     )
                 } else {
                     StorageInvalidation::unknown()
@@ -74,7 +73,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         roots: impl IntoIterator<Item = Target>,
-        marker_exposure: Option<&BTreeSet<Target>>,
     ) -> StorageInvalidation {
         let mut stable_descriptors = std::collections::BTreeSet::new();
         let mut stable_values = std::collections::BTreeSet::new();
@@ -108,8 +106,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        // A shared referent retains its empty markers unless a raw alias is
-        // exposed. A reference slot alone does not establish a pointee owner.
+        // A valid shared loan protects immutable marker identity even when an
+        // address escapes. Raw reachability grants no permission to replace that
+        // owner. Payload and pointee observations still follow exposure below.
         for (reference, markers) in &self.input.footprint.borrowed_identities {
             let location = match reference.access_id(self.storage) {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
@@ -133,13 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for marker in markers {
-                // Only immutable markers use exposure from before this invocation.
-                // Payload observations still see every newly published address.
-                let visible_exposure = if self.input.footprint.empty_markers.contains(marker) {
-                    marker_exposure.unwrap_or(&exposed)
-                } else {
-                    &exposed
-                };
+                let immutable_marker = self.input.footprint.empty_markers.contains(marker);
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
@@ -152,7 +145,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                !visible_exposure.iter().any(|raw| {
+                                immutable_marker || !exposed.iter().any(|raw| {
                                     memory.target_relationship(raw, &target)
                                         != StorageRelationship::Disjoint
                                 })
@@ -398,13 +391,12 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         effects: &[Effect],
         roots: impl IntoIterator<Item = Target>,
-        marker_exposure: Option<&BTreeSet<Target>>,
     ) -> StorageInvalidation {
         if effects
             .iter()
             .any(|effect| matches!(effect, Effect::Unknown | Effect::Cleanup(_)))
         {
-            return self.opaque_observations(memory, roots, marker_exposure);
+            return self.opaque_observations(memory, roots);
         }
 
         if effects.iter().any(Effect::is_ambient) {
@@ -432,7 +424,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .map(|(target, _)| target.clone()),
                 );
 
-            return self.opaque_observations(memory, roots, marker_exposure);
+            return self.opaque_observations(memory, roots);
         }
 
         let atomic = effects.iter().any(Effect::is_atomic);
@@ -458,7 +450,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         roots
                             .into_iter()
                             .filter(|_| effects.contains(&Effect::Atomic)),
-                        marker_exposure,
                     ),
                     frame,
                 )
@@ -502,8 +493,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
 
         match effects {
-            Some(effects) => self.resolved_observations(memory, effects, receiver.cloned(), None),
-            None => self.opaque_observations(memory, receiver.cloned(), None),
+            Some(effects) => self.resolved_observations(memory, effects, receiver.cloned()),
+            None => self.opaque_observations(memory, receiver.cloned()),
         }
     }
 
@@ -513,13 +504,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[Effect],
         roots: &[Target],
-        marker_exposure: Option<&BTreeSet<Target>>,
     ) -> StorageInvalidation {
         let mut invalidation = self.resolved_observations(
             &state.memory,
             effects,
             roots.iter().cloned(),
-            marker_exposure,
         );
 
         if effects.is_empty() {
@@ -838,7 +827,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 stable_values: std::collections::BTreeSet::new(),
             }
         } else {
-            self.opaque_observations(memory, mutations.cloned(), None)
+            self.opaque_observations(memory, mutations.cloned())
         }
     }
     fn stable_descriptors<'target>(

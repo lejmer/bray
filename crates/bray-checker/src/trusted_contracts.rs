@@ -8,7 +8,7 @@ use crate::ExecutionCondition;
 #[derive(Debug, Default)]
 pub struct TrustedContractInputs {
     /// Whether checked body evidence may refine returned authority beyond declared promises.
-    /// Trusted implementations expose only their declared boundary contract.
+    /// Trusted assertions remain separate from evidence established by the body.
     pub infer_result_witnesses: bool,
     /// Receiver-first formal inputs used by portable result summaries.
     pub inputs: Vec<bray_bound_tree::BoundReferenceTarget>,
