@@ -145,8 +145,9 @@ results for downstream consumers.
 
 Storage observations retain their classified kind and borrow context through effect resolution. Consumers use that
 classification instead of reconstructing it from paths. Checked projections retain their complete identity through
-publication and forwarding. A claim established through a loan belongs to the reached value, while the condition and
-its dependencies retain the borrowed observation and access lifetime.
+publication and forwarding. Predicate contracts select their carrier using the checked subject type, retaining a complete
+child owner rather than promoting it to an enclosing aggregate. Completion borrows the checked storage context to identify
+current input owners. A newly returned loan retains its own value identity and dependency lifetime.
 
 The same indexed observation context governs contents writes,
 referent effects, and opaque cleanup. Invocation effects retain classified entry and result observations separately from

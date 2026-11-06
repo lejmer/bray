@@ -42,22 +42,24 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         visible.then_some((expression, call))
     }
 
-    pub(super) fn refresh_borrowed_arguments(
+    fn refresh_borrowed_arguments(
         &self,
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         completion: &bray_bound_tree::StorageCompletion,
-    ) {
+        retain_carriers: bool,
+    ) -> Vec<ExecutionCondition> {
+        let mut carriers = Vec::new();
         let Some(selection) = invocation
             .expression()
             .and_then(|expression| self.semantics.selections().expression(expression))
         else {
-            return;
+            return carriers;
         };
 
         let Some(contracts) = self.dependencies.calls().get(&invocation) else {
-            return;
+            return carriers;
         };
 
         for subject in contracts.reference_subjects() {
@@ -192,6 +194,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
+            if retain_carriers {
+                // Retain the actual checked target before adapting its argument view.
+                // A returned loan remains a separate value with its own lifetime.
+                carriers.push(value.clone());
+            }
+
             if matches!(
                 place.value_in(arguments),
                 Some(ExecutionCondition::Borrowed(_))
@@ -218,28 +226,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 arguments.insert(reference.into(), value.clone());
             }
         }
+        carriers
     }
 
     pub(super) fn prepare_call_observations(
         &self,
         state: &mut ExecutionState,
-        expression: BoundExpressionId,
+        invocation: bray_bound_tree::BoundExecutionSite,
         call: &bray_bound_tree::SelectedCall,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         address_sources: &BTreeMap<
             crate::ExecutionPlace,
             crate::execution_guarantees::AddressDependencies,
         >,
-        origins: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        completion: &bray_bound_tree::StorageCompletion,
         retain_carriers: bool,
     ) -> (
         Vec<ExecutionCondition>,
         BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
     ) {
-        let mut carriers = Vec::new();
+        let carriers = self.refresh_borrowed_arguments(
+            state, invocation, arguments, completion, retain_carriers,
+        );
+
+        let expression = invocation
+            .expression()
+            .expect("visible selected call retains its expression");
         let mut owners = BTreeMap::<_, GuaranteeSource>::new();
 
         for argument in call.arguments() {
@@ -342,15 +354,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &mut owners.entry(operand).or_default().borrowed,
                     operand,
                     place.as_ref(),
-                    origins,
+                    completion.borrow_origins(),
                 );
             }
 
             let value = input;
-
-            if retain_carriers {
-                carriers.push(value.clone());
-            }
 
             if let Some(parameter) = parameter {
                 arguments.insert(
@@ -393,12 +401,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     &mut owners.entry(input).or_default().borrowed,
                     input,
                     self.input_place(input).as_ref(),
-                    origins,
+                    completion.borrow_origins(),
                 );
-            }
-
-            if retain_carriers {
-                carriers.push(value.clone());
             }
 
             arguments.insert(reference.into(), value.clone());
