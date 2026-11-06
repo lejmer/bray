@@ -53,7 +53,11 @@ internal struct Binding
     resume: BindingResume;
 }
 
-trusted internal predicate kernel_binding(owner: &Binding);
+internal predicate kernel_binding(owner: &Binding) = retained(owner = &owner.owner.execution) && pinned(
+    owner = &owner.owner.execution
+) && ((owner.close matches none && !service_owner(owner = &owner.owner)) || (owner.close matches ?_ && service_owner(
+    owner = &owner.owner
+)));
 
 // Only established root, worker and cleanup scopes install this context. The
 // task and invocation slots borrow their active dispatch stack, without owning
@@ -110,7 +114,9 @@ trusted internal predicate view_owned(owner: &Acquisition);
 
 trusted internal predicate context_owned(owner: &Context);
 
-trusted internal predicate owned_binding_option(owner: &(Binding?));
+internal predicate owned_binding_option(owner: &(Binding?)) = owner matches none || kernel_binding(
+    present_binding(owner)
+);
 
 trusted internal func current() -> Current
     ensures(trusted view_owned(owner = &result.acquisition))

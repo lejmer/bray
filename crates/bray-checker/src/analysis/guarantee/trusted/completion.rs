@@ -342,7 +342,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                     state
                         .witnesses
-                        .entry(carrier.owner_identity().clone())
+                        .entry(carrier.guarantee_carrier().clone())
                         .or_default()
                         .carry(&guarantee, true, &addresses);
                 }
@@ -406,7 +406,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let witness = state
             .witnesses
-            .entry(carrier.owner_identity().clone())
+            .entry(carrier.guarantee_carrier().clone())
             .or_default();
 
         if !dependencies.is_subset(&witness.dependencies) {
@@ -435,7 +435,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 {
                     state
                         .allocation_owners
-                        .insert(predicate.clone(), carrier.clone());
+                        .insert(predicate.clone(), carrier.guarantee_carrier().clone());
                 }
                 _ => {}
             }

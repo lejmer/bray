@@ -133,8 +133,19 @@ trusted internal func take_owned_binding(pos owner: Binding?) -> Binding
     };
 }
 
-// The input binding's close operation identifies its service claim. Keep that
-// entry fact while transferring the same complete owner out of the binding.
+const internal func present_binding(pos owner: &(Binding?)) -> &Binding
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?binding { yield &binding; }
+        case none { panic("missing execution binding"); }
+    };
+}
+
+// The binding combines independently typed callbacks with this complete owner.
+// Moving that owner keeps its pin and service claim together.
 trusted internal func take_binding_owner(pos owner: Binding) -> Owner
     requires(trusted kernel_binding(owner = &owner))
     ensures(trusted retained(owner = &result.execution), trusted pinned(owner = &result.execution))
@@ -146,9 +157,8 @@ trusted internal func take_binding_owner(pos owner: Binding) -> Owner
     {
         ensures(trusted !service_owner(owner = &result))
     }
-    uses(raw_memory, intrinsic)
 {
-    return trusted std.memory.read<Owner>(std.memory.address_of<Owner>(&owner.owner));
+    return owner.owner;
 }
 
 trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32

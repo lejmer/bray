@@ -60,6 +60,15 @@ impl ExecutionCondition {
         value
     }
 
+    /// Guarantees established through a loan belong to the reached value.
+    /// The condition and its access dependencies retain the loan's lifetime.
+    pub(crate) fn guarantee_carrier(&self) -> &Self {
+        match self {
+            Self::Borrowed(value) => value.owner_identity(),
+            value => value.owner_identity(),
+        }
+    }
+
     pub(crate) fn observation_path(
         &self,
     ) -> Option<(Self, Vec<bray_symbols::ConstantProjectionKind>)> {

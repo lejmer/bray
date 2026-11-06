@@ -66,9 +66,10 @@ impl<'a> Cleanup<'a> {
     pub(crate) fn new(
         plan: &'a Plan,
         dependencies: &'a bray_bound_tree::CheckedDependencyContracts,
+        values: &bray_symbols::SemanticValueStore,
     ) -> Self {
         let references = dependencies.lifecycle_dependencies();
-        let borrowed_inputs = plan.borrowed_inputs(references);
+        let borrowed_inputs = plan.borrowed_inputs(references, values, dependencies);
 
         Self {
             plan,
@@ -269,6 +270,8 @@ impl Plan {
     fn borrowed_inputs(
         &self,
         references: &BTreeMap<CallableInstanceData, bray_symbols::DependencyContractTemplateData>,
+        values: &bray_symbols::SemanticValueStore,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) -> BTreeSet<ExecutionPlace> {
         self.steps
             .values()
@@ -301,7 +304,7 @@ impl Plan {
                                     == bray_symbols::DependencySubjectRoot::Receiver)
                                 .then(|| {
                                     super::super::trusted::project_place(
-                                        place.clone(),
+                                        values, dependencies, place.clone(),
                                         relation.exit(),
                                     )
                                 })
