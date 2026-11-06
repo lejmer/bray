@@ -735,13 +735,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             changed_places
                 .iter()
                 .filter(|place| !descriptors.contains_key(*place))
-                .flat_map(|place| {
-                    [
-                        place
-                            .value_in(&state.current)
-                            .unwrap_or_else(|| ExecutionCondition::Input(place.clone())),
-                        ExecutionCondition::Input(place.clone()),
-                    ]
+                .map(|place| {
+                    place.value_in(&state.current)
+                        .unwrap_or_else(|| ExecutionCondition::Input(place.clone()))
                 })
                 .collect()
         };
@@ -750,10 +746,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             self.preserve_contents_owners(state, &stable_places, &changed_places, &mut descriptors);
         }
 
+        let no_predicates = BTreeSet::new();
+
         state.invalidate_contents(
             &changed_places,
             invalidated_values,
-            if content_only { &self.content_predicates } else { &BTreeSet::new() },
+            if content_only { &self.content_predicates } else { &no_predicates },
             &stable_values,
         );
 

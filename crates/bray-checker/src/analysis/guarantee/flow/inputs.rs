@@ -19,6 +19,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let value = self.storage_path_value(state, &path);
 
             state.pending_results.insert(expression, value);
+            self.observe_move(state, &path);
         }
     }
 
@@ -32,12 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return Some(value.clone());
             }
 
-            if let Some(path) = self.checked_body
-                .and_then(|body| body.storage_flow().memory_read_target(expression))
-                .and_then(|target| crate::storage::storage_observation_path(
-                    self.storage, self.request.semantic_values(), target)) {
-                return Some(self.storage_path_value(state, &path));
-            }
+
         }
 
         let selection = self.semantics.selections().expression(expression)?;
