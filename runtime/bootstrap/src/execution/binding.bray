@@ -133,31 +133,25 @@ trusted internal func take_owned_binding(pos owner: Binding?) -> Binding
     };
 }
 
-trusted internal func take_binding_execution(pos owner: Binding) -> Reference
-    requires(trusted kernel_binding(owner = &owner), owner.close matches none)
-    ensures(trusted retained(owner = &result), trusted pinned(owner = &result))
-    uses(raw_memory, intrinsic)
-{
-    return trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution));
-}
-
-// The closing binding transfers its actual service claim with its actual pin.
+// The input binding's close operation identifies its service claim. Keep that
+// entry fact while transferring the same complete owner out of the binding.
 trusted internal func take_binding_owner(pos owner: Binding) -> Owner
-    requires(trusted kernel_binding(owner = &owner), owner.close matches ?_)
+    requires(trusted kernel_binding(owner = &owner))
     ensures(
-        trusted service_owner(owner = &result),
         trusted retained(owner = &result.execution),
         trusted pinned(owner = &result.execution)
     )
+    when(owner.close matches ?_)
+    {
+        ensures(trusted service_owner(owner = &result))
+    }
+    when(owner.close matches none)
+    {
+        ensures(trusted !service_owner(owner = &result))
+    }
     uses(raw_memory, intrinsic)
 {
-    return
-    {
-        acquisition = Acquisition
-        {
-        },
-        execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution))
-    };
+    return trusted std.memory.read<Owner>(std.memory.address_of<Owner>(&owner.owner));
 }
 
 trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
@@ -183,7 +177,7 @@ trusted internal func release_driver_binding(pos owner: &bray.runtime.bootstrap.
             trusted core.target.abort();
         }
 
-        yield trusted release(trusted take_binding_execution(selected));
+        yield trusted release(trusted take_binding_owner(selected));
     }
     else
     {

@@ -103,16 +103,18 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         case Error(status) { return status; }
     };
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
         std.memory.stride_of<Domain>(),
         align = std.memory.align_of<Domain>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    )
     {
-        trusted finish_native_provider_option(provider);
-        return 4;
-    }
+        case ?owner { yield owner; }
+        case none
+        {
+            trusted finish_native_provider_option(provider);
+            return 4;
+        }
+    };
 
     let active = trusted context(selected);
 
@@ -132,11 +134,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
         case ?value { yield value; }
         case none
         {
-            trusted bray.runtime.bootstrap.heap.deallocate_bytes(
-                allocation,
-                std.memory.stride_of<Domain>(),
-                align = std.memory.align_of<Domain>()
-            );
+            _ = allocation;
 
             trusted finish_native_provider_option(provider);
             return 4;
@@ -149,11 +147,7 @@ trusted internal func create_execution(pos selected: &Current, pos configuration
     {
         trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
 
-        trusted bray.runtime.bootstrap.heap.deallocate_bytes(
-            allocation,
-            std.memory.stride_of<Domain>(),
-            align = std.memory.align_of<Domain>()
-        );
+        _ = allocation;
 
         trusted finish_native_provider_option(provider);
         return 4;

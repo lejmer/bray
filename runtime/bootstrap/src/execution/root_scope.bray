@@ -68,16 +68,18 @@ trusted internal func root_scope() -> EntryScope
         return scope;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
         std.memory.stride_of<Context>(),
         align = std.memory.align_of<Context>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    )
     {
+        case ?owner { yield owner; }
+        case none
+        {
         scope.status = 4;
         return scope;
-    }
+            }
+    };
 
     scope.status = trusted commit_driver(allocation, trusted nested_context(&scope.current, attachment));
     return scope;
@@ -93,7 +95,11 @@ trusted internal func nested_context(
         trusted bray.runtime.bootstrap.host.attachment.acquired(owner = &attachment),
         attachment.status == 0
     )
-    ensures(trusted view_owned(owner = &parent.acquisition), trusted context_owned(owner = &result))
+    ensures(
+        trusted view_owned(owner = &parent.acquisition),
+        trusted context_owned(owner = &result),
+        result.allocation matches none
+    )
 {
     let active = trusted context(parent);
     let lane = trusted selected_lane(parent);

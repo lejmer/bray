@@ -82,14 +82,7 @@ trusted internal func take_retiring_resources(
 
 trusted internal func prepare_retirement(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> u32
     requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
-    ensures(
-        trusted bray.runtime.bootstrap.host.execution_owned(owner = owner),
-        trusted core.memory.owned_allocation(
-            pointer = owner.resource,
-            bytes = std.memory.stride_of<Context>(),
-            align = std.memory.align_of<Context>()
-        )
-    )
+    ensures(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
     uses(intrinsic)
 {
     trusted close_driver_binding(owner);
@@ -158,16 +151,54 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
         trusted bray.runtime.bootstrap.host.execution_owned(owner = &owner),
         identity == 0 || trusted bray.runtime.bootstrap.host.execution_exit()
     )
+    uses(raw_memory, unchecked_alias, layout_reinterpret, intrinsic)
 {
     let (attachment, previous) = trusted take_retiring_resources(&owner, identity);
     let incidents = trusted prepare_retirement(&owner);
     let remaining = retire_driver_resources(attachment, previous, identity);
 
-    trusted bray.runtime.bootstrap.heap.deallocate_bytes(
-        owner.resource,
-        std.memory.stride_of<Context>(),
-        align = std.memory.align_of<Context>()
-    );
+    let storage = trusted lambda(pos owner: &bray.runtime.bootstrap.host.ExecutionOwner) -> DataPointer<Context>
+        requires(trusted bray.runtime.bootstrap.host.execution_owned(owner = owner))
+        ensures(
+            trusted core.memory.valid_read<Context>(pointer = result, count = 1),
+            trusted core.memory.initialized_as<Context>(pointer = result),
+            trusted core.memory.aligned_for<Context>(pointer = result),
+            trusted core.memory.shared_alias_valid<Context>(pointer = result),
+            trusted core.memory.epoch_current<Context>(pointer = result),
+            trusted core.memory.synchronized_access<Context>(pointer = result),
+            trusted core.memory.movement_stable<Context>(pointer = result),
+            trusted core.memory.finalization_pending<Context>(pointer = result)
+        )
+        uses(layout_reinterpret)
+    {
+        return trusted std.memory.reinterpret<Context, u8>(owner.resource);
+    };
+
+    let pointer = trusted storage(&owner);
+
+    {
+        let value = trusted std.memory.borrow_from<Context, bray.runtime.bootstrap.host.ExecutionOwner>(
+            &owner,
+            pointer
+        );
+
+        if core.atomic.load<u32, 0>(&value.phase) != 2 || core.atomic.load<usize, 0>(&value.views) != 0 ||
+            core.atomic.load<usize, 0>(&value.task) != 0 || core.atomic.load<usize, 0>(&value.invocation) != 0
+        {
+            trusted core.target.abort();
+        }
+    }
+
+    // The temporary inspection borrow ends before the context packet moves.
+    // Its binding, provider, attachment and predecessor slots are already empty.
+    let retired = trusted std.memory.read<Context>(pointer);
+    let allocation = match consume retired.allocation
+    {
+        case ?allocation { yield allocation; }
+        case none { yield trusted core.target.abort(); }
+    };
+
+    _ = allocation;
 
     return incidents + remaining;
 }

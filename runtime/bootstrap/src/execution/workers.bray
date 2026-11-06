@@ -37,9 +37,7 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
                 call = worker_callback
             };
 
-            let backing = trusted bray.runtime.bootstrap.scheduler.execution_backing(trusted pin(owner));
-
-            match consume bray.runtime.bootstrap.worker.create(backing, callback)
+            match consume bray.runtime.bootstrap.worker.create_execution(trusted pin(owner), callback)
             {
                 case Ok(service)
                 {
@@ -49,7 +47,7 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
                 }
                 case Error((rejected, status))
                 {
-                    trusted discard_backing(rejected);
+                    _ = trusted release_pin(rejected);
                     return status;
                 }
             }

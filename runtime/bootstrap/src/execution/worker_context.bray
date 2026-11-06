@@ -14,7 +14,8 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
     requires(trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker))
     ensures(
         trusted bray.runtime.bootstrap.worker.scope_live(owner = &scope.marker),
-        trusted context_owned(owner = &result)
+        trusted context_owned(owner = &result),
+        result.allocation matches none
     )
 {
     let value = scope;
@@ -32,6 +33,7 @@ trusted internal func worker_context(pos scope: &bray.runtime.bootstrap.worker.S
 
     return
     {
+        allocation = none,
         binding = core.memory.uninit_from<(Binding?)>(none),
         attachment = core.memory.uninit_from<(bray.runtime.bootstrap.host.attachment.Owner?)>(none),
         previous = core.memory.uninit_from<(bray.runtime.bootstrap.host.ExecutionOwner?)>(none),
@@ -104,13 +106,14 @@ trusted internal func create_worker_context(
         }
     };
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
         std.memory.stride_of<Context>(),
         align = std.memory.align_of<Context>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    )
     {
+        case ?owner { yield owner; }
+        case none
+        {
         trusted finish_native_provider_option(provider);
 
         return
@@ -119,7 +122,8 @@ trusted internal func create_worker_context(
             category = 1,
             native_code = 0
         };
-    }
+            }
+    };
 
     let execution = trusted initialize_context(allocation, trusted worker_context(scope));
     let bound = trusted bray.runtime.bootstrap.host.execution_context(execution.resource);

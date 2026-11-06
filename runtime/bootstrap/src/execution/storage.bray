@@ -14,18 +14,20 @@ using internal bray.runtime.bootstrap.scheduler;
 using internal bray.runtime.bootstrap.heap;
 
 trusted internal func initialize_domain(
-    pos allocation: DataPointer<u8>,
+    pos allocation: std.memory.RawAllocation,
     pos scheduler: bray.runtime.bootstrap.scheduler.Reference,
     pos identity: u64,
     pos configuration: Configuration
 ) -> Owner
     requires(
+        allocation.bytes == std.memory.stride_of<Domain>(),
+        allocation.align == std.memory.align_of<Domain>(),
         trusted core.memory.owned_allocation(
-            pointer = allocation,
+            pointer = allocation.pointer,
             bytes = std.memory.stride_of<Domain>(),
             align = std.memory.align_of<Domain>()
         ),
-        trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>()),
+        trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Domain>()),
         trusted bray.runtime.bootstrap.scheduler.retained(owner = &scheduler),
         trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &scheduler),
         trusted native_configuration(owner = &configuration)
@@ -37,14 +39,14 @@ trusted internal func initialize_domain(
     )
     uses(raw_memory, unchecked_init)
 {
-    let typed = trusted lambda(pos allocation: DataPointer<u8>) -> DataPointer<Domain>
+    let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Domain>
         requires(
             trusted core.memory.owned_allocation(
-                pointer = allocation,
+                pointer = allocation.pointer,
                 bytes = std.memory.stride_of<Domain>(),
                 align = std.memory.align_of<Domain>()
             ),
-            trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Domain>())
+            trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Domain>())
         )
         ensures(
             trusted core.memory.valid_write<Domain>(pointer = result, count = 1),
@@ -52,14 +54,15 @@ trusted internal func initialize_domain(
         )
         uses(layout_reinterpret)
     {
-        return trusted std.memory.reinterpret<Domain, u8>(allocation);
+        return trusted std.memory.reinterpret<Domain, u8>(allocation.pointer);
     };
 
-    let pointer = trusted typed(allocation);
+    let pointer = trusted typed(&allocation);
 
     trusted std.memory.write<Domain>(
         pointer,
         {
+            allocation = allocation,
             scheduler = scheduler,
             identity = identity,
             configuration = configuration,
