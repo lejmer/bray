@@ -453,8 +453,15 @@ impl State {
         // An opaque operation can change the referent without replacing a reference
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
+        let unaddressed = &self.unaddressed_storage;
+        let unknown = matches!(
+            invalidation,
+            bray_bound_tree::StorageInvalidation::All { .. }
+        );
+
         self.values.retain(|target, _| {
             kind == bray_symbols::DependencyMutationKind::Atomic
+                || unknown && Self::unaddressed_inline_slot(unaddressed, target)
                 || Self::stable_reference_slot(target, invalidation)
                 || match target.observation_path() {
                     Some(slot) => !invalidation.invalidates_path(&slot, storage),
@@ -466,6 +473,10 @@ impl State {
         });
 
         for (target, contents) in &mut self.contents {
+            if unknown && Self::unaddressed_inline_slot(unaddressed, target) {
+                continue;
+            }
+
             let affected = match &target.origin {
                 Origin::Storage(path) => invalidation.invalidates_path(path, storage),
                 Origin::Entry { .. }

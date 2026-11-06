@@ -157,7 +157,7 @@ trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution),
-        trusted service_owner(owner = owner),
+        trusted service_owned(owner = &owner.acquisition),
         trusted pinned(owner = &owner.execution),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -167,7 +167,7 @@ trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
         trusted view_owned(owner = &selected.acquisition),
         trusted retained(owner = &owner.execution),
         trusted pinned(owner = &owner.execution),
-        trusted !service_owner(owner = owner)
+        trusted !service_owned(owner = &owner.acquisition)
     )
     uses(foreign_call)
 {

@@ -111,6 +111,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     // Physical storage paths group a static declaration's instances.
                     // Keep the exact selected instance from the evaluated input.
                     let input = self.current_input(state, input);
+
                     let (ExecutionCondition::Input(mut place), _) = input.observation_path()?
                     else {
                         return None;
