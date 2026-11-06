@@ -729,6 +729,7 @@ mod tests {
 
         state.carry_guarantee(owner.clone(), condition.clone());
         state.trusted_assumptions.insert((condition.clone(), true));
+
         state.invalidate_cleanup(
             &BTreeSet::from([marker.clone(), marker.clone().borrowed()]),
             &BTreeSet::from([marker]),

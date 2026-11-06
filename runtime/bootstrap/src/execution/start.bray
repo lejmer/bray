@@ -238,11 +238,10 @@ trusted internal func start_frame(
         pos token: &bray.runtime.bootstrap.activation.Inactive,
         pos driver: bray.runtime.bootstrap.scheduler.Lane?,
         pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
-    ) -> Result<(
-        bray.runtime.bootstrap.scheduler.Lane,
-        u64,
-        bray.runtime.bootstrap.activation.requirements.Execution
-    ), u32>
+    ) -> Result<
+        (bray.runtime.bootstrap.scheduler.Lane, u64, bray.runtime.bootstrap.activation.requirements.Execution),
+        u32
+    >
         requires(
             blocking_execution(),
             trusted bray.runtime.bootstrap.execution.retained(owner = execution),
@@ -307,7 +306,14 @@ trusted internal func start_frame(
 
     // Reservation can invoke metadata and worker providers. The same inactive
     // owner remains private until successful admission authorizes its first entry.
-    let (lane, registration, initial) = match consume trusted reserve(active, execution, reference, token, driver, outcome)
+    let (lane, registration, initial) = match consume trusted reserve(
+        active,
+        execution,
+        reference,
+        token,
+        driver,
+        outcome
+    )
     {
         case Ok(reserved) { yield reserved; }
         case Error(status) { return status; }
@@ -318,12 +324,7 @@ trusted internal func start_frame(
             trusted bray.runtime.bootstrap.activation.producer(token = token),
             trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
         )
-        ensures(
-            trusted bray.runtime.bootstrap.activation.entry_authorized(
-                token = token,
-                origin = active.thread
-            )
-        )
+        ensures(trusted bray.runtime.bootstrap.activation.entry_authorized(token = token, origin = active.thread))
         executes(pure, total) {};
 
     trusted authorize(active, token);
