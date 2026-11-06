@@ -143,7 +143,9 @@ and retain an exact identity only when all normal outcomes agree. Recursive summ
 never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
 results for downstream consumers.
 
-Storage observations retain their classified kind and borrow context through effect resolution. Consumers use that
+Storage observations retain their classified kind and borrow context through effect resolution. Physical preservation
+precedes projection into shared views, so aliases use the same established storage facts. Ownership guarantees and
+non-owning access bounds retain their distinct classifications when completion publishes them. Consumers use that
 classification instead of reconstructing it from paths. Checked projections retain their complete identity through
 publication and forwarding. Predicate contracts select their carrier using the checked subject type, retaining a complete
 child owner rather than promoting it to an enclosing aggregate. Completion borrows the checked storage context to identify

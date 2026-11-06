@@ -305,54 +305,60 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         for (template, subject) in &subjects {
             let guarantee = instantiate(template);
-
-            // A guarantee discharged solely by its ordinary guard carries no trusted authority.
-            if guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT })
-                == Some(true)
-            {
-                continue;
-            }
-
             let condition = instantiate(subject);
 
-            if condition == ExecutionCondition::Unknown {
+            // A guarantee discharged solely by its ordinary guard carries no trusted authority.
+            if condition == ExecutionCondition::Unknown
+                || guarantee.prove(&state.assumptions, &mut { ExecutionCondition::WORK_LIMIT }) == Some(true)
+            {
                 continue;
             }
 
             if subject.observes_completion_result() {
                 carry_result(state, template, &guarantee, &condition, true);
+                continue;
             }
 
-            for carrier in &carriers {
-                if *carrier != ExecutionCondition::Unknown && condition.observes(carrier) {
-                    // The input bounds this observation, but the checked subject
-                    // owns the guarantee. A child owner does not become its parent.
-                    let owner = match &condition {
-                        ExecutionCondition::Borrowed(value)
-                            if value.owner_identity() == carrier.owner_identity() => carrier,
-                        value => value,
-                    };
-
-                    let addresses = self.input_guarantee_addresses(
-                        invocation,
-                        &state
-                            .entries
-                            .get(&invocation)
-                            .expect("completed invocation retains its captured arguments")
-                            .arguments,
-                        template,
-                        &owners,
-                        &address_subjects,
-                        &instantiate,
-                    );
-
-                    state
-                        .witnesses
-                        .entry(owner.owner_identity().clone())
-                        .or_default()
-                        .carry(&guarantee, true, &addresses);
-                }
+            if address_subjects.iter()
+                .filter(|(guarantee, address, _)| guarantee == template && address == subject)
+                .map(|(_, _, owning)| *owning)
+                .reduce(|left, right| left || right) == Some(false)
+            {
+                // The address producer below retains these access bounds with
+                // their checked non-owning classification.
+                continue;
             }
+
+            let Some(carrier) = carriers.iter().find(|carrier| {
+                **carrier != ExecutionCondition::Unknown && condition.observes(carrier)
+            }) else { continue; };
+
+            // The input bounds this observation, but the checked subject
+            // owns the guarantee. A child owner does not become its parent.
+            let owner = match &condition {
+                ExecutionCondition::Borrowed(value)
+                    if value.owner_identity() == carrier.owner_identity() => carrier,
+                value => value,
+            };
+
+            let addresses = self.input_guarantee_addresses(
+                invocation,
+                &state
+                    .entries
+                    .get(&invocation)
+                    .expect("completed invocation retains its captured arguments")
+                    .arguments,
+                template,
+                &owners,
+                &address_subjects,
+                &instantiate,
+            );
+
+            state
+                .witnesses
+                .entry(owner.owner_identity().clone())
+                .or_default()
+                .carry(&guarantee, true, &addresses);
         }
 
         self.carry_input_access_guarantees(
