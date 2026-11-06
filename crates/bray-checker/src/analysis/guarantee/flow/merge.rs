@@ -583,10 +583,10 @@ pub(super) fn result_replacements(
     if value == joined
         || value == joined.owner_identity()
         || joined == &ExecutionCondition::Unknown
+        || matches!(value.owner_identity(), ExecutionCondition::Borrowed(_))
         || matches!(
             value,
-            ExecutionCondition::Borrowed(_)
-                | ExecutionCondition::Literal(_)
+            ExecutionCondition::Literal(_)
                 | ExecutionCondition::Boolean(_)
                 | ExecutionCondition::Unknown
         )

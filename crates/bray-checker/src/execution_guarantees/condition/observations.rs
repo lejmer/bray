@@ -221,7 +221,8 @@ impl ExecutionCondition {
         };
 
         let fields = match self {
-            Self::Constructed(_, fields) => fields.as_ref(),
+            Self::Constructed(base, fields)
+                if !matches!(base.owner_identity(), Self::Borrowed(_)) => fields.as_ref(),
             _ => &[],
         };
 
@@ -385,6 +386,9 @@ impl ExecutionCondition {
                 | Self::Present(value) => pending.push((value, live)),
                 Self::Constructed(base, fields) => {
                     pending.push((base, live));
+
+                    let live = live || matches!(base.owner_identity(), Self::Borrowed(_));
+
                     pending.extend(fields.iter().map(|(_, value)| (value, live)));
                 }
                 _ => {}
@@ -483,6 +487,9 @@ impl Set {
                 let (root, path) = referent.observation_path()?;
 
                 Some((root.borrowed(), path))
+            }
+            value if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) => {
+                Self::indexed_path(value.owner_identity())
             }
             value => value.observation_path(),
         }

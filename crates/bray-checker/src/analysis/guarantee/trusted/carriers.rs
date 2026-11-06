@@ -53,10 +53,10 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             **carrier != ExecutionCondition::Unknown && condition.observes(carrier)
         })?;
 
-        Some(match condition {
+        Some(match condition.owner_identity() {
             ExecutionCondition::Borrowed(value)
                 if value.owner_identity() == carrier.owner_identity() => carrier,
-            value => value,
+            _ => condition,
         })
     }
 

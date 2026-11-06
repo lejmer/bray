@@ -11,7 +11,9 @@ using internal bray.runtime.bootstrap.host.product;
 // The compiler-bound caller holds the protected Task's single source claim.
 // An internal cell reference or a copied identity alone does not establish it.
 // Storage retention alone does not own source result resolution.
-trusted internal predicate resolution_owner(owner: &Reference);
+trusted internal predicate source_resolution_acquired(owner: &Marker);
+
+internal predicate resolution_owner(owner: &Reference) = source_resolution_acquired(owner = &owner.acquisition);
 
 trusted internal predicate resolution_owner_option(owner: &(Reference?));
 
