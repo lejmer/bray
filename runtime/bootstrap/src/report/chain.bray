@@ -100,6 +100,11 @@ trusted internal func invoke(
     )
     uses(raw_memory, foreign_call)
 {
+    if scope.status != bray.runtime.bootstrap.STATUS_SUCCESS
+    {
+        return scope.status;
+    }
+
     let permit = trusted lambda(pos owner: &Owner)
         requires(trusted owned(owner = owner))
         ensures(trusted bray.runtime.bootstrap.pool.protocol_access())

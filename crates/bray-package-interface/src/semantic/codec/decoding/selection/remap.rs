@@ -317,10 +317,11 @@ fn remap_dependency_contract(
     for effect in Arc::make_mut(&mut contract.effects) {
         use bray_symbols::DependencyStorageEffect;
 
-        if let DependencyStorageEffect::Direct { kind, .. }
-        | DependencyStorageEffect::Indirect { kind, .. } = effect
+        if let DependencyStorageEffect::Direct { kind, access_type, .. }
+        | DependencyStorageEffect::Indirect { kind, access_type, .. } = effect
         {
             *kind = kind.try_map_type(|ty| maps.type_id(ty))?;
+            *access_type = access_type.map(|ty| maps.type_id(ty)).transpose()?;
         }
 
         match effect {

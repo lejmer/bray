@@ -2951,14 +2951,15 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 "raw_memory",
             ),
         ] {
-            for (borrowed, mutable, expose, through_call) in [
-                ("owner", "mut ", "_ = core.memory.address_of<Owner>(owner);", false),
-                ("forward(owner)", "mut ", "_ = core.memory.address_of<Owner>(owner);", false),
-                ("forward(owner)", "", "", false),
-                ("forward(owner)", "", "", true),
+            for (borrowed, mutable, expose, call) in [
+                ("owner", "mut ", "_ = core.memory.address_of<Owner>(owner);", None),
+                ("forward(owner)", "mut ", "_ = core.memory.address_of<Owner>(owner);", None),
+                ("forward(owner)", "", "", None),
+                ("forward(owner)", "", "", Some("trusted transfer(destination);")),
+                ("forward(owner)", "", "", Some("trusted forward_transfer(borrowed);")),
             ] {
-            let invoke = if through_call { "trusted transfer(destination);" } else { operation.as_str() };
-            let caller_capabilities = if through_call { String::new() } else { format!("uses({capabilities})") };
+            let invoke = call.unwrap_or(operation.as_str());
+            let caller_capabilities = if call.is_some() { String::new() } else { format!("uses({capabilities})") };
 
             let source = format!(
                 r#"
@@ -2992,6 +2993,18 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                     trusted core.memory.initialized_as<{pointee}>(pointer = destination),
                     trusted core.memory.aligned_for<{pointee}>(pointer = destination)
                 ) uses({capabilities}) {{ {operation} }}
+            trusted func transfer_owner(pos owner: &Owner)
+                requires(trusted held(&owner.marker))
+                uses({capabilities})
+            {{
+                let destination = pointer(owner);
+                {operation}
+            }}
+            trusted func forward_transfer(pos owner: &Owner)
+                requires(trusted held(&owner.marker))
+            {{
+                trusted transfer_owner(owner);
+            }}
             func forward(pos owner: &Owner) -> &Owner
                 requires(trusted held(&owner.marker))
                 ensures(trusted held(&result.marker)) executes(pure, total) {{ return owner; }}

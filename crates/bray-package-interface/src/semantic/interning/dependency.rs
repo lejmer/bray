@@ -480,7 +480,7 @@ impl InternState {
 
                     DependencyStorageEffect::Cleanup(ty)
                 }
-                DependencyStorageEffect::Direct { subject, kind } => {
+                DependencyStorageEffect::Direct { subject, kind, access_type } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);
                     };
@@ -491,12 +491,17 @@ impl InternState {
                             Ok(kind) => kind,
                             Err(()) => return Ok(None),
                         },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
+                            Err(()) => return Ok(None),
+                        },
                     }
                 }
                 DependencyStorageEffect::Indirect {
                     reference,
                     projections,
                     kind,
+                    access_type,
                 } => {
                     let (Some(reference), Some(projections)) = (
                         self.convert_dependency_subject(reference, symbols)?,
@@ -510,6 +515,10 @@ impl InternState {
                         projections: projections.into(),
                         kind: match kind.try_map_type(|ty| self.type_id(ty).ok_or(())) {
                             Ok(kind) => kind,
+                            Err(()) => return Ok(None),
+                        },
+                        access_type: match access_type.map(|ty| self.type_id(ty).ok_or(())).transpose() {
+                            Ok(ty) => ty,
                             Err(()) => return Ok(None),
                         },
                     }

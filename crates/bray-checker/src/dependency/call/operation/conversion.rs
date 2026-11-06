@@ -174,11 +174,12 @@ fn project_effect(
 ) -> DependencyStorageEffect {
     // Projection retains the callee's immutable reference suffix and mutation kind.
     match effect {
-        DependencyStorageEffect::Direct { subject, kind } => {
+        DependencyStorageEffect::Direct { subject, kind, access_type } => {
             project_subject(subject, ordinal, shape)
                 .map(|subject| DependencyStorageEffect::Direct {
                     subject,
                     kind: *kind,
+                    access_type: *access_type,
                 })
                 .unwrap_or_else(|| DependencyStorageEffect::unresolved(*kind))
         }
@@ -186,11 +187,13 @@ fn project_effect(
             reference,
             projections,
             kind,
+            access_type,
         } => project_subject(reference, ordinal, shape)
             .map(|reference| DependencyStorageEffect::Indirect {
                 reference,
                 projections: std::sync::Arc::clone(projections),
                 kind: *kind,
+                access_type: *access_type,
             })
             // A uniform array summary cannot select one runtime element. Use the
             // existing unresolved-alias meaning, never a path in the element type.

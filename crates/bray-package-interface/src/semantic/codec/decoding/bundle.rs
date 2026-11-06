@@ -848,6 +848,10 @@ mod tests {
             [InterfaceTypeId::new(0), InterfaceTypeId::new(0)].into(),
         ));
 
+        let access = InterfaceTypeId::new(u32::try_from(types.len()).expect("fixture type count fits u32"));
+
+        types.push(InterfaceType::Tuple([InterfaceTypeId::new(0); 3].into()));
+
         let subject = InterfaceDependencySubject::new(
             InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
             [],
@@ -857,11 +861,13 @@ mod tests {
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject,
                 projections: [].into(),
                 kind: DependencyMutationKind::Replace(replacement),
+                access_type: Some(access),
             },
         ]);
 
@@ -892,15 +898,20 @@ mod tests {
         for effect in &*decoded.dependency_contracts[0].effects {
             let (DependencyStorageEffect::Direct {
                 kind: DependencyMutationKind::Replace(ty),
+                access_type: Some(original),
                 ..
             }
             | DependencyStorageEffect::Indirect {
                 kind: DependencyMutationKind::Replace(ty),
+                access_type: Some(original),
                 ..
             }) = effect
             else {
                 panic!("test contract must retain both replacement effects");
             };
+
+            assert_ne!(*original, access, "unselected intervening type must be removed");
+            assert!(matches!(&decoded.types()[original.raw() as usize], InterfaceType::Tuple(elements) if elements.len() == 3));
 
             assert_ne!(
                 *ty, replacement,

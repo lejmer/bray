@@ -179,11 +179,13 @@ pub(super) fn decode_dependency_contract(
             1 => DependencyStorageEffect::Direct {
                 subject: decode_dependency_subject(reader, limits, context)?,
                 kind: decode_mutation(reader)?,
+                access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
             },
             2 => DependencyStorageEffect::Indirect {
                 reference: decode_dependency_subject(reader, limits, context)?,
                 projections: decode_dependency_projections(reader, limits, context)?.into(),
                 kind: decode_mutation(reader)?,
+                access_type: read_optional_u32(reader)?.map(crate::InterfaceTypeId::new),
             },
             _ => {
                 return Err(crate::semantic::codec::invalid_discriminant(

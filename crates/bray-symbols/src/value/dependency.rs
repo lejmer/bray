@@ -889,6 +889,7 @@ mod tests {
             .with_effects([crate::DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: crate::DependencyMutationKind::Write,
+                access_type: None,
             }])
             .with_completion_reports([])
             .with_abnormal_reports([DependencyRequirement::direct(

@@ -347,6 +347,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 memory,
                 target,
                 mutation.expect("assignment retains its transition"),
+                None,
                 self.on_normal_path,
             );
         }
@@ -605,7 +606,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let mut resolved = Vec::new();
 
         for effect in effects {
-            let (subject, indirect, projections, kind) = match effect {
+            let (subject, indirect, projections, kind, access_type) = match effect {
                 DependencyStorageEffect::Escape => {
                     resolved.push(Effect::Escape);
                     continue;
@@ -626,14 +627,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     resolved.push(Effect::Cleanup(*ty));
                     continue;
                 }
-                DependencyStorageEffect::Direct { subject, kind } => {
-                    (subject, false, &[][..], *kind)
+                DependencyStorageEffect::Direct { subject, kind, access_type } => {
+                    (subject, false, &[][..], *kind, *access_type)
                 }
                 DependencyStorageEffect::Indirect {
                     reference,
                     projections,
                     kind,
-                } => (reference, true, projections.as_ref(), *kind),
+                    access_type,
+                } => (reference, true, projections.as_ref(), *kind, *access_type),
             };
 
             let static_subject = matches!(
@@ -677,10 +679,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let reference_type = indirect.then(|| reference_type(subject)).flatten();
+            let reference_type = access_type.or_else(|| indirect.then(|| reference_type(subject)).flatten());
 
             for target in targets {
-                resolved.push(if indirect { Effect::IndirectMutation(target.project(&suffix), kind, reference_type) } else { Effect::Mutation(target.project(&suffix), kind) });
+                resolved.push(if indirect || access_type.is_some() { Effect::IndirectMutation(target.project(&suffix), kind, reference_type) } else { Effect::Mutation(target.project(&suffix), kind) });
             }
         }
 
@@ -703,8 +705,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for effect in effects {
             match effect {
                 Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind) | Effect::IndirectMutation(target, kind, _) => {
-                    self.record_target_effect(memory, target, *kind, normal_effects)
+                Effect::Mutation(target, kind) => {
+                    self.record_target_effect(memory, target, *kind, None, normal_effects)
+                }
+                Effect::IndirectMutation(target, kind, access_type) => {
+                    self.record_target_effect(memory, target, *kind, *access_type, normal_effects)
                 }
                 Effect::Ambient => {
                     self.record_effect(DependencyStorageEffect::Ambient, normal_effects)
@@ -727,6 +732,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         target: &Target,
         kind: DependencyMutationKind,
+        access_type: Option<bray_symbols::TypeId>,
         normal_effects: bool,
     ) {
         if !self.publish {
@@ -743,7 +749,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // Preserve every possible input region and the actual ownership transition.
             for origin in memory.effect_origins(target) {
-                self.record_target_effect(memory, origin, kind, normal_effects);
+                self.record_target_effect(memory, origin, kind, access_type, normal_effects);
             }
 
             return;
@@ -774,6 +780,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         reference: DependencySubject::new(root, source),
                         projections: suffix.into(),
                         kind,
+                        access_type: None,
                     }),
                     _ => Some(DependencyStorageEffect::Unknown),
                 }
@@ -793,11 +800,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 Some(DependencyStorageEffect::Direct {
                     subject: DependencySubject::new(*root, projections),
                     kind,
+                    access_type: None,
                 })
             }
         };
 
-        if let Some(effect) = effect {
+        if let Some(mut effect) = effect {
+            if let DependencyStorageEffect::Direct { access_type: original, .. }
+                | DependencyStorageEffect::Indirect { access_type: original, .. } = &mut effect {
+                *original = access_type;
+            }
+
             let effect = if effect == DependencyStorageEffect::Unknown {
                 DependencyStorageEffect::unresolved(kind)
             } else {
@@ -915,11 +928,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 reference: DependencySubject::root(root),
                 projections: projections.into(),
                 kind,
+                access_type: None,
             }
         } else {
             DependencyStorageEffect::Direct {
                 subject: DependencySubject::new(root, projections),
                 kind,
+                access_type: None,
             }
         })
     }

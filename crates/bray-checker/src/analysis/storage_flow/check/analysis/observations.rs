@@ -235,6 +235,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let ty = match effect {
                 Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) | Effect::IndirectMutation(_, Mutation::Escape | Mutation::Atomic, _) => continue,
                 Effect::Mutation(_, Mutation::Replace(ty)) | Effect::IndirectMutation(_, Mutation::Replace(ty), _) => Some(*ty),
+                Effect::IndirectMutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty)) if raw => {
+                    crate::representation::reference_target_type(self.request, *ty)
+                }
                 Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) | Effect::IndirectMutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
                     if typed_transfer.is_some() { continue; }
 
