@@ -29,7 +29,7 @@ pub enum StorageInvalidation {
         /// Unexposed owned observations with no mutable or reachable payload retain their value.
         stable_values: BTreeSet<crate::StoragePath>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<bray_symbols::DependencySubject, crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
     /// Only the listed paths and overlapping storage may change.
     Paths(Vec<crate::StoragePath>),
@@ -51,7 +51,7 @@ pub enum StorageInvalidation {
         /// Immutable component observations proven unchanged by these writes.
         stable_values: BTreeSet<crate::StoragePath>,
         /// Classified unchanged values held by this invocation's entry or normal result.
-        normal_snapshots: BTreeMap<bray_symbols::DependencySubject, crate::StorageObservationKind>,
+        normal_snapshots: BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>,
     },
 }
 
@@ -186,7 +186,7 @@ impl StorageInvalidation {
     }
 
     /// Returns the original observation kinds of captured invocation snapshots.
-    pub fn normal_snapshots(&self) -> Option<&BTreeMap<bray_symbols::DependencySubject, crate::StorageObservationKind>> {
+    pub fn normal_snapshots(&self) -> Option<&BTreeMap<(bray_symbols::DependencySubjectRoot, Arc<[crate::StorageProjection]>), crate::StorageObservationKind>> {
         match self {
             Self::All { normal_snapshots, .. } | Self::Observed { normal_snapshots, .. } => Some(normal_snapshots),
             Self::Paths(_) => None,

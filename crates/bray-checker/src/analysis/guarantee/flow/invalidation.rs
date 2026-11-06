@@ -457,7 +457,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         mutation: bray_bound_tree::StorageMutation,
-        snapshots: &BTreeMap<bray_symbols::DependencySubject, bray_bound_tree::StorageObservationKind>,
+        snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
         observations: &mut crate::execution_guarantees::ObservationSet,
     ) {
         let bray_bound_tree::StorageMutation::Operation(site) = mutation else { return; };
@@ -467,11 +467,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let selection = self.semantics.selections().expression(expression);
         let entry = state.entries.get(&site);
 
-        for (subject, kind) in snapshots {
-            let value = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
+        for ((root, projections), kind) in snapshots {
+            let value = if *root == bray_symbols::DependencySubjectRoot::Result {
                 state.pending_results.get(&expression).or_else(|| state.expressions.get(&expression)).cloned()
             } else {
-                selection.and_then(|selection| selection.invocation_input_ordinal(site, subject.subject_root()))
+                selection.and_then(|selection| selection.invocation_input_ordinal(site, *root))
                     .and_then(|ordinal| crate::ExecutionPlace::argument(ordinal).value_in(&entry?.arguments))
             };
 
@@ -481,8 +481,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             // does not preserve the source slot or the loan's mutable referents.
             if let ExecutionCondition::Borrowed(referent) = value { value = referent.as_ref().clone(); }
 
-            for projection in crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())
-                .expect("a published snapshot has checked projections") {
+            for projection in projections.iter().copied() {
                 value = value.project(projection);
             }
 
@@ -520,7 +519,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutation: bray_bound_tree::StorageMutation,
         descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
         stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
-        normal_snapshots: &BTreeMap<bray_symbols::DependencySubject, bray_bound_tree::StorageObservationKind>,
+        normal_snapshots: &BTreeMap<(bray_symbols::DependencySubjectRoot, std::sync::Arc<[bray_bound_tree::StorageProjection]>), bray_bound_tree::StorageObservationKind>,
     ) {
         let mut descriptors = descriptors
             .iter()

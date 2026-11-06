@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{BoundExecutionSite, BoundExpressionId, StorageProjection};
 use bray_symbols::{
-    DependencyProjection, DependencyReferenceKind, DependencySubject, DependencySubjectRoot,
+    DependencyReferenceKind, DependencySubject, DependencySubjectRoot,
 };
 
 use super::super::flow::ExecutionFlowDomain;
@@ -356,7 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 // A checked preserved reference names caller-owned storage. Consuming
                 // its containing value retires the descriptor, not the referent.
-                project_place(ExecutionPlace::argument(ordinal), subject)?.value_in(arguments)
+                project_place(self.request.semantic_values(), self.dependencies, ExecutionPlace::argument(ordinal), subject)?.value_in(arguments)
             })
     }
 
@@ -587,7 +587,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let Some(input) = project_place(ExecutionPlace::argument(ordinal), entry) else {
+            let Some(input) = project_place(self.request.semantic_values(), self.dependencies, ExecutionPlace::argument(ordinal), entry) else {
                 continue;
             };
 
@@ -595,13 +595,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let Some(path) = relation
-                .exit()
-                .projections()
-                .iter()
-                .copied()
-                .map(projection)
-                .collect::<Option<Vec<_>>>()
+            let Some(path) = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
             else {
                 continue;
             };
@@ -626,29 +620,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(in crate::analysis::guarantee) fn project_place(
+    values: &bray_symbols::SemanticValueStore,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     place: ExecutionPlace,
     subject: &DependencySubject,
 ) -> Option<ExecutionPlace> {
-    let path = subject
-        .projections()
-        .iter()
-        .copied()
-        .map(projection)
-        .collect::<Option<Vec<_>>>()?;
-
-    place.project(&path)
-}
-
-fn projection(projection: DependencyProjection) -> Option<StorageProjection> {
-    match projection {
-        DependencyProjection::ProductField(field) => Some(StorageProjection::ProductField(field)),
-        DependencyProjection::TupleElement(index) => Some(StorageProjection::TupleElement(index)),
-        DependencyProjection::NullableValue => Some(StorageProjection::NullableValue),
-        DependencyProjection::UnionPayloadField(_)
-        | DependencyProjection::Element(_)
-        | DependencyProjection::OwnedTarget
-        | DependencyProjection::UninitPayload => None,
-    }
+    place.project(&crate::storage::storage_projections(values, dependencies, subject.projections())?)
 }
 
 fn construct(

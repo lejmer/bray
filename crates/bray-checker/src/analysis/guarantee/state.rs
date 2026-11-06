@@ -239,7 +239,7 @@ impl ExecutionState {
     ) {
         let witness = self
             .witnesses
-            .entry(carrier.owner_identity().clone())
+            .entry(carrier.guarantee_carrier().clone())
             .or_default();
 
         witness.carry(&condition, true, &Default::default());

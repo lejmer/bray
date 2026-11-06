@@ -58,9 +58,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             source.projections = source.projections.iter().copied().chain(actual.iter().copied()).collect();
 
-            let Some(prefix) = crate::storage::dependency_projections(formal) else { continue; };
-
-            self.preserve_snapshot_observations(&source, root, &prefix, invalidation);
+            self.preserve_snapshot_observations(&source, root, formal, invalidation);
         }
     }
 
@@ -68,7 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         source: &StoragePath,
         root: bray_symbols::DependencySubjectRoot,
-        prefix: &[bray_symbols::DependencyProjection],
+        prefix: &[bray_bound_tree::StorageProjection],
         invalidation: &mut StorageInvalidation,
     ) {
         let snapshots = match invalidation {
@@ -82,9 +80,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(path) = crate::storage::dependency_projections(&path.projections[source.projections.len()..]) else { continue; };
+            let path = &path.projections[source.projections.len()..];
 
-            snapshots.entry(bray_symbols::DependencySubject::new(root, prefix.iter().copied().chain(path)))
+            snapshots.entry((root, prefix.iter().copied().chain(path.iter().copied()).collect()))
                 .and_modify(|previous| {
                     if kind.is_immutable_inline() { *previous = kind; }
                 }).or_insert(kind);
