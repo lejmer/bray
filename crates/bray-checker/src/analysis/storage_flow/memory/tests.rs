@@ -2141,7 +2141,7 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 
     let mut merged = state.clone();
 
-    merged.merge(&alternate);
+    merged.merge(&alternate, &Default::default(), &Default::default());
 
     assert_eq!(merged.declared_type(&backing), Some(element));
 
