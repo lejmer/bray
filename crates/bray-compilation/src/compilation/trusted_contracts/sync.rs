@@ -994,7 +994,7 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
             );
 
             if !valid {
-                assert_kind(
+                bray_testing::assert_goal_state_diagnostic_kind(
                     diagnostics,
                     DiagnosticKind::CheckingTrustedObligationNotProven,
                 );
@@ -1032,7 +1032,7 @@ fn callable_fields_borrow_their_owning_context_in_contracts() {
         );
 
         if !valid {
-            assert_kind(
+            bray_testing::assert_goal_state_diagnostic_kind(
                 diagnostics,
                 DiagnosticKind::CheckingTrustedObligationNotProven,
             );
