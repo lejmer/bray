@@ -2857,6 +2857,10 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             true,
         ),
         (
+            "let owner = borrow_owner(&pointer, pointer); clear_slot(capability, pointer); visit(owner, callback);",
+            true,
+        ),
+        (
             "let owner = borrow_owner(&pointer, pointer); pointer = std.memory.null<Owner>(); visit(owner, callback);",
             false,
         ),
@@ -2866,7 +2870,7 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             trusted module app;
             using core.memory;
             struct Marker {{}}
-            struct Owner {{ marker: Marker; backing: DataPointer<u8>; }}
+            struct Owner {{ marker: Marker; backing: DataPointer<u8>; mut slot: u32?; }}
             callable Callback = @abi(c) trusted func();
             trusted predicate slot(pointer: DataPointer<Owner>);
             trusted predicate borrowed_slot(input: &DataPointer<Owner>);
@@ -2893,6 +2897,27 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
                 trusted permit(address);
                 return trusted std.memory.borrow_from<Owner, DataPointer<Owner>>(input, address);
             }}
+            trusted func clear_slot(pos capability: &mut bool, pos address: DataPointer<Owner>)
+                requires(trusted slot(pointer = address))
+                uses(raw_memory, unchecked_alias)
+            {{
+                let permit = trusted lambda(pos address: DataPointer<Owner>)
+                    requires(trusted slot(pointer = address))
+                    ensures(
+                        trusted core.memory.valid_write<Owner>(pointer = address, count = 1),
+                        trusted core.memory.aligned_for<Owner>(pointer = address),
+                        trusted core.memory.initialized_as<Owner>(pointer = address),
+                        trusted core.memory.exclusive_alias_valid<Owner>(pointer = address),
+                        trusted core.memory.epoch_current<Owner>(pointer = address),
+                        trusted core.memory.synchronized_access<Owner>(pointer = address),
+                        trusted core.memory.movement_stable<Owner>(pointer = address),
+                        trusted core.memory.finalization_pending<Owner>(pointer = address)
+                    )
+                    executes(pure, total) {{}};
+                trusted permit(address);
+                let borrowed = trusted std.memory.borrow_mut_from<Owner, bool>(capability, address);
+                borrowed.slot = none;
+            }}
             trusted func visit(pos owner: &Owner, pos callback: Callback)
                 requires(trusted held(marker = &owner.marker))
                 ensures(trusted held(marker = &owner.marker))
@@ -2900,7 +2925,7 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             {{
                 callback();
             }}
-            func caller(pos mut pointer: DataPointer<Owner>, pos callback: Callback, pos again: bool)
+            func caller(pos mut pointer: DataPointer<Owner>, pos callback: Callback, pos again: bool, pos capability: &mut bool)
                 requires(trusted slot(pointer = pointer))
             {{
                 {body}

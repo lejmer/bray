@@ -226,19 +226,18 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects.into_iter().flatten() {
             let raw = raw_operation || match effect {
-                Effect::IndirectMutation(_, _, Some(ty)) => crate::representation::reference_kind(self.request, *ty)
+                Effect::Mutation(_, _, Some(ty)) => crate::representation::reference_kind(self.request, *ty)
                     == Some(bray_symbols::DependencyReferenceKind::Address),
-                Effect::IndirectMutation(_, _, None) => true,
                 _ => false,
             };
 
             let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) | Effect::IndirectMutation(_, Mutation::Escape | Mutation::Atomic, _) => continue,
-                Effect::Mutation(_, Mutation::Replace(ty)) | Effect::IndirectMutation(_, Mutation::Replace(ty), _) => Some(*ty),
-                Effect::IndirectMutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty)) if raw => {
+                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _) => continue,
+                Effect::Mutation(_, Mutation::Replace(ty), _) => Some(*ty),
+                Effect::Mutation(_, Mutation::Write | Mutation::Consume | Mutation::Clear, Some(ty)) if raw => {
                     crate::representation::reference_target_type(self.request, *ty)
                 }
-                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) | Effect::IndirectMutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
+                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
                     if typed_transfer.is_some() { continue; }
 
                     match memory.projected_type(self.request, target) {
@@ -250,7 +249,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     }
                 }
-                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire) | Effect::IndirectMutation(_, Mutation::Retire, _) => {
+                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire, _) => {
                     // A checked raw operation supplies its actual transfer type even
                     // when the reached address has an ambient storage summary.
                     if typed_transfer.is_some() { continue; }
@@ -642,7 +641,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .any(|effect| matches!(effect, Effect::Escape | Effect::Atomic));
 
             let escaped = effects.iter().filter_map(|effect| match effect {
-                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape) | Effect::IndirectMutation(target, bray_symbols::DependencyMutationKind::Escape, _) => {
+                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape, _) => {
                     Some(target.clone())
                 }
                 _ => None,

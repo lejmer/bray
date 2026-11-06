@@ -512,8 +512,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind) | Effect::IndirectMutation(target, kind, _) => {
+                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
+                Effect::Mutation(target, kind, _) => {
                     memory.invalidate_target(target, *kind, invalidation)
                 }
                 effect if effect.is_ambient() => {
@@ -526,7 +526,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         );
                     } else {
                         let escaped = effects.iter().filter_map(|effect| match effect {
-                            Effect::Mutation(target, DependencyMutationKind::Escape) | Effect::IndirectMutation(target, DependencyMutationKind::Escape, _) => {
+                            Effect::Mutation(target, DependencyMutationKind::Escape, _) => {
                                 Some(target.clone())
                             }
                             _ => None,
@@ -564,9 +564,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         occurrence: bray_bound_tree::BoundExecutionSite,
         effects: &[DependencyStorageEffect],
     ) -> Vec<Effect> {
-        let contracts = &self.dependencies.calls()[&occurrence];
-
-        self.resolve_effects(effects, |subject| contracts.reference_type(subject), |subject, indirect| {
+        self.resolve_effects(effects, |subject, indirect| {
             if indirect
                 && subject.projections().is_empty()
                 && !matches!(
@@ -600,7 +598,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn resolve_effects(
         &self,
         effects: &[DependencyStorageEffect],
-        reference_type: impl Fn(&DependencySubject) -> Option<bray_symbols::TypeId>,
         mut resolve: impl FnMut(&DependencySubject, bool) -> Option<Vec<Target>>,
     ) -> Vec<Effect> {
         let mut resolved = Vec::new();
@@ -679,10 +676,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let reference_type = access_type.or_else(|| indirect.then(|| reference_type(subject)).flatten());
-
             for target in targets {
-                resolved.push(if indirect || access_type.is_some() { Effect::IndirectMutation(target.project(&suffix), kind, reference_type) } else { Effect::Mutation(target.project(&suffix), kind) });
+                resolved.push(Effect::Mutation(target.project(&suffix), kind, access_type));
             }
         }
 
@@ -704,11 +699,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind) => {
-                    self.record_target_effect(memory, target, *kind, None, normal_effects)
-                }
-                Effect::IndirectMutation(target, kind, access_type) => {
+                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
+                Effect::Mutation(target, kind, access_type) => {
                     self.record_target_effect(memory, target, *kind, *access_type, normal_effects)
                 }
                 Effect::Ambient => {
