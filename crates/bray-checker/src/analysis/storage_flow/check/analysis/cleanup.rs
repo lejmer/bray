@@ -194,7 +194,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     preserve_run_descriptor(&memory, frame, &[], true, &mut invalidation);
                 }
 
-                self.preserve_borrowed_values(state, &memory, &mut invalidation);
+                self.preserve_storage_values(state, &memory, None, effects.as_deref(), &mut invalidation);
 
                 if let Some(call) = &invocation
                     && call.completes
@@ -239,7 +239,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 domain.invalidate_observations(execution, identity, &invalidation, false, false);
-                domain.observe_references(execution, completion.references());
+                domain.observe_references(execution, identity, completion.references());
             };
 
         domain.transition_storage_cleanup(

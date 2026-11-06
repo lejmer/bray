@@ -419,7 +419,7 @@ impl State {
         // A retained whole descriptor protects its inline reference values. It does
         // not protect the storage reached through those references or owned backing.
         target.observation_path().is_some_and(|slot| {
-            !slot
+            descriptors.contains(&slot) || !slot
                 .projections
                 .contains(&bray_bound_tree::StorageProjection::OwnedTarget)
                 && descriptors.contains(&Place::root(slot.root))
