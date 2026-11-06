@@ -560,12 +560,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        let (mut stable_places, stable_values) = match invalidation {
+        let (mut stable_places, mut stable_values) = match invalidation {
             StorageInvalidation::Observed { stable_values, .. } => {
                 self.preserved_storage_values(state, stable_values, mutation)
             }
             _ => (BTreeMap::new(), BTreeSet::new()),
         };
+
+        // A moving read changes the source initialization, but its complete value
+        // already belongs to the result. Retain that existing carrier rather than
+        // restoring a copied witness after the source transition.
+        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
+            && let Some(expression) = site.expression()
+            && self.memory.operation(expression).is_some_and(|operation| operation.kind().moving_read_type().is_some())
+            && let Some(value) = state.expressions.get(&expression)
+        {
+            stable_values.extend(state.owned_values(value));
+        }
 
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
             let mut observed = Vec::new();
@@ -678,7 +689,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // Storage flow distinguishes the descriptor slot from its reached elements.
         // Keep only descriptor identity. A fresh payload snapshot prevents opaque calls
         // and predicates from equating the old contents with the new contents.
-        let descriptors = match invalidation {
+        let mut descriptors = match invalidation {
             StorageInvalidation::Observed {
                 stable_descriptors, ..
             } => stable_descriptors
@@ -709,6 +720,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 })
                 .collect()
         };
+
+        if !transfers {
+            for place in &changed_places {
+                if stable_places.range(place.clone()..).next().is_some_and(|(component, _)| {
+                    place.contains(component)
+                }) && let Some(value) = place.value_in(&state.current) {
+                    // The frame keeps an actual component of this same live owner.
+                    // Retain its complete identity while replacing its contents view.
+                    // Its old observations still expire through invalidated_values.
+                    descriptors.entry(place.clone()).or_insert_with(|| value.owner_identity().clone());
+                }
+            }
+        }
 
         if content_only {
             state.invalidate_contents(

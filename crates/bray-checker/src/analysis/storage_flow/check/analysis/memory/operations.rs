@@ -31,6 +31,46 @@ const fn memory_status_rank(status: MemoryOperationStatus) -> u8 {
 }
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(in crate::analysis::storage_flow::check::analysis) fn observe_memory_read(
+        &mut self,
+        state: &StorageFlowState,
+        execution: &mut crate::analysis::guarantee::ExecutionState,
+        kind: crate::analysis::model::AnalysisOperationKind,
+    ) {
+        if !matches!(kind,
+            crate::analysis::model::AnalysisOperationKind::Call {
+                phase: crate::analysis::model::AnalysisCallPhase::Attempt, ..
+            } | crate::analysis::model::AnalysisOperationKind::Bound(_)) {
+            return;
+        }
+
+        let Some(expression) = kind.occurrence().expression() else {
+            return;
+        };
+
+        let Some(operation) = self.memory.operation(expression) else {
+            return;
+        };
+
+        let Some(pointee) = operation.kind().moving_read_type() else {
+            return;
+        };
+
+        let target = self.expression_target(state, operation.arguments()[0])
+            .and_then(|slot| state.memory.value_target(&slot, pointee));
+
+        if let Some(path) = target.as_ref().and_then(|target| crate::storage::storage_observation_path(
+            self.storage, self.request.semantic_values(), target)) {
+            let value = self.execution.storage_path_value(execution, &path);
+
+            execution.pending_results.insert(expression, value);
+        }
+
+        if self.publish {
+            self.record_state_target(bray_bound_tree::StorageStateTarget::MemoryRead(expression), target);
+        }
+    }
+
     pub(in crate::analysis::storage_flow::check::analysis) fn apply_memory_operation<
         'refinements,
     >(

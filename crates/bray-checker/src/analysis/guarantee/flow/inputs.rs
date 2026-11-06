@@ -13,6 +13,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> Option<ExecutionCondition> {
+        if self.memory.operation(expression).is_some_and(|operation| operation.kind().moving_read_type().is_some()) {
+            if let Some(value) = state.pending_results.get(&expression) {
+                return Some(value.clone());
+            }
+
+            if let Some(path) = self.checked_body
+                .and_then(|body| body.storage_flow().memory_read_target(expression))
+                .and_then(|target| crate::storage::storage_observation_path(
+                    self.storage, self.request.semantic_values(), target)) {
+                return Some(self.storage_path_value(state, &path));
+            }
+        }
+
         let selection = self.semantics.selections().expression(expression)?;
 
         if let SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(

@@ -450,17 +450,8 @@ impl ExecutionState {
 
         let mut retained = BTreeSet::new();
 
-        // A changed contents snapshot can still contain an unchanged observation
-        // of the original complete carrier. Ownership transitions retire that
-        // carrier separately, so do not reconstruct its identity from the snapshot.
-        let retains_owner = |carrier: &ExecutionCondition| {
-            stable_owners.iter().any(|owner| {
-                carrier.is_owned_projection_of(owner) || owner.is_owned_projection_of(carrier)
-            })
-        };
-
         self.witnesses.retain(|carrier, witness| {
-            if !retains_owner(carrier) {
+            if !stable_owners.iter().any(|owner| carrier.is_owned_projection_of(owner)) {
                 return false;
             }
 
@@ -503,7 +494,7 @@ impl ExecutionState {
 
         self.allocation_owners.retain(|condition, owner| {
             condition.observes_only(stable_values)
-                && retains_owner(owner)
+                && stable_owners.iter().any(|stable| owner.is_owned_projection_of(stable))
         });
 
         for entry in self.pending_entries_mut(&|entry| {
@@ -714,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_preserves_a_live_carrier_through_its_unchanged_component() {
+    fn cleanup_requires_the_complete_carrier_to_survive() {
         let owner = input(0);
         let marker = owner.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>("ValidRead");
@@ -725,24 +716,25 @@ mod tests {
             [marker.clone().borrowed()].into(),
         )));
 
-        let mut state = ExecutionState::default();
+        for complete in [false, true] {
+            let mut state = ExecutionState::default();
 
-        state.carry_guarantee(owner.clone(), condition.clone());
-        state.trusted_assumptions.insert((condition.clone(), true));
+            state.carry_guarantee(owner.clone(), condition.clone());
+            state.trusted_assumptions.insert((condition.clone(), true));
 
-        state.invalidate_cleanup(
-            &BTreeSet::from([marker.clone(), marker.clone().borrowed()]),
-            &BTreeSet::from([marker]),
-        );
+            state.invalidate_cleanup(
+                &BTreeSet::from([marker.clone(), marker.clone().borrowed()]),
+                &BTreeSet::from([if complete { owner.clone() } else { marker.clone() }]),
+            );
 
-        assert_eq!(state.witnesses.len(), 1);
-        assert!(state.witnesses.contains_key(&owner));
-        assert!(state.trusted_assumptions.contains(&(condition.clone(), true)));
+            assert_eq!(state.witnesses.contains_key(&owner), complete);
+            assert_eq!(state.trusted_assumptions.contains(&(condition.clone(), true)), complete);
 
-        state.invalidate_trusted(&owner);
+            state.invalidate_trusted(&owner);
 
-        assert!(state.witnesses.is_empty());
-        assert!(!state.trusted_assumptions.contains(&(condition, true)));
+            assert!(state.witnesses.is_empty());
+            assert!(!state.trusted_assumptions.contains(&(condition.clone(), true)));
+        }
     }
 
     fn permission(ordinal: u32) -> ExecutionCondition {

@@ -1095,6 +1095,15 @@ pub enum CheckedMemoryOperationKind {
 }
 
 impl CheckedMemoryOperationKind {
+    /// Returns the owned value type extracted by a moving raw read.
+    pub const fn moving_read_type(&self) -> Option<TypeId> {
+        match self {
+            Self::Read { pointee, kind: MemoryReadKind::Move }
+            | Self::VolatileRead { pointee, kind: MemoryReadKind::Move, .. } => Some(*pointee),
+            _ => None,
+        }
+    }
+
     /// Returns whether every atomic ordering carried by this operation is legal for its role.
     pub const fn has_valid_atomic_ordering(&self) -> bool {
         match self {
