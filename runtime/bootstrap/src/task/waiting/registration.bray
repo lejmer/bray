@@ -41,10 +41,7 @@ trusted internal predicate optional_registration(owner: &(WaitRegistration?));
 
 trusted internal func registration_waiter(pos owner: &WaitRegistration) -> &Reference
     requires(trusted registration_owned(owner = &owner.marker))
-    ensures(
-        trusted registration_owned(owner = &owner.marker),
-        trusted retained(owner = result)
-    )
+    ensures(trusted registration_owned(owner = &owner.marker), trusted retained(owner = result))
     executes(pure, total)
 {
     return &owner.waiter;

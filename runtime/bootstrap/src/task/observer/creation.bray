@@ -125,6 +125,7 @@ trusted internal func acquire_provider(pos owner: &mut Prepared) -> bool
     ensures(trusted prepared(owner = &owner))
 {
     let mut provider = trusted bray.runtime.bootstrap.provider.resident_reference();
+
     let status = trusted bray.runtime.bootstrap.provider.acquire(
         owner.input.glue.provider,
         std.memory.address_of_mut<bray.runtime.bootstrap.provider.Reference>(&mut provider)
