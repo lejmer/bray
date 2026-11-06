@@ -228,8 +228,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // A retained shared referent protects its ordinary scalar values and
             // immutable markers. Borrowing a reference slot protects only that slot.
-            let protected_referent = memory.borrow_targets(*borrow).is_some_and(|targets| {
-                !targets.is_empty()
+            let protected_referent = memory.borrow_regions(*borrow).is_some_and(|targets| {
+                !targets.is_empty() && targets.iter().all(|target| !target.previous)
             });
 
             for path in self
@@ -337,7 +337,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 None => None,
             };
 
-            let Some(targets) = location.and_then(|location| memory.value_targets(&location))
+            // A shared loan protects each possible referent. Exact pointer identity
+            // is unnecessary, but unknown or retired backing supplies no protection.
+            let Some(targets) = location.and_then(|location| memory.referenced_regions(&location))
             else {
                 continue;
             };
@@ -351,6 +353,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
+                        if target.previous {
+                            return false;
+                        }
+
                         let target =
                             target.project(&path.projections[reference.projections.len()..]);
 

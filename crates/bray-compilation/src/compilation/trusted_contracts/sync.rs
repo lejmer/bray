@@ -2669,6 +2669,116 @@ fn input_authority_uses_the_same_complete_carrier_as_the_producer() {
 }
 
 #[test]
+fn input_postconditions_retain_the_complete_owner_after_replacement() {
+    for (input, replacement, subject) in [
+        ("Parent", "replace_child(&mut parent)", "parent.child"),
+        ("Child", "replace_root(&mut parent)", "parent"),
+    ] {
+        for (output, expression, valid) in [
+            ("Child", subject.to_owned(), true),
+            ("Marker", format!("{subject}.marker"), false),
+        ] {
+            let source = format!(r#"
+                trusted module app;
+                struct Marker {{}}
+                struct Child {{ marker: Marker; number: u32; }}
+                struct Parent {{ mut child: Child; }}
+                trusted predicate held(marker: &Marker);
+                trusted func replace_child(pos parent: &mut Parent)
+                    ensures(trusted held(marker = &parent.child.marker))
+                {{ parent.child = Child {{ marker = Marker {{}}, number = 0 }}; }}
+                extern trusted func replace_root(pos child: &mut Child)
+                    ensures(trusted held(marker = &child.marker));
+                func caller(pos mut parent: {input}) -> {output}
+                {{ trusted {replacement}; return {expression}; }}
+            "#);
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingTrustedWitnessTransferNotProven,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "tier:proof"]
+fn anchored_borrow_does_not_expose_its_lifetime_owner() {
+    let source = r#"
+        trusted module app;
+        using core.memory;
+        struct Marker {}
+        struct Owner {
+            marker: Marker;
+            value: u64;
+            trusted destruct() requires(trusted held(marker = &self.marker)) executes(total) {}
+        }
+        trusted predicate held(marker: &Marker);
+        callable Callback = @abi(c) trusted func();
+        extern trusted func acquire() -> Owner
+            ensures(trusted held(marker = &result.marker));
+        trusted func external_slot(pos owner: &Owner, pos address: usize) -> &Uninit<u32>
+            requires(trusted held(marker = &owner.marker))
+            ensures(trusted held(marker = &owner.marker))
+            executes(pure, total)
+            uses(raw_memory, unchecked_alias, intrinsic)
+        {
+            let pointer = trusted core.target.from_exposed_address<Uninit<u32>>(address = address);
+            let permit = trusted lambda(pos owner: &Owner, pos pointer: DataPointer<Uninit<u32>>)
+                requires(trusted held(marker = &owner.marker))
+                ensures(
+                    trusted core.memory.valid_read<Uninit<u32>>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.initialized_as<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.shared_alias_valid<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.epoch_current<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.synchronized_access<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.movement_stable<Uninit<u32>>(pointer = pointer),
+                    trusted core.memory.finalization_pending<Uninit<u32>>(pointer = pointer)
+                )
+                executes(pure, total) {};
+            trusted permit(owner, pointer);
+            return trusted std.memory.borrow_from<Uninit<u32>, Owner>(owner, pointer);
+        }
+        trusted func update(pos owner: &Owner, pos address: usize)
+            requires(trusted held(marker = &owner.marker))
+            ensures(trusted held(marker = &owner.marker))
+            uses(raw_memory, unchecked_init, intrinsic)
+        {
+            let slot = external_slot(owner, address);
+            let pointer = std.memory.uninit_pointer<u32>(slot);
+            let permit = trusted lambda(pos slot: &Uninit<u32>, pos pointer: DataPointer<u32>)
+                ensures(
+                    trusted core.memory.valid_write<u32>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<u32>(pointer = pointer)
+                )
+                executes(pure, total) {};
+            trusted permit(slot, pointer);
+            trusted std.memory.write<u32>(pointer, 1);
+        }
+        trusted func caller(pos address: usize, pos callback: Callback) uses(foreign_call) {
+            let owner = acquire();
+            update(&owner, address);
+            callback();
+        }
+    "#;
+
+    let application = production_sync_compilation(source);
+
+    let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+        .expect("fixture callable must lower successfully");
+
+    assert!(!checked.diagnostics().has_errors(), "{:?}", checked.diagnostics());
+}
+
+#[test]
 fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
     for binding in [
         "let token = &project(owner).token;",

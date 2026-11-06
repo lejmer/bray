@@ -48,19 +48,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         completion: &bray_bound_tree::StorageCompletion,
-        retain_carriers: bool,
-    ) -> Vec<ExecutionCondition> {
-        let mut carriers = Vec::new();
-
+    ) {
         let Some(selection) = invocation
             .expression()
             .and_then(|expression| self.semantics.selections().expression(expression))
         else {
-            return carriers;
+            return;
         };
 
         let Some(contracts) = self.dependencies.calls().get(&invocation) else {
-            return carriers;
+            return;
         };
 
         for subject in contracts.reference_subjects() {
@@ -195,12 +192,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            if retain_carriers {
-                // Retain the actual checked target before adapting its argument view.
-                // A returned loan remains a separate value with its own lifetime.
-                carriers.push(value.clone());
-            }
-
             let context = if prepared.projections().is_empty() {
                 // The evaluated input loan survives independently of its binding.
                 place.value_in(arguments)
@@ -236,7 +227,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
         }
 
-        carriers
     }
 
     pub(super) fn prepare_call_observations(
@@ -250,14 +240,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             crate::execution_guarantees::AddressDependencies,
         >,
         completion: &bray_bound_tree::StorageCompletion,
-        retain_carriers: bool,
-    ) -> (
-        Vec<ExecutionCondition>,
-        BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource>,
-    ) {
-        let carriers = self.refresh_borrowed_arguments(
-            state, invocation, arguments, completion, retain_carriers,
-        );
+        retain_authority: bool,
+    ) -> BTreeMap<bray_bound_tree::BoundExecutionSite, GuaranteeSource> {
+        self.refresh_borrowed_arguments(state, invocation, arguments, completion);
 
         let expression = invocation
             .expression()
@@ -343,7 +328,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 for access in self
                     .storage
                     .occurrence_plans(operand)
-                    .filter(|_| retain_carriers)
+                    .filter(|_| retain_authority)
                 {
                     if let Some(owner) =
                         crate::ExecutionPlace::storage_owner(self.storage, access.access())
@@ -360,7 +345,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
-            if retain_carriers {
+            if retain_authority {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(operand).or_default().borrowed,
                     operand,
@@ -407,7 +392,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .expect("prepared receiver retains its refreshed argument")
                 .clone();
 
-            if retain_carriers {
+            if retain_authority {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(input).or_default().borrowed,
                     input,
@@ -424,7 +409,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             );
         }
 
-        (carriers, owners)
+        owners
     }
 
     fn retain_trusted_borrow_owners(

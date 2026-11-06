@@ -238,7 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .clone()
         }));
 
-        let (carriers, owners) = if (!guarantees.is_empty() || !postconditions.is_empty())
+        let owners = if (!guarantees.is_empty() || !postconditions.is_empty())
             && let Some((_, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
@@ -322,7 +322,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let Some(owner) = self.input_witness_owner(
-                template, subject, &condition, &carriers, &address_subjects,
+                template, subject, &condition, &arguments, &address_subjects,
             ) else { continue; };
 
             let addresses = self.input_guarantee_addresses(

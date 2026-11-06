@@ -853,7 +853,25 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let contained = self.input.value_references.get(&destination.root);
 
             if root.is_some() || contained.is_some_and(|paths| !paths.is_empty()) {
-                let inputs = self.invocation_roots(state, occurrence);
+                let operation = occurrence
+                    .expression()
+                    .and_then(|expression| self.memory.operation(expression));
+
+                let inputs = match operation {
+                    Some(operation)
+                        if matches!(
+                            operation.kind(),
+                            bray_bound_tree::CheckedMemoryOperationKind::BorrowFrom { .. }
+                        ) =>
+                    {
+                        // The first argument retains the loan's lifetime. Only the
+                        // pointer argument identifies storage that the loan can reach.
+                        self.expression_reference(state, operation.arguments()[1])
+                            .and_then(|source| source.regions(&state.memory))
+                            .unwrap_or_default()
+                    }
+                    _ => self.invocation_roots(state, occurrence),
+                };
 
                 // Transitions own small place keys with shared projection paths.
                 let references = contained
