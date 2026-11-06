@@ -602,27 +602,69 @@ impl super::ValueInputs {
                 &mut declaration,
             )?;
 
+            let mut sources = std::collections::BTreeSet::new();
+
             for relation in template.template.borrows() {
                 let Some(entry) = relation.entry() else {
-                    continue;
-                };
-
-                let [projection] = relation.exit().projections() else {
                     continue;
                 };
 
                 if !relation.is_exact()
                     || relation.kind() != bray_symbols::DependencyReferenceKind::Borrow
                     || relation.dereferences() != 0
-                    || !relation.target_projections().is_empty()
-                    || !entry.projections().is_empty()
                     || relation.exit().subject_root() != DependencySubjectRoot::Result
                 {
                     continue;
                 }
 
-                // Address equality alone does not identify the value's lifetime source.
-                // Resolve a copied field only when its complete result contract names this input.
+                let Some(argument) =
+                    result_argument(call.arguments(), call.receiver(), entry.subject_root())
+                else {
+                    continue;
+                };
+
+                let mut entry_ty = types
+                    .expression(argument)
+                    .expect("returned borrow origin retains its checked argument")
+                    .ty();
+
+                for projection in entry.projections() {
+                    entry_ty =
+                        crate::storage::projected_value_type(request, entry_ty, *projection)?
+                            .value()
+                            .expect("returned borrow origin retains its checked projection");
+                }
+
+                // A lifetime anchor need not contain the referent. Only exact
+                // language-borrow origins identify aggregate storage here.
+                if crate::representation::reference_kind(request, entry_ty)
+                    == Some(bray_symbols::DependencyReferenceKind::Address)
+                {
+                    continue;
+                }
+
+                if borrowed_result && relation.exit().projections().is_empty() {
+                    sources.insert((
+                        argument,
+                        entry
+                            .projections()
+                            .iter()
+                            .chain(relation.target_projections())
+                            .copied()
+                            .collect::<Vec<_>>(),
+                    ));
+                }
+
+                let [projection] = relation.exit().projections() else {
+                    continue;
+                };
+
+                if !relation.target_projections().is_empty() || !entry.projections().is_empty() {
+                    continue;
+                }
+
+                // Resolve a copied borrow field only when its complete value
+                // contract and physical origin both name this input.
                 let expected = DependencyRequirement::direct(
                     DependencySubject::root(entry.subject_root()),
                     DependencyRequirementKind::ValueDependencies,
@@ -634,37 +676,28 @@ impl super::ValueInputs {
                     continue;
                 }
 
-                if let Some(argument) =
-                    result_argument(call.arguments(), call.receiver(), entry.subject_root())
+                let projected =
+                    crate::storage::projected_value_type(request, ty.ty(), *projection)?;
+                let field_ty = projected
+                    .value()
+                    .expect("returned borrow field retains its checked projection");
+
+                if request.semantic_values().unborrowed_type(field_ty)
+                    != request.semantic_values().unborrowed_type(entry_ty)
                 {
-                    self.projections
-                        .entry(expression)
-                        .or_default()
-                        .insert(*projection, (argument, None));
+                    continue;
                 }
+
+                self.projections
+                    .entry(expression)
+                    .or_default()
+                    .insert(*projection, (argument, None));
             }
 
-            if !borrowed_result {
-                continue;
+            if !sources.is_empty() {
+                self.borrowed
+                    .insert(expression, sources.into_iter().collect());
             }
-
-            let sources = template
-                .template
-                .requirements()
-                .iter()
-                .filter_map(|requirement| {
-                    let DependencyRequirement::Direct { subject, .. } = requirement else {
-                        return None;
-                    };
-
-                    let argument =
-                        result_argument(call.arguments(), call.receiver(), subject.subject_root())?;
-
-                    Some((argument, subject.projections().to_vec()))
-                })
-                .collect();
-
-            self.borrowed.insert(expression, sources);
         }
 
         Ok(())

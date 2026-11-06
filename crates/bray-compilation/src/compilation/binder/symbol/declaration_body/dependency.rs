@@ -83,6 +83,7 @@ fn portable_requirement(
                 let Some(projection) = portable_projection(*projection) else {
                     return Ok(None);
                 };
+
                 subject.append_projection(projection);
             }
 
@@ -241,6 +242,7 @@ fn portable_subject_with_projection_count(
         let Some(projection) = portable_projection(*projection) else {
             return Ok(None);
         };
+
         subject.append_projection(projection);
     }
 

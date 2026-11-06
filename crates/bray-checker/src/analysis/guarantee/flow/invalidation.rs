@@ -749,29 +749,64 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     return None;
                 }
 
-                let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
-                let target = crate::ExecutionPlace::storage_path(self.storage, &target)?;
-
-                let value = target
+                let place = crate::ExecutionPlace::storage_path(self.storage, path);
+                let target_place = crate::ExecutionPlace::storage_path(self.storage, &target)?;
+                let value = target_place
                     .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Input(target));
+                    .unwrap_or(ExecutionCondition::Input(target_place));
 
-                let value = if matches!(
-                    place.value_in(&state.current),
-                    Some(ExecutionCondition::Borrowed(_))
-                ) {
+                let value = if place.as_ref().is_some_and(|place| {
+                    matches!(
+                        place.value_in(&state.current),
+                        Some(ExecutionCondition::Borrowed(_))
+                    )
+                }) || path.projections.is_empty()
+                    && self.storage.storage_type(path.root).is_some_and(|ty| {
+                        matches!(
+                            self.request.semantic_values().type_data(ty).as_ref(),
+                            bray_symbols::TypeData::Borrow { .. }
+                        )
+                    }) {
                     // Refresh the referent without turning a borrowed field into an owned field.
                     value.borrowed()
                 } else {
                     value
                 };
 
-                Some((place, value))
+                Some((path, place, value))
             })
             .collect::<Vec<_>>();
 
-        for (place, value) in aliases {
-            state.assign(place, value, None);
+        for (path, place, value) in aliases {
+            if let Some(place) = place {
+                state.assign(place, value, None);
+            } else if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
+                self.storage.identity(path.root)
+            {
+                // A getter result has expression lifetime even when no binding names it.
+                let value = if path.projections.is_empty() {
+                    value
+                } else {
+                    let previous = state
+                        .expressions
+                        .get(&expression)
+                        .cloned()
+                        .unwrap_or(ExecutionCondition::Expression(expression));
+                    let Some(projections) = path
+                        .projections
+                        .iter()
+                        .copied()
+                        .map(crate::ExecutionPlace::projection_kind)
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+
+                    previous.with_component(&projections, value, Some(&path.projections))
+                };
+
+                state.expressions.insert(expression, value);
+            }
         }
     }
 }

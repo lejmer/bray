@@ -32,7 +32,9 @@ trusted internal func publish_scope(pos owner: &mut Scope) -> (u32, bray.runtime
         };
     };
 
-    let (status, installed) = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(trusted acquire(&owner));
+    let (status, installed) = trusted bray.runtime.bootstrap.host.exchange_attachment_execution(
+        trusted acquire(&owner)
+    );
 
     if status == 0 && installed matches ?_
     {

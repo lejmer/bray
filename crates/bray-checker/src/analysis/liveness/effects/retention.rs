@@ -65,6 +65,7 @@ impl OperationEffects {
                     .entry((*expression).into())
                     .or_default()
                     .extend(call.result().requirements().iter().cloned());
+
                 self.owner_dependencies
                     .entry((*expression).into())
                     .or_default()
@@ -134,6 +135,7 @@ impl OperationEffects {
                             .entry(boundary.into())
                             .or_default()
                             .extend(contract.requirements().iter().cloned());
+
                         self.owner_dependencies
                             .entry(boundary.into())
                             .or_default()
@@ -519,10 +521,12 @@ fn retained_storage_borrows(
     retained: &BTreeMap<bray_bound_tree::BoundExecutionSite, BTreeSet<BoundDependencySubject>>,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut borrows = BTreeSet::new();
+
     let mut pending = subjects
         .into_iter()
         .map(|subject| (subject, read_container))
         .collect::<Vec<_>>();
+
     let mut visited_roots = BTreeSet::new();
 
     while let Some((subject, read_container)) = pending.pop() {
@@ -533,6 +537,7 @@ fn retained_storage_borrows(
                 let capability = storage
                     .borrow_capability(capability)
                     .expect("retained borrow is planned");
+
                 if let Some(root) = storage.root_identity(capability.access()) {
                     pending.push((BoundDependencySubject::Storage(root), true));
                 }

@@ -393,10 +393,10 @@ fn nullable_borrowed_witnesses_preserve_their_portable_guards() {
 fn transparent_predicate_getters_preserve_the_contained_owner() {
     for (body, valid) in [
         (
-            "match consume owner { case ?value { consume(value); } case none {} }",
+            "match consume owner { case ?value { release_owner(value); } case none {} }",
             true,
         ),
-        ("consume(Owner { acquisition = Marker {} });", false),
+        ("release_owner(Owner { acquisition = Marker {} });", false),
     ] {
         let source = format!(
             r#"
@@ -412,14 +412,23 @@ fn transparent_predicate_getters_preserve_the_contained_owner() {
                 }};
             }}
             predicate optional_owner(owner: &(Owner?)) = owner matches none || acquired(owner = &present_owner(owner).acquisition);
-            func consume(pos owner: Owner) requires(trusted acquired(owner = &owner.acquisition)) {{}}
+            func release_owner(pos owner: Owner) requires(trusted acquired(owner = &owner.acquisition)) {{}}
             func forward(pos owner: Owner?) requires(trusted optional_owner(owner = &owner)) {{ {body} }}
             "#
         );
+
         let application = compilation(&source);
+
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}: {:?}",
+            application.syntax_tree_result().diagnostics()
+        );
+
         let checked = application
             .lowered_unit(source_function_body_key(&application, "forward"))
             .expect("predicate getter retains its checked reference context");
+
         assert_eq!(
             !checked.diagnostics().has_errors(),
             valid,
@@ -449,21 +458,30 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
                 ensures(trusted acquired(owner = &result.acquisition)) {{
                 return {{ acquisition = Marker {{}}, pointer = owner.pointer }};
             }}
-            func consume(pos owner: Reference) requires(trusted acquired(owner = &owner.acquisition)) {{}}
+            func release_reference(pos owner: Reference) requires(trusted acquired(owner = &owner.acquisition)) {{}}
             func caller() {{
                 let mut source: u32 = 0;
                 let first = fresh(address(&source));
                 let second = retain(borrow_reference(&first));
-                consume(first);
+                release_reference(first);
                 {mutation}
-                consume(second);
+                release_reference(second);
             }}
             "#
         );
+
         let application = compilation(&source);
+
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}: {:?}",
+            application.syntax_tree_result().diagnostics()
+        );
+
         let checked = application
             .lowered_unit(source_function_body_key(&application, "caller"))
             .expect("address retention keeps its checked producer contracts");
+
         assert_eq!(
             !checked.diagnostics().has_errors(),
             valid,

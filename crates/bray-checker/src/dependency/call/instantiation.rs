@@ -365,6 +365,7 @@ where
         requirement: DependencyRequirementKind,
     ) -> Result<BoundDependencyRequirement, Self::Error> {
         let direct = |subject| BoundDependencyRequirement::direct(subject, requirement.into());
+
         if let DependencySubjectRoot::ImplementationWitness(witness) = subject.subject_root() {
             return Ok(direct(BoundDependencySubject::ImplementationWitness(
                 witness,
@@ -484,6 +485,7 @@ where
             } else {
                 projections
             };
+
             let ty = self
                 .storage
                 .access(base)
@@ -500,9 +502,13 @@ where
             let projections =
                 crate::storage::resolve_storage_projections(self.request, projections)?
                     .expect("checked value dependency retains its selected projections");
+
             let (ty, path) =
                 crate::storage::reference_path(self.request, ty, projections.into(), None)?
-                    .expect("checked value dependency retains its typed reference path");
+                    .unwrap_or_else(|| panic!(
+                        "checked value dependency retains its typed reference path: unit {:?}, input {:?}, subject {subject:?}, source {base:?}, source type {ty:?}",
+                        self.request.unit().key(), self.input,
+                    ));
 
             return Ok(BoundDependencyRequirement::Value {
                 source: base,
