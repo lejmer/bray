@@ -2802,6 +2802,9 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
         ("(u32?)", "none", true),
         ("Data", "Data { value = 1 }", true),
         ("OtherPayload", "OtherPayload { marker = OtherMarker {}, value = 1 }", true),
+        ("[u32; 2]", "[1, 2]", true),
+        ("Uninit<[u32; 2]>", "core.memory.uninit_from<[u32; 2]>([1, 2])", true),
+        ("Uninit<Payload>", "core.memory.uninit_from<Payload>(Payload { marker = Marker {}, value = 1 })", false),
         (
             "Payload",
             "Payload { marker = Marker {}, value = 1 }",

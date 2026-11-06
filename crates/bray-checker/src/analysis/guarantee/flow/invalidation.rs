@@ -276,10 +276,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             }
 
-            for projection in crate::storage::owned_storage_projections(
-                self.dependencies, &place.projections[source.projections.len()..],
-            ) {
-                value = value.project(projection);
+            for projection in &path.projections[source.projections.len()..] {
+                value = value.project(*projection);
             }
 
             Some(value)

@@ -30,6 +30,43 @@ fn addressed_reference(
     )
 }
 
+#[test]
+fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells() {
+    use crate::test_support::{
+        TestCheckerContext, array_type, callable_entry, semantic_values, tuple_type,
+    };
+
+    let values = semantic_values();
+    let element = tuple_type([]);
+    let array = array_type(element, 2);
+    let generator = values.intern_type(bray_symbols::TypeData::Generator(array)).unwrap();
+    let ([owner, ..], _, capability) = borrowed_places();
+    let (unit, _) = expression_unit(owner.root.unit(), |_, _| Vec::new());
+    let context = TestCheckerContext::new(false);
+    let entry = callable_entry(unit.key());
+    let request = crate::CheckerUnitView::new(&unit, &entry, &context);
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+
+    state.borrow_target_storage(values, capability, owner.clone(), generator);
+
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+    state.observe_effect_types(&[super::Effect::Mutation(
+        backing.clone(), bray_symbols::DependencyMutationKind::Replace(array),
+    )]);
+    let cell = backing.project(&[StorageProjection::ElementFromStart(
+        bray_symbols::SymbolOrdinal::new(0),
+    )]);
+    let member = cell.project(&[StorageProjection::ElementFromStart(
+        bray_symbols::SymbolOrdinal::new(1),
+    )]);
+
+    assert_eq!(state.projected_type(request, &backing).expect("checked backing type"), Some(array));
+    assert_eq!(state.projected_type(request, &cell).expect("checked array-valued cell type"), Some(array));
+    assert_eq!(state.projected_type(request, &member).expect("checked array member type"), Some(element));
+    assert_eq!(state.declared_type(&cell), None);
+}
+
 fn places() -> ([Place; 4], Vec<BoundExpressionId>) {
     let (places, expressions, _) = borrowed_places();
 
