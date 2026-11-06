@@ -60,6 +60,16 @@ impl ExecutionCondition {
         value
     }
 
+    /// Whether current observations belong to the same owned value or loan.
+    pub(crate) fn has_same_owner(&self, other: &Self) -> bool {
+        match (self.owner_identity(), other.owner_identity()) {
+            (Self::Borrowed(left), Self::Borrowed(right)) => {
+                left.owner_identity() == right.owner_identity()
+            }
+            (left, right) => left == right,
+        }
+    }
+
     pub(crate) fn observation_path(
         &self,
     ) -> Option<(Self, Vec<bray_symbols::ConstantProjectionKind>)> {

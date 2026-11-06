@@ -91,6 +91,10 @@ native-thread support do not require an async scheduler. A product with no runti
 The trusted bootstrap owns thread attachment and exit cleanup. Target thread-storage callbacks supply mechanisms, while
 Bray outcomes cross native calls through tagged results and owned destinations rather than foreign unwinding.
 
+Native call scopes retain the actual task and output storage while observations run. Outcome transfer retains the
+call's permission, captured representation metadata and source outcome until commit or restoration. Transferring the
+outcome and retiring its source frame remain separate ownership transitions.
+
 ## Standard-library integration
 
 Ordinary library implementations express transfer to independent runs through inferred dependency contracts. Private ABI
