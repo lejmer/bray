@@ -36,6 +36,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state: &StorageFlowState,
         execution: &mut crate::analysis::guarantee::ExecutionState,
         kind: crate::analysis::model::AnalysisOperationKind,
+        invalidation: Option<&mut bray_bound_tree::StorageInvalidation>,
     ) {
         if !matches!(kind,
             crate::analysis::model::AnalysisOperationKind::Call {
@@ -59,7 +60,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let target = self.expression_target(state, operation.arguments()[0])
             .and_then(|slot| state.memory.value_target(&slot, pointee));
 
-        self.execution.observe_memory_read(execution, expression, target.as_ref());
+        if let Some(source) = self.execution.observe_memory_read(execution, expression, target.as_ref())
+            && !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. })
+            && let Some(invalidation) = invalidation {
+            self.preserve_snapshot_observations(&source, bray_symbols::DependencySubjectRoot::Result, &[], invalidation);
+        }
 
         if self.publish {
             self.record_state_target(bray_bound_tree::StorageStateTarget::MemoryRead(expression), target);

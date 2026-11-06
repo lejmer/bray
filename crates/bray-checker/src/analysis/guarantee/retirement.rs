@@ -20,9 +20,15 @@ impl ExecutionState {
         values: impl IntoIterator<Item = ExecutionCondition>,
         retained: &BTreeSet<ExecutionCondition>,
     ) {
+        let mut observations = crate::execution_guarantees::ObservationSet::default();
+
+        for value in retained {
+            observations.insert(value.clone());
+        }
+
         self.retire_values(
             values,
-            retained,
+            &observations,
             &BTreeSet::new(),
             bray_symbols::DependencyMutationKind::Retire,
         );
@@ -31,7 +37,7 @@ impl ExecutionState {
     fn retire_values(
         &mut self,
         values: impl IntoIterator<Item = ExecutionCondition>,
-        retained: &BTreeSet<ExecutionCondition>,
+        retained_observations: &crate::execution_guarantees::ObservationSet,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         kind: bray_symbols::DependencyMutationKind,
     ) {
@@ -54,14 +60,8 @@ impl ExecutionState {
 
         self.refine_deferred_witnesses();
 
-        let mut retained_observations = crate::execution_guarantees::ObservationSet::default();
-
-        for value in retained {
-            retained_observations.insert(value.clone());
-        }
-
         let (dependents, input_dependents) =
-            self.retirement_dependents(kind, &retained_observations);
+            self.retirement_dependents(kind, retained_observations);
 
         let mut invalidated = BTreeSet::new();
         let mut invalidated_observations = crate::execution_guarantees::ObservationSet::default();
@@ -122,10 +122,10 @@ impl ExecutionState {
 
         let retained_contents = |condition: &ExecutionCondition| {
             kind.is_write()
-                && condition.observes_only(retained)
+                && condition.observes_only(|value| retained_observations.preserves(value))
                 && condition
                     .observations()
-                    .any(|value| retained_observations.contains(value))
+                    .any(|value| retained_observations.preserves(value))
         };
 
         let stable = |condition: &ExecutionCondition| {
@@ -339,7 +339,7 @@ impl ExecutionState {
         address_slots: &BTreeSet<ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         preserved: &BTreeSet<ExecutionCondition>,
-        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_values: &crate::execution_guarantees::ObservationSet,
     ) {
         if values.is_empty() {
             return;
@@ -358,7 +358,7 @@ impl ExecutionState {
             };
 
             !preserved.contains(condition)
-                && !condition.observes_only(stable_values)
+                && !condition.observes_only(|value| stable_values.preserves(value))
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
                 && condition
                     .observations_except(|observation| {
@@ -374,7 +374,7 @@ impl ExecutionState {
         // predicate contracts. A by-value guard, including a nullable tag, still
         // describes the same live owner. Physical replacement retires its observations separately.
         let revokes_observation = |condition: &ExecutionCondition| {
-            if preserved.contains(condition) || condition.observes_only(stable_values) {
+            if preserved.contains(condition) || condition.observes_only(|value| stable_values.preserves(value)) {
                 return false;
             }
 
@@ -431,10 +431,10 @@ impl ExecutionState {
         places: &BTreeSet<crate::ExecutionPlace>,
         values: impl IntoIterator<Item = ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
-        stable_values: &BTreeSet<ExecutionCondition>,
+        stable_values: &crate::execution_guarantees::ObservationSet,
     ) {
         self.assumptions.retain(|(condition, _)| {
-            condition.observes_only(stable_values)
+            condition.observes_only(|value| stable_values.preserves(value))
                 || !condition.observes_live_where(|value| {
                     value.observations().any(|observed| {
                         matches!(observed,

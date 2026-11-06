@@ -136,22 +136,11 @@ impl StorageFlowInput {
             })
             .map(bray_bound_tree::StoragePath::root);
 
-        let opaque_values = footprint
-            .identities
-            .values()
-            .chain(footprint.scalars.values())
-            .flatten()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let opaque_values = footprint.owned_observations.values().flatten()
+            .filter(|(_, kind)| *kind != bray_bound_tree::StorageObservationKind::Discriminant)
+            .map(|(path, _)| path.clone()).collect::<BTreeSet<_>>();
 
         let opaque_candidates = owned_descriptors
-            .chain(
-                footprint
-                    .identities
-                    .keys()
-                    .copied()
-                    .map(bray_bound_tree::StoragePath::root),
-            )
             .chain(footprint.borrowed_observations.keys().cloned())
             .chain(
                 footprint

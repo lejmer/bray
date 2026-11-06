@@ -416,7 +416,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutation: bray_bound_tree::StorageMutation,
     ) -> (
         BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
-        BTreeSet<ExecutionCondition>,
+        crate::execution_guarantees::ObservationSet,
     ) {
         let values = paths
             .iter()
@@ -444,9 +444,51 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 [owner.clone(), owner.borrowed(), value.clone(), value.borrowed()]
             })
-            .collect();
+            .collect::<Vec<_>>();
 
-        (values, snapshots)
+        let mut observations = crate::execution_guarantees::ObservationSet::default();
+
+        for value in snapshots { observations.insert(value); }
+
+        (values, observations)
+    }
+
+    fn preserve_normal_snapshots(
+        &self,
+        state: &ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
+        snapshots: &BTreeMap<bray_symbols::DependencySubject, bray_bound_tree::StorageObservationKind>,
+        observations: &mut crate::execution_guarantees::ObservationSet,
+    ) {
+        let bray_bound_tree::StorageMutation::Operation(site) = mutation else { return; };
+
+        let Some(expression) = site.expression() else { return; };
+
+        let selection = self.semantics.selections().expression(expression);
+        let entry = state.entries.get(&site);
+
+        for (subject, kind) in snapshots {
+            let value = if subject.subject_root() == bray_symbols::DependencySubjectRoot::Result {
+                state.pending_results.get(&expression).or_else(|| state.expressions.get(&expression)).cloned()
+            } else {
+                selection.and_then(|selection| selection.invocation_input_ordinal(site, subject.subject_root()))
+                    .and_then(|ordinal| crate::ExecutionPlace::argument(ordinal).value_in(&entry?.arguments))
+            };
+
+            let Some(mut value) = value else { continue; };
+
+            // The snapshot owns inline contents extracted from the old loan. It
+            // does not preserve the source slot or the loan's mutable referents.
+            if let ExecutionCondition::Borrowed(referent) = value { value = referent.as_ref().clone(); }
+
+            for projection in crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())
+                .expect("a published snapshot has checked projections") {
+                value = value.project(projection);
+            }
+
+            observations.insert_classified(value.clone(), *kind);
+            observations.insert_classified(value.borrowed(), *kind);
+        }
     }
 
     fn preserve_contents_owners<'place>(
@@ -478,6 +520,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         mutation: bray_bound_tree::StorageMutation,
         descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
         stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
+        normal_snapshots: &BTreeMap<bray_symbols::DependencySubject, bray_bound_tree::StorageObservationKind>,
     ) {
         let mut descriptors = descriptors
             .iter()
@@ -489,14 +532,16 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let (mut retained, snapshots) = self.preserved_storage_values(state, stable_values, mutation);
+        let (mut retained, mut snapshots) = self.preserved_storage_values(state, stable_values, mutation);
+
+        self.preserve_normal_snapshots(state, mutation, normal_snapshots, &mut snapshots);
 
         let stable_roots = stable_values
             .iter()
             .map(|path| path.root)
             .collect::<BTreeSet<_>>();
 
-        let owners = stable_roots
+        let mut owners: BTreeSet<_> = stable_roots
             .into_iter()
             .flat_map(|root| {
                 self.storage_path_values(state, bray_bound_tree::StoragePath::root(root), mutation)
@@ -505,6 +550,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter(|value| *value != ExecutionCondition::Unknown)
             .map(|value| value.owner_identity().clone())
             .collect();
+
+        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
+            && let Some(entry) = state.entries.get(&site)
+            && let Some(contracts) = self.dependencies.calls().get(&site) {
+            owners.extend(self.returned_owned_values(site, &entry.arguments, contracts.owned_result().guaranteed_transfers())
+                .iter().flat_map(|(_, value)| state.owned_values(value))
+                .filter(|value| !matches!(value, ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
+                .map(|value| value.owner_identity().clone()));
+        }
 
         state.invalidate_cleanup(&snapshots, &owners);
 
@@ -578,9 +632,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         if let StorageInvalidation::All {
             stable_descriptors: descriptors,
             stable_values,
+            normal_snapshots,
         } = invalidation
         {
-            self.invalidate_all_observations(state, mutation, descriptors, stable_values);
+            self.invalidate_all_observations(state, mutation, descriptors, stable_values, normal_snapshots);
 
             return;
         }
@@ -589,18 +644,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             StorageInvalidation::Observed { stable_values, .. } => {
                 self.preserved_storage_values(state, stable_values, mutation)
             }
-            _ => (BTreeMap::new(), BTreeSet::new()),
+            _ => (BTreeMap::new(), crate::execution_guarantees::ObservationSet::default()),
         };
 
-        // A moving read changes the source initialization, but its complete value
-        // already belongs to the result. Retain that existing carrier rather than
-        // restoring a copied witness after the source transition.
-        if let bray_bound_tree::StorageMutation::Operation(site) = mutation
-            && let Some(expression) = site.expression()
-            && self.memory.operation(expression).is_some_and(|operation| operation.kind().moving_read_type().is_some())
-            && let Some(value) = state.expressions.get(&expression)
-        {
-            stable_values.extend(state.owned_values(value));
+        if let Some(snapshots) = invalidation.normal_snapshots() {
+            self.preserve_normal_snapshots(state, mutation, snapshots, &mut stable_values);
         }
 
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {

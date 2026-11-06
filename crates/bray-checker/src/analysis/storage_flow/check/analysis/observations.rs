@@ -9,6 +9,85 @@ use crate::analysis::storage_flow::memory::{Source, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
+    pub(super) fn preserve_returned_observations(
+        &self,
+        occurrence: bray_bound_tree::BoundExecutionSite,
+        invalidation: &mut StorageInvalidation,
+    ) {
+        let Some(contracts) = self.dependencies.calls().get(&occurrence) else {
+            return;
+        };
+
+        let Some(selection) = occurrence.expression()
+            .and_then(|expression| self.execution.semantics.selections().expression(expression)) else {
+            return;
+        };
+
+        for transfer in contracts.owned_result().guaranteed_transfers() {
+            let output = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            if crate::storage::dependency_projections(&output)
+                .and_then(|path| contracts.reference_type(&bray_symbols::DependencySubject::new(bray_symbols::DependencySubjectRoot::Result, path)))
+                .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })) {
+                continue;
+            }
+
+            let crate::ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                self.request.semantic_values(), transfer.input(), contracts.input_count(),
+            ).expect("checked ownership source decodes in the same semantic store") else {
+                unreachable!("an ownership source names an input projection");
+            };
+
+            let crate::execution_guarantees::ExecutionInput::Argument(ordinal) = input.root else {
+                unreachable!("an ownership source uses receiver-first argument ordinals");
+            };
+
+            let root = selection.invocation_input_root(occurrence, ordinal)
+                .expect("a checked ownership source retains its formal input");
+
+            let Some(mut source) = self.invocation_place(occurrence, root) else { continue; };
+
+            let projections = crate::storage::owned_storage_projections(self.dependencies, &input.projections);
+            let wrapping = self.invocation_wrapping(occurrence, root);
+
+            let (actual, formal) = if let Some(actual) = projections.strip_prefix(wrapping.as_slice()) {
+                (actual, projections.as_slice())
+            } else if wrapping.starts_with(&projections) {
+                (&[][..], wrapping.as_slice())
+            } else { continue; };
+
+            source.projections = source.projections.iter().copied().chain(actual.iter().copied()).collect();
+
+            let Some(prefix) = crate::storage::dependency_projections(formal) else { continue; };
+
+            self.preserve_snapshot_observations(&source, root, &prefix, invalidation);
+        }
+    }
+
+    pub(super) fn preserve_snapshot_observations(
+        &self,
+        source: &StoragePath,
+        root: bray_symbols::DependencySubjectRoot,
+        prefix: &[bray_symbols::DependencyProjection],
+        invalidation: &mut StorageInvalidation,
+    ) {
+        let snapshots = match invalidation {
+            StorageInvalidation::All { normal_snapshots, .. }
+            | StorageInvalidation::Observed { normal_snapshots, .. } => normal_snapshots,
+            StorageInvalidation::Paths(_) => unreachable!("snapshot publication follows flow resolution"),
+        };
+
+        for (path, kind) in self.input.footprint.observations(source) {
+            if !kind.is_immutable_inline() && kind != bray_bound_tree::StorageObservationKind::Discriminant {
+                continue;
+            }
+
+            let Some(path) = crate::storage::dependency_projections(&path.projections[source.projections.len()..]) else { continue; };
+
+            snapshots.insert(bray_symbols::DependencySubject::new(root, prefix.iter().copied().chain(path)), kind);
+        }
+    }
+
     pub(super) fn planned_observations(
         &self,
         state: &StorageFlowState,
@@ -93,16 +172,17 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // owner is retained. Interior mutation cannot reach their empty markers.
         let exposed = memory.raw_exposed_regions();
 
-        for (root, markers) in &self.input.footprint.identities {
-            if matches!(
-                self.storage.identity(*root),
-                Some(bray_bound_tree::StorageIdentity::Static(_))
-            ) && !exposed.iter().any(|raw| {
-                memory.target_relationship(raw, &Target::storage(StoragePath::root(*root)))
-                    != StorageRelationship::Disjoint
-            }) {
+        for (root, observations) in &self.input.footprint.owned_observations {
+            if matches!(self.storage.identity(*root), Some(bray_bound_tree::StorageIdentity::Static(_)))
+                && !exposed.iter().any(|raw| memory.target_relationship(raw,
+                    &Target::storage(StoragePath::root(*root))) != StorageRelationship::Disjoint)
+            {
                 stable_descriptors.insert(StoragePath::root(*root));
-                stable_values.extend(markers.iter().cloned());
+
+                stable_values.extend(observations.iter().filter_map(|(path, observation)| {
+                    matches!(observation, bray_bound_tree::StorageObservationKind::Identity
+                        | bray_bound_tree::StorageObservationKind::Marker(_)).then(|| path.clone())
+                }));
             }
         }
 
@@ -136,6 +216,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for (marker, observation) in observations {
+                if *observation == bray_bound_tree::StorageObservationKind::Discriminant {
+                    continue;
+                }
+
                 let immutable_value = observation.is_immutable_inline();
 
                 if !targets.is_empty()
@@ -170,6 +254,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
+            normal_snapshots: Default::default(),
         }
     }
 
@@ -185,6 +270,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             StorageInvalidation::All {
                 stable_descriptors,
                 stable_values,
+                ..
             }
             | StorageInvalidation::Observed {
                 stable_descriptors,
@@ -263,6 +349,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .filter(|_| !exposed_referent)
                     .chain(borrowed.into_iter().flat_map(|(_, observations)| observations)
                         .filter(|(value, observation)| protected_referent && path.contains(value)
+                            && *observation != bray_bound_tree::StorageObservationKind::Discriminant
                             && (!exposed_referent || opaque && observation.is_immutable_inline()))
                         .map(|(value, _)| value))
                     .peekable();
@@ -303,6 +390,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let (StorageInvalidation::All {
             stable_descriptors,
             stable_values,
+            ..
         }
         | StorageInvalidation::Observed {
             stable_descriptors,
@@ -689,6 +777,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: std::collections::BTreeSet::new(),
+                normal_snapshots: Default::default(),
             };
         }
 
@@ -813,6 +902,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 referents,
                 stable_descriptors,
                 stable_values: std::collections::BTreeSet::new(),
+                normal_snapshots: Default::default(),
             }
         } else {
             self.opaque_observations(memory, mutations.cloned())

@@ -144,7 +144,13 @@ never publish a partial origin set as a complete bound. Substitution and package
 results for downstream consumers.
 
 Storage observations retain their classified kind and borrow context through effect resolution. Consumers use that
-classification instead of reconstructing it from paths. A contents update changes the observed snapshot without
+classification instead of reconstructing it from paths. The same indexed observation context governs contents writes,
+referent effects, and opaque cleanup. Invocation effects retain classified entry and result observations separately from
+unchanged current storage, so an ownership transfer does not restore an old value into its replaced source. Tags retain
+only presence or variant observations, while inline values retain their complete contents. Reachable mutable state
+remains a separate observation.
+
+A contents update changes the observed snapshot without
 replacing a still-live owner's identity. Ownership transitions carry the existing value into its destination, including
 values extracted through raw storage. Published storage targets retain the identity needed to interpret those moves.
 

@@ -2706,6 +2706,7 @@ fn opaque_effects_preserve_unexposed_reference_slots_but_revoke_contents() {
             &bray_bound_tree::StorageInvalidation::All {
                 stable_descriptors,
                 stable_values: Default::default(),
+                normal_snapshots: Default::default(),
             },
             &storage,
             bray_symbols::DependencyMutationKind::Retire,
@@ -2781,6 +2782,7 @@ fn typed_writes_keep_protected_reference_slots_until_exact_replacement() {
     let invalidation = bray_bound_tree::StorageInvalidation::All {
         stable_descriptors: [parameter].into(),
         stable_values: Default::default(),
+        normal_snapshots: Default::default(),
     };
 
     let other = Target {
@@ -2832,6 +2834,7 @@ fn effects_preserve_protected_entry_reference_slots_without_referent_authority()
         let invalidation = bray_bound_tree::StorageInvalidation::All {
             stable_descriptors: protected.then_some(parameter).into_iter().collect(),
             stable_values: Default::default(),
+            normal_snapshots: Default::default(),
         };
 
         if resolved {

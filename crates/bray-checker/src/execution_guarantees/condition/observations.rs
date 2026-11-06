@@ -240,11 +240,11 @@ impl ExecutionCondition {
     }
 
     /// Whether every observed value is in the established unchanged set.
-    pub(crate) fn observes_only(&self, stable: &std::collections::BTreeSet<Self>) -> bool {
+    pub(crate) fn observes_only(&self, stable: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
 
         while let Some(value) = pending.pop() {
-            if stable.contains(value) {
+            if stable(value) {
                 continue;
             }
 
@@ -388,6 +388,7 @@ impl ExecutionCondition {
 /// Indexed changed values and their observed component paths.
 #[derive(Default)]
 pub(crate) struct Set {
+    discriminants: std::collections::BTreeSet<ExecutionCondition>,
     values: std::collections::BTreeSet<ExecutionCondition>,
     paths: std::collections::BTreeMap<
         ExecutionCondition,
@@ -396,6 +397,28 @@ pub(crate) struct Set {
 }
 
 impl Set {
+    pub(crate) fn insert_classified(&mut self, value: ExecutionCondition, kind: bray_bound_tree::StorageObservationKind) {
+        if kind == bray_bound_tree::StorageObservationKind::Discriminant {
+            self.discriminants.insert(value);
+        } else if kind.is_immutable_inline() {
+            self.insert(value);
+        }
+    }
+
+    /// A retained tag supports only presence and variant observations, not payload facts.
+    pub(crate) fn preserves(&self, value: &ExecutionCondition) -> bool {
+        if self.contains(value) {
+            return true;
+        }
+
+        let subject = match value {
+            ExecutionCondition::VariantTest(_, subject) => Some(subject.as_ref()),
+            value => value.nullable_absence(true).or_else(|| value.nullable_absence(false)).map(|(subject, _)| subject),
+        };
+
+        subject.is_some_and(|subject| self.discriminants.contains(subject))
+    }
+
     pub(crate) fn insert(&mut self, value: ExecutionCondition) {
         if let Some((root, path)) = Self::indexed_path(&value) {
             self.paths.entry(root).or_default().insert(path);
@@ -453,5 +476,15 @@ impl Set {
             }
             value => value.observation_path(),
         }
+    }
+}
+
+impl FromIterator<ExecutionCondition> for Set {
+    fn from_iter<T: IntoIterator<Item = ExecutionCondition>>(values: T) -> Self {
+        let mut set = Self::default();
+
+        for value in values { set.insert(value); }
+
+        set
     }
 }

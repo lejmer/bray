@@ -13,10 +13,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         expression: BoundExpressionId,
         target: Option<&bray_bound_tree::StorageTarget>,
-    ) {
+    ) -> Option<bray_bound_tree::StoragePath> {
         let Some(pointee) = self.memory.operation(expression)
             .and_then(|operation| operation.kind().moving_read_type()) else {
-            return;
+            return None;
         };
 
         if let Some(path) = target.and_then(|target| crate::storage::storage_observation_path(
@@ -31,10 +31,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             if !ty.is_some_and(|ty| ty == pointee || matches!(
                 self.request.semantic_values().type_data(ty).as_ref(),
                 bray_symbols::TypeData::Borrow { target, .. } if *target == pointee)) {
-                return;
+                return None;
             }
 
             let value = self.storage_path_value(state, &path);
+
             let value = match value {
                 ExecutionCondition::Borrowed(value)
                     if !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) => value.as_ref().clone(),
@@ -43,7 +44,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             state.pending_results.insert(expression, value);
             self.observe_move(state, &path);
+
+            return Some(path);
         }
+
+        None
     }
 
     pub(in crate::analysis::guarantee) fn observed_call_result(
