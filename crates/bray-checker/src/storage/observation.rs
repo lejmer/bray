@@ -498,14 +498,18 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     projections: projections.clone().into(),
                 };
 
-                let borrowed = (0..=projections.len()).rev().find_map(|length| {
-                    borrowed_paths.get(&projections[..length]).map(|kind| {
-                        (StoragePath {
-                            root,
-                            projections: projections[..length].into(),
-                        }, *kind)
-                    })
-                });
+                let borrowed = match observation {
+                    Observation::Scalar | Observation::Identity | Observation::Marker(_) =>
+                        (0..=projections.len()).rev().find_map(|length| {
+                            borrowed_paths.get(&projections[..length]).map(|kind| {
+                                (StoragePath {
+                                    root,
+                                    projections: projections[..length].into(),
+                                }, *kind)
+                            })
+                        }),
+                    _ => None,
+                };
 
                 match observation {
                     Observation::Reference(ty) => {
