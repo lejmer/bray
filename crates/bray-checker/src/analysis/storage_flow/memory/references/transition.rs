@@ -347,10 +347,23 @@ impl State {
         call: bray_bound_tree::BoundExecutionSite,
         source: Target,
         destination: Target,
-        ty: TypeId,
-        kind: bray_symbols::DependencyReferenceKind,
+        reference: &bray_bound_tree::BoundCallReference,
     ) {
-        let references = self.addressed_target(source, ty, kind);
+        let relation = reference.relation();
+        let ty = reference.addressed_type().expect("address formation retains its checked target type");
+
+        let mut references = if relation.is_exact() {
+            self.addressed_target(source, ty, relation.kind())
+        } else {
+            // A widened target bounds an allocation, not one declared cell.
+            // Retain exposure without assigning the bound's view type to its storage.
+            self.contents.entry(source.clone()).or_default().exposed |=
+                relation.kind() == bray_symbols::DependencyReferenceKind::Address;
+
+            References::one(source)
+        };
+
+        references.inexact |= !relation.is_exact();
 
         self.pending
             .entry(call)

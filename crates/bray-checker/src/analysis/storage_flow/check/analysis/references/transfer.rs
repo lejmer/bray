@@ -807,31 +807,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 return;
             };
 
-            let ty = reference
-                .addressed_type()
-                .expect("projected reference has its checked target type");
-
             for target in targets {
                 memory.stage_address(
                     occurrence,
                     target.project(&projections),
                     destination.clone(),
-                    ty,
-                    relation.kind(),
+                    reference,
                 );
             }
-        } else if let Some(ty) = reference.addressed_type() {
+        } else if reference.addressed_type().is_some() {
             let crate::analysis::storage_flow::memory::Source::Value(target) = source else {
                 panic!("addressed storage has a location");
             };
 
-            memory.stage_address(occurrence, target, destination.clone(), ty, relation.kind());
+            memory.stage_address(occurrence, target, destination.clone(), reference);
         } else {
             source.stage(memory, occurrence, destination.clone());
-        }
 
-        if !relation.is_exact() {
-            memory.bound_staged_reference(occurrence, &destination);
+            if !relation.is_exact() {
+                memory.bound_staged_reference(occurrence, &destination);
+            }
         }
     }
 
