@@ -145,7 +145,7 @@ impl TrustedChecks {
             domain.request.view().expression(expression)
             && bound.kind() == bray_bound_tree::BoundStructuredExpressionKind::RepeatedArray
             && let [value] = bound.runtime_operands()
-            && state.is_witness(&domain.value(state, *value))
+            && state.owns_witness(&domain.value(state, *value))
         {
             let ty = domain
                 .semantics

@@ -87,10 +87,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // A checked ownership transfer can extract the value from a borrowed
             // slot. Returning a borrow instead retains its original loan identity.
-            let value = match value {
-                ExecutionCondition::Borrowed(value) if !borrowed_result => value.as_ref().clone(),
-                value => value,
-            };
+            let value = if borrowed_result { value } else { value.into_referent() };
 
             fields.push((path, value));
         }
@@ -652,10 +649,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             }
 
             let value = match relation.kind() {
-                DependencyReferenceKind::Borrow => match value {
-                    ExecutionCondition::Borrowed(_) => value,
-                    value => value.borrowed(),
-                },
+                DependencyReferenceKind::Borrow => value.borrowed(),
                 DependencyReferenceKind::Address => value,
             };
 

@@ -479,7 +479,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             // The snapshot owns inline contents extracted from the old loan. It
             // does not preserve the source slot or the loan's mutable referents.
-            if let ExecutionCondition::Borrowed(referent) = value { value = referent.as_ref().clone(); }
+            value = value.into_referent();
 
             for projection in projections.iter().copied() {
                 value = value.project(projection);
@@ -555,7 +555,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && let Some(contracts) = self.dependencies.calls().get(&site) {
             owners.extend(self.returned_owned_values(site, &entry.arguments, contracts.owned_result().guaranteed_transfers())
                 .iter().flat_map(|(_, value)| state.owned_values(value))
-                .filter(|value| !matches!(value, ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
+                .filter(|value| !matches!(value.owner_identity(), ExecutionCondition::Borrowed(_) | ExecutionCondition::Unknown))
                 .map(|value| value.owner_identity().clone()));
         }
 
@@ -915,26 +915,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
 
                 let place = crate::ExecutionPlace::storage_path(self.storage, path);
-                let target_place = crate::ExecutionPlace::storage_path(self.storage, &target)?;
+                let previous = self.storage_path_value(state, path);
+                let value = self.storage_path_value(state, &target);
 
-                let value = target_place
-                    .value_in(&state.current)
-                    .unwrap_or(ExecutionCondition::Input(target_place));
-
-                let value = if place.as_ref().is_some_and(|place| {
-                    matches!(
-                        place.value_in(&state.current),
-                        Some(ExecutionCondition::Borrowed(_))
-                    )
-                }) || path.projections.is_empty()
+                let value = if matches!(previous.owner_identity(), ExecutionCondition::Borrowed(_)) || path.projections.is_empty()
                     && self.storage.storage_type(path.root).is_some_and(|ty| {
                         matches!(
                             self.request.semantic_values().type_data(ty).as_ref(),
                             bray_symbols::TypeData::Borrow { .. }
                         )
                     }) {
-                    // Refresh the referent without turning a borrowed field into an owned field.
-                    value.borrowed()
+                    // The target supplies current contents, not a replacement loan.
+                    // An actual slot replacement has already retired its prior context.
+                    previous.with_referent(value)
                 } else {
                     value
                 };

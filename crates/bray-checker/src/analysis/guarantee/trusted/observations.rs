@@ -201,12 +201,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 carriers.push(value.clone());
             }
 
-            if matches!(
-                place.value_in(arguments),
-                Some(ExecutionCondition::Borrowed(_))
-            ) {
-                value = value.borrowed();
-            }
+            let context = if prepared.projections().is_empty() {
+                // The evaluated input loan survives independently of its binding.
+                place.value_in(arguments)
+            } else {
+                // A reached reference field can itself have been replaced.
+                Some(prepared.projections().iter().copied().fold(
+                    self.current_input(state, input),
+                    ExecutionCondition::project,
+                ))
+            };
+
+            value = context
+                .unwrap_or(ExecutionCondition::Unknown)
+                .with_referent(value);
 
             // Consuming the carrier does not freeze the contents of its borrowed fields.
             super::super::state::update_parent_observations(

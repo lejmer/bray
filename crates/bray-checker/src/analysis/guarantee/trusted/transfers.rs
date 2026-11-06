@@ -100,7 +100,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
                 let witness = state.witnesses.get(container.owner_identity());
 
                 if witness.is_some_and(|witness| {
-                        state.directly_carries_witness(container)
+                        state.directly_carries_witness(&container)
                             || witness.is_owning(&entry.trusted_assumptions, &entry.assumptions)
                     })
                     && input.projections[index..].iter().any(|projection| {
@@ -291,7 +291,7 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
     for (index, projection) in path.iter().enumerate() {
         // Unwrapping presence moves the complete contained carrier. Other ownership
         // projections must not detach any component of a directly carrying value.
-        if state.directly_carries_witness(reached_container(&value))
+        if state.directly_carries_witness(&reached_container(&value))
             && path[index..]
                 .iter()
                 .any(|projection| *projection != bray_bound_tree::StorageProjection::NullableValue)
@@ -307,12 +307,6 @@ fn separates_carrier<C: CheckerRequestContext + ?Sized>(
 
 // A field projection crosses borrow layers into reached storage. The loan's
 // own contract does not make that loan the owner of the reached aggregate.
-fn reached_container(value: &crate::ExecutionCondition) -> &crate::ExecutionCondition {
-    let mut value = value.owner_identity();
-
-    while let crate::ExecutionCondition::Borrowed(reached) = value {
-        value = reached.owner_identity();
-    }
-
-    value
+fn reached_container(value: &crate::ExecutionCondition) -> crate::ExecutionCondition {
+    value.clone().into_referent().owner_identity().clone()
 }

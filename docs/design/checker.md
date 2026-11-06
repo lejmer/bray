@@ -168,6 +168,10 @@ A contents update changes the observed snapshot without replacing a still-live o
 carry the existing value into its destination, including values extracted through raw storage. Published storage targets
 retain the identity needed to interpret those moves.
 
+Reference refresh forwards the existing loan context with its current reached contents. A changed snapshot remains the
+same loan, including across merges, and never owns the storage it observes. Replacing the reference itself retires its
+old context. Checked consuming operations extract current contents separately from the loan's lifetime and permissions.
+
 Live trusted evidence belongs to its complete carrier and required dependencies in the composite flow state. Effect
 framing preserves established observations, while cleanup retains evidence only through surviving complete owners.
 Neither operation creates authority from an unchanged field. Entry values identify ownership transferred by a call,

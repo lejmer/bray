@@ -36,11 +36,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = self.storage_path_value(state, &path);
 
-            let value = match value {
-                ExecutionCondition::Borrowed(value)
-                    if !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) => value.as_ref().clone(),
-                value => value,
-            };
+            let value = if matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                value
+            } else { value.into_referent() };
 
             state.pending_results.insert(expression, value);
             self.observe_move(state, &path);

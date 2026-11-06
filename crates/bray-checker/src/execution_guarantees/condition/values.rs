@@ -30,16 +30,13 @@ impl ExecutionCondition {
     /// Retains the predicate's checked subject, or the value containing its marker or address field.
     /// Enclosing aggregates do not replace an independently typed child owner.
     pub fn witness_carrier(&self, containing_value: bool) -> Self {
-        let subject = match self {
-            Self::Borrowed(value) => value.as_ref(),
-            value => value,
-        };
+        let subject = self.clone().into_referent();
 
         if !containing_value {
-            return subject.clone();
+            return subject;
         }
 
-        match subject {
+        match &subject {
             Self::Input(place) if place.projections.last().is_some_and(|projection| matches!(
                 projection,
                 bray_symbols::ConstantProjectionKind::ProductField(_)
@@ -226,10 +223,58 @@ impl ExecutionCondition {
 
         // This marks a live observation, not an additional dereference. Formal
         // predicate substitution and runtime forwarding can reach the same view.
-        if matches!(self, Self::Unknown | Self::Borrowed(_)) {
+        if self == Self::Unknown || matches!(self.owner_identity(), Self::Borrowed(_)) {
             self
         } else {
             Self::Borrowed(Arc::new(self))
+        }
+    }
+
+    /// Refresh reached contents while retaining this existing loan's identity and lifetime.
+    pub(crate) fn with_referent(&self, contents: Self) -> Self {
+        let identity = self.owner_identity();
+
+        if matches!(identity, Self::Borrowed(_)) {
+            if identity == contents.owner_identity() {
+                return contents;
+            }
+
+            Self::Constructed(
+                Arc::new(identity.clone()),
+                [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
+            )
+        } else {
+            // Replacing a reference slot has already retired its prior loan.
+            contents.borrowed()
+        }
+    }
+
+    /// Observe the current reached value. Only checked ownership transitions may move it.
+    pub(crate) fn into_referent(self) -> Self {
+        match self {
+            Self::Borrowed(value) => value.as_ref().clone().into_referent(),
+            Self::Constructed(base, fields)
+                if matches!(base.owner_identity(), Self::Borrowed(_)) =>
+            {
+                let contents = fields
+                    .iter()
+                    .find(|(field, _)| *field == bray_bound_tree::StorageProjection::OwnedTarget)
+                    .map(|(_, value)| value.clone().into_referent())
+                    .unwrap_or_else(|| base.as_ref().clone().into_referent());
+
+                let fields = fields
+                    .iter()
+                    .filter(|(field, _)| *field != bray_bound_tree::StorageProjection::OwnedTarget)
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                if fields.is_empty() {
+                    contents
+                } else {
+                    Self::Constructed(Arc::new(contents), fields.into())
+                }
+            }
+            value => value,
         }
     }
 

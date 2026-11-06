@@ -163,16 +163,29 @@ pub(super) fn common_components(
         return ExecutionCondition::Unknown;
     }
 
-    if let (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right)) = (left, right)
-    {
-        // Joining an owned result does not identify different borrowed referents.
-        return common_components(left, right, None, conditions, facts, budget).borrowed();
-    }
+    match (
+        matches!(left.owner_identity(), ExecutionCondition::Borrowed(_)),
+        matches!(right.owner_identity(), ExecutionCondition::Borrowed(_)),
+    ) {
+        (true, true) => {
+            let contents = common_components(
+                &left.clone().into_referent(),
+                &right.clone().into_referent(),
+                None,
+                conditions,
+                facts,
+                budget,
+            );
 
-    if matches!(left, ExecutionCondition::Borrowed(_))
-        || matches!(right, ExecutionCondition::Borrowed(_))
-    {
-        return ExecutionCondition::Unknown;
+            return if left.has_same_owner(right) {
+                left.owner_identity().with_referent(contents)
+            } else {
+                // Joining an owned result does not identify different referents.
+                contents.borrowed()
+            };
+        }
+        (true, false) | (false, true) => return ExecutionCondition::Unknown,
+        (false, false) => {}
     }
 
     let fields = |mut value: &ExecutionCondition| {
@@ -340,6 +353,10 @@ pub(super) fn owned_snapshot(
         return owned_snapshot(snapshot, identity, budget);
     }
 
+    if matches!(source.owner_identity(), ExecutionCondition::Borrowed(_)) {
+        return source.clone();
+    }
+
     match source {
         ExecutionCondition::Constructed(base, fields) => {
             let base = owned_snapshot(base, identity, budget);
@@ -400,6 +417,30 @@ mod tests {
             &mut Vec::new(),
             &mut { ExecutionCondition::WORK_LIMIT },
         )
+    }
+
+    #[test]
+    fn refreshing_and_joining_a_loan_preserves_its_context_without_owning_contents() {
+        let owner = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+        let field = ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0));
+        let original = owner.with_component(&[field], ExecutionCondition::Boolean(true), None);
+        let loan = original.clone().borrowed();
+        let changed = original.with_component(&[field], ExecutionCondition::Boolean(false), None);
+        let refreshed = loan.with_referent(changed.clone());
+
+        assert_eq!(refreshed.owner_identity(), loan.owner_identity());
+        assert_eq!(refreshed.clone().component(field), ExecutionCondition::Boolean(false));
+        assert_eq!(loan.clone().component(field), ExecutionCondition::Boolean(true));
+        assert_eq!(refreshed.clone().borrowed(), refreshed);
+        assert_eq!(refreshed.owned_components().count(), 0);
+        assert_eq!(refreshed.clone().into_referent(), changed);
+
+        let joined = join_components(&loan, &refreshed);
+
+        assert_eq!(joined.owner_identity(), loan.owner_identity());
+        assert_eq!(joined.owned_components().count(), 0);
+        assert_ne!(joined.clone().component(field), ExecutionCondition::Boolean(true));
+        assert_ne!(joined.component(field), ExecutionCondition::Boolean(false));
     }
 
     #[test]

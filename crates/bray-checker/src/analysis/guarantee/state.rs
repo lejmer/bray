@@ -298,16 +298,18 @@ impl ExecutionState {
             })
     }
 
-    pub(super) fn is_witness(&self, value: &ExecutionCondition) -> bool {
-        self.witnesses.keys().any(|carrier| {
-            self.owned_values(value)
-                .any(|value| carrier.is_owned_projection_of(&value))
-                && self.directly_carries_witness(carrier)
-        })
+    pub(super) fn owns_witness(&self, value: &ExecutionCondition) -> bool {
+        self.witnesses.keys()
+            .filter(|carrier| !matches!(carrier.owner_identity(), ExecutionCondition::Borrowed(_)))
+            .any(|carrier| {
+                self.owned_values(value)
+                    .any(|value| carrier.is_owned_projection_of(&value))
+                    && self.directly_carries_witness(carrier)
+            })
     }
 
     pub(super) fn witness_projection(&self, value: &ExecutionCondition) -> (bool, bool) {
-        let mut whole = self.is_witness(value);
+        let mut whole = self.owns_witness(value);
         let mut partial = false;
         let mut projected_part = false;
         let mut value = value;
@@ -1335,9 +1337,9 @@ mod tests {
 
         state.assign(place, old.clone(), None);
 
-        assert!(!state.is_witness(&old));
+        assert!(!state.owns_witness(&old));
         assert!(!state.trusted_assumptions.contains(&(old, true)));
-        assert!(state.is_witness(&sibling));
+        assert!(state.owns_witness(&sibling));
         assert!(state.trusted_assumptions.contains(&(sibling, true)));
         assert!(state.entries[&occurrence].arguments.is_empty());
         assert!(state.entries[&occurrence].trusted_assumptions.is_empty());
@@ -1795,12 +1797,12 @@ mod tests {
         state.carry_guarantee(child.clone(), parent.clone());
         state.trusted_assumptions.insert((parent.clone(), true));
 
-        assert!(state.is_witness(&child));
-        assert!(!state.is_witness(&sibling));
+        assert!(state.owns_witness(&child));
+        assert!(!state.owns_witness(&sibling));
 
         state.assumptions.insert((parent.clone(), true));
 
-        assert!(!state.is_witness(&child));
+        assert!(!state.owns_witness(&child));
 
         state.assumptions.clear();
 
@@ -1812,7 +1814,7 @@ mod tests {
             true,
         )]);
 
-        assert!(!state.is_witness(&child));
+        assert!(!state.owns_witness(&child));
 
         let live = ExecutionCondition::Entry {
             condition: Arc::new(parent),
@@ -1826,7 +1828,7 @@ mod tests {
         state.carry_guarantee(child.clone(), live.clone());
         state.trusted_assumptions = BTreeSet::from([(live, true)]);
 
-        assert!(state.is_witness(&child));
+        assert!(state.owns_witness(&child));
     }
     #[test]
     fn retiring_a_carrier_revokes_its_unobserved_guarantee_but_keeps_moved_children() {
@@ -1862,7 +1864,7 @@ mod tests {
                 .is_none_or(|witness| witness.conditions.is_empty())
         );
 
-        assert!(state.is_witness(&child));
+        assert!(state.owns_witness(&child));
         assert!(!state.trusted_assumptions.contains(&(owner_condition, true)));
         assert!(state.trusted_assumptions.contains(&(child_condition, true)));
     }
