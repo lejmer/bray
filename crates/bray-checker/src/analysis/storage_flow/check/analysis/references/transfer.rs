@@ -626,23 +626,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let mut logical = self
-                .invocation_place(occurrence, relation.exit().subject_root())
-                .expect("prepared reference output retains its logical storage");
-
-            logical.projections = logical
-                .projections
-                .iter()
-                .copied()
-                .chain(
-                    storage_projections(
-                        self.request.semantic_values(),
-                        self.dependencies,
-                        relation.exit().projections(),
-                    )
-                    .expect("prepared reference output retains its projections"),
-                )
-                .collect();
+            let logical = self
+                .invocation_logical_path(occurrence, relation.exit())
+                .expect("prepared reference output retains its adapted logical storage");
 
             let Some(entry) = relation.entry() else {
                 state.memory.stage_returned_reference(

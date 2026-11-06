@@ -406,21 +406,10 @@ impl<C: CheckerRequestContext + ?Sized> super::super::core::StorageFlowCollector
                 continue;
             };
 
-            let Some(mut logical) = self.invocation_place(occurrence, subject.subject_root())
+            let Some(logical) = self.invocation_logical_path(occurrence, subject)
             else {
                 continue;
             };
-
-            let path = contracts
-                .reference_path(subject)
-                .expect("checked reference input retains its prepared path");
-
-            logical.projections = logical
-                .projections
-                .iter()
-                .chain(path.projections())
-                .copied()
-                .collect();
 
             let Some(sources) = self.invocation_sources(state, occurrence, subject) else {
                 continue;
