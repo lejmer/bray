@@ -2770,6 +2770,20 @@ fn const_borrowed_getters_preserve_the_existing_carrier_identity() {
 fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
     for (body, valid) in [
         (
+            r#"
+            let recognize = trusted lambda(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>)
+                requires(trusted slot(pointer = address))
+                ensures(trusted borrowed_slot(input = input))
+                executes(pure, total) {};
+            let observe = lambda(pos input: &DataPointer<Owner>)
+                requires(trusted borrowed_slot(input = input))
+                executes(pure, total) {};
+            trusted recognize(&pointer, pointer);
+            observe(&pointer);
+            "#,
+            true,
+        ),
+        (
             "let owner = borrow_owner(&pointer, pointer); visit(owner, callback); visit(owner, callback);",
             true,
         ),
@@ -2793,7 +2807,7 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             trusted predicate borrowed_slot(input: &DataPointer<Owner>);
             trusted predicate held(marker: &Marker);
             trusted func borrow_owner(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>) -> &Owner
-                requires(trusted slot(pointer = address), trusted borrowed_slot(input = input))
+                requires(trusted slot(pointer = address))
                 ensures(trusted held(marker = &result.marker))
                 executes(pure, total)
                 uses(raw_memory, unchecked_alias)
@@ -2824,11 +2838,6 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
             func caller(pos mut pointer: DataPointer<Owner>, pos callback: Callback, pos again: bool)
                 requires(trusted slot(pointer = pointer))
             {{
-                let recognize = trusted lambda(pos input: &DataPointer<Owner>, pos address: DataPointer<Owner>)
-                    requires(trusted slot(pointer = address))
-                    ensures(trusted borrowed_slot(input = input))
-                    executes(pure, total) {{}};
-                trusted recognize(&pointer, pointer);
                 {body}
             }}
         "#
