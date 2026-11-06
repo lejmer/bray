@@ -806,6 +806,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             )
         {
             return Some(vec![state.memory.reference_location(
+                self.request.semantic_values(),
                 Target::storage(place.clone()),
                 path,
                 None,
@@ -823,7 +824,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let start = Target::storage(start?);
 
-        Some(vec![state.memory.reference_location(start, path, None)?])
+        Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?])
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn static_location(

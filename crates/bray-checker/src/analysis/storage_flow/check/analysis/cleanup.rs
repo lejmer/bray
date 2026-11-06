@@ -408,7 +408,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(call.lifecycle.call.callable, subject.clone()))?;
 
-                memory.reference_location(receiver.clone(), path, None)
+                memory.reference_location(self.request.semantic_values(), receiver.clone(), path, None)
             };
 
             let Some(destination) = location(relation.exit()) else {
@@ -501,7 +501,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         Some(
             self.input
-                .reference_target(memory, self.storage, access)?
+                .reference_target(self.request.semantic_values(), memory, self.storage, access)?
                 .project(&path.projections[base.projections.len()..]),
         )
     }
@@ -544,7 +544,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let Some(location) = memory.reference_location(receiver.clone(), prepared, None) else {
+            let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None) else {
                 continue;
             };
 
@@ -591,7 +591,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     continue;
                 }
 
-                let Some(location) = memory.reference_location(receiver.clone(), prepared, None)
+                let Some(location) = memory.reference_location(self.request.semantic_values(), receiver.clone(), prepared, None)
                 else {
                     continue;
                 };
@@ -656,7 +656,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     .lifecycle_paths
                     .get(&(lifecycle.call.callable, subject.clone()))?;
 
-                let location = memory.reference_location(receiver, prepared, None)?;
+                let location = memory.reference_location(self.request.semantic_values(), receiver, prepared, None)?;
 
                 if indirect {
                     memory.referenced_regions(&location)
