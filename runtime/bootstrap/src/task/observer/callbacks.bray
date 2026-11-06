@@ -256,7 +256,38 @@ trusted internal func destroy(pos context: usize)
     let provider = trusted take_state_provider(&mut owner);
     let reference = trusted take_state_reference(&mut owner);
 
-    if trusted bray.runtime.bootstrap.execution.destroy_reference(&selected, &reference) != 0
+    trusted destroy_captures(&owner, &selected, reference, provider);
+
+    // All captures and provider callbacks have returned. Consume the actual
+    // state owner when returning its final backing to the pool.
+    trusted release_state(owner);
+}
+
+// The state backing and current execution remain borrowed until all captured
+// task and provider callbacks have returned. Only then can release_state consume it.
+trusted internal func destroy_captures(
+    pos owner: &State,
+    pos selected: &bray.runtime.bootstrap.execution.Current,
+    pos reference: bray.runtime.bootstrap.task.Reference,
+    pos provider: bray.runtime.bootstrap.provider.Reference
+)
+    requires(
+        trusted owned_state(owner = owner),
+        trusted bray.runtime.bootstrap.execution.view_owned(owner = &selected.acquisition),
+        selected.status == 0,
+        trusted bray.runtime.bootstrap.task.retained(owner = &reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = &reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = &reference),
+        trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &provider),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
+    )
+    ensures(
+        trusted owned_state(owner = owner),
+        trusted bray.runtime.bootstrap.execution.view_owned(owner = &selected.acquisition)
+    )
+    uses(intrinsic)
+{
+    if trusted bray.runtime.bootstrap.execution.destroy_reference(selected, &reference) != 0
     {
         trusted core.target.abort();
     }
@@ -267,10 +298,6 @@ trusted internal func destroy(pos context: usize)
     }
 
     trusted bray.runtime.bootstrap.provider.release_owned(provider);
-
-    // All captures and provider callbacks have returned. Consume the actual
-    // state owner when returning its final backing to the pool.
-    trusted release_state(owner);
 }
 
 trusted internal func body_progress(

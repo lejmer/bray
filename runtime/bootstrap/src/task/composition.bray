@@ -15,14 +15,16 @@ trusted internal predicate composition_slot(
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
 
+// The acquisition identifies this invocation relationship. Mutable task
+// bookkeeping is checked separately and does not replace that introduction.
 trusted internal predicate native_composition_input(
-    owner: &Reference,
+    owner: &Marker,
     token: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
 
 trusted internal predicate composition_input(
-    owner: &Reference,
+    owner: &Marker,
     token: &bray.runtime.bootstrap.activation.Inactive,
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
@@ -56,7 +58,7 @@ trusted internal func composition(
         )
         ensures(
             trusted retained(owner = result),
-            trusted native_composition_input(owner = result, token = token, ready = ready)
+            trusted native_composition_input(owner = &result.acquisition, token = token, ready = ready)
         )
     {
         return trusted borrow_reference(slot);
@@ -71,11 +73,11 @@ trusted internal func composition(
     ) -> bray.runtime.bootstrap.activation.Inactive
         requires(
             trusted retained(owner = reference),
-            trusted native_composition_input(owner = reference, token = pointer, ready = ready)
+            trusted native_composition_input(owner = &reference.acquisition, token = pointer, ready = ready)
         )
         ensures(
             trusted retained(owner = reference),
-            trusted composition_input(owner = reference, token = &result, ready = ready)
+            trusted composition_input(owner = &reference.acquisition, token = &result, ready = ready)
         )
         uses(raw_memory, intrinsic)
     {
@@ -86,7 +88,7 @@ trusted internal func composition(
         )
             requires(
                 trusted retained(owner = reference),
-                trusted native_composition_input(owner = reference, token = pointer, ready = ready)
+                trusted native_composition_input(owner = &reference.acquisition, token = pointer, ready = ready)
             )
             ensures(
                 trusted core.memory.valid_read<bray.runtime.bootstrap.activation.Inactive>(
@@ -120,7 +122,7 @@ trusted internal func compose_reference(
 ) -> u32
     requires(
         trusted retained(owner = reference),
-        trusted composition_input(owner = reference, token = token, ready = ready),
+        trusted composition_input(owner = &reference.acquisition, token = token, ready = ready),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
@@ -175,7 +177,7 @@ trusted internal func compose_reference(
     )
         requires(
             trusted retained(owner = reference),
-            trusted composition_input(owner = reference, token = token, ready = ready)
+            trusted composition_input(owner = &reference.acquisition, token = token, ready = ready)
         )
         ensures(
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),

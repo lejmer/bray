@@ -160,6 +160,8 @@ only presence or variant observations, while inline values retain their complete
 remains a separate observation.
 
 A returned loan carries its completion promises for its own lifetime, including observations of reached children.
+Call completion forms that loan before publishing its promises. Joins retain a common loan owner independently of
+changes to its reached contents.
 Checked consuming transitions publish complete child snapshots with their existing identity, contents and ownership
 lineage, rather than leaving them represented as partial accesses through their former container.
 A contents update changes the observed snapshot without replacing a still-live owner's identity. Ownership transitions

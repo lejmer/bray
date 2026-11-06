@@ -1,0 +1,115 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap.task.result;
+
+using core.memory;
+using core.target;
+using std.memory;
+
+// Own the native call's permission to resolve this task into this output.
+// Parameter loans retain that call's lifetime and its exact task/output pairing.
+// Layout is captured once, before observing the task can change runtime state.
+internal struct Resolution
+{
+    acquisition: bray.runtime.bootstrap.task.Marker;
+    task: &u64;
+    native: &DataPointer<u8>;
+    layout: Layout;
+}
+
+trusted internal predicate resolution_acquired(owner: &bray.runtime.bootstrap.task.Marker);
+
+internal predicate resolution_owned(owner: &Resolution) = resolution_acquired(owner = &owner.acquisition);
+
+trusted internal func acquire_resolution(
+    pos task: &u64,
+    pos native: &DataPointer<u8>,
+    pos layout_pointer: DataPointer<Layout>
+) -> Resolution
+    requires(
+        trusted bray.runtime.bootstrap.execution.resolution_input(owner = task),
+        trusted bray.runtime.bootstrap.execution.task_result_destination(
+            task = task,
+            destination = native,
+            layout = layout_pointer
+        )
+    )
+    ensures(
+        trusted resolution_owned(owner = &result),
+        trusted bray.runtime.bootstrap.execution.resolution_input(owner = result.task)
+    )
+    uses(raw_memory, intrinsic)
+{
+    let permit = trusted lambda(pos task: &u64, pos native: &DataPointer<u8>, pos layout: DataPointer<Layout>)
+        requires(
+            trusted bray.runtime.bootstrap.execution.task_result_destination(
+                task = task,
+                destination = native,
+                layout = layout
+            )
+        )
+        ensures(
+            trusted core.memory.valid_read<Layout>(pointer = layout, count = 1),
+            trusted core.memory.aligned_for<Layout>(pointer = layout),
+            trusted core.memory.initialized_as<Layout>(pointer = layout)
+        )
+        executes(pure, total) {};
+
+    trusted permit(task, native, layout_pointer);
+
+    let layout = trusted std.memory.read<Layout>(layout_pointer);
+
+    return
+    {
+        acquisition = bray.runtime.bootstrap.task.Marker
+        {
+        },
+        task = task,
+        native = native,
+        layout = layout
+    };
+}
+
+trusted internal func transfer_resolution(
+    pos entry: Resolution,
+    pos source: &mut bray.runtime.bootstrap.ReportOutcome
+) -> u32
+    requires(
+        trusted resolution_owned(owner = &entry),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &source.report)
+    )
+{
+    return trusted finish_transfer(trusted take_resolution(entry, source));
+}
+
+// Outcome observation changes the source owner. Transfer the same native-call
+// permission and layout into the existing terminal-outcome transfer owner.
+trusted internal func take_resolution(
+    pos entry: Resolution,
+    pos source: &mut bray.runtime.bootstrap.ReportOutcome
+) -> Transfer
+    requires(
+        trusted resolution_owned(owner = &entry),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &source.report)
+    )
+    ensures(
+        trusted transferred(owner = &result),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.outcome.report)
+    )
+    uses(intrinsic, raw_memory)
+{
+    let destination = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(entry.native));
+    let value = trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(source, staged_outcome());
+
+    return
+    {
+        acquisition = bray.runtime.bootstrap.task.Marker
+        {
+        },
+        native = entry.native,
+        source = source,
+        outcome = value,
+        destination = destination,
+        destination_address = trusted core.target.expose_address<u8>(destination),
+        layout = entry.layout
+    };
+}

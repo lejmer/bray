@@ -74,7 +74,7 @@ trusted internal func composition_parent(
     ensures(
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.task.retained(owner = result),
-        trusted bray.runtime.bootstrap.task.composition_input(owner = result, token = token, ready = ready)
+        trusted bray.runtime.bootstrap.task.composition_input(owner = &result.acquisition, token = token, ready = ready)
     )
     uses(intrinsic)
 {

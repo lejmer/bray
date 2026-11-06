@@ -78,8 +78,9 @@ trusted internal func admit(pos count: usize) -> Owner
     return owner;
 }
 
-// Keep the installed and displaced execution owners live through callback cleanup.
+// Keep the attachment and execution owners live through callback cleanup.
 trusted internal func invoke(
+    pos attachment: &bray.runtime.bootstrap.host.attachment.Owner,
     pos scope: &bray.runtime.bootstrap.execution.EntryScope,
     pos mut owner: Owner,
     pos callback: bray.runtime.bootstrap.entry.Callback,
@@ -87,11 +88,16 @@ trusted internal func invoke(
     pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
 ) -> u32
     requires(
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment),
+        attachment.status == bray.runtime.bootstrap.STATUS_SUCCESS,
         trusted bray.runtime.bootstrap.execution.entry_scope_owned(owner = scope),
         trusted owned(owner = &owner),
         trusted bray.runtime.bootstrap.entry.native_entry()
     )
-    ensures(trusted bray.runtime.bootstrap.execution.entry_scope_owned(owner = scope))
+    ensures(
+        trusted bray.runtime.bootstrap.host.attachment.acquired(owner = attachment),
+        trusted bray.runtime.bootstrap.execution.entry_scope_owned(owner = scope)
+    )
     uses(raw_memory, foreign_call)
 {
     let permit = trusted lambda(pos owner: &Owner)

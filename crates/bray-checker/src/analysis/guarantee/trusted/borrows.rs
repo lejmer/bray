@@ -607,11 +607,14 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 {
                     // Form a fresh loan before publishing its guarantees. Its origin
                     // need not preserve an input value, but its lifetime still owns them.
-                    fields.entry(path.clone()).or_insert_with(|| {
-                        let value = path.into_iter().fold(result.clone(), ExecutionCondition::project);
+                    if let std::collections::btree_map::Entry::Vacant(entry) = fields.entry(path) {
+                        let value = entry.key().iter().copied().fold(result.clone(), ExecutionCondition::project)
+                            .coerce(self.request.semantic_values(), ty, ty);
 
-                        value.coerce(self.request.semantic_values(), ty, ty)
-                    });
+                        if value != ExecutionCondition::Unknown {
+                            entry.insert(value);
+                        }
+                    }
                 }
 
                 continue;

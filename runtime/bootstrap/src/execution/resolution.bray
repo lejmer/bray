@@ -9,7 +9,7 @@ using internal bray.runtime.bootstrap;
 // RunResult destination. Observation moves the outcome before retiring frames.
 trusted internal predicate task_result_destination(
     task: &u64,
-    destination: DataPointer<u8>,
+    destination: &DataPointer<u8>,
     layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
 );
 
@@ -22,18 +22,19 @@ trusted internal func task_resolution(
     requires(
         blocking_execution(),
         trusted resolution_input(owner = &handle),
-        trusted task_result_destination(task = &handle, destination = destination, layout = layout),
+        trusted task_result_destination(task = &handle, destination = &destination, layout = layout),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
 {
+    let output = trusted bray.runtime.bootstrap.task.result.acquire_resolution(&handle, &destination, layout);
     let scope = trusted root_scope();
     let status = scope.status;
 
     let result = if status == 0
     {
-        yield trusted task_resolution_action(&handle, destination, layout);
+        yield trusted task_resolution_action(output);
     }
     else
     {
@@ -52,15 +53,11 @@ trusted internal func task_resolution(
     };
 }
 
-trusted internal func task_resolution_action(
-    pos handle: &u64,
-    pos destination: DataPointer<u8>,
-    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
-) -> u32
+trusted internal func task_resolution_action(pos output: bray.runtime.bootstrap.task.result.Resolution) -> u32
     requires(
         blocking_execution(),
-        trusted resolution_input(owner = handle),
-        trusted task_result_destination(task = handle, destination = destination, layout = layout),
+        trusted resolution_input(owner = output.task),
+        trusted bray.runtime.bootstrap.task.result.resolution_owned(owner = &output),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -78,7 +75,7 @@ trusted internal func task_resolution_action(
         return 1;
     }
 
-    let (reference, status) = trusted borrow_resolution(trusted bound_execution(&selected), handle);
+    let (reference, status) = trusted borrow_resolution(trusted bound_execution(&selected), output.task);
 
     if reference matches none
     {
@@ -86,7 +83,7 @@ trusted internal func task_resolution_action(
     }
 
     let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
-    let result = trusted transfer_task_result(&selected, &owner, handle, destination, layout);
+    let result = trusted transfer_task_result(&selected, &owner, output);
 
     _ = trusted bray.runtime.bootstrap.task.dispose_reference(owner);
 
@@ -96,9 +93,7 @@ trusted internal func task_resolution_action(
 trusted internal func transfer_task_result(
     pos selected: &Current,
     pos reference: &bray.runtime.bootstrap.task.Reference,
-    pos handle: &u64,
-    pos destination: DataPointer<u8>,
-    pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
+    pos output: bray.runtime.bootstrap.task.result.Resolution
 ) -> u32
     requires(
         blocking_execution(),
@@ -106,7 +101,7 @@ trusted internal func transfer_task_result(
         selected.status == 0,
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
-        trusted task_result_destination(task = handle, destination = destination, layout = layout),
+        trusted bray.runtime.bootstrap.task.result.resolution_owned(owner = &output),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
@@ -118,27 +113,7 @@ trusted internal func transfer_task_result(
     )
 {
     let mut outcome = trusted observe_reference(selected, reference);
-    let output = std.memory.address_of_mut<bray.runtime.bootstrap.ReportOutcome>(&mut outcome);
-
-    let prepare = trusted lambda(
-        pos handle: &u64,
-        pos output: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-        pos destination: DataPointer<u8>,
-        pos layout: DataPointer<bray.runtime.bootstrap.task.result.Layout>
-    )
-        requires(trusted task_result_destination(task = handle, destination = destination, layout = layout))
-        ensures(
-            trusted bray.runtime.bootstrap.task.result.transfer_entry(
-                outcome = output,
-                destination = destination,
-                layout = layout
-            )
-        )
-        executes(pure, total) {};
-
-    trusted prepare(handle, output, destination, layout);
-
-    let status = trusted bray.runtime.bootstrap.task.result.transfer(output, destination, layout);
+    let status = trusted bray.runtime.bootstrap.task.result.transfer_resolution(output, &mut outcome);
 
     if status != 0
     {

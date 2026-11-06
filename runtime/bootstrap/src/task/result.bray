@@ -71,31 +71,43 @@ internal func valid_layout(pos layout: &Layout) -> bool
 // exact completion storage through return. The compiler-bound destination is a
 // distinct uninitialized RunResult<T>, or the same already staged payload.
 trusted internal predicate transfer_entry(
-    outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    destination: DataPointer<u8>,
+    outcome: &DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    destination: &DataPointer<u8>,
     layout: DataPointer<Layout>
 );
 
 internal struct Transfer
 {
-    source: DataPointer<bray.runtime.bootstrap.ReportOutcome>;
+    acquisition: bray.runtime.bootstrap.task.Marker;
+    native: &DataPointer<u8>;
+    source: &mut bray.runtime.bootstrap.ReportOutcome;
     mut outcome: bray.runtime.bootstrap.ReportOutcome;
     destination: DataPointer<u8>;
     destination_address: usize;
     layout: Layout;
 }
 
-trusted internal predicate transferred(owner: &Transfer);
+trusted internal predicate transfer_acquired(owner: &bray.runtime.bootstrap.task.Marker);
+
+internal predicate transferred(owner: &Transfer) = transfer_acquired(owner = &owner.acquisition);
 
 @abi(c)
 trusted internal func transfer(
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos mut outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
     pos destination: DataPointer<u8>,
     pos layout_pointer: DataPointer<Layout>
 ) -> u32
-    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout_pointer))
+    requires(trusted transfer_entry(outcome = &outcome, destination = &destination, layout = layout_pointer))
 {
-    let owner = trusted take_transfer(outcome, destination, layout_pointer);
+    return trusted finish_transfer(trusted take_transfer(&mut outcome, &destination, layout_pointer));
+}
+
+trusted internal func finish_transfer(pos owner: Transfer) -> u32
+    requires(
+        trusted transferred(owner = &owner),
+        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
+    )
+{
 
     if std.memory.is_null<u8>(owner.destination) || !valid_layout(&owner.layout)
     {
@@ -125,74 +137,91 @@ trusted internal func transfer(
 // Read the actual owned native slots in the producer. Callers cannot substitute
 // another outcome or a separately supplied layout when forming this carrier.
 trusted internal func take_transfer(
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos destination: DataPointer<u8>,
+    pos native: &mut DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: &DataPointer<u8>,
     pos layout_pointer: DataPointer<Layout>
 ) -> Transfer
-    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout_pointer))
+    requires(trusted transfer_entry(outcome = native, destination = destination, layout = layout_pointer))
     ensures(
         trusted transferred(owner = &result),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.outcome.report)
     )
-    uses(intrinsic, raw_memory, unchecked_init)
+    uses(intrinsic, raw_memory)
 {
-    let permit = trusted lambda(
-        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-        pos destination: DataPointer<u8>,
-        pos layout: DataPointer<Layout>
-    )
-        requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = layout))
-        ensures(
-            trusted core.memory.valid_read<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
-            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome, count = 1),
-            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
-            trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = outcome),
-            trusted core.memory.valid_read<Layout>(pointer = layout, count = 1),
-            trusted core.memory.aligned_for<Layout>(pointer = layout),
-            trusted core.memory.initialized_as<Layout>(pointer = layout)
-        )
-        executes(pure, total) {};
-
-    let layout = trusted read_layout(outcome, destination, layout_pointer);
-
-    trusted permit(outcome, destination, layout_pointer);
-
-    let value = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome);
-
-    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(
-        outcome,
-        {
-            state = 4,
-            payload = 0,
-            report = bray.runtime.bootstrap.empty_panic_report()
-        }
-    );
+    let layout = trusted read_layout(native, destination, layout_pointer);
+    let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(destination));
+    let source = trusted borrow_transfer_outcome(native, destination, layout_pointer);
+    let value = trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(source, staged_outcome());
 
     return
     {
-        source = outcome,
+        acquisition = bray.runtime.bootstrap.task.Marker
+        {
+        },
+        native = destination,
+        source = source,
         outcome = value,
-        destination = destination,
-        destination_address = trusted core.target.expose_address<u8>(destination),
+        destination = address,
+        destination_address = trusted core.target.expose_address<u8>(address),
         layout = layout
     };
 }
 
+trusted internal func borrow_transfer_outcome(
+    pos native: &mut DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: &DataPointer<u8>,
+    pos layout: DataPointer<Layout>
+) -> &mut bray.runtime.bootstrap.ReportOutcome
+    requires(trusted transfer_entry(outcome = native, destination = destination, layout = layout))
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer = trusted std.memory.read<DataPointer<bray.runtime.bootstrap.ReportOutcome>>(
+        std.memory.address_of<DataPointer<bray.runtime.bootstrap.ReportOutcome>>(native)
+    );
+
+    let permit = trusted lambda(
+        pos native: &DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos destination: &DataPointer<u8>,
+        pos layout: DataPointer<Layout>,
+        pos pointer: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    )
+        requires(trusted transfer_entry(outcome = native, destination = destination, layout = layout))
+        ensures(
+            trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer, count = 1),
+            trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.initialized_as<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.exclusive_alias_valid<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.epoch_current<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.synchronized_access<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.movement_stable<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer),
+            trusted core.memory.finalization_pending<bray.runtime.bootstrap.ReportOutcome>(pointer = pointer)
+        )
+        executes(pure, total) {};
+
+    trusted permit(native, destination, layout, pointer);
+
+    return trusted std.memory.borrow_mut_from<
+        bray.runtime.bootstrap.ReportOutcome,
+        DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    >(native, pointer);
+}
+
 trusted internal func read_layout(
-    pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-    pos destination: DataPointer<u8>,
+    pos native: &DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+    pos destination: &DataPointer<u8>,
     pos pointer: DataPointer<Layout>
 ) -> Layout
-    requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
-    ensures(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
+    requires(trusted transfer_entry(outcome = native, destination = destination, layout = pointer))
+    ensures(trusted transfer_entry(outcome = native, destination = destination, layout = pointer))
     uses(raw_memory)
 {
     let permit = trusted lambda(
-        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>,
-        pos destination: DataPointer<u8>,
+        pos native: &DataPointer<bray.runtime.bootstrap.ReportOutcome>,
+        pos destination: &DataPointer<u8>,
         pos pointer: DataPointer<Layout>
     )
-        requires(trusted transfer_entry(outcome = outcome, destination = destination, layout = pointer))
+        requires(trusted transfer_entry(outcome = native, destination = destination, layout = pointer))
         ensures(
             trusted core.memory.valid_read<Layout>(pointer = pointer, count = 1),
             trusted core.memory.aligned_for<Layout>(pointer = pointer),
@@ -200,54 +229,34 @@ trusted internal func read_layout(
         )
         executes(pure, total) {};
 
-    trusted permit(outcome, destination, pointer);
+    trusted permit(native, destination, pointer);
     return trusted std.memory.read<Layout>(pointer);
 }
 
-// The sender's native slot is independent of the moved report owner. Split
-// both resources before projecting either, so restoring one cannot borrow it.
-trusted internal func restoration_parts(
-    pos mut owner: Transfer
-) -> (DataPointer<bray.runtime.bootstrap.ReportOutcome>, bray.runtime.bootstrap.ReportOutcome)
-    requires(
-        trusted transferred(owner = &owner),
-        trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
-    )
-    ensures(
-        trusted core.memory.valid_write<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0, count = 1),
-        trusted core.memory.aligned_for<bray.runtime.bootstrap.ReportOutcome>(pointer = result.0),
-        trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.1.report)
-    )
+internal func staged_outcome() -> bray.runtime.bootstrap.ReportOutcome
+    ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
 {
-    let state = owner.outcome.state;
-    let payload = owner.outcome.payload;
-    let source = owner.source;
-
-    let report = trusted std.memory.replace_value<bray.runtime.bootstrap.PanicReportData>(
-        &mut owner.outcome.report,
-        bray.runtime.bootstrap.empty_panic_report()
-    );
-
-    return (
-        source,
-        {
-            state = state,
-            payload = payload,
-            report = report
-        }
-    );
+    return
+    {
+        state = 4,
+        payload = 0,
+        report = bray.runtime.bootstrap.empty_panic_report()
+    };
 }
 
-trusted internal func restore(pos owner: Transfer, pos status: u32) -> u32
+trusted internal func restore(pos mut owner: Transfer, pos status: u32) -> u32
     requires(
         trusted transferred(owner = &owner),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &owner.outcome.report)
     )
-    uses(raw_memory, unchecked_init)
 {
-    let (destination, outcome) = trusted restoration_parts(owner);
+    let value = trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(
+        &mut owner.outcome,
+        staged_outcome()
+    );
 
-    trusted std.memory.write<bray.runtime.bootstrap.ReportOutcome>(destination, outcome);
+    _ = std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(owner.source, value);
+
     return status;
 }
 
