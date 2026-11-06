@@ -751,6 +751,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 let place = crate::ExecutionPlace::storage_path(self.storage, path);
                 let target_place = crate::ExecutionPlace::storage_path(self.storage, &target)?;
+
                 let value = target_place
                     .value_in(&state.current)
                     .unwrap_or(ExecutionCondition::Input(target_place));
@@ -792,6 +793,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         .get(&expression)
                         .cloned()
                         .unwrap_or(ExecutionCondition::Expression(expression));
+
                     let Some(projections) = path
                         .projections
                         .iter()

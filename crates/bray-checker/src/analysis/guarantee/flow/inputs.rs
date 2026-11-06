@@ -207,6 +207,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         // getter. Reuse that origin to observe current contents through the borrow.
         self.storage.node_plans(expression.into()).find_map(|plan| {
             let path = self.storage.logical_path(plan.access())?;
+
             let bray_bound_tree::StorageIdentity::Temporary(owner) =
                 self.storage.identity(path.root)?
             else {
@@ -224,6 +225,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let target = completion.references().get(&root)?;
+
             let target = crate::storage::storage_observation_path(
                 self.storage,
                 self.request.semantic_values(),

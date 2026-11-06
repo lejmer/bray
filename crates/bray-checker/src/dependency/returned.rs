@@ -678,6 +678,7 @@ impl super::ValueInputs {
 
                 let projected =
                     crate::storage::projected_value_type(request, ty.ty(), *projection)?;
+
                 let field_ty = projected
                     .value()
                     .expect("returned borrow field retains its checked projection");
