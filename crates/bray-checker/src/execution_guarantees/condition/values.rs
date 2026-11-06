@@ -113,6 +113,10 @@ impl ExecutionCondition {
         source: bray_symbols::TypeId,
         target: bray_symbols::TypeId,
     ) -> Self {
+        if matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            return self.borrowed();
+        }
+
         if source != target
             && matches!(values.type_data(target).as_ref(), bray_symbols::TypeData::Nullable(element) if *element == source)
         {

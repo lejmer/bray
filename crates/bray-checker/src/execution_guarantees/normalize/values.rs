@@ -132,7 +132,10 @@ pub(super) fn constructed_condition(
                         bray_bound_tree::StorageProjection::ElementFromStart(index)
                     };
 
-                    (projection, value(*operand))
+                    let ty = semantics.types().expression(*operand)
+                        .expect("checked aggregate element retains its value type").ty();
+
+                    (projection, value(*operand).coerce(values, ty, ty))
                 })
                 .collect::<Vec<_>>();
 
@@ -154,7 +157,9 @@ pub(super) fn constructed_condition(
             let count = crate::constant::known_array_length(values, ty)?
                 .min(ExecutionCondition::WORK_LIMIT);
 
-            let value = value(*operand);
+            let element = semantics.types().expression(*operand)
+                .expect("checked repeated element retains its value type").ty();
+            let value = value(*operand).coerce(values, element, element);
 
             let fields = (0..count)
                 .map(|index| {
