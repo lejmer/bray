@@ -157,6 +157,10 @@ fn join_observations<'a>(
             .value_in(&incoming.current)
             .unwrap_or(ExecutionCondition::Unknown);
 
+        let same_owner = value.owner_identity() == other.owner_identity()
+            || matches!((&value, &other), (ExecutionCondition::Borrowed(left), ExecutionCondition::Borrowed(right))
+                if left.owner_identity() == right.owner_identity());
+
         if value.owner_identity() == other.owner_identity() {
             stable_identities.insert(value.owner_identity().clone());
         }
@@ -169,7 +173,7 @@ fn join_observations<'a>(
             value.clone()
         } else if value == ExecutionCondition::Unknown || other == ExecutionCondition::Unknown {
             ExecutionCondition::Unknown
-        } else if value.owner_identity() == other.owner_identity()
+        } else if same_owner
             && value.owner_identity() != &ExecutionCondition::Unknown
         {
             common_components(

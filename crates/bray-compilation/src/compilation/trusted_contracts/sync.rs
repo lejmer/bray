@@ -653,7 +653,7 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                     _ = trusted publish(owner);
                     let mut index: u32 = 0;
                     while index < count {{
-                        opaque(owner.pointer);
+                        if index & 1 == 0 {{ opaque(owner.pointer); }}
                         {use_owner}
                         observe_scalar(&owner.identity);
                         advance(&mut index);
@@ -2694,11 +2694,19 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
                 ensures(trusted live(&result.current.token))
                 executes(pure, total)
             {{ return owner; }}
+            extern trusted func introduced(pos owner: &Holder) -> &Holder
+                ensures(trusted live(&result.current.token))
+                executes(pure, total);
             func nested_caller(pos owner: &Holder)
             {{
                 let selected = nested(owner);
                 opaque();
                 observe(&selected.current.token);
+
+                let fresh = introduced(owner);
+
+                opaque();
+                observe(&fresh.current.token);
             }}
             func caller(pos owner: &Owner)
                 requires(trusted live(&owner.token))
@@ -5871,9 +5879,8 @@ fn returned_shared_views_do_not_freeze_mutable_referents() {
             struct Owner {{ value: core.atomic.Atomic<u32>; }}
             struct Holder {{ current: Owner; label: u32; }}
             trusted predicate observed(owner: &Owner);
-            trusted func selected(pos owner: &{input}) -> &{input}
-                ensures(trusted observed({observed})) executes(pure, total)
-            {{ return owner; }}
+            extern trusted func selected(pos owner: &{input}) -> &{input}
+                ensures(trusted observed({observed})) executes(pure, total);
             extern func change();
             func observe(pos owner: &Owner)
                 requires(trusted observed(owner)) executes(pure, total) {{}}
