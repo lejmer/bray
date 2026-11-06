@@ -1063,7 +1063,7 @@ where
     }
 
     fn preserve_operation_values(
-        &self,
+        &mut self,
         state: &StorageFlowState,
         kind: AnalysisOperationKind,
         effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
@@ -1103,28 +1103,43 @@ where
                 _ => None,
             };
 
-            pointee.map(|pointee| self.input.footprint.marker_free_transfer(pointee))
+            pointee
         });
 
-        let marker_free = typed_transfer.or_else(|| effects.map(|effects| {
+        let mut transferred_types = BTreeSet::new();
+
+        if let Some(ty) = typed_transfer {
+            transferred_types.insert(ty);
+        } else if let Some(effects) = effects {
             use crate::analysis::storage_flow::memory::Effect;
             use bray_symbols::DependencyMutationKind as Mutation;
 
-            effects.iter().all(|effect| match effect {
-                Effect::Escape | Effect::Atomic
-                | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => true,
-                Effect::Mutation(_, Mutation::Replace(ty)) => self.input.footprint.marker_free_transfer(*ty),
-                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
-                    state.memory.declared_type(target).is_some_and(|ty| self.input.footprint.marker_free_transfer(ty))
-                }
-                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_)
-                | Effect::Mutation(_, Mutation::Retire) => false,
-            })
-        }));
+            for effect in effects {
+                let ty = match effect {
+                    Effect::Escape | Effect::Atomic
+                    | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => continue,
+                    Effect::Mutation(_, Mutation::Replace(ty)) => *ty,
+                    Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
+                        match state.memory.projected_type(self.request, target) {
+                            Ok(Some(ty)) => ty,
+                            Ok(None) => return,
+                            Err(error) => {
+                                self.query_failure = Some(error);
+                                return;
+                            }
+                        }
+                    }
+                    Effect::Unknown | Effect::Ambient | Effect::Cleanup(_)
+                    | Effect::Mutation(_, Mutation::Retire) => return,
+                };
 
-        if marker_free == Some(true) {
-            self.preserve_store_values(&state.memory, invalidation, false, true);
+                transferred_types.insert(ty);
+            }
+        } else {
+            return;
         }
+
+        self.input.footprint.preserve_transfer_markers(&transferred_types, invalidation);
     }
 
     fn apply_invocation_inputs(

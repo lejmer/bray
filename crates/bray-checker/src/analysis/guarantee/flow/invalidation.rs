@@ -213,6 +213,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &'state self,
         state: &'state ExecutionState,
         path: bray_bound_tree::StoragePath,
+        mutation: bray_bound_tree::StorageMutation,
     ) -> impl Iterator<Item = ExecutionCondition> + 'state {
         let mut places = self.storage_places(state, path.clone()).peekable();
 
@@ -224,6 +225,65 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         places
             .filter_map(|place| place.value_in(&state.current))
             .chain(temporary)
+            .chain(self.entry_storage_value(state, &path, mutation))
+    }
+
+    fn entry_storage_value(
+        &self,
+        state: &ExecutionState,
+        path: &bray_bound_tree::StoragePath,
+        mutation: bray_bound_tree::StorageMutation,
+    ) -> Option<ExecutionCondition> {
+        let place = crate::ExecutionPlace::storage_path(self.storage, path)?;
+
+        if place.value_in(&state.current).is_some_and(|value| value != ExecutionCondition::Unknown) {
+            return None;
+        }
+
+        let bray_bound_tree::StorageMutation::Operation(invocation) = mutation else {
+            return None;
+        };
+
+        let entry = state.entries.get(&invocation)?;
+        let selection = self.semantics.selections().expression(invocation.expression()?)?;
+
+        entry.owned_inputs.iter().find_map(|ordinal| {
+            let root = selection.invocation_input_root(invocation, *ordinal)?;
+            let input = selection.invocation_input_site(invocation, root)?;
+            let source = self.input_place(input)?;
+
+            if !source.contains(&place) {
+                return None;
+            }
+
+            // Argument transfer has retired the old path. Its complete value now
+            // belongs to this entry, whose result contract will transfer or retire it.
+            let mut value = crate::ExecutionPlace::argument(*ordinal).value_in(&entry.arguments)?;
+
+            if !selection.evaluates_defaults() {
+                let input = selection.input(*ordinal)?;
+
+                if input.conversion().is_some_and(|conversion| {
+                    matches!(conversion.target(), bray_bound_tree::ConversionTarget::NullablePresent)
+                }) {
+                    let ty = self.semantics.types().expression(input.expression()?)?.ty();
+
+                    for projection in crate::storage::nullable_wrapping(
+                        self.request.semantic_values(), ty, input.ty(self.request.semantic_values()),
+                    ).expect("a checked nullable input retains its wrapping") {
+                        value = value.project(projection);
+                    }
+                }
+            }
+
+            for projection in crate::storage::owned_storage_projections(
+                self.dependencies, &place.projections[source.projections.len()..],
+            ) {
+                value = value.project(projection);
+            }
+
+            Some(value)
+        })
     }
 
     pub(in crate::analysis) fn call_preserves_normal_storage(
@@ -355,6 +415,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &ExecutionState,
         paths: &BTreeSet<bray_bound_tree::StoragePath>,
+        mutation: bray_bound_tree::StorageMutation,
     ) -> (
         BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
         BTreeSet<ExecutionCondition>,
@@ -375,7 +436,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let snapshots = paths
             .iter()
-            .flat_map(|path| self.storage_path_values(state, path.clone()))
+            .flat_map(|path| self.storage_path_values(state, path.clone(), mutation))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
             .flat_map(|value| {
@@ -407,7 +468,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let (mut retained, snapshots) = self.preserved_storage_values(state, stable_values);
+        let (mut retained, snapshots) = self.preserved_storage_values(state, stable_values, mutation);
 
         let stable_roots = stable_values
             .iter()
@@ -417,7 +478,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let owners = stable_roots
             .into_iter()
             .flat_map(|root| {
-                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root))
+                self.storage_path_values(state, bray_bound_tree::StoragePath::root(root), mutation)
             })
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
@@ -503,7 +564,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let (mut stable_places, stable_values) = match invalidation {
             StorageInvalidation::Observed { stable_values, .. } => {
-                self.preserved_storage_values(state, stable_values)
+                self.preserved_storage_values(state, stable_values, mutation)
             }
             _ => (BTreeMap::new(), BTreeSet::new()),
         };

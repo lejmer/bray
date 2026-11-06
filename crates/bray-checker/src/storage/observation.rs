@@ -11,7 +11,7 @@ enum Observation {
     Scalar,
     Address,
     Identity,
-    Marker,
+    Marker(TypeId),
     Discriminant,
     Reference(TypeId),
 }
@@ -116,7 +116,7 @@ pub(crate) struct Footprint {
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) borrowed_identities: BTreeMap<StoragePath, Vec<StoragePath>>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
-    pub(crate) empty_markers: BTreeSet<StoragePath>,
+    pub(crate) empty_markers: BTreeMap<StoragePath, TypeId>,
     pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
     shapes: BTreeMap<TypeId, Shape>,
 }
@@ -301,18 +301,44 @@ impl Footprint {
         )
     }
 
-    /// A typed data transfer cannot move an empty ownership marker.
-    pub(crate) fn marker_free_transfer(&self, ty: TypeId) -> bool {
-        self.shapes.get(&ty).is_some_and(|shape| {
-            (shape.complete_references || shape.complete_value)
-                && shape.observations.iter().all(|(_, observation)| {
-                    matches!(
-                        observation,
-                        Observation::Scalar | Observation::Discriminant | Observation::Address | Observation::Reference(_)
-                    )
-                })
-        })
+    /// Keep marker identities that none of these typed transfers can replace.
+    pub(crate) fn preserve_transfer_markers(
+        &self,
+        types: &BTreeSet<TypeId>,
+        invalidation: &mut StorageInvalidation,
+    ) {
+        let mut transferred = BTreeSet::new();
+
+        for ty in types {
+            let Some(shape) = self.shapes.get(ty) else {
+                return;
+            };
+
+            if !(shape.complete_references || shape.complete_value) {
+                return;
+            }
+
+            for (_, observation) in &shape.observations {
+                match observation {
+                    Observation::Scalar | Observation::Discriminant | Observation::Address
+                    | Observation::Reference(_) => {},
+                    Observation::Marker(ty) => { transferred.insert(*ty); },
+                    Observation::Mutable | Observation::Identity => return,
+                }
+            }
+        }
+
+        let stable_values = match invalidation {
+            StorageInvalidation::All { stable_values, .. }
+            | StorageInvalidation::Observed { stable_values, .. } => stable_values,
+            StorageInvalidation::Paths(_) => return,
+        };
+
+        stable_values.extend(self.empty_markers.iter().filter_map(|(path, marker)| {
+            (!transferred.contains(marker)).then(|| path.clone())
+        }));
     }
+
 }
 
 /// Observations that may include protected atomic payloads, including unknown raw reachability.
@@ -404,7 +430,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             complete_value &= shape.complete_value;
 
             observations.retain(|observation| {
-                !matches!(observation.1, Observation::Identity | Observation::Marker)
+                !matches!(observation.1, Observation::Identity | Observation::Marker(_))
                     || shape.observations.contains(observation)
             });
 
@@ -413,7 +439,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     .observations
                     .iter()
                     .filter(|(_, observation)| {
-                        !matches!(observation, Observation::Identity | Observation::Marker)
+                        !matches!(observation, Observation::Identity | Observation::Marker(_))
                     })
                     .cloned(),
             );
@@ -470,7 +496,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
                         None
                     }
-                    Observation::Identity | Observation::Marker => {
+                    Observation::Identity | Observation::Marker(_) => {
                         if shared.is_some()
                             || identity.is_invocation_owned(storage.kind())
                             || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
@@ -487,10 +513,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                                 })
                             });
 
-                            if *observation == Observation::Marker {
+                            if let Observation::Marker(ty) = observation {
                                 // Typed payload stores cannot replace empty markers,
                                 // including markers reached through mutable loans.
-                                footprint.empty_markers.insert(path.clone());
+                                footprint.empty_markers.insert(path.clone(), *ty);
                             }
 
                             if let Some((reference, kind)) = borrowed {
@@ -781,7 +807,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         && fields.is_empty()
         && !borrowed
     {
-        vec![(Vec::new(), Observation::Marker)]
+        vec![(Vec::new(), Observation::Marker(ty))]
     } else {
         Vec::new()
     };

@@ -132,7 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             };
 
             for marker in markers {
-                let immutable_marker = self.input.footprint.empty_markers.contains(marker);
+                let immutable_marker = self.input.footprint.empty_markers.contains_key(marker);
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
@@ -222,13 +222,16 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             {
                 // An address formed from this borrow can be used by native code to replace
                 // its allocation. The temporary borrow does not bound that opaque effect.
-                if memory.borrow_regions(*borrow).is_none_or(|targets| {
+                let exposed_referent = memory.borrow_regions(*borrow).is_none_or(|targets| {
                     targets.iter().any(|target| {
                         exposed.iter().any(|raw| {
                             memory.target_relationship(raw, target) != StorageRelationship::Disjoint
                         })
                     })
-                }) {
+                });
+
+                if exposed_referent && !(opaque && protected_referent
+                    && capability.kind() == bray_symbols::BorrowKind::Shared) {
                     continue;
                 }
 
@@ -262,10 +265,19 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         // input. The live loan governs that subobject's authority.
                         self.input.footprint.empty_markers
                             .range(path.clone()..)
+                            .map(|(value, _)| value)
                             .take_while(|value| path.contains(value))
                             .filter(|_| opaque && protected_referent),
                     )
+                    // An exposed address cannot replace an immutable marker
+                    // protected by this live loan. It can change other contents.
+                    .filter(|value| !exposed_referent || self.input.footprint.empty_markers.contains_key(*value))
                     .peekable();
+
+                if exposed_referent {
+                    stable_values.extend(values.cloned());
+                    continue;
+                }
 
                 if values.peek().is_none() && discriminants.is_none() {
                     continue;
@@ -339,7 +351,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if contents {
             // Plain assignments and typed data stores cannot transfer empty
             // ownership markers, even when their destination has inexact aliases.
-            stable_values.extend(self.input.footprint.empty_markers.iter().cloned());
+            stable_values.extend(self.input.footprint.empty_markers.keys().cloned());
         }
     }
 
