@@ -41,11 +41,7 @@ trusted internal func initialize_domain(
 {
     let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Domain>
         requires(
-            trusted core.memory.owned_allocation(
-                pointer = allocation.pointer,
-                bytes = std.memory.stride_of<Domain>(),
-                align = std.memory.align_of<Domain>()
-            ),
+            allocation.align == std.memory.align_of<Domain>(),
             trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Domain>())
         )
         ensures(

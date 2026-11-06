@@ -497,3 +497,30 @@ fn predecessor_snapshots_do_not_expand_their_surviving_owner_recursively() {
 
     assert_eq!(unchanged.with_snapshots(&snapshots), unchanged);
 }
+
+#[test]
+fn carrier_implication_preserves_trusted_provenance_through_negated_guards() {
+    use bray_bound_tree::BoundOperator;
+
+    let tag = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(0)));
+    let present = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(1)));
+    let ordinary = ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(2)));
+    let trusted = ExecutionCondition::Trusted(Arc::new(ordinary.clone()));
+    let not = |value| ExecutionCondition::operation(BoundOperator::LogicalNot, vec![value]);
+
+    let or =
+        |left, right| ExecutionCondition::operation(BoundOperator::LogicalOr, vec![left, right]);
+
+    let active = ExecutionCondition::operation(
+        BoundOperator::LogicalAnd,
+        vec![tag.clone(), present.clone()],
+    );
+
+    let published = or(not(active), trusted.clone());
+    let declared = or(not(tag), or(not(present), trusted.clone()));
+
+    assert!(published.implies(&declared));
+    assert!(declared.implies(&published));
+    assert!(trusted.implies(&ordinary));
+    assert!(!ordinary.implies(&trusted));
+}

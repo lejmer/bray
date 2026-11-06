@@ -122,6 +122,32 @@ pub(crate) struct Footprint {
 }
 
 impl Footprint {
+    fn observe_identity(
+        &mut self,
+        path: StoragePath,
+        observation: Observation,
+        borrowed: Option<(StoragePath, bray_symbols::BorrowKind)>,
+    ) {
+        if observation == Observation::Marker {
+            // Typed payload stores cannot replace empty markers, including
+            // markers reached through mutable loans.
+            self.empty_markers.insert(path.clone());
+        }
+
+        if let Some((reference, kind)) = borrowed {
+            // An arbitrary mutable call can replace its owner. Only shared
+            // loans protect identity across calls.
+            if kind == bray_symbols::BorrowKind::Shared {
+                self.borrowed_identities
+                    .entry(reference)
+                    .or_default()
+                    .push(path);
+            }
+        } else {
+            self.identities.entry(path.root).or_default().push(path);
+        }
+    }
+
     fn observe_accesses<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,
@@ -423,19 +449,18 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     return None;
                 };
 
-                matches!(
-                    request.semantic_values().type_data(*ty).as_ref(),
-                    TypeData::Borrow {
-                        kind: bray_symbols::BorrowKind::Shared,
-                        ..
-                    }
-                )
-                .then_some(path.as_slice())
+                let data = request.semantic_values().type_data(*ty);
+
+                let TypeData::Borrow { kind, .. } = data.as_ref() else {
+                    return None;
+                };
+
+                Some((path.as_slice(), *kind))
             })
-            .collect::<BTreeSet<_>>();
+            .collect::<BTreeMap<_, _>>();
 
         if shared.is_some() {
-            borrowed_paths.insert(&[]);
+            borrowed_paths.insert(&[], bray_symbols::BorrowKind::Shared);
         }
 
         let paths: Vec<_> = observations
@@ -457,32 +482,19 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             || identity.is_invocation_owned(storage.kind())
                             || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
                         {
-                            if *observation == Observation::Marker {
-                                footprint.empty_markers.insert(path.clone());
-                            }
-
                             let borrowed = (0..=projections.len()).rev().find_map(|length| {
-                                borrowed_paths.contains(&projections[..length]).then(|| {
-                                    StoragePath {
-                                        root,
-                                        projections: projections[..length].into(),
-                                    }
+                                borrowed_paths.get(&projections[..length]).map(|kind| {
+                                    (
+                                        StoragePath {
+                                            root,
+                                            projections: projections[..length].into(),
+                                        },
+                                        *kind,
+                                    )
                                 })
                             });
 
-                            if let Some(reference) = borrowed {
-                                footprint
-                                    .borrowed_identities
-                                    .entry(reference)
-                                    .or_insert_with(Vec::new)
-                                    .push(path);
-                            } else {
-                                footprint
-                                    .identities
-                                    .entry(root)
-                                    .or_insert_with(Vec::new)
-                                    .push(path);
-                            }
+                            footprint.observe_identity(path, *observation, borrowed);
                         }
 
                         None
@@ -807,7 +819,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         result.retain(|(_, observation)| {
             !matches!(
                 observation,
-                Observation::Identity | Observation::Marker | Observation::Discriminant
+                Observation::Identity | Observation::Discriminant
             )
         });
     }

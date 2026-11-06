@@ -177,6 +177,38 @@ impl ExecutionCondition {
         }
     }
 
+    /// Compare carrier promises without turning ordinary truth into trusted evidence.
+    pub(crate) fn implies(&self, consequence: &Self) -> bool {
+        if self.is_unknown() || consequence.is_unknown() {
+            return false;
+        }
+
+        if self == consequence {
+            return true;
+        }
+
+        let mut evidence = BTreeSet::new();
+
+        self.clone().assume(true, &mut evidence);
+
+        if consequence.prove_trusted(&evidence, &BTreeSet::new()) == Some(true) {
+            return true;
+        }
+
+        evidence.clear();
+
+        // Negating the requested clause exposes its Boolean path conditions.
+        // Keep a negated trusted occurrence opaque: lack of that evidence must
+        // never become an assumption that the ordinary predicate is false.
+        consequence
+            .clone()
+            .assume_proof(false, false, &mut |condition, holds| {
+                evidence.insert((condition, holds));
+            });
+
+        self.prove(&evidence, &mut { Self::WORK_LIMIT }) == Some(false)
+    }
+
     pub(crate) fn assume(self, value: bool, assumptions: &mut BTreeSet<(Self, bool)>) {
         self.assume_with(value, &mut |condition, value| {
             assumptions.insert((condition, value));
@@ -184,6 +216,15 @@ impl ExecutionCondition {
     }
 
     pub(crate) fn assume_with(self, value: bool, insert: &mut impl FnMut(Self, bool)) {
+        self.assume_proof(value, true, insert);
+    }
+
+    fn assume_proof(
+        self,
+        value: bool,
+        expose_trusted_truth: bool,
+        insert: &mut impl FnMut(Self, bool),
+    ) {
         if self.is_unknown() {
             return;
         }
@@ -197,7 +238,10 @@ impl ExecutionCondition {
                 // Instantiation has already frozen these ordinary input values.
                 // Use the same value evidence that proof reads, without promoting
                 // historical authority or observations of live borrowed storage.
-                condition.as_ref().clone().assume_with(value, insert);
+                condition
+                    .as_ref()
+                    .clone()
+                    .assume_proof(value, expose_trusted_truth, insert);
             }
             Self::Trusted(condition) => {
                 // Keep the occurrence qualifier for contract implication and authority-bearing values.
@@ -205,11 +249,15 @@ impl ExecutionCondition {
                     insert(Self::Trusted(condition.clone()), value);
                 }
 
-                condition.as_ref().clone().assume_with(value, insert);
+                if expose_trusted_truth {
+                    condition.as_ref().clone().assume_proof(value, true, insert);
+                }
             }
             Self::Operation(BoundOperator::LogicalNot, operands) if operands.len() == 1 => {
                 // The immutable operand is retained independently by the condition set.
-                operands[0].clone().assume_with(!value, insert);
+                operands[0]
+                    .clone()
+                    .assume_proof(!value, expose_trusted_truth, insert);
             }
             Self::Operation(operator, operands)
                 if (operator == BoundOperator::LogicalAnd && value)
@@ -217,7 +265,9 @@ impl ExecutionCondition {
             {
                 for operand in operands.iter() {
                     // The immutable operand is retained independently by the condition set.
-                    operand.clone().assume_with(value, insert);
+                    operand
+                        .clone()
+                        .assume_proof(value, expose_trusted_truth, insert);
                 }
             }
             condition if !condition.contains_unknown() => {

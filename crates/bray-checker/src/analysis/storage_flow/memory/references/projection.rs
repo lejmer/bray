@@ -11,16 +11,32 @@ impl State {
         let borrowed = storage
             .borrow_capabilities()
             .iter()
+            .filter(|borrow| {
+                // Borrowing an entry referent or reborrowing through a capability
+                // does not form an address of the slot holding its reference.
+                borrow.entry_binding().is_none()
+                    && storage.access(borrow.access()).is_some_and(|access| {
+                        matches!(
+                            access.root(),
+                            bray_bound_tree::StorageAccessRoot::Storage(_)
+                        )
+                    })
+            })
             .flat_map(|borrow| storage.retained_roots(borrow.access()))
             .collect::<std::collections::BTreeSet<_>>();
 
-        let entry_borrows = storage.borrow_capabilities().iter().filter(|borrow| {
-            borrow.entry_binding().is_some() && borrow.parent().is_none()
-        }).filter_map(|borrow| {
-            let path = storage.logical_path(borrow.access())?;
+        let entry_borrows = storage
+            .borrow_capabilities()
+            .iter()
+            .filter(|borrow| borrow.entry_binding().is_some() && borrow.parent().is_none())
+            .filter_map(|borrow| {
+                let path = storage.logical_path(borrow.access())?;
 
-            path.projections.is_empty().then_some((path.root, borrow.kind()))
-        }).collect::<std::collections::BTreeMap<_, _>>();
+                path.projections
+                    .is_empty()
+                    .then_some((path.root, borrow.kind()))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         let owned_storage = storage
             .identity_entries()
@@ -105,17 +121,32 @@ impl State {
         left: &Target,
         right: &Target,
     ) -> bray_bound_tree::StorageRelationship {
-        if !left.previous && !right.previous
+        if !left.previous
+            && !right.previous
             && let (
-                Origin::Entry { reference: left, layer: 1, projections: left_path },
-                Origin::Entry { reference: right, layer: 1, projections: right_path },
+                Origin::Entry {
+                    reference: left,
+                    layer: 1,
+                    projections: left_path,
+                },
+                Origin::Entry {
+                    reference: right,
+                    layer: 1,
+                    projections: right_path,
+                },
             ) = (&left.origin, &right.origin)
             && left.root != right.root
-            && left.projections.is_empty() && right.projections.is_empty()
-            && let (Some(left), Some(right)) = (self.entry_borrows.get(&left.root), self.entry_borrows.get(&right.root))
-            && (*left == bray_symbols::BorrowKind::Mutable || *right == bray_symbols::BorrowKind::Mutable)
+            && left.projections.is_empty()
+            && right.projections.is_empty()
+            && let (Some(left), Some(right)) = (
+                self.entry_borrows.get(&left.root),
+                self.entry_borrows.get(&right.root),
+            )
+            && (*left == bray_symbols::BorrowKind::Mutable
+                || *right == bray_symbols::BorrowKind::Mutable)
             && (*left == bray_symbols::BorrowKind::Mutable || Place::inline_projections(left_path))
-            && (*right == bray_symbols::BorrowKind::Mutable || Place::inline_projections(right_path))
+            && (*right == bray_symbols::BorrowKind::Mutable
+                || Place::inline_projections(right_path))
         {
             // Mutable owners exclude aliases through their owned storage. Shared
             // owners can contain interior mutable storage, so their non-inline
@@ -283,7 +314,10 @@ impl State {
             .range(target.clone()..)
             .next()
             .is_some_and(|(candidate, _)| target.contains(candidate))
-            || self.deferred.range(target.clone()..).next()
+            || self
+                .deferred
+                .range(target.clone()..)
+                .next()
                 .is_some_and(|(candidate, _)| target.contains(candidate))
             || self
                 .contents

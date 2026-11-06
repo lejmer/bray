@@ -111,18 +111,18 @@ trusted internal func create_worker_context(
         align = std.memory.align_of<Context>()
     )
     {
-        case ?owner { yield owner; }
+        case ?allocated { yield allocated; }
         case none
         {
-        trusted finish_native_provider_option(provider);
+            trusted finish_native_provider_option(provider);
 
-        return
-        {
-            stage = 6,
-            category = 1,
-            native_code = 0
-        };
-            }
+            return
+            {
+                stage = 6,
+                category = 1,
+                native_code = 0
+            };
+        }
     };
 
     let execution = trusted initialize_context(allocation, trusted worker_context(scope));

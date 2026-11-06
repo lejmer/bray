@@ -53,7 +53,10 @@ trusted internal func creation(
 
 // The execution constructor derives its queue from this exact pin. On
 // rejection, retire the independent queue count and return the same pin.
-trusted internal func create_execution(pos execution: bray.runtime.bootstrap.execution.Reference, pos callback: Callback) -> Result<Reference, (bray.runtime.bootstrap.execution.Reference, u32)>
+trusted internal func create_execution(
+    pos execution: bray.runtime.bootstrap.execution.Reference,
+    pos callback: Callback
+) -> Result<Reference, (bray.runtime.bootstrap.execution.Reference, u32)>
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = &execution),
         trusted bray.runtime.bootstrap.execution.pinned(owner = &execution),
@@ -68,9 +71,9 @@ trusted internal func create_execution(pos execution: bray.runtime.bootstrap.exe
     match consume create(scheduler, execution, callback)
     {
         case Ok(owner) { return Ok(owner); }
-        case Error((scheduler, rejected, status))
+        case Error((rejected_scheduler, rejected, status))
         {
-            trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
+            trusted bray.runtime.bootstrap.scheduler.destroy_reference(rejected_scheduler);
 
             if !(rejected matches ?_)
             {
@@ -94,11 +97,13 @@ internal func create(
         trusted bray.runtime.bootstrap.host.product.native_host()
     )
 {
-    if !trusted bray.runtime.bootstrap.scheduler.worker_admission(
-        &scheduler
-    )
+    if !trusted bray.runtime.bootstrap.scheduler.worker_admission(&scheduler)
     {
-        let rejected: (bray.runtime.bootstrap.scheduler.Reference, bray.runtime.bootstrap.execution.Reference?, u32) = (scheduler, execution, 4);
+        let rejected: (bray.runtime.bootstrap.scheduler.Reference, bray.runtime.bootstrap.execution.Reference?, u32) = (
+            scheduler,
+            execution,
+            4
+        );
 
         return Error(rejected);
     }
@@ -109,7 +114,16 @@ internal func create(
     )
     {
         case ?owner { yield owner; }
-        case none { return Error((scheduler, execution, 1)); }
+        case none
+        {
+            let rejected: (
+                bray.runtime.bootstrap.scheduler.Reference,
+                bray.runtime.bootstrap.execution.Reference?,
+                u32
+            ) = (scheduler, execution, 1);
+
+            return Error(rejected);
+        }
     };
 
     return Ok(trusted initialize(allocation, scheduler, execution, callback));
@@ -169,11 +183,7 @@ trusted internal func initialize(
 {
     let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Domain>
         requires(
-            trusted core.memory.owned_allocation(
-                pointer = allocation.pointer,
-                bytes = std.memory.stride_of<Domain>(),
-                align = std.memory.align_of<Domain>()
-            ),
+            allocation.align == std.memory.align_of<Domain>(),
             trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Domain>())
         )
         ensures(
@@ -384,7 +394,7 @@ trusted internal func destroy_reference(pos owner: Reference)
             ensures(
                 trusted std.sync.spin_lock.valid(&result.state.prepared.instance),
                 trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.scheduler),
-        trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.execution),
+                trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.execution),
                 trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.scheduler),
                 trusted core.memory.owned_allocation(
                     pointer = result.allocation.pointer,
@@ -432,6 +442,7 @@ trusted internal func destroy_reference(pos owner: Reference)
     _ = owned_state;
 
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(scheduler);
+
     _ = allocation;
 }
 

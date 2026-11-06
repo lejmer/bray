@@ -72,7 +72,9 @@ trusted internal func pin_binding(pos owner: bray.runtime.bootstrap.execution.Re
     {
         owner =
         {
-            acquisition = Acquisition {},
+            acquisition = Acquisition
+            {
+            },
             execution = owner
         },
         close = none,
@@ -149,10 +151,7 @@ trusted internal func close_owner_binding(pos owner: Owner) -> Owner
     return trusted close_owner(&selected, owner);
 }
 
-trusted internal func close_owner(
-    pos selected: &Current,
-    pos mut owner: Owner
-) -> Owner
+trusted internal func close_owner(pos selected: &Current, pos mut owner: Owner) -> Owner
     requires(
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
@@ -209,7 +208,10 @@ trusted internal func close_owner(
 
     // Retire this service acquisition only after its counter and closing work
     // commit. The same complete owner retains its pin through later disposal.
-    owner.acquisition = Acquisition {};
+    owner.acquisition = Acquisition
+    {
+    };
+
     return owner;
 }
 
@@ -425,7 +427,9 @@ trusted internal func destroy_domain(pos owner: &Reference)
     _ = retired_reports;
 
     trusted bray.runtime.bootstrap.scheduler.destroy_reference(queue_owner);
+
     _ = allocation;
+
     trusted bray.runtime.bootstrap.host.release_execution_domain();
 }
 
@@ -443,8 +447,8 @@ trusted internal func take_pin(pos owner: Reference?) -> Reference
 
 // This optional owner comes directly from task-storage recycling. It is not a
 // snapshot, and its actual pin ends only after the retired control is destroyed.
-internal predicate optional_pin(owner: &(Reference?)) = owner matches none ||
-    (retained(owner = pin_reference(owner)) && pinned(owner = pin_reference(owner)));
+internal predicate optional_pin(owner: &(Reference?)) = owner matches none || (retained(owner = pin_reference(owner)) &&
+    pinned(owner = pin_reference(owner)));
 
 internal const func pin_reference(pos owner: &(Reference?)) -> &Reference
     requires(owner matches ?_)

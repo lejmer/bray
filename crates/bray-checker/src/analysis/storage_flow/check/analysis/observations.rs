@@ -1,5 +1,5 @@
 use crate::analysis::storage_flow::memory::Effect;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use bray_bound_tree::{StorageInvalidation, StoragePath, StorageRelationship};
 
@@ -145,10 +145,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                immutable_marker || !exposed.iter().any(|raw| {
-                                    memory.target_relationship(raw, &target)
-                                        != StorageRelationship::Disjoint
-                                })
+                                immutable_marker
+                                    || !exposed.iter().any(|raw| {
+                                        memory.target_relationship(raw, &target)
+                                            != StorageRelationship::Disjoint
+                                    })
                             }
                             _ => target
                                 .storage_path()
@@ -505,11 +506,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         effects: &[Effect],
         roots: &[Target],
     ) -> StorageInvalidation {
-        let mut invalidation = self.resolved_observations(
-            &state.memory,
-            effects,
-            roots.iter().cloned(),
-        );
+        let mut invalidation =
+            self.resolved_observations(&state.memory, effects, roots.iter().cloned());
 
         if effects.is_empty() {
             return invalidation;

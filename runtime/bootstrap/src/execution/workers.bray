@@ -48,6 +48,7 @@ trusted internal func ensure_workers(pos owner: &bray.runtime.bootstrap.executio
                 case Error((rejected, status))
                 {
                     _ = trusted release_pin(rejected);
+
                     return status;
                 }
             }

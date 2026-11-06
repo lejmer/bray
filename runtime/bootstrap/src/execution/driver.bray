@@ -76,10 +76,7 @@ trusted internal func driver_startup() -> u32
     )
     {
         case ?owner { yield owner; }
-        case none
-        {
-        return 4;
-            }
+        case none { return 4; }
     };
 
     return trusted commit_driver(allocation, trusted root_context(attachment));
@@ -167,10 +164,7 @@ trusted internal func origin_driver_startup() -> u32
     )
     {
         case ?owner { yield owner; }
-        case none
-        {
-        return 4;
-            }
+        case none { return 4; }
     };
 
     return trusted commit_driver(allocation, trusted origin_context(attachment));
