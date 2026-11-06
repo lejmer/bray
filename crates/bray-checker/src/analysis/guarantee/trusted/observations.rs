@@ -47,6 +47,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         arguments: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+        completion: &bray_bound_tree::StorageCompletion,
     ) {
         let Some(selection) = invocation
             .expression()
@@ -60,11 +61,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for subject in contracts.reference_subjects() {
-            if subject.projections().is_empty()
-                || contracts
-                    .reference_type(subject)
-                    .and_then(|ty| crate::representation::reference_kind(self.request, ty))
-                    != Some(bray_symbols::DependencyReferenceKind::Borrow)
+            if contracts
+                .reference_type(subject)
+                .and_then(|ty| crate::representation::reference_kind(self.request, ty))
+                != Some(bray_symbols::DependencyReferenceKind::Borrow)
             {
                 continue;
             }
@@ -78,11 +78,76 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             };
 
-            let Some(value) = self
-                .input_place(input)
-                .and_then(|place| place.project(prepared.projections()))
-                .and_then(|place| place.value_in(&state.current))
-            else {
+            let observe = |base: &bray_bound_tree::StoragePath| {
+                let projected;
+                let path = if prepared.projections().is_empty() {
+                    base
+                } else {
+                    projected = bray_bound_tree::StoragePath {
+                        root: base.root,
+                        projections: base
+                            .projections
+                            .iter()
+                            .chain(prepared.projections())
+                            .copied()
+                            .collect(),
+                    };
+                    &projected
+                };
+                let target = completion.references().get(path)?;
+                let target = crate::storage::storage_observation_path(
+                    self.storage,
+                    self.request.semantic_values(),
+                    target,
+                )?;
+
+                Some(self.storage_path_value(state, &target))
+            };
+
+            let observed = match input {
+                bray_bound_tree::BoundExecutionSite::Node(
+                    bray_bound_tree::AnyBoundNodeId::Expression(expression),
+                ) => self
+                    .storage
+                    .node_plans(expression.into())
+                    .filter_map(|plan| self.storage.logical_path(plan.access()))
+                    .find_map(observe)
+                    .or_else(|| {
+                        self.storage
+                            .temporary(expression)
+                            .and_then(|root| observe(&bray_bound_tree::StoragePath::root(root)))
+                    }),
+                bray_bound_tree::BoundExecutionSite::CallInput {
+                    expression,
+                    ordinal,
+                } => self
+                    .storage
+                    .invocation_input(expression, ordinal)
+                    .and_then(|access| self.storage.logical_path(access))
+                    .and_then(observe),
+                bray_bound_tree::BoundExecutionSite::Iterate(_)
+                | bray_bound_tree::BoundExecutionSite::Next(_) => self
+                    .storage
+                    .invocation_result(input)
+                    .and_then(|access| self.storage.logical_path(access))
+                    .and_then(observe),
+                _ => None,
+            };
+
+            let value = observed
+                .or_else(|| {
+                    self.input_place(input)
+                        .and_then(|place| place.project(prepared.projections()))
+                        .and_then(|place| place.value_in(&state.current))
+                })
+                .or_else(|| {
+                    prepared
+                        .projections()
+                        .is_empty()
+                        .then(|| self.current_input(state, input))
+                });
+
+            let Some(mut value) = value else {
                 continue;
             };
 
@@ -95,6 +160,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             else {
                 continue;
             };
+
+            if matches!(
+                place.value_in(arguments),
+                Some(ExecutionCondition::Borrowed(_))
+            ) {
+                value = value.borrowed();
+            }
 
             // Consuming the carrier does not freeze the contents of its borrowed fields.
             super::super::state::update_parent_observations(
@@ -209,7 +281,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let Some(place) = self.input_place(operand) else {
+            let place = self.input_place(operand);
+
+            if place.is_none() {
                 // Indexed storage has no scalar field path. Its enclosing owner still bounds
                 // the lifetime of a returned address or capability.
                 for access in self
@@ -223,11 +297,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                         owners.entry(operand).or_default().borrowed.insert(owner);
                     }
                 }
+            }
 
-                continue;
-            };
-
-            let input = self.current_input(state, operand);
+            let input = arguments
+                .get(&ordinal)
+                .expect("prepared call retains its refreshed argument")
+                .clone();
 
             // A local borrow alias retains the referent, rather than the slot holding
             // the alias. Its returned view can outlive that slot while the input lives.
@@ -235,7 +310,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(operand).or_default().borrowed,
                     operand,
-                    &place,
+                    place.as_ref(),
                     origins,
                 );
             }
@@ -271,18 +346,22 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             )
             && let Some(input) =
                 call.input_site(expression, bray_symbols::DependencySubjectRoot::Receiver)
-            && let Some(place) = self.input_place(input)
         {
             let reference =
                 bray_bound_tree::BoundReferenceTarget::Surface(receiver.parameter().into());
 
-            let value = self.current_input(state, input);
+            let value = arguments
+                .get(&crate::ExecutionPlace::argument(
+                    bray_symbols::SymbolOrdinal::new(0),
+                ))
+                .expect("prepared receiver retains its refreshed argument")
+                .clone();
 
             if retain_carriers {
                 self.retain_trusted_borrow_owners(
                     &mut owners.entry(input).or_default().borrowed,
                     input,
-                    &place,
+                    self.input_place(input).as_ref(),
                     origins,
                 );
             }
@@ -306,7 +385,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         owners: &mut BTreeSet<crate::ExecutionPlace>,
         expression: bray_bound_tree::BoundExecutionSite,
-        place: &crate::ExecutionPlace,
+        place: Option<&crate::ExecutionPlace>,
         origins: &BTreeMap<
             bray_bound_tree::BoundExecutionSite,
             BTreeSet<bray_bound_tree::StoragePath>,
@@ -318,7 +397,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     .iter()
                     .filter_map(|path| crate::ExecutionPlace::storage_path(self.storage, path)),
             );
-        } else {
+        } else if let Some(place) = place {
             // Provisional execution analysis has no completed storage transition yet.
             owners.insert(place.clone());
         }

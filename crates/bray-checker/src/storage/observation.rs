@@ -41,15 +41,22 @@ impl Shape {
     }
 }
 
-fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -> Shape {
+fn known_shape<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    role: bray_compiler_known::RepresentationRole,
+    reference: bool,
+    visiting: &mut BTreeSet<NamedTypeSymbolId>,
+    complete_reference_types: &mut BTreeMap<TypeId, bool>,
+) -> Result<Shape, CheckerQueryError<C::UpstreamError>> {
     use bray_compiler_known::RepresentationRole;
 
     if matches!(role, RepresentationRole::Unit | RepresentationRole::Never) {
-        return Shape {
+        return Ok(Shape {
             observations: Vec::new(),
             complete_value: !reference,
             complete_references: true,
-        };
+        });
     }
 
     let scalar = role.numeric_kind().is_some()
@@ -74,11 +81,31 @@ fn known_shape(role: bray_compiler_known::RepresentationRole, reference: bool) -
         Observation::Mutable
     };
 
-    Shape {
+    let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
         complete_value: scalar && !reference,
         complete_references: scalar || matches!(observation, Observation::Address),
+    };
+
+    if matches!(
+        role,
+        RepresentationRole::Atomic | RepresentationRole::Uninit
+    ) {
+        let element = request
+            .available_compiler_known_symbols()
+            .unary_representation_argument(request.semantic_values(), role, ty)
+            .expect("checked protected storage retains its payload type");
+
+        shape.complete_references =
+            paths(request, element, visiting, complete_reference_types)?.is_reference_free();
+
+        // Protected storage exposes no ordinary payload value. A reference-free
+        // slot retains its opaque snapshot while its inline bytes are unreachable.
+        shape.complete_value =
+            !reference && role == RepresentationRole::Uninit && shape.complete_references;
     }
+
+    Ok(shape)
 }
 
 #[derive(Debug, Default)]
@@ -102,7 +129,31 @@ impl Footprint {
     ) -> BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<TypeId>> {
         let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
 
+        let entry_owners = request
+            .trusted_contracts()
+            .into_iter()
+            .flat_map(|contracts| contracts.required_witnesses.iter().map(|(_, owner)| owner))
+            .collect::<BTreeSet<_>>();
+
         for (access_id, access) in storage.access_entries() {
+            if let bray_bound_tree::StorageAccessRoot::Storage(root) = access.root()
+                && access.projections().is_empty()
+                && !self.scalars.contains_key(root)
+                && storage
+                    .identity(*root)
+                    .is_some_and(|identity| identity.is_invocation_owned(storage.kind()))
+                && storage.storage_type(*root).is_some_and(|ty| {
+                    crate::representation::reference_kind(request, ty)
+                        == Some(bray_symbols::DependencyReferenceKind::Address)
+                })
+                && crate::ExecutionPlace::storage_identity(storage, *root)
+                    .is_some_and(|owner| entry_owners.contains(&&owner))
+            {
+                // This owned slot is a protocol witness for the current entry.
+                // Keeping its address value grants no unowned pointee permission.
+                self.scalars.insert(*root, vec![StoragePath::root(*root)]);
+            }
+
             let ty = request
                 .semantic_values()
                 .unborrowed_type(access.reached_type());
@@ -215,8 +266,8 @@ impl Footprint {
                 .any(|(_, observation)| *observation == Observation::Discriminant))
         .then_some(
             shape.complete_value
-                && !shape.observations.iter().any(|(_, observation)| {
-                    matches!(observation, Observation::Identity | Observation::Marker)
+                && shape.observations.iter().all(|(_, observation)| {
+                    matches!(observation, Observation::Scalar | Observation::Address)
                 }),
         )
     }
@@ -550,14 +601,19 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let data = request.semantic_values().type_data(ty);
     let mut fields = Vec::new();
     let mut complete_references = true;
+    let mut nominal = false;
 
     let definition = match data.as_ref() {
         TypeData::Callable(_) => {
             // Callable values carry code and checked contracts, never captured storage.
-            return Ok(known_shape(
+            return known_shape(
+                request,
+                ty,
                 bray_compiler_known::RepresentationRole::FunctionPointer,
                 reference,
-            ));
+                visiting,
+                complete_reference_types,
+            );
         }
         TypeData::Named {
             definition,
@@ -570,6 +626,8 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 NamedTypeSymbolId::Union(id) => symbols.symbol_representation(*id),
             };
 
+            nominal = role.is_none();
+
             if let Some(role) = role.filter(|role| {
                 !matches!(
                     role,
@@ -577,19 +635,14 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                         | bray_compiler_known::RepresentationRole::RunResult
                 )
             }) {
-                let mut shape = known_shape(role, reference);
-
-                if role == bray_compiler_known::RepresentationRole::Atomic {
-                    let element = symbols
-                        .unary_representation_argument(request.semantic_values(), role, ty)
-                        .expect("checked atomic storage retains its payload type");
-
-                    shape.complete_references =
-                        paths(request, element, visiting, complete_reference_types)?
-                            .is_reference_free();
-                }
-
-                return Ok(shape);
+                return known_shape(
+                    request,
+                    ty,
+                    role,
+                    reference,
+                    visiting,
+                    complete_reference_types,
+                );
             }
 
             let buffer_element = request
@@ -669,6 +722,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             // Element shape proves this without enumerating the array extent.
             shape.complete_references = element.is_reference_free();
+            shape.complete_value = !reference && element.complete_value;
 
             return Ok(shape);
         }
@@ -714,15 +768,22 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         result.push((Vec::new(), Observation::Discriminant));
     }
 
-    let mut complete_value = !reference
-        && !result
-            .iter()
-            .any(|(_, observation)| *observation == Observation::Discriminant);
+    let mut complete_value = !reference;
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
 
-        complete_value &= shape.complete_value;
+        // A nominal carrier retains inline addresses and code entries. Their
+        // pointees and providers remain governed by the carried dependency contract.
+        let address = nominal
+            && (crate::representation::reference_kind(request, ty)
+                == Some(bray_symbols::DependencyReferenceKind::Address)
+                || matches!(
+                    request.semantic_values().type_data(ty).as_ref(),
+                    TypeData::Callable(_)
+                ));
+
+        complete_value &= shape.complete_value || address;
         complete_references &= shape.complete_references;
 
         result.extend(

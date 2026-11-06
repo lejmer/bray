@@ -405,12 +405,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             let invocation = operation.occurrence();
             let result = self.invocation_value(state, invocation);
 
-            let result = self.complete_trusted_call(
-                state,
-                invocation,
-                result,
-                observations.borrow_origins(),
-            );
+            let result = self.complete_trusted_call(state, invocation, result, observations);
 
             state.assign(
                 self.input_place(invocation)
@@ -456,12 +451,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 state.assign(place, result.clone(), None);
             }
 
-            let result = self.complete_trusted_call(
-                state,
-                invocation,
-                result,
-                observations.borrow_origins(),
-            );
+            let result = self.complete_trusted_call(state, invocation, result, observations);
 
             if matches!(
                 invocation,
@@ -483,8 +473,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return;
         }
 
-        if !self.complete_deferred(state, expression, observations.borrow_origins()) {
-            self.complete_call(state, expression, observations.borrow_origins());
+        if !self.complete_deferred(state, expression, observations) {
+            self.complete_call(state, expression, observations);
             self.capture_deferred(state, expression.into(), &self.value(state, expression));
         }
 

@@ -249,7 +249,14 @@ impl ExecutionCondition {
             }
 
             match value {
-                Self::Boolean(_) | Self::Literal(_) | Self::Variant(_) => {}
+                Self::Boolean(_)
+                | Self::Literal(_)
+                | Self::Variant(_)
+                | Self::Entry { captured: true, .. } => {}
+                Self::Entry {
+                    condition,
+                    captured: false,
+                } => pending.push(condition),
                 Self::CapturedInput { owner, .. } => pending.push(owner),
                 Self::Tagged(_, value)
                 | Self::VariantTest(_, value)

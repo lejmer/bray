@@ -524,6 +524,162 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
 }
 
 #[test]
+fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_exposed() {
+    for fields in [
+        "tag: usize; pointer: DataPointer<u8>;",
+        "storage: Uninit<[u64; 16]>; finish: Native;",
+    ] {
+        for (publish, valid) in [("", true), ("_ = trusted publish(&owner);", false)] {
+            let source = format!(
+                r#"
+                trusted module app;
+                using core.memory;
+                using core.target;
+                callable Native = @abi(c) trusted func();
+                struct Owner {{ {fields} }}
+                trusted predicate live(owner: &Owner);
+                extern func opaque() executes(total);
+                extern func release_owner(pos owner: Owner) requires(trusted live(owner = &owner)) executes(total);
+                trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                    return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
+                }}
+                func caller(pos owner: Owner) requires(trusted live(owner = &owner)) {{
+                    {publish}
+                    opaque();
+                    release_owner(owner);
+                }}
+            "#
+            );
+            let application = compilation(&source);
+            assert!(
+                !application.syntax_tree_result().diagnostics().has_errors(),
+                "{source}"
+            );
+            let checked = application
+                .lowered_unit(source_function_body_key(&application, "caller"))
+                .expect("complete protocol owners retain their checked storage context");
+            assert_eq!(
+                !checked.diagnostics().has_errors(),
+                valid,
+                "{source}: {checked:#?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_access() {
+    for (body, valid) in [
+        ("opaque(); observe_slot(&pointer);", true),
+        (
+            "_ = trusted publish(&pointer); opaque(); observe_slot(&pointer);",
+            false,
+        ),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            using core.target;
+            trusted predicate slot(owner: &DataPointer<u32>);
+            extern func opaque() executes(total);
+            func observe_slot(pos owner: &DataPointer<u32>) requires(trusted slot(owner = owner)) executes(pure, total) {{}}
+            trusted func publish(pos owner: &DataPointer<u32>) -> usize uses(intrinsic) {{
+                return trusted core.target.expose_address<DataPointer<u32>>(core.memory.address_of<DataPointer<u32>>(owner));
+            }}
+            func caller(pos pointer: DataPointer<u32>) requires(trusted slot(owner = &pointer)) {{ {body} }}
+        "#
+        );
+        let application = compilation(&source);
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}"
+        );
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("entry slot authority retains its actual pointer owner");
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+    }
+
+    let source = r#"
+        trusted module app;
+        using core.memory;
+        extern func opaque() executes(total);
+        trusted func caller(pos pointer: DataPointer<u32>) -> u32
+            requires(
+                trusted core.memory.valid_read<u32>(pointer = pointer, count = 1),
+                trusted core.memory.aligned_for<u32>(pointer = pointer),
+                trusted core.memory.initialized_as<u32>(pointer = pointer)
+            )
+            uses(raw_memory)
+        {
+            opaque();
+            return core.memory.read<u32>(pointer);
+        }
+    "#;
+    let application = compilation(source);
+    assert!(
+        !application.syntax_tree_result().diagnostics().has_errors(),
+        "{source}"
+    );
+    let checked = application
+        .lowered_unit(source_function_body_key(&application, "caller"))
+        .expect("unowned memory permissions retain their checked failure");
+    assert!(
+        checked
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.kind()
+                == DiagnosticKind::CheckingTrustedObligationNotProven),
+        "{checked:#?}"
+    );
+}
+
+#[test]
+fn guarded_owner_authority_uses_entry_values_after_mutation_and_opaque_calls() {
+    for (initial, valid) in [(true, true), (false, false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            struct Marker {{}}
+            struct Owner {{ acquisition: Marker; }}
+            trusted predicate live(owner: &Marker);
+            trusted func acquire(pos enabled: bool) -> Owner
+                when(enabled) {{ ensures(trusted live(owner = &result.acquisition)) }}
+                executes(pure, total)
+            {{ return {{ acquisition = Marker {{}} }}; }}
+            extern func opaque() executes(total);
+            func release_owner(pos owner: Owner) requires(trusted live(owner = &owner.acquisition)) executes(pure, total) {{}}
+            func caller() {{
+                let mut enabled = {initial};
+                let owner = acquire(enabled);
+                enabled = !enabled;
+                opaque();
+                release_owner(owner);
+            }}
+        "#
+        );
+        let application = compilation(&source);
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}"
+        );
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("owner guards retain their actual entry values");
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+    }
+}
+
+#[test]
 fn callable_fields_borrow_their_owning_context_in_contracts() {
     for (predicate, subject) in [
         ("trusted predicate held(owner: &Owner);", "owner"),

@@ -244,26 +244,36 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     .get(&reference.binding())
                     .cloned()
                     .unwrap_or_default(),
-                BoundExpression::MemberAccess(member) => {
-                    self.member_values(id, member.receiver())?
-                }
+                BoundExpression::MemberAccess(member) => self.member_values(id, member.receiver()),
                 BoundExpression::TraitQualifiedMember(member) => {
-                    self.member_values(id, member.receiver())?
+                    self.member_values(id, member.receiver())
                 }
-                BoundExpression::Await(_) if completed.or_else(|| self.inputs.completion_sources(id)).is_some() => {
-                    let mut requirements = completed.or_else(|| self.inputs.completion_sources(id))
-                        .into_iter().flatten().filter_map(|source| self.state.completions.get(source))
-                        .flatten().cloned().collect::<BTreeSet<_>>();
+                BoundExpression::Await(_)
+                    if completed
+                        .or_else(|| self.inputs.completion_sources(id))
+                        .is_some() =>
+                {
+                    let mut requirements = completed
+                        .or_else(|| self.inputs.completion_sources(id))
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|source| self.state.completions.get(source))
+                        .flatten()
+                        .cloned()
+                        .collect::<BTreeSet<_>>();
 
                     // Opaque values retain their own captures, rather than every
                     // capture of the joined value's unrelated known producers.
                     if completed.is_none_or(BTreeSet::is_empty) {
-                        requirements.extend(self.inputs.operands(id).flat_map(|source| self.state
-                            .value_requirements(source).cloned()));
+                        requirements.extend(
+                            self.inputs
+                                .operands(id)
+                                .flat_map(|source| self.state.value_requirements(source).cloned()),
+                        );
                     }
 
                     requirements
-                },
+                }
                 BoundExpression::Call(_)
                     if matches!(
                         self.selections.expression(id),
@@ -376,18 +386,24 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         &self,
         id: BoundExpressionId,
         receiver: BoundExpressionId,
-    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+    ) -> BTreeSet<DependencyRequirement> {
         let Some(projection) = crate::dependency::assignment::member_projection(
-            self.request.unit(), self.selections, id,
+            self.request.unit(),
+            self.selections,
+            id,
         ) else {
-            return Ok(self.state.values.get(&receiver.into()).cloned().unwrap_or_default());
+            return self
+                .state
+                .values
+                .get(&receiver.into())
+                .cloned()
+                .unwrap_or_default();
         };
 
         // Physical sources select components. Opaque referents retain their complete
         // carried contract, rather than projecting fields onto a lifetime anchor.
-        Ok(self.projected_values(receiver, &[projection]))
+        self.projected_values(receiver, &[projection])
     }
-
 }
 
 pub(super) fn extend<T: Ord>(

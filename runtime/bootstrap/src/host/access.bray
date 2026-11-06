@@ -52,7 +52,7 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
         trusted host_anchor_matches(anchor = &anchor, lease = lease),
     )
     ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
-    executes(total)
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let pointer = std.memory.uninit_pointer<HostOwner>(lease.owner);

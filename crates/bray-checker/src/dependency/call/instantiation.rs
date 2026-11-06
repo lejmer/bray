@@ -570,9 +570,12 @@ pub(super) fn identity_access(
     storage: &StoragePlan,
     identity: StorageIdentity,
 ) -> Option<StorageAccessId> {
-    let identity = storage
-        .identity_entries()
-        .find_map(|(id, candidate)| (candidate == identity).then_some(id))?;
+    let identity = match identity {
+        StorageIdentity::Temporary(expression) => storage.temporary(expression)?,
+        _ => storage
+            .identity_entries()
+            .find_map(|(id, candidate)| (candidate == identity).then_some(id))?,
+    };
 
     storage.root_access(identity)
 }
