@@ -203,12 +203,13 @@ impl Footprint {
         static_types
     }
 
-    fn prepare_stores<C: CheckerRequestContext + ?Sized>(
+    pub(crate) fn prepare_stores<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         memory: &bray_bound_tree::CheckedMemoryOperations,
         dependencies: &bray_bound_tree::CheckedDependencyContracts,
+        lifecycle_paths: &BTreeMap<(bray_symbols::CallableInstanceData, bray_symbols::DependencySubject), (TypeId, bray_bound_tree::StorageReferencePath)>,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let mut atomic = false;
 
@@ -263,22 +264,16 @@ impl Footprint {
             cached_shape(request, pointee, &mut self.shapes, complete_reference_types)?;
         }
 
-        // Prepare mutation types and atomic framing in the same effect walk.
-        for effect in dependencies.calls().values().flat_map(|call| {
-            call.effects().iter().chain(call.deferred_effects().into_iter().flatten())
-        }).chain(dependencies.lifecycle_dependencies().values().flat_map(|contract| contract.effects())) {
-            use bray_symbols::{DependencyMutationKind as Mutation, DependencyStorageEffect as Effect};
+        // Prepare every typed transfer in the existing effect walk, including
+        // helper Consume/Write summaries whose target is not a source local.
+        for call in dependencies.calls().values() {
+            atomic |= prepare_effects(request, call.effects().iter().chain(call.deferred_effects().into_iter().flatten()),
+                &mut self.shapes, complete_reference_types, |subject| call.reference_type(subject))?;
+        }
 
-            match effect {
-                Effect::Atomic
-                | Effect::Direct { kind: Mutation::Atomic, .. }
-                | Effect::Indirect { kind: Mutation::Atomic, .. } => atomic = true,
-                Effect::Direct { kind: Mutation::Replace(ty), .. }
-                | Effect::Indirect { kind: Mutation::Replace(ty), .. } => {
-                    cached_shape(request, *ty, &mut self.shapes, complete_reference_types)?;
-                }
-                _ => {}
-            }
+        for (callable, contract) in dependencies.lifecycle_dependencies() {
+            atomic |= prepare_effects(request, contract.effects(), &mut self.shapes, complete_reference_types,
+                |subject| lifecycle_paths.get(&(*callable, subject.clone())).map(|(ty, _)| *ty))?;
         }
 
         if !atomic {
@@ -366,8 +361,6 @@ impl Footprint {
 pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-    memory: &bray_bound_tree::CheckedMemoryOperations,
-    dependencies: &bray_bound_tree::CheckedDependencyContracts,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
     let mut footprint = Footprint::default();
 
@@ -602,9 +595,61 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    footprint.prepare_stores(request, storage, memory, dependencies)?;
-
     Ok(footprint)
+}
+
+fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    effects: impl IntoIterator<Item = &'a bray_symbols::DependencyStorageEffect>,
+    shapes: &mut BTreeMap<TypeId, Shape>,
+    complete_reference_types: &mut BTreeMap<TypeId, bool>,
+    reference_type: impl Fn(&bray_symbols::DependencySubject) -> Option<TypeId>,
+) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    use bray_symbols::{DependencyMutationKind as Mutation, DependencyStorageEffect as Effect};
+
+    let mut atomic = false;
+
+    'effects: for effect in effects {
+        let (mut ty, projections) = match effect {
+            Effect::Atomic | Effect::Direct { kind: Mutation::Atomic, .. }
+            | Effect::Indirect { kind: Mutation::Atomic, .. } => {
+                atomic = true;
+                continue;
+            }
+            Effect::Direct { kind: Mutation::Replace(ty), .. }
+            | Effect::Indirect { kind: Mutation::Replace(ty), .. } => (*ty, &[][..]),
+            Effect::Direct { subject, kind: Mutation::Write | Mutation::Consume | Mutation::Clear } => {
+                let Some(ty) = reference_type(subject) else { continue; };
+
+                (ty, &[][..])
+            }
+            Effect::Indirect { reference, projections, kind: Mutation::Write | Mutation::Consume | Mutation::Clear } => {
+                let Some(ty) = reference_type(reference) else { continue; };
+
+                // A lifecycle root already denotes its physical receiver.
+                (crate::representation::reference_target_type(request, ty).unwrap_or(ty), projections.as_ref())
+            }
+            _ => continue,
+        };
+
+        for projection in projections {
+            let projected = crate::storage::projected_value_type(request, ty, *projection)?;
+
+            let Some(projected) = *projected.value() else { continue 'effects; };
+
+            ty = projected;
+        }
+
+        // A backing region's mutation type is its element, independently of extent.
+        if projections.last() == Some(&bray_symbols::DependencyProjection::OwnedTarget)
+            && let TypeData::Slice(element) = request.semantic_values().type_data(ty).as_ref() {
+            ty = *element;
+        }
+
+        cached_shape(request, ty, shapes, complete_reference_types)?;
+    }
+
+    Ok(atomic)
 }
 
 fn cached_shape<'a, C: CheckerRequestContext + ?Sized>(

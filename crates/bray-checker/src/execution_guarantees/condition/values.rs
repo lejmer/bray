@@ -236,6 +236,10 @@ impl ExecutionCondition {
 
     /// Refresh reached contents while retaining this existing loan's identity and lifetime.
     pub(crate) fn with_referent(&self, contents: Self) -> Self {
+        // Forwarding an unchanged symbolic reference must not manufacture a
+        // different loan or rebuild the complete owner that contains it.
+        if self == &contents { return self.clone(); }
+
         let identity = self.owner_identity();
 
         if matches!(identity, Self::Borrowed(_)) {
@@ -253,9 +257,16 @@ impl ExecutionCondition {
                 Arc::new(identity.clone()),
                 [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
             )
+        } else if *identity == Self::Unknown {
+            // Reached contents cannot supply a missing reference identity.
+            Self::Unknown
         } else {
-            // Replacing a reference slot has already retired its prior loan.
-            contents.borrowed()
+            // A symbolic reference field still owns its existing loan context.
+            // Slot replacement supplies a new identity before this observation.
+            Self::Constructed(
+                Arc::new(identity.clone().borrowed()),
+                [(bray_bound_tree::StorageProjection::OwnedTarget, contents)].into(),
+            )
         }
     }
 
