@@ -42,6 +42,17 @@ impl super::check::TrustedChecks {
             return;
         }
 
+        let result_type = domain.semantics.types().callable_result_type().unwrap_or_else(|| {
+            let crate::CheckerUnitRoot::Expression(root) = domain.request.root() else {
+                unreachable!("a non-callable value producer retains its expression root");
+            };
+
+            domain.semantics.types().expression(root)
+                .expect("checked default or constant producer retains its result type").ty()
+        });
+        let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
+        let result = &result;
+
         let mut returned = OwnedReturn {
             value: result.clone(),
             assumptions: state

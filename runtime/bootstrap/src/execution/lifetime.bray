@@ -366,19 +366,6 @@ trusted internal func destroy_domain(pos owner: &Reference)
     {
         let take_storage = trusted lambda(pos owner: &Reference) -> Domain
             requires(trusted retained(owner = owner), trusted retiring(owner = owner))
-            ensures(
-                trusted std.sync.once.valid(&result.workers.prepared.instance),
-                trusted std.sync.once.valid(&result.deadlines.prepared.instance),
-                trusted std.sync.spin_lock.valid(&result.failure.prepared.instance),
-                trusted std.sync.spin_lock.valid(&result.reports.prepared.instance),
-                trusted bray.runtime.bootstrap.scheduler.retained(owner = &result.scheduler),
-                trusted bray.runtime.bootstrap.scheduler.owned_reference(owner = &result.scheduler),
-                trusted core.memory.owned_allocation(
-                    pointer = result.allocation.pointer,
-                    bytes = result.allocation.bytes,
-                    align = result.allocation.align
-                )
-            )
             uses(raw_memory)
         {
             let permit = trusted lambda(pos owner: &Reference)

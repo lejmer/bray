@@ -14,9 +14,32 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         expression: BoundExpressionId,
         target: Option<&bray_bound_tree::StorageTarget>,
     ) {
+        let Some(pointee) = self.memory.operation(expression)
+            .and_then(|operation| operation.kind().moving_read_type()) else {
+            return;
+        };
+
         if let Some(path) = target.and_then(|target| crate::storage::storage_observation_path(
             self.storage, self.request.semantic_values(), target)) {
+            let ty = path.access_id(self.storage)
+                .and_then(|access| self.storage.access(access))
+                .map(|access| access.reached_type())
+                .or_else(|| path.projections.is_empty().then(|| self.storage.storage_type(path.root)).flatten());
+
+            // An address slot is not the value stored at that address. Only a
+            // matching checked value or one direct loan supplies owned lineage.
+            if !ty.is_some_and(|ty| ty == pointee || matches!(
+                self.request.semantic_values().type_data(ty).as_ref(),
+                bray_symbols::TypeData::Borrow { target, .. } if *target == pointee)) {
+                return;
+            }
+
             let value = self.storage_path_value(state, &path);
+            let value = match value {
+                ExecutionCondition::Borrowed(value)
+                    if !matches!(self.request.semantic_values().type_data(pointee).as_ref(), bray_symbols::TypeData::Borrow { .. }) => value.as_ref().clone(),
+                value => value,
+            };
 
             state.pending_results.insert(expression, value);
             self.observe_move(state, &path);
@@ -73,6 +96,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     };
 
                     super::super::completion::converted_argument(
+                        self.request.semantic_values(),
                         self.value(state, *expression),
                         conversion,
                     )
@@ -399,7 +423,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 .expect("source input entry retains its captured value");
 
             input.conversion().map_or(value.clone(), |conversion| {
-                super::super::completion::converted_argument(value, conversion)
+                super::super::completion::converted_argument(self.request.semantic_values(), value, conversion)
             })
         };
 

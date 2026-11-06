@@ -921,10 +921,10 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_shared_slots_preserve_only_unexposed_evidence() {
+    fn forwarded_shared_scalars_remain_protected_after_exposure() {
         for (operation, valid) in [
             ("change();", true),
-            ("replace(core.memory.address_of<u64>(owner));", false),
+            ("replace(core.memory.address_of<u64>(owner));", true),
         ] {
             let source = format!(
                 r#"

@@ -279,7 +279,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .unwrap_or_else(|| self.value(state, expression));
 
-        converted_argument(value, conversion)
+        converted_argument(self.request.semantic_values(), value, conversion)
     }
 
     fn implicit_call_entry(
@@ -801,13 +801,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 }
 
 pub(super) fn converted_argument(
+    values: &bray_symbols::SemanticValueStore,
     value: ExecutionCondition,
     conversion: &bray_bound_tree::SelectedConversion,
 ) -> ExecutionCondition {
     match conversion.target() {
         bray_bound_tree::ConversionTarget::Identity
-        | bray_bound_tree::ConversionTarget::CallableContract => value,
-        bray_bound_tree::ConversionTarget::NullablePresent => value.present(),
+        | bray_bound_tree::ConversionTarget::CallableContract
+        | bray_bound_tree::ConversionTarget::NullablePresent => value.coerce(
+            values, conversion.source_type(), conversion.target_type()),
         _ => ExecutionCondition::Unknown,
     }
 }
