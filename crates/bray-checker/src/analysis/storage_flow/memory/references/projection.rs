@@ -62,12 +62,19 @@ impl State {
         &self,
         target: &Target,
     ) -> bool {
+        !Self::unaddressed_inline_slot(&self.unaddressed_storage, target)
+    }
+
+    pub(super) fn unaddressed_inline_slot(
+        unaddressed: &[StorageIdentityId],
+        target: &Target,
+    ) -> bool {
         // Even an unknown pointer cannot reach invocation-local inline storage whose
         // address is never formed, including implicit lifecycle receivers. Heap
         // payloads can have aliases from before entry.
-        target.storage_path().is_none_or(|path| {
-            self.unaddressed_storage.binary_search(&path.root).is_err()
-                || path.projections.contains(&StorageProjection::OwnedTarget)
+        target.storage_path().is_some_and(|path| {
+            unaddressed.binary_search(&path.root).is_ok()
+                && !path.projections.contains(&StorageProjection::OwnedTarget)
         })
     }
 

@@ -507,14 +507,14 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
                 let permit = trusted lambda(pos owner: &Owner)
                     requires(trusted retained(owner))
                     ensures(
-                        trusted valid_read<ForeignPayload>(pointer = owner.pointer, count = 1),
-                        trusted aligned_for<ForeignPayload>(pointer = owner.pointer),
-                        trusted initialized_as<ForeignPayload>(pointer = owner.pointer),
-                        trusted shared_alias_valid<ForeignPayload>(pointer = owner.pointer),
-                        trusted epoch_current<ForeignPayload>(pointer = owner.pointer),
-                        trusted synchronized_access<ForeignPayload>(pointer = owner.pointer),
-                        trusted movement_stable<ForeignPayload>(pointer = owner.pointer),
-                        trusted finalization_pending<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.valid_read<ForeignPayload>(pointer = owner.pointer, count = 1),
+                        trusted core.memory.aligned_for<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.initialized_as<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.shared_alias_valid<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.epoch_current<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.synchronized_access<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.movement_stable<ForeignPayload>(pointer = owner.pointer),
+                        trusted core.memory.finalization_pending<ForeignPayload>(pointer = owner.pointer),
                     )
                     executes(pure, total)
                 {{}};
@@ -543,26 +543,24 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             application.syntax_tree_result().diagnostics()
         );
 
-        for producer in ["referent", "selected_marker"] {
-            let checked = application
-                .lowered_unit(source_function_body_key(&application, producer))
-                .expect("anchored-borrow producers retain checked semantics");
+        if valid {
+            let diagnostics = application.check_diagnostics();
 
-            assert!(
-                !checked.diagnostics().has_errors(),
-                "{source}: {producer}: {checked:#?}"
-            );
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:#?}");
         }
 
-        let checked = application
-            .lowered_unit(source_function_body_key(&application, "forwarded"))
-            .expect("borrowed heap fields retain their checked lifetime context");
+        if !valid {
+            let diagnostics = application.check_diagnostics();
+            let expected = DiagnosticKind::CheckingEscapingStorageDependency;
 
-        assert_eq!(
-            !checked.diagnostics().has_errors(),
-            valid,
-            "{source}: {checked:#?}"
-        );
+            bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
+            assert!(
+                diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.kind() == expected),
+                "{source}: {diagnostics:#?}"
+            );
+        }
     }
 }
 

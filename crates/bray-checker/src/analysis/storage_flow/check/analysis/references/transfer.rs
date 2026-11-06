@@ -494,12 +494,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         state.memory.begin_transition(operation.occurrence());
 
         let Some(destination) = destination else {
-            state.memory.invalidate(
-                &bray_bound_tree::StorageInvalidation::unknown(),
-                self.storage,
-                bray_symbols::DependencyMutationKind::Write,
-            );
-
+            // The assignment transition applies its write after input capture.
+            // An unresolved destination provides no reference output to stage.
             return;
         };
 

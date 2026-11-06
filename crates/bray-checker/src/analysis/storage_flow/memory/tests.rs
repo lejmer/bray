@@ -2924,7 +2924,7 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
     };
 
     assert!(!state.unknown_reference_may_reach(&Target::storage(local.clone())));
-    assert!(state.unknown_reference_may_reach(&Target::storage(borrowed)));
+    assert!(state.unknown_reference_may_reach(&Target::storage(borrowed.clone())));
 
     assert!(state.unknown_reference_may_reach(
         &Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
@@ -2935,9 +2935,11 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
     state
         .values
         .insert(Target::storage(local.clone()), retained.clone());
+
     state
         .values
         .insert(Target::storage(borrowed.clone()), retained.clone());
+
     state.values.insert(
         Target::storage(pointer.clone()),
         super::model::References {
@@ -2955,11 +2957,27 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
         ),
         MemoryOperationStatus::Valid,
     );
+
     assert_eq!(
         state.values.get(&Target::storage(local.clone())),
         Some(&retained)
     );
+
     assert!(state.values[&Target::storage(borrowed)].unknown);
+
+    let storage =
+        StoragePlanBuilder::new(BoundUnitId::new(41), BoundUnitKind::CallableBody).finish();
+
+    state.invalidate(
+        &bray_bound_tree::StorageInvalidation::unknown(),
+        &storage,
+        bray_symbols::DependencyMutationKind::Write,
+    );
+
+    assert_eq!(
+        state.values.get(&Target::storage(local.clone())),
+        Some(&retained)
+    );
 
     state.values.insert(
         Target::storage(pointer.clone()),
@@ -2968,6 +2986,7 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
             ..super::model::References::one(Target::storage(local.clone()))
         },
     );
+
     state.write(&Target::storage(pointer), error_type(), origins[0], None);
 
     assert!(state.values[&Target::storage(local.clone())].unknown);
