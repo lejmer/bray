@@ -449,6 +449,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         (values, snapshots)
     }
 
+    fn preserve_contents_owners<'place>(
+        &self,
+        state: &ExecutionState,
+        retained: &BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
+        places: impl IntoIterator<Item = &'place crate::ExecutionPlace>,
+        descriptors: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
+    ) {
+        for place in places {
+            if descriptors.contains_key(place)
+                || !retained.range(place.clone()..).next()
+                    .is_some_and(|(component, _)| place.contains(component))
+            {
+                continue;
+            }
+
+            if let Some(value) = place.value_in(&state.current) {
+                // A surviving component belongs to this same complete owner.
+                // The separate post-state still replaces its contents observation.
+                descriptors.insert(place.clone(), value.owner_identity().clone());
+            }
+        }
+    }
+
     fn invalidate_all_observations(
         &self,
         state: &mut ExecutionState,
@@ -456,7 +479,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         descriptors: &BTreeSet<bray_bound_tree::StoragePath>,
         stable_values: &BTreeSet<bray_bound_tree::StoragePath>,
     ) {
-        let descriptors = descriptors
+        let mut descriptors = descriptors
             .iter()
             .flat_map(|path| self.storage_places(state, path.clone()))
             .filter_map(|place| {
@@ -504,6 +527,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .filter(|place| place.projections.is_empty())
             .cloned()
             .collect::<BTreeSet<_>>();
+
+        self.preserve_contents_owners(state, &retained, &roots, &mut descriptors);
 
         state.current.clear();
 
@@ -722,33 +747,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if !transfers {
-            for place in &changed_places {
-                if stable_places.range(place.clone()..).next().is_some_and(|(component, _)| {
-                    place.contains(component)
-                }) && let Some(value) = place.value_in(&state.current) {
-                    // The frame keeps an actual component of this same live owner.
-                    // Retain its complete identity while replacing its contents view.
-                    // Its old observations still expire through invalidated_values.
-                    descriptors.entry(place.clone()).or_insert_with(|| value.owner_identity().clone());
-                }
-            }
+            self.preserve_contents_owners(state, &stable_places, &changed_places, &mut descriptors);
         }
 
-        if content_only {
-            state.invalidate_contents(
-                &changed_places,
-                invalidated_values,
-                &self.content_predicates,
-                &stable_values,
-            );
-        } else {
-            state.invalidate_contents(
-                &changed_places,
-                invalidated_values,
-                &BTreeSet::new(),
-                &stable_values,
-            );
-        }
+        state.invalidate_contents(
+            &changed_places,
+            invalidated_values,
+            if content_only { &self.content_predicates } else { &BTreeSet::new() },
+            &stable_values,
+        );
 
         // Preserve observations of disjoint components before retiring the containing snapshot.
         let retained = self

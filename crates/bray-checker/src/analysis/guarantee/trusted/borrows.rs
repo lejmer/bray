@@ -78,7 +78,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let borrowed_result = crate::storage::dependency_projections(transfer.output())
+            let path = crate::storage::owned_storage_projections(self.dependencies, transfer.output());
+
+            let borrowed_result = crate::storage::dependency_projections(&path)
                 .and_then(|path| dependencies.reference_type(&DependencySubject::new(
                     DependencySubjectRoot::Result, path)))
                 .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }));
@@ -89,9 +91,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 ExecutionCondition::Borrowed(value) if !borrowed_result => value.as_ref().clone(),
                 value => value,
             };
-
-            let path =
-                crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
             fields.push((path, value));
         }

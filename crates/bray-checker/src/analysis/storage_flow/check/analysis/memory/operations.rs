@@ -59,12 +59,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let target = self.expression_target(state, operation.arguments()[0])
             .and_then(|slot| state.memory.value_target(&slot, pointee));
 
-        if let Some(path) = target.as_ref().and_then(|target| crate::storage::storage_observation_path(
-            self.storage, self.request.semantic_values(), target)) {
-            let value = self.execution.storage_path_value(execution, &path);
-
-            execution.pending_results.insert(expression, value);
-        }
+        self.execution.observe_memory_read(execution, expression, target.as_ref());
 
         if self.publish {
             self.record_state_target(bray_bound_tree::StorageStateTarget::MemoryRead(expression), target);

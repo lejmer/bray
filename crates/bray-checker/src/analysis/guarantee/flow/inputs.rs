@@ -8,6 +8,20 @@ use super::model::ExecutionFlowDomain;
 use crate::{CheckerRequestContext, ExecutionCallEvidence, ExecutionCondition, ExecutionPlace};
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
+    pub(in crate::analysis) fn observe_memory_read(
+        &self,
+        state: &mut ExecutionState,
+        expression: BoundExpressionId,
+        target: Option<&bray_bound_tree::StorageTarget>,
+    ) {
+        if let Some(path) = target.and_then(|target| crate::storage::storage_observation_path(
+            self.storage, self.request.semantic_values(), target)) {
+            let value = self.storage_path_value(state, &path);
+
+            state.pending_results.insert(expression, value);
+        }
+    }
+
     pub(in crate::analysis::guarantee) fn observed_call_result(
         &self,
         state: &ExecutionState,

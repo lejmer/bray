@@ -309,10 +309,7 @@ trusted internal func retire_reference(
 
 // The waiter borrows the source claim while driving its retained execution.
 // Dispatch can advance the task without consuming this caller's resolution right.
-trusted internal func wait_for_task(
-    pos selected: &Current,
-    pos reference: &bray.runtime.bootstrap.task.Reference
-)
+trusted internal func wait_for_task(pos selected: &Current, pos reference: &bray.runtime.bootstrap.task.Reference)
     requires(
         blocking_execution(),
         selected.status == 0,
@@ -328,6 +325,10 @@ trusted internal func wait_for_task(
         trusted bray.runtime.bootstrap.task.retained(owner = reference),
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
     )
+    when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
+    }
 {
     trusted wait_ready(selected, trusted bray.runtime.bootstrap.task.execution_reference(reference));
 }
