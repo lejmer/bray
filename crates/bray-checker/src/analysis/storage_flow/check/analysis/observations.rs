@@ -84,7 +84,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let Some(path) = crate::storage::dependency_projections(&path.projections[source.projections.len()..]) else { continue; };
 
-            snapshots.insert(bray_symbols::DependencySubject::new(root, prefix.iter().copied().chain(path)), kind);
+            snapshots.entry(bray_symbols::DependencySubject::new(root, prefix.iter().copied().chain(path)))
+                .and_modify(|previous| {
+                    if kind.is_immutable_inline() { *previous = kind; }
+                }).or_insert(kind);
         }
     }
 

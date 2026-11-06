@@ -659,6 +659,36 @@ mod tests {
     use crate::{ExecutionCondition, ExecutionPlace};
 
     #[test]
+    fn a_transferred_tag_preserves_guards_without_preserving_mutable_payloads() {
+        let owner = input(0);
+        let observed = owner.clone().borrowed();
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(), bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(bray_bound_tree::BoundOperator::NotEqual, vec![observed.clone(), absent]);
+        let payload = observed.clone().component(ConstantProjectionKind::NullableValue);
+        let mut state = ExecutionState::default();
+
+        state.assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);
+        state.trusted_assumptions.extend([(guard.clone(), true), (payload.clone(), true)]);
+        state.carry_guarantee(owner.clone(), guard.clone());
+        state.carry_guarantee(owner.clone(), payload.clone());
+
+        let mut retained = crate::execution_guarantees::ObservationSet::default();
+
+        retained.insert_classified(observed, bray_bound_tree::StorageObservationKind::Discriminant);
+        state.invalidate_contents(&BTreeSet::new(), [owner.clone()], &BTreeSet::new(), &retained);
+        assert!(state.assumptions.contains(&(guard.clone(), true)));
+        assert!(state.trusted_assumptions.contains(&(guard.clone(), true)));
+        assert!(!state.assumptions.contains(&(payload.clone(), true)));
+        assert!(!state.trusted_assumptions.contains(&(payload, true)));
+        state.invalidate_trusted(&owner);
+        assert!(!state.trusted_assumptions.contains(&(guard, true)));
+    }
+
+    #[test]
     fn cleanup_keeps_observation_free_guarantees_with_unchanged_guards() {
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
             "ValidWrite",
