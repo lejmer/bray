@@ -755,6 +755,7 @@ fn nested_buffer_views_preserve_checked_storage_effects() {
         crate::SelectedTarget::baseline(),
         r#"
         trusted module app;
+        using std.memory;
         struct Row { mut slots: std.memory.RawBuffer<u32>; }
         trusted func inspect_buffer(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
             uses(raw_memory)
