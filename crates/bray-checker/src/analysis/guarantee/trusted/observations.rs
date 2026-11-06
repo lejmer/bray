@@ -80,6 +80,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let observe = |base: &bray_bound_tree::StoragePath| {
                 let projected;
+
                 let path = if prepared.projections().is_empty() {
                     base
                 } else {
@@ -92,9 +93,12 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                             .copied()
                             .collect(),
                     };
+
                     &projected
                 };
+
                 let target = completion.references().get(path)?;
+
                 let target = crate::storage::storage_observation_path(
                     self.storage,
                     self.request.semantic_values(),
