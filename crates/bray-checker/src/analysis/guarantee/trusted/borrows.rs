@@ -591,13 +591,29 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let mut fields = BTreeMap::new();
 
-        for relation in dependencies
-            .references()
-            .iter()
-            .filter(|reference| reference.preserves_value())
-            .map(|reference| reference.relation())
-        {
+        for reference in dependencies.references() {
+            let relation = reference.relation();
+
             if relation.exit().subject_root() != DependencySubjectRoot::Result {
+                continue;
+            }
+
+            let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
+                .expect("checked result reference retains its storage projection");
+
+            if !reference.preserves_value() {
+                if let Some(ty) = dependencies.reference_type(relation.exit())
+                    && matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
+                {
+                    // Form a fresh loan before publishing its guarantees. Its origin
+                    // need not preserve an input value, but its lifetime still owns them.
+                    fields.entry(path.clone()).or_insert_with(|| {
+                        let value = path.into_iter().fold(result.clone(), ExecutionCondition::project);
+
+                        value.coerce(self.request.semantic_values(), ty, ty)
+                    });
+                }
+
                 continue;
             }
 
@@ -616,11 +632,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             let Some(value) = input.value_in(arguments) else {
-                continue;
-            };
-
-            let Some(path) = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
-            else {
                 continue;
             };
 
