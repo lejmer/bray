@@ -245,10 +245,10 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                     .cloned()
                     .unwrap_or_default(),
                 BoundExpression::MemberAccess(member) => {
-                    self.member_values(id, expression, member.receiver())?
+                    self.member_values(id, member.receiver())?
                 }
                 BoundExpression::TraitQualifiedMember(member) => {
-                    self.member_values(id, expression, member.receiver())?
+                    self.member_values(id, member.receiver())?
                 }
                 BoundExpression::Await(_) if completed.or_else(|| self.inputs.completion_sources(id)).is_some() => {
                     let mut requirements = completed.or_else(|| self.inputs.completion_sources(id))
@@ -375,30 +375,19 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
     fn member_values(
         &self,
         id: BoundExpressionId,
-        expression: &BoundExpression,
         receiver: BoundExpressionId,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let sources = self.expression_sources(id, expression);
+        let Some(projection) = crate::dependency::assignment::member_projection(
+            self.request.unit(), self.selections, id,
+        ) else {
+            return Ok(self.state.values.get(&receiver.into()).cloned().unwrap_or_default());
+        };
 
-        if sources.is_empty() {
-            return Ok(self
-                .state
-                .values
-                .get(&(receiver).into())
-                .cloned()
-                .unwrap_or_default());
-        }
-
-        Ok(sources
-            .into_iter()
-            .map(|subject| {
-                DependencyRequirement::direct(
-                    super::sources::source_subject(&subject, []),
-                    DependencyRequirementKind::ValueDependencies,
-                )
-            })
-            .collect())
+        // Physical sources select components. Opaque referents retain their complete
+        // carried contract, rather than projecting fields onto a lifetime anchor.
+        Ok(self.projected_values(receiver, &[projection]))
     }
+
 }
 
 pub(super) fn extend<T: Ord>(

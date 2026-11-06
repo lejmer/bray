@@ -489,6 +489,41 @@ fn copied_addresses_keep_value_dependencies_without_the_container_loan() {
 }
 
 #[test]
+fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
+    for (parameter, argument, valid) in [("&Owner", "owner", true), ("Owner", "&owner", false)] {
+        let source = format!(
+            r#"
+            module app;
+            struct Owner {{}}
+            struct Marker {{}}
+            struct Heap {{ marker: Marker; }}
+            extern func heap(pos owner: &Owner) -> &Heap executes(pure, total);
+            func selected_marker(pos owner: &Owner) -> &Marker {{ return &heap(owner).marker; }}
+            func forwarded(pos owner: {parameter}) -> &Marker {{ return selected_marker({argument}); }}
+            "#
+        );
+
+        let application = compilation(&source);
+
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}: {:?}",
+            application.syntax_tree_result().diagnostics()
+        );
+
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "forwarded"))
+            .expect("borrowed heap fields retain their checked lifetime context");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
+    }
+}
+
+#[test]
 fn callable_fields_borrow_their_owning_context_in_contracts() {
     for (predicate, subject) in [
         ("trusted predicate held(owner: &Owner);", "owner"),

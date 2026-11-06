@@ -315,32 +315,14 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
                 }
             }
             BoundExpression::MemberAccess(member) => self.project_sources(member.receiver(), id),
-            BoundExpression::Call(_) => {
-                let borrowed = self
-                    .types
-                    .expression(id)
-                    .map(|ty| self.request.semantic_values().type_data(ty.ty()));
-
-                if borrowed.is_some_and(|data| {
-                    matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. })
-                }) {
-                    self.state
-                        .values
-                        .get(&(id).into())
-                        .into_iter()
-                        .flatten()
-                        .filter_map(requirement_subject)
-                        .map(|subject| {
-                            source_path(
-                                subject.subject_root(),
-                                subject.projections().iter().copied().map(Some),
-                            )
-                        })
-                        .collect()
-                } else {
-                    BTreeSet::new()
-                }
-            }
+            BoundExpression::Call(_) => self.inputs.borrowed.get(&id)
+                .into_iter()
+                .flatten()
+                .flat_map(|(argument, path)| {
+                    self.state.sources.get(argument).into_iter().flatten()
+                        .map(|source| project_source(source, path.iter().copied().map(Some)))
+                })
+                .collect(),
             BoundExpression::PatternReference(reference) => self
                 .state
                 .local_sources
@@ -406,15 +388,7 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
             let (value, remaining) = self.inputs.project(receiver, &path);
 
             if remaining.is_empty() {
-                return self
-                    .state
-                    .values
-                    .get(&(value).into())
-                    .into_iter()
-                    .flatten()
-                    .filter_map(requirement_subject)
-                    .map(|subject| (subject.clone(), true))
-                    .collect();
+                return self.state.sources.get(&value).cloned().unwrap_or_default();
             }
         }
 
@@ -479,20 +453,6 @@ impl<C: CheckerRequestContext + ?Sized> Transfer<'_, '_, C> {
         }
 
         requirements
-    }
-}
-
-fn requirement_subject(requirement: &DependencyRequirement) -> Option<&DependencySubject> {
-    match requirement {
-        DependencyRequirement::Direct { subject, .. } => Some(subject),
-        DependencyRequirement::Guarded(_)
-        | DependencyRequirement::CleanupDependencies { .. }
-        | DependencyRequirement::SynchronousCleanup(_)
-        | DependencyRequirement::FinalizerBodyCleanup(_)
-        | DependencyRequirement::DefaultCleanup { .. }
-        | DependencyRequirement::ResultCall { .. }
-        | DependencyRequirement::FixedPoint { .. }
-        | DependencyRequirement::Variable { .. } => None,
     }
 }
 
