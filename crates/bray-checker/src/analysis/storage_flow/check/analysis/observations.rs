@@ -187,71 +187,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        // A valid shared loan protects immutable inline values even when an
-        // address escapes. Raw reachability grants no permission to replace that
-        // owner. Payload and pointee observations still follow exposure below.
-        for (reference, (kind, observations)) in &self.input.footprint.borrowed_observations {
-            if *kind != bray_symbols::BorrowKind::Shared {
-                continue;
-            }
-
-            let location = match reference.access_id(self.storage) {
-                _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
-                Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
-                None if reference.projections.is_empty()
-                    || self
-                        .storage
-                        .identity(reference.root)
-                        .is_some_and(|identity| {
-                            identity.is_invocation_owned(self.storage.kind())
-                        }) =>
-                {
-                    Some(Target::storage(reference.clone()))
-                }
-                None => None,
-            };
-
-            let Some(targets) = location.and_then(|location| memory.value_targets(&location))
-            else {
-                continue;
-            };
-
-            for (marker, observation) in observations {
-                if *observation == bray_bound_tree::StorageObservationKind::Discriminant {
-                    continue;
-                }
-
-                let immutable_value = observation.is_immutable_inline();
-
-                if !targets.is_empty()
-                    && targets.iter().all(|target| {
-                        let target =
-                            target.project(&marker.projections[reference.projections.len()..]);
-
-                        match &target.origin {
-                            // These referents have stable identities, but no
-                            // freshness claim that could exclude an exposed alias.
-                            bray_bound_tree::StorageOrigin::Entry { .. }
-                            | bray_bound_tree::StorageOrigin::Returned { .. }
-                            | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                immutable_value
-                                    || !exposed.iter().any(|raw| {
-                                        memory.target_relationship(raw, &target)
-                                            != StorageRelationship::Disjoint
-                                    })
-                            }
-                            _ => target
-                                .storage_path()
-                                .is_some_and(|path| stable_values.contains(path)),
-                        }
-                    })
-                {
-                    // The copied logical path shares immutable projection metadata.
-                    stable_values.insert(marker.clone());
-                }
-            }
-        }
-
         StorageInvalidation::All {
             stable_descriptors,
             stable_values,
@@ -364,6 +299,85 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 stable_values.extend(values.cloned());
             }
         }
+
+        self.preserve_shared_views(memory, invalidation);
+    }
+
+    fn preserve_shared_views(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        invalidation: &mut StorageInvalidation,
+    ) {
+        let StorageInvalidation::All { stable_values, .. } = invalidation else {
+            return;
+        };
+
+        let exposed = memory.raw_exposed_regions();
+
+        // Project views after active loans have established preservation of their
+        // physical referents. A stored alias forwards those classified facts.
+        // Raw exposure still governs payload and pointee observations.
+        for (reference, (kind, observations)) in &self.input.footprint.borrowed_observations {
+            if *kind != bray_symbols::BorrowKind::Shared {
+                continue;
+            }
+
+            let location = match reference.access_id(self.storage) {
+                _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
+                Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
+                None if self
+                        .storage
+                        .identity(reference.root)
+                        .is_some_and(|identity| {
+                            identity.is_invocation_owned(self.storage.kind())
+                        }) =>
+                {
+                    Some(Target::storage(reference.clone()))
+                }
+                None => None,
+            };
+
+            let Some(targets) = location.and_then(|location| memory.value_targets(&location))
+            else {
+                continue;
+            };
+
+            for (path, observation) in observations {
+                if *observation == bray_bound_tree::StorageObservationKind::Discriminant {
+                    continue;
+                }
+
+                let immutable_value = observation.is_immutable_inline();
+
+                if !targets.is_empty()
+                    && targets.iter().all(|target| {
+                        let target =
+                            target.project(&path.projections[reference.projections.len()..]);
+
+                        match &target.origin {
+                            // These referents have stable identities, but no
+                            // freshness claim that could exclude an exposed alias.
+                            bray_bound_tree::StorageOrigin::Entry { .. }
+                            | bray_bound_tree::StorageOrigin::Returned { .. }
+                            | bray_bound_tree::StorageOrigin::Static { .. } => {
+                                immutable_value
+                                    || !exposed.iter().any(|raw| {
+                                        memory.target_relationship(raw, &target)
+                                            != StorageRelationship::Disjoint
+                                    })
+                            }
+                            _ => target
+                                .storage_path()
+                                .is_some_and(|path| stable_values.contains(path)),
+                        }
+                    })
+                {
+                    // The copied logical path shares immutable projection metadata.
+                    stable_values.insert(path.clone());
+                }
+            }
+        }
+
     }
 
     pub(super) fn preserve_store_values(
