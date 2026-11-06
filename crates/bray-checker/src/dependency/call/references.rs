@@ -172,9 +172,8 @@ pub(super) fn with_reference_inputs<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    // Completion observes every evaluated reference input, independently of
-    // whether its origin is forwarded into a result or mentioned by an effect.
-    for root in std::iter::once(DependencySubjectRoot::Receiver).chain(
+    // Completion forms reference values independently of their origin relations.
+    for root in [DependencySubjectRoot::Result, DependencySubjectRoot::Receiver].into_iter().chain(
         (0..contracts.input_count()).map(|ordinal| {
             DependencySubjectRoot::Parameter(bray_symbols::SymbolOrdinal::new(
                 u32::try_from(ordinal)

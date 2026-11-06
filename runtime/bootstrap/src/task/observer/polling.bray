@@ -95,8 +95,8 @@ trusted internal func stage(
         )
         ensures(
             trusted bray.runtime.bootstrap.task.result.transfer_entry(
-                outcome = outcome,
-                destination = destination,
+                outcome = &outcome,
+                destination = &destination,
                 layout = layout
             )
         )

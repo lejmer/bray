@@ -589,36 +589,45 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expression(source)
             .expect("completed checked call retains its selection");
 
+        let mut result = result;
         let mut fields = BTreeMap::new();
+
+        for subject in dependencies.reference_subjects() {
+            if subject.subject_root() != DependencySubjectRoot::Result {
+                continue;
+            }
+
+            let ty = dependencies.reference_type(subject)
+                .expect("prepared reference subject retains its value type");
+
+            if !matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                continue;
+            }
+
+            let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, subject.projections())
+                .expect("checked result reference retains its storage projection");
+
+            let value = path.iter().copied().fold(result.clone(), ExecutionCondition::project)
+                .coerce(self.request.semantic_values(), ty, ty);
+
+            if value != ExecutionCondition::Unknown {
+                if path.is_empty() {
+                    result = value;
+                } else {
+                    fields.insert(path, value);
+                }
+            }
+        }
 
         for reference in dependencies.references() {
             let relation = reference.relation();
 
-            if relation.exit().subject_root() != DependencySubjectRoot::Result {
+            if relation.exit().subject_root() != DependencySubjectRoot::Result || !reference.preserves_value() {
                 continue;
             }
 
             let path = crate::storage::storage_projections(self.request.semantic_values(), self.dependencies, relation.exit().projections())
                 .expect("checked result reference retains its storage projection");
-
-            if !reference.preserves_value() {
-                if let Some(ty) = dependencies.reference_type(relation.exit())
-                    && matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. })
-                {
-                    // Form a fresh loan before publishing its guarantees. Its origin
-                    // need not preserve an input value, but its lifetime still owns them.
-                    if let std::collections::btree_map::Entry::Vacant(entry) = fields.entry(path) {
-                        let value = entry.key().iter().copied().fold(result.clone(), ExecutionCondition::project)
-                            .coerce(self.request.semantic_values(), ty, ty);
-
-                        if value != ExecutionCondition::Unknown {
-                            entry.insert(value);
-                        }
-                    }
-                }
-
-                continue;
-            }
 
             let entry = relation
                 .entry()

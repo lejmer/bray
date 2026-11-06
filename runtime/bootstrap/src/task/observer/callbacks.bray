@@ -279,6 +279,7 @@ trusted internal func destroy_captures(
         trusted bray.runtime.bootstrap.task.owned_reference(owner = &reference),
         trusted bray.runtime.bootstrap.task.resolution_owner(owner = &reference),
         trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &provider),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(

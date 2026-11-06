@@ -141,14 +141,14 @@ trusted internal func take_transfer(
     pos destination: &DataPointer<u8>,
     pos layout_pointer: DataPointer<Layout>
 ) -> Transfer
-    requires(trusted transfer_entry(outcome = native, destination = destination, layout = layout_pointer))
+    requires(trusted transfer_entry(outcome = &native, destination = destination, layout = layout_pointer))
     ensures(
         trusted transferred(owner = &result),
         trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.outcome.report)
     )
     uses(intrinsic, raw_memory)
 {
-    let layout = trusted read_layout(native, destination, layout_pointer);
+    let layout = trusted read_layout(&native, destination, layout_pointer);
     let address = trusted std.memory.read<DataPointer<u8>>(std.memory.address_of<DataPointer<u8>>(destination));
     let source = trusted borrow_transfer_outcome(native, destination, layout_pointer);
     let value = trusted std.memory.replace_value<bray.runtime.bootstrap.ReportOutcome>(source, staged_outcome());
@@ -172,12 +172,12 @@ trusted internal func borrow_transfer_outcome(
     pos destination: &DataPointer<u8>,
     pos layout: DataPointer<Layout>
 ) -> &mut bray.runtime.bootstrap.ReportOutcome
-    requires(trusted transfer_entry(outcome = native, destination = destination, layout = layout))
+    requires(trusted transfer_entry(outcome = &native, destination = destination, layout = layout))
     ensures(trusted bray.runtime.bootstrap.native_report_callbacks(report = &result.report))
     uses(raw_memory, unchecked_alias)
 {
     let pointer = trusted std.memory.read<DataPointer<bray.runtime.bootstrap.ReportOutcome>>(
-        std.memory.address_of<DataPointer<bray.runtime.bootstrap.ReportOutcome>>(native)
+        std.memory.address_of<DataPointer<bray.runtime.bootstrap.ReportOutcome>>(&native)
     );
 
     let permit = trusted lambda(
@@ -199,7 +199,7 @@ trusted internal func borrow_transfer_outcome(
         )
         executes(pure, total) {};
 
-    trusted permit(native, destination, layout, pointer);
+    trusted permit(&native, destination, layout, pointer);
 
     return trusted std.memory.borrow_mut_from<
         bray.runtime.bootstrap.ReportOutcome,
