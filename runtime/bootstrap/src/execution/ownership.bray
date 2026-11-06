@@ -63,8 +63,6 @@ trusted internal func admit_source_task(
 
     let owner = trusted bray.runtime.bootstrap.task.take_retained(reference);
 
-    trusted bray.runtime.bootstrap.task.attach_execution(&owner, trusted pin(bound_execution(selected)));
-
     let status = trusted admit_task_context(selected, &owner, root);
 
     if status != 0
@@ -88,22 +86,22 @@ trusted internal func admit_task_context(
     requires(
         trusted view_owned(owner = &selected.acquisition),
         selected.status == 0,
-        trusted bray.runtime.bootstrap.task.retained(owner = reference)
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
     )
     ensures(
         trusted view_owned(owner = &selected.acquisition),
-        trusted bray.runtime.bootstrap.task.retained(owner = reference)
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference)
     )
     when(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     {
         ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     }
-    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
-    {
-        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
-    }
     uses(foreign_call, intrinsic)
 {
+    trusted bray.runtime.bootstrap.task.attach_execution(reference, trusted pin(bound_execution(selected)));
+
     let execution = trusted bray.runtime.bootstrap.task.execution_reference(reference);
     let admission = trusted context_admission(execution);
 

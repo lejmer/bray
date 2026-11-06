@@ -992,6 +992,8 @@ where
                 .and_then(|target| target.storage_path())
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
 
+            self.observe_memory_read(state, &mut execution, kind);
+
             self.execution.transfer_operation(
                 &mut execution,
                 kind,

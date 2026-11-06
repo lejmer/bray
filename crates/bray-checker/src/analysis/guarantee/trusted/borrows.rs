@@ -78,6 +78,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
+            let borrowed_result = crate::storage::dependency_projections(transfer.output())
+                .and_then(|path| dependencies.reference_type(&DependencySubject::new(
+                    DependencySubjectRoot::Result, path)))
+                .is_some_and(|ty| matches!(self.request.semantic_values().type_data(ty).as_ref(), bray_symbols::TypeData::Borrow { .. }));
+
+            // A checked ownership transfer can extract the value from a borrowed
+            // slot. Returning a borrow instead retains its original loan identity.
+            let value = match value {
+                ExecutionCondition::Borrowed(value) if !borrowed_result => value.as_ref().clone(),
+                value => value,
+            };
+
             let path =
                 crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
@@ -514,10 +526,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             return result;
         }
 
-        let Some(source) = invocation.expression() else {
-            return result;
-        };
-
         let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
             return result;
         };
@@ -534,6 +542,23 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .expect("completed checked call has a feasible ownership layout");
 
         self.retire_owned_alternative(state, invocation, arguments, &result, outside);
+
+        result
+    }
+
+    pub(in crate::analysis::guarantee) fn complete_returned_references(
+        &self,
+        invocation: BoundExecutionSite,
+        result: ExecutionCondition,
+        arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,
+    ) -> ExecutionCondition {
+        let Some(source) = invocation.expression() else {
+            return result;
+        };
+
+        let Some(dependencies) = self.dependencies.calls().get(&invocation) else {
+            return result;
+        };
 
         let selection = self
             .semantics

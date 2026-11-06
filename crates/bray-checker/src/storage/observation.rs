@@ -6,7 +6,7 @@ use bray_symbols::{DeclaredStorageShape, NamedTypeSymbolId, TypeData, TypeId};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Observation {
+pub(crate) enum Observation {
     Mutable,
     Scalar,
     Address,
@@ -14,6 +14,12 @@ enum Observation {
     Marker(TypeId),
     Discriminant,
     Reference(TypeId),
+}
+
+impl Observation {
+    pub(crate) const fn is_immutable_inline(self) -> bool {
+        matches!(self, Self::Scalar | Self::Marker(_))
+    }
 }
 
 #[derive(Debug)]
@@ -70,7 +76,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
             RepresentationRole::ScalarBool | RepresentationRole::ScalarChar
         );
 
-    let observation = if scalar && !reference {
+    let observation = if scalar {
         Observation::Scalar
     } else if matches!(
         role,
@@ -123,7 +129,7 @@ pub(crate) struct Footprint {
     pub(crate) references: Vec<(StoragePath, TypeId)>,
     pub(crate) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
     pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
-    pub(crate) borrowed_identities: BTreeMap<StoragePath, Vec<StoragePath>>,
+    pub(crate) borrowed_observations: BTreeMap<StoragePath, (bray_symbols::BorrowKind, Vec<(StoragePath, Observation)>)>,
     pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) empty_markers: BTreeMap<StoragePath, TypeId>,
     pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
@@ -454,10 +460,10 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 // Borrowed owners retain their whole observation only while the
                 // existing referent and exposure checks preserve this exact value.
                 footprint
-                    .borrowed_identities
+                    .borrowed_observations
                     .entry(path.clone())
-                    .or_default()
-                    .push(path);
+                    .or_insert_with(|| (bray_symbols::BorrowKind::Shared, Vec::new()))
+                    .1.push((path, Observation::Mutable));
             } else if identity.is_invocation_owned(storage.kind()) {
                 footprint.scalars.entry(root).or_default().push(path);
             }
@@ -492,6 +498,15 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     projections: projections.clone().into(),
                 };
 
+                let borrowed = (0..=projections.len()).rev().find_map(|length| {
+                    borrowed_paths.get(&projections[..length]).map(|kind| {
+                        (StoragePath {
+                            root,
+                            projections: projections[..length].into(),
+                        }, *kind)
+                    })
+                });
+
                 match observation {
                     Observation::Reference(ty) => {
                         footprint.references.push((path, *ty));
@@ -503,18 +518,6 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             || identity.is_invocation_owned(storage.kind())
                             || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
                         {
-                            let borrowed = (0..=projections.len()).rev().find_map(|length| {
-                                borrowed_paths.get(&projections[..length]).map(|kind| {
-                                    (
-                                        StoragePath {
-                                            root,
-                                            projections: projections[..length].into(),
-                                        },
-                                        *kind,
-                                    )
-                                })
-                            });
-
                             if let Observation::Marker(ty) = observation {
                                 // Typed payload stores cannot replace empty markers,
                                 // including markers reached through mutable loans.
@@ -522,15 +525,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                             }
 
                             if let Some((reference, kind)) = borrowed {
-                                // An arbitrary mutable call can replace its owner.
-                                // Only shared loans protect identity across calls.
-                                if kind == bray_symbols::BorrowKind::Shared {
-                                    footprint
-                                        .borrowed_identities
-                                        .entry(reference)
-                                        .or_default()
-                                        .push(path);
-                                }
+                                footprint
+                                    .borrowed_observations
+                                    .entry(reference)
+                                    .or_insert_with(|| (kind, Vec::new()))
+                                    .1.push((path, *observation));
                             } else {
                                 footprint.identities.entry(root).or_default().push(path);
                             }
@@ -550,18 +549,14 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                         None
                     }
                     Observation::Scalar => {
-                        if shared.is_some() {
+                        if let Some((reference, kind)) = borrowed {
                             footprint
-                                .borrowed_identities
-                                .entry(StoragePath::root(root))
-                                .or_insert_with(Vec::new)
-                                .push(path.clone());
+                                .borrowed_observations
+                                .entry(reference)
+                                .or_insert_with(|| (kind, Vec::new()))
+                                .1.push((path.clone(), Observation::Scalar));
                         } else if identity.is_invocation_owned(storage.kind()) {
-                            footprint
-                                .scalars
-                                .entry(root)
-                                .or_insert_with(Vec::new)
-                                .push(path.clone());
+                            footprint.scalars.entry(root).or_default().push(path.clone());
                         }
 
                         Some(path)
@@ -644,14 +639,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     let data = request.semantic_values().type_data(ty);
     let reference = matches!(data.as_ref(), TypeData::Borrow { .. });
-
-    let borrowed = matches!(
-        data.as_ref(),
-        TypeData::Borrow {
-            kind: bray_symbols::BorrowKind::Mutable,
-            ..
-        }
-    );
 
     let ty = request.semantic_values().unborrowed_type(ty);
     let data = request.semantic_values().type_data(ty);
@@ -806,7 +793,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
     if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
         && fields.is_empty()
-        && !borrowed
     {
         if let Some(markers) = &mut inline_markers {
             markers.insert(ty);
@@ -855,19 +841,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 (std::iter::once(field).chain(path).collect(), descriptor)
             }),
         );
-    }
-
-    if reference {
-        result.retain(|(_, observation)| *observation != Observation::Scalar);
-    }
-
-    if borrowed {
-        result.retain(|(_, observation)| {
-            !matches!(
-                observation,
-                Observation::Identity | Observation::Discriminant
-            )
-        });
     }
 
     if let Some(definition) = definition {

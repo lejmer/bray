@@ -143,6 +143,17 @@ and retain an exact identity only when all normal outcomes agree. Recursive summ
 never publish a partial origin set as a complete bound. Substitution and package interfaces preserve these established
 results for downstream consumers.
 
+Storage observations retain their classified kind and borrow context through effect resolution. Consumers use that
+classification instead of reconstructing it from paths. A contents update changes the observed snapshot without
+replacing a still-live owner's identity. Ownership transitions carry the existing value into its destination, including
+values extracted through raw storage. Published storage targets retain the identity needed to interpret those moves.
+
+Live trusted evidence belongs to its complete carrier and required dependencies in the composite flow state. Effect
+framing preserves established observations, while cleanup retains evidence only through surviving complete owners.
+Neither operation creates authority from an unchanged field. Entry values identify ownership transferred by a call,
+while current borrowed observations describe its completion state. Storage ownership and permission to access a resource
+remain separate because a resource protocol can revoke permission without destroying the value that holds its address.
+
 ## Dependencies, behavior and async plans
 
 Dependency analysis infers the requirements carried by values and accesses from established storage, capability,

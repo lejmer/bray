@@ -618,6 +618,7 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
     for (use_owner, valid) in [
         ("observe(&owner.acquisition);", true),
         ("let fabricated: Marker = {}; observe(&fabricated);", false),
+        ("observe_payload(owner.pointer);", false),
     ] {
         let source = format!(
             r#"
@@ -625,25 +626,35 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
             using core.memory;
             using core.target;
             struct Marker {{}}
-            struct Owner {{ acquisition: Marker; pointer: DataPointer<u64>; }}
+            struct Owner {{ acquisition: Marker; identity: u64; pointer: DataPointer<u64>; }}
             trusted predicate held(owner: &Marker);
+            trusted predicate scalar_held(owner: &u64);
+            trusted predicate payload_held(pointer: DataPointer<u64>);
             extern func opaque(pos pointer: DataPointer<u64>) executes(total);
             func observe(pos marker: &Marker) requires(trusted held(owner = marker)) executes(pure, total) {{}}
+            func observe_scalar(pos value: &u64) requires(trusted scalar_held(owner = value)) executes(pure, total) {{}}
+            func observe_payload(pos pointer: DataPointer<u64>) requires(trusted payload_held(pointer = pointer)) executes(pure, total) {{}}
             func advance(pos value: &mut u32) {{ value += 1; }}
             trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
                 return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
             }}
             func caller(pos owner: &Owner, pos count: u32)
-                requires(trusted held(owner = &owner.acquisition))
+                requires(
+                    trusted held(owner = &owner.acquisition),
+                    trusted scalar_held(owner = &owner.identity),
+                    trusted payload_held(pointer = owner.pointer)
+                )
             {{
                 _ = trusted publish(owner);
                 let mut index: u32 = 0;
                 while index < count {{
                     opaque(owner.pointer);
                     {use_owner}
+                    observe_scalar(&owner.identity);
                     advance(&mut index);
                 }}
                 observe(&owner.acquisition);
+                observe_scalar(&owner.identity);
             }}
             "#
         );
@@ -5705,5 +5716,46 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
                     | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
             )), "{diagnostics:#?}");
         }
+    }
+}
+
+#[test]
+fn raw_extraction_transfers_a_complete_nullable_witness() {
+    for (extra_read, use_owner, valid) in [
+        ("", "observe(&complete);", true),
+        ("", "let fabricated: Owner = { epoch = complete.epoch }; observe(&fabricated);", false),
+        ("_ = trusted core.memory.read<T>(pointer);", "observe(&complete);", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Owner {{ epoch: u64; }}
+            trusted predicate live(owner: &Owner);
+            trusted func acquire() -> Owner ensures(trusted live(owner = &result)) {{
+                return {{ epoch = 1 }};
+            }}
+            func observe(pos owner: &Owner) requires(trusted live(owner = owner)) {{}}
+            trusted func exchange<T>(pos storage: &mut T, pos value: T) -> T
+                uses(raw_memory, unchecked_init)
+            {{
+                let pointer = core.memory.address_of_mut<T>(storage);
+                let previous = trusted core.memory.read<T>(pointer);
+                {extra_read}
+                trusted core.memory.write<T>(pointer, value);
+                return previous;
+            }}
+            func caller(pos present: bool) {{
+                let mut owner: Owner? = if present {{ yield acquire(); }} else {{ yield none; }};
+                let moved = exchange<(Owner?)>(&mut owner, none);
+                if let ?complete = moved {{ {use_owner} }}
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
     }
 }

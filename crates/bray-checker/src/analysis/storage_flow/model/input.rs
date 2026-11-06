@@ -152,7 +152,7 @@ impl StorageFlowInput {
                     .copied()
                     .map(bray_bound_tree::StoragePath::root),
             )
-            .chain(footprint.borrowed_identities.keys().cloned())
+            .chain(footprint.borrowed_observations.keys().cloned())
             .chain(
                 footprint
                     .discriminants

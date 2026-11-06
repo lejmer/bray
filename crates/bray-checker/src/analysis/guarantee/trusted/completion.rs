@@ -224,6 +224,10 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         self.retire_consumed_inputs(state, invocation, &entry.arguments, &result, &outside);
 
+        // Ownership leaves with the entry value. Borrowed completion clauses below
+        // instead observe the storage contents left by the call.
+        let result = self.complete_returned_values(invocation, state, result, &entry.arguments, &outside);
+
         let mut arguments = entry.arguments;
 
         state.invalidate_trusted_values(contract.transferred_inputs.iter().map(|input| {
@@ -253,7 +257,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             Default::default()
         };
 
-        let result = self.complete_returned_values(invocation, state, result, &arguments, &outside);
+        let result = self.complete_returned_references(invocation, result, &arguments);
 
         let instantiate = |condition: &ExecutionCondition| {
             let condition = condition.substitute(

@@ -106,10 +106,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        // A valid shared loan protects immutable marker identity even when an
+        // A valid shared loan protects immutable inline values even when an
         // address escapes. Raw reachability grants no permission to replace that
         // owner. Payload and pointee observations still follow exposure below.
-        for (reference, markers) in &self.input.footprint.borrowed_identities {
+        for (reference, (kind, observations)) in &self.input.footprint.borrowed_observations {
+            if *kind != bray_symbols::BorrowKind::Shared {
+                continue;
+            }
+
             let location = match reference.access_id(self.storage) {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
                 Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
@@ -131,8 +135,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            for marker in markers {
-                let immutable_marker = self.input.footprint.empty_markers.contains_key(marker);
+            for (marker, observation) in observations {
+                let immutable_value = observation.is_immutable_inline();
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
@@ -145,7 +149,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                immutable_marker
+                                immutable_value
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
@@ -200,8 +204,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let referent = memory.borrow_observation(*borrow);
 
-            // A retained shared referent protects its empty markers while no raw
-            // alias is exposed. Borrowing a reference slot protects only that slot.
+            // A retained shared referent protects its ordinary scalar values and
+            // immutable markers. Borrowing a reference slot protects only that slot.
             let protected_referent = memory.borrow_targets(*borrow).is_some_and(|targets| {
                 !targets.is_empty()
                     && targets.iter().all(|target| {
@@ -246,32 +250,21 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 let discriminants = self.input.footprint.discriminants.get(&path.root);
 
-                let mut values = self
-                    .input
-                    .opaque_values
+                let borrowed = (0..=path.projections.len()).rev().find_map(|length| {
+                    self.input.footprint.borrowed_observations.get(&StoragePath {
+                        root: path.root,
+                        projections: path.projections[..length].into(),
+                    })
+                });
+
+                let mut values = self.input.opaque_values
                     .range(path.clone()..)
                     .take_while(|value| path.contains(value))
-                    .chain(
-                        self.input
-                            .footprint
-                            .borrowed_identities
-                            .get(path)
-                            .into_iter()
-                            .flatten()
-                            .filter(|value| protected_referent && path.contains(value)),
-                    )
-                    .chain(
-                        // A shared reborrow also protects markers under a mutable
-                        // input. The live loan governs that subobject's authority.
-                        self.input.footprint.empty_markers
-                            .range(path.clone()..)
-                            .map(|(value, _)| value)
-                            .take_while(|value| path.contains(value))
-                            .filter(|_| opaque && protected_referent),
-                    )
-                    // An exposed address cannot replace an immutable marker
-                    // protected by this live loan. It can change other contents.
-                    .filter(|value| !exposed_referent || self.input.footprint.empty_markers.contains_key(*value))
+                    .filter(|_| !exposed_referent)
+                    .chain(borrowed.into_iter().flat_map(|(_, observations)| observations)
+                        .filter(|(value, observation)| protected_referent && path.contains(value)
+                            && (!exposed_referent || opaque && observation.is_immutable_inline()))
+                        .map(|(value, _)| value))
                     .peekable();
 
                 if exposed_referent {

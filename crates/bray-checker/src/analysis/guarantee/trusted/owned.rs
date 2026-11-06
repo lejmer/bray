@@ -65,14 +65,7 @@ impl super::check::TrustedChecks {
                         unreachable!("owned input lineage retains its formal place");
                     };
 
-                    let input = (!domain
-                        .borrowed_inputs
-                        .iter()
-                        .any(|borrow| borrow.contains(&place)))
-                    .then(|| {
-                        super::carriers::portable(domain.request, &ExecutionCondition::Input(place))
-                    })
-                    .flatten();
+                    let input = super::carriers::portable(domain.request, &ExecutionCondition::Input(place));
 
                     Ok::<_, std::convert::Infallible>(
                         input

@@ -16,6 +16,10 @@ trusted internal func record_task_failure(
     {
         ensures(trusted bray.runtime.bootstrap.task.owned_reference(owner = reference))
     }
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    }
 {
     let mut guard = trusted bray.runtime.bootstrap.task.lock_cell(reference);
     let control = trusted guard.get();
@@ -73,6 +77,10 @@ trusted internal func execution_failure(
 trusted internal func fail_observed_task(pos reference: &bray.runtime.bootstrap.task.Reference)
     requires(trusted bray.runtime.bootstrap.task.retained(owner = reference))
     ensures(trusted bray.runtime.bootstrap.task.retained(owner = reference))
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference))
+    }
 {
     let failure = trusted execution_failure(trusted bray.runtime.bootstrap.task.execution_reference(reference));
 
