@@ -503,19 +503,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if !transfers && let StorageInvalidation::Observed { referents, .. } = invalidation {
-            let observed = referents
-                .iter()
-                .filter_map(|path| {
-                    crate::ExecutionPlace::storage_path(self.storage, path)?
-                        .value_in(&state.current)
-                })
-                .collect::<Vec<_>>();
+            let mut observed = Vec::new();
+            let mut address_slots = BTreeSet::new();
+
+            for path in referents {
+                let Some(value) = crate::ExecutionPlace::storage_path(self.storage, path)
+                    .and_then(|place| place.value_in(&state.current))
+                else {
+                    continue;
+                };
+
+                let ty = path.access_id(self.storage)
+                    .and_then(|access| self.storage.access(access))
+                    .map(|access| access.reached_type())
+                    .or_else(|| path.projections.is_empty()
+                        .then(|| self.storage.storage_type(path.root)).flatten());
+
+                if ty.is_some_and(|ty| crate::representation::reference_kind(self.request, ty)
+                    == Some(bray_symbols::DependencyReferenceKind::Address))
+                {
+                    address_slots.insert(value.owner_identity().clone());
+                }
+
+                observed.push(value);
+            }
 
             let unstable = BTreeSet::new();
             let preserved = self.disjoint_initialized_values(state, mutation);
 
             state.invalidate_referents(
                 &observed,
+                &address_slots,
                 if content_only {
                     &self.content_predicates
                 } else {

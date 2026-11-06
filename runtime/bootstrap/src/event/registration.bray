@@ -119,13 +119,11 @@ trusted internal func publish_event_wait(
         trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
     )
     ensures(
         trusted bray.runtime.bootstrap.task.optional_registration(owner = &result),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {
@@ -295,8 +293,7 @@ trusted internal func wait_registration_access(
     requires(trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker))
     ensures(
         trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();

@@ -76,8 +76,7 @@ trusted internal func wait_committed(
     )
     ensures(
         trusted registration_owned(owner = &owner.marker),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
     if let WaitTarget.Event(_, observed, _) | WaitTarget.ExecutionEvent(_, observed) = owner.target
@@ -115,8 +114,7 @@ trusted internal func unlink_registration(
     )
     ensures(
         trusted registration_owned(owner = &owner.marker),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {

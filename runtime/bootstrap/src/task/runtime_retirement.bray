@@ -89,8 +89,7 @@ trusted internal func retire_runtime_slot(
         requires(lease.active, trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
         ensures(
             trusted retained(owner = &result),
-            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-            trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+            trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
         )
     {
         return
@@ -135,14 +134,12 @@ trusted internal func close_runtime_admission(
     requires(
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
         trusted retained(owner = reference),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
         !result.0 || trusted released(owner = reference),
         trusted bray.runtime.bootstrap.execution.retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {

@@ -141,11 +141,10 @@ trusted internal func initialize_host() -> u32
     >
         requires(
             lease.active,
-            trusted host_access_idle(owner = lease),
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
         )
-        ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+        ensures(trusted host_access_live(owner = &lease.acquisition))
         executes(total)
     {
         let host: &mut HostOwner = trusted host_value(lease, anchor);
@@ -267,11 +266,10 @@ trusted internal func initialize_host() -> u32
             requires(
                 trusted prepared_host_storage(owner = &prepared),
                 lease.active,
-                trusted host_access_idle(owner = lease),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+                trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
             )
-            ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+            ensures(trusted host_access_live(owner = &lease.acquisition))
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
@@ -378,10 +376,9 @@ trusted internal func current_native_thread_identity() -> u64
 trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
     requires(
         lease.active,
-        trusted host_access_idle(owner = lease),
         trusted host_access_live(owner = &lease.acquisition)
     )
-    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(total)
 {
     let synchronization = trusted bray.runtime.bootstrap.host.lease_synchronization(lease);
@@ -575,15 +572,13 @@ trusted internal func shutdown_host() -> u32
             requires(
                 trusted prepared_host_storage(owner = &retired),
                 lease.active,
-                trusted host_access_idle(owner = lease),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_anchor_matches(anchor = &anchor, lease = lease)
+                trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
             )
             ensures(
                 trusted prepared_host_storage(owner = &retired),
                 trusted host_access_live(owner = &lease.acquisition),
-                trusted host_access_idle(owner = lease),
-            )
+                )
             executes(total)
             uses(raw_memory, unchecked_alias)
         {
@@ -727,13 +722,11 @@ trusted internal func shutdown_host() -> u32
         requires(
             trusted prepared_host_storage(owner = &retired),
             lease.active,
-            trusted host_access_idle(owner = lease),
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_anchor_matches(anchor = &anchor, lease = lease)
+            trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
         )
         ensures(
             trusted host_access_live(owner = &lease.acquisition),
-            trusted host_access_idle(owner = lease),
             trusted bray.runtime.bootstrap.host.product.native_host(),
             trusted bray.runtime.bootstrap.pool.protocol_access(),
         )

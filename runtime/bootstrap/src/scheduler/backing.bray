@@ -2,7 +2,6 @@
 trusted internal module bray.runtime.bootstrap.scheduler;
 
 using core.target;
-using std.memory;
 using internal bray.runtime.bootstrap.execution;
 
 // Queue storage remains available until the service allocation retires. The
@@ -13,10 +12,12 @@ internal struct Backing
     execution: bray.runtime.bootstrap.execution.Reference?;
 }
 
-trusted internal predicate backing_retained(owner: &Backing);
+internal predicate backing_retained(owner: &Backing) = retained(owner = &owner.scheduler) &&
+    (owner.execution matches none || bray.runtime.bootstrap.execution.retained(owner = backing_execution(owner)));
 
-// The complete backing owns its queue count and any remaining execution pin.
-trusted internal predicate backing_owned(owner: &Backing);
+// Queue ownership and an optional execution pin have independent retirement points.
+internal predicate backing_owned(owner: &Backing) = owned_reference(owner = &owner.scheduler) &&
+    (owner.execution matches none || bray.runtime.bootstrap.execution.pinned(owner = backing_execution(owner)));
 
 trusted internal const func backing_queue(pos owner: &Backing) -> &Reference
     requires(trusted backing_retained(owner = owner))
@@ -63,14 +64,6 @@ trusted internal func execution_backing(pos owner: bray.runtime.bootstrap.execut
 
 trusted internal const func backing_execution(pos owner: &Backing) -> &bray.runtime.bootstrap.execution.Reference
     requires(owner.execution matches ?_)
-    when(trusted backing_retained(owner = owner))
-    {
-        ensures(trusted bray.runtime.bootstrap.execution.retained(owner = result))
-    }
-    when(trusted backing_owned(owner = owner))
-    {
-        ensures(trusted bray.runtime.bootstrap.execution.pinned(owner = result))
-    }
     executes(pure, total)
 {
     return match owner.execution
@@ -92,32 +85,30 @@ trusted internal func take_execution_backing(pos owner: Backing) -> bray.runtime
         trusted bray.runtime.bootstrap.execution.retained(owner = &result),
         trusted bray.runtime.bootstrap.execution.pinned(owner = &result)
     )
-    uses(raw_memory)
 {
-    let queue_pointer = std.memory.address_of<Reference>(backing_queue(&owner));
+    let Backing { scheduler = queue_owner, execution } = owner;
 
-    let execution_pointer = std.memory.address_of<bray.runtime.bootstrap.execution.Reference>(
-        backing_execution(&owner)
-    );
-
-    let execution = trusted std.memory.read<bray.runtime.bootstrap.execution.Reference>(execution_pointer);
-    let queue_owner = trusted std.memory.read<Reference>(queue_pointer);
+    let pin = match consume execution
+    {
+        case ?value { yield value; }
+        case none { panic("execution backing has no pin"); }
+    };
 
     trusted destroy_reference(queue_owner);
-    return execution;
+    return pin;
 }
 
 // Completed execution services and native services both retain a queue owner.
 trusted internal func release_external_backing(pos owner: Backing)
     requires(trusted backing_retained(owner = &owner), trusted backing_owned(owner = &owner))
-    uses(raw_memory)
+    uses(intrinsic)
 {
-    if owner.execution matches ?_
+    let Backing { scheduler = queue_owner, execution } = owner;
+
+    if execution matches ?_
     {
         trusted core.target.abort();
     }
-
-    let queue_owner = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(backing_queue(&owner)));
 
     trusted destroy_reference(queue_owner);
 }

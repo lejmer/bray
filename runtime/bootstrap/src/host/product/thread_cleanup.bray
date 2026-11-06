@@ -20,12 +20,10 @@ trusted internal func select_domain_exit_locked(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
     ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
@@ -69,12 +67,10 @@ trusted internal func acknowledge_domain_locked(
         trusted native_host(),
         trusted bray.runtime.bootstrap.pool.protocol_access(),
         lease.active,
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
     ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(intrinsic)
 {

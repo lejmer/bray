@@ -16,16 +16,13 @@ internal struct Acquisition
 
 trusted internal predicate host_access_live(owner: &Acquisition);
 
-trusted internal predicate host_access_idle(owner: &HostLease);
+trusted internal predicate host_anchor_matches(anchor: &Acquisition, lease: &Acquisition);
 
-trusted internal predicate host_anchor_matches(anchor: &HostAnchor, lease: &HostLease);
-
-trusted internal predicate resident_host_anchor(anchor: &HostAnchor);
-
-// The live acquisition is a value contract. Copying the ordinary owner reference
-// or active flag cannot grant shared mutation authority or release another guard.
+// This access capability has its own identity within the lease. Its relationship
+// to the lock owner survives mutation of the separately borrowed host payload.
 internal struct HostAnchor
 {
+    acquisition: Acquisition;
     owner: &Uninit<HostOwner>;
 }
 
@@ -33,13 +30,13 @@ trusted internal func host_anchor(pos lease: &HostLease) -> HostAnchor
     requires(trusted host_access_live(owner = &lease.acquisition))
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted resident_host_anchor(anchor = &result),
-        trusted host_anchor_matches(anchor = &result, lease = lease),
+        trusted host_anchor_matches(anchor = &result.acquisition, lease = &lease.acquisition),
     )
     executes(pure, total)
 {
     return
     {
+        acquisition = Acquisition {},
         owner = lease.owner
     };
 }
@@ -47,11 +44,10 @@ trusted internal func host_anchor(pos lease: &HostLease) -> HostAnchor
 trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnchor) -> &mut HostOwner
     requires(
         lease.active,
-        trusted host_access_idle(owner = lease),
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_anchor_matches(anchor = &anchor, lease = lease),
+        trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition),
     )
-    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
@@ -60,7 +56,6 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
     let authorize = trusted lambda(pos lease: &HostLease, pos pointer: DataPointer<HostOwner>)
         requires(
             lease.active,
-            trusted host_access_idle(owner = lease),
             trusted host_access_live(owner = &lease.acquisition)
         )
         ensures(
@@ -109,7 +104,7 @@ internal struct HostLease
 }
 
 trusted internal func host_access() -> HostLease
-    ensures(trusted host_access_live(owner = &result.acquisition), trusted host_access_idle(owner = &result))
+    ensures(trusted host_access_live(owner = &result.acquisition))
     uses(intrinsic, raw_memory, unchecked_alias)
 {
     let synchronization = trusted std.memory.borrow_from<Synchronization, Uninit<Synchronization>>(
@@ -180,8 +175,7 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
         result.active,
         trusted prepared_host_storage(owner = storage),
         trusted host_access_live(owner = &result.acquisition),
-        trusted host_access_idle(owner = &result),
-    )
+        )
 {
     while true
     {

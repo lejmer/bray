@@ -336,12 +336,19 @@ impl ExecutionState {
     pub(super) fn invalidate_referents(
         &mut self,
         values: &[ExecutionCondition],
+        address_slots: &BTreeSet<ExecutionCondition>,
         stable_predicates: &BTreeSet<bray_symbols::PredicateDefinitionSymbolId>,
         preserved: &BTreeSet<ExecutionCondition>,
         stable_values: &BTreeSet<ExecutionCondition>,
     ) {
         if values.is_empty() {
             return;
+        }
+
+        let mut referents = crate::execution_guarantees::ObservationSet::default();
+
+        for value in values {
+            referents.insert(value.clone());
         }
 
         let revokes = |condition: &ExecutionCondition| {
@@ -353,7 +360,12 @@ impl ExecutionState {
             !preserved.contains(condition)
                 && !condition.observes_only(stable_values)
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                && values.iter().any(|value| condition.observes(value))
+                && condition.observations_except(|observation| {
+                    // A borrow of an address slot observes the descriptor itself.
+                    // Pointee mutation still revokes claims on the unborrowed address.
+                    matches!(observation, ExecutionCondition::Borrowed(value)
+                        if address_slots.contains(value.owner_identity()))
+                }).any(|observation| referents.overlaps(observation))
         };
 
         let revokes_observation = |condition: &ExecutionCondition| {

@@ -212,7 +212,6 @@ trusted internal predicate retained_attachment_exit(slot: &AttachmentSlot, lease
 trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &AttachmentSlot) -> AttachmentExit
     requires(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
         trusted retained_attachment_exit(slot = slot, lease = lease),
         trusted core.memory.valid_read<AttachmentExit>(pointer = slot.value, count = 1),
         trusted core.memory.aligned_for<AttachmentExit>(pointer = slot.value),
@@ -222,7 +221,6 @@ trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &Att
     )
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
         trusted attachment_exit_selected(owner = &result)
     )
     executes(total)
@@ -239,7 +237,6 @@ trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &Att
 trusted internal func release_attachment_exit(pos lease: HostLease, pos selected: AttachmentExit) -> AttachmentExit
     requires(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = &lease),
         trusted attachment_exit_selected(owner = &selected)
     )
     ensures(trusted attachment_exit_selected(owner = &result))
@@ -269,7 +266,6 @@ trusted internal func request_attachment_exit(
     requires(trusted bray.runtime.bootstrap.thread.destruction.exit_scope_live(owner = scope))
     ensures(
         trusted host_access_live(owner = &result.0.acquisition),
-        trusted host_access_idle(owner = &result.0),
         trusted attachment_exit_request_live(scope = &result.1, lease = &result.0)
     )
 {
@@ -293,12 +289,10 @@ trusted internal func select_attachment_slot(
     requires(
         trusted attachment_exit_request_live(scope = scope, lease = lease),
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
-        trusted host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
     )
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
         !result.pending || trusted retained_attachment_exit(slot = &result.slot, lease = lease),
         !result.pending || trusted core.memory.valid_read<AttachmentExit>(pointer = result.slot.value, count = 1),
         !result.pending || trusted core.memory.aligned_for<AttachmentExit>(pointer = result.slot.value),

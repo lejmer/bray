@@ -71,12 +71,10 @@ trusted internal func select_cleanup_slot(
 ) -> AttachmentSelection
     requires(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
-        trusted host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
     )
     ensures(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
         !result.pending || trusted vacant_attachment_exit(slot = &result.slot, lease = lease),
         !result.pending || trusted core.memory.valid_write<(AttachmentExit?)>(pointer = result.slot.storage, count = 1),
         !result.pending || trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = result.slot.storage)
@@ -148,7 +146,6 @@ trusted internal func prepare_attachment_cleanup(
 ) -> (HostLease, AttachmentSelection, AttachmentExit)
     ensures(
         trusted host_access_live(owner = &result.0.acquisition),
-        trusted host_access_idle(owner = &result.0),
         !result.1.pending || trusted vacant_attachment_exit(slot = &result.1.slot, lease = &result.0),
         !result.1.pending || trusted core.memory.valid_write<(AttachmentExit?)>(
             pointer = result.1.slot.storage,
@@ -183,7 +180,6 @@ trusted internal func prepare_attachment_cleanup(
 trusted internal func publish_attachment_cleanup(pos prepared: (HostLease, AttachmentSelection, AttachmentExit)) -> u32
     requires(
         trusted host_access_live(owner = &prepared.0.acquisition),
-        trusted host_access_idle(owner = &prepared.0),
         !prepared.1.pending || trusted vacant_attachment_exit(slot = &prepared.1.slot, lease = &prepared.0),
         !prepared.1.pending || trusted core.memory.valid_write<(AttachmentExit?)>(
             pointer = prepared.1.slot.storage,
@@ -207,7 +203,6 @@ trusted internal func store_attachment_cleanup(
 ) -> u32
     requires(
         trusted host_access_live(owner = &lease.acquisition),
-        trusted host_access_idle(owner = lease),
         !selected.pending || trusted vacant_attachment_exit(slot = &selected.slot, lease = lease),
         !selected.pending || trusted core.memory.valid_write<(AttachmentExit?)>(
             pointer = selected.slot.storage,
@@ -217,7 +212,7 @@ trusted internal func store_attachment_cleanup(
         trusted attachment_exit_inactive(owner = &owner),
         trusted prepared_attachment_exit(owner = &owner, slot = &selected.slot, lease = lease)
     )
-    ensures(trusted host_access_live(owner = &lease.acquisition), trusted host_access_idle(owner = lease))
+    ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(total)
     uses(raw_memory, unchecked_init)
 {

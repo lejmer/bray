@@ -12,7 +12,8 @@ trusted internal func deadlines_startup() -> u32
     requires(
         blocking_execution(),
         trusted bray.runtime.bootstrap.entry.native_entry(),
-        trusted bray.runtime.bootstrap.host.product.native_host()
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
     )
 {
     let selected = trusted current();
@@ -34,7 +35,9 @@ trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execut
     requires(
         blocking_execution(),
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.product.native_host()
+        trusted bray.runtime.bootstrap.entry.native_entry(),
+        trusted bray.runtime.bootstrap.host.product.native_host(),
+        trusted bray.runtime.bootstrap.pool.protocol_access()
     )
     ensures(trusted retained(owner = owner))
 {

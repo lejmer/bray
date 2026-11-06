@@ -331,6 +331,9 @@ fn returned_owners(
             continue;
         }
 
+        // Publish the complete returned observation as well as its identity. Local
+        // component snapshots belong to this owner and need not escape in metadata.
+        owners.insert(value.clone(), path.clone());
         owners.insert(value.owner_identity().clone(), path.clone());
 
         match value {

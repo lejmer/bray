@@ -31,7 +31,7 @@ trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> B
         trusted pinned(owner = &owner.execution)
     )
     ensures(trusted view_owned(owner = &selected.acquisition), trusted kernel_binding(owner = &result))
-    uses(layout_reinterpret, raw_memory)
+    uses(layout_reinterpret)
 {
     let root: CloseRoot = close_owner_binding;
 
@@ -52,7 +52,7 @@ trusted internal func own_binding(pos selected: &Current, pos owner: Owner) -> B
 
     return
     {
-        execution = trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution)),
+        execution = owner.execution,
         close = close,
         release = release_pin_binding,
         suspend = suspend_binding,
@@ -156,7 +156,7 @@ trusted internal func close_owner(
         trusted retained(owner = &result),
         trusted pinned(owner = &result)
     )
-    uses(foreign_call, raw_memory)
+    uses(foreign_call)
 {
     let value = trusted domain(&owner.execution);
     let previous = core.atomic.fetch_sub<usize, 3>(&value.owners, 1);
@@ -196,7 +196,7 @@ trusted internal func close_owner(
 
     // The service claim ends with this consumed owner. Transfer its actual
     // independent pin after the counter and closing callbacks have committed.
-    return trusted std.memory.read<Reference>(std.memory.address_of<Reference>(&owner.execution));
+    return owner.execution;
 }
 
 // The resident host owns product eligibility. This operation only closes the
