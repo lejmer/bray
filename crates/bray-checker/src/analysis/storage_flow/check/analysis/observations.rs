@@ -533,7 +533,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .entry()
                 .expect("exact reference has an input origin");
 
-            let Some(prepared) = contracts.reference_path(entry) else {
+            let Some(observed) = self.invocation_logical_path(occurrence, entry) else {
                 continue;
             };
 
@@ -551,16 +551,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let Some(access) = base.access_id(self.storage) else {
                 continue;
-            };
-
-            let observed = StoragePath {
-                root: base.root,
-                projections: base
-                    .projections
-                    .iter()
-                    .chain(prepared.projections())
-                    .copied()
-                    .collect(),
             };
 
             self.reference_observation(
@@ -617,11 +607,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let Some(prepared) = contracts.reference_path(subject) else {
-                continue;
-            };
-
-            let Some(base) = self.invocation_place(occurrence, subject.subject_root()) else {
+            let Some(observed) = self.invocation_logical_path(occurrence, subject) else {
                 continue;
             };
 
@@ -645,18 +631,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            observations.insert(
-                StoragePath {
-                    root: base.root,
-                    projections: base
-                        .projections
-                        .iter()
-                        .chain(prepared.projections())
-                        .copied()
-                        .collect(),
-                },
-                target.clone(),
-            );
+            observations.insert(observed, target.clone());
         }
 
         let completion = bray_bound_tree::StorageCompletion::new(

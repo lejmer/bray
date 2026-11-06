@@ -5608,3 +5608,75 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
         );
     }
 }
+
+#[test]
+fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
+    for (operation, valid) in [("", true), ("replace(&mut owner);", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; pointer: DataPointer<u8>; }}
+            trusted predicate live(owner: &Marker);
+            trusted func make(pos pointer: DataPointer<u8>) -> Owner
+                ensures(trusted live(&result.marker))
+            {{
+                return {{ marker = Marker {{}}, pointer = pointer }};
+            }}
+            const func present(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_) executes(pure, total)
+            {{
+                return match owner {{
+                    case ?value {{ yield &value; }}
+                    case none {{ panic("missing owner"); }}
+                }};
+            }}
+            predicate optional_live(owner: &(Owner?)) =
+                owner matches none || live(&present(owner).marker);
+
+            extern func exchange(pos pointer: DataPointer<u8>?) -> DataPointer<u8>;
+            extern func replace(pos owner: (&mut Owner)?);
+            extern func activity();
+            func release(pos owner: Owner) requires(trusted live(&owner.marker)) {{}}
+            func forward(pos owner: Owner?, pos reject: bool) -> Result<unit, (Owner?, u32)>
+                requires(trusted optional_live(&owner))
+            {{
+                activity();
+                if reject {{ return Error((owner, 4)); }}
+                return Ok(unit);
+            }}
+            func caller(pos pointer: DataPointer<u8>, pos reject: bool) {{
+                let mut owner = make(pointer);
+                _ = exchange(owner.pointer);
+                {operation}
+                match consume forward(owner, reject) {{
+                    case Ok(_) {{}}
+                    case Error((rejected, _)) {{
+                        match consume rejected {{
+                            case ?value {{ release(value); }}
+                            case none {{}}
+                        }}
+                    }}
+                }}
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+
+        assert!(!application.syntax_tree_result().diagnostics().has_errors(), "{source}");
+
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(!diagnostics.has_errors(), valid, "{source}: {diagnostics:#?}");
+
+        if !valid {
+            assert!(diagnostics.iter().any(|diagnostic| matches!(diagnostic.kind(),
+                bray_diagnostics::DiagnosticKind::CheckingTrustedObligationNotProven
+                    | bray_diagnostics::DiagnosticKind::CheckingTrustedWitnessTransferNotProven
+            )), "{diagnostics:#?}");
+        }
+    }
+}

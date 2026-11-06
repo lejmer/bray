@@ -61,16 +61,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let mut output =
                 crate::storage::owned_storage_projections(self.dependencies, transfer.output());
 
-            // Default-call slots already contain adapted values. Other invocations
-            // name the actual source storage, before nullable wrapping.
-            let wrapping = if !selection.evaluates_defaults()
-                && let Some(selected) = selection.input(ordinal)
-                && let Some(expression) = selected.expression()
-            {
-                self.reference_wrapping(expression, selected.ty(self.request.semantic_values()))?
-            } else {
-                Vec::new()
-            };
+            let wrapping = self.invocation_wrapping(occurrence, root);
 
             let input = if let Some(path) = input.strip_prefix(wrapping.as_slice()) {
                 path
