@@ -106,15 +106,7 @@ impl StorageFlowInput {
 
         // Returned reference origins are needed even when a body has no memory effects.
         // Share the same type-shape preparation with mutation observations.
-        let footprint = crate::storage::observation::prepare(request, storage, memory, dependencies)?;
-
-        let tag_preserving_assignments = Self::prepare_assignment_observations(
-            cleanup_shapes,
-            request,
-            storage,
-            selections,
-            &footprint,
-        )?;
+        let footprint = crate::storage::observation::prepare(request, storage)?;
 
         let mut demands = BTreeMap::<_, BTreeSet<_>>::new();
 
@@ -158,7 +150,6 @@ impl StorageFlowInput {
             footprint,
             opaque_values,
             opaque_candidates,
-            tag_preserving_assignments,
             retained_storage,
             initialization_destinations,
             mutable_storage,
@@ -178,11 +169,22 @@ impl StorageFlowInput {
         input.prepare_locations(storage, cleanup);
         input.prepare_report_dependencies(request, storage, liveness, dependencies, cleanup);
 
-        input.prepare_reference_constructions(request, storage, values)?;
         input.prepare_reference_paths(request, storage)?;
 
         let lifecycle_demands =
             input.prepare_lifecycle_references(request, cleanup, dependencies)?;
+
+        input.footprint.prepare_stores(request, storage, memory, dependencies, &input.lifecycle_paths)?;
+
+        input.tag_preserving_assignments = Self::prepare_assignment_observations(
+            cleanup_shapes,
+            request,
+            storage,
+            selections,
+            &input.footprint,
+        )?;
+
+        input.prepare_reference_constructions(request, storage, values)?;
 
         for (ty, paths) in lifecycle_demands {
             demands.entry(ty).or_default().extend(paths);

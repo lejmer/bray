@@ -570,6 +570,7 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
     for fields in [
         "tag: usize; pointer: DataPointer<u8>;",
         "storage: Uninit<[u64; 16]>; finish: Native;",
+        "first: &Uninit<u32>; second: &Uninit<u32>;",
     ] {
         for (publish, valid) in [("", true), ("_ = trusted publish(&owner);", false)] {
             let source = format!(
@@ -580,6 +581,10 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 callable Native = @abi(c) trusted func();
                 struct Owner {{ {fields} }}
                 trusted predicate live(owner: &Owner);
+                trusted predicate checked(owner: &Owner);
+                extern trusted func inspect(pos owner: &Owner)
+                    requires(trusted live(owner)) ensures(trusted checked(owner)) executes(pure, total);
+                func observe(pos owner: &Owner) requires(trusted checked(owner)) executes(pure, total) {{}}
                 extern func opaque() executes(total);
                 extern func release_owner(pos owner: Owner) requires(trusted live(owner = &owner)) executes(total);
                 trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
@@ -588,6 +593,8 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 func caller(pos owner: Owner) requires(trusted live(owner = &owner)) {{
                     {publish}
                     opaque();
+                    inspect(&owner);
+                    observe(&owner);
                     release_owner(owner);
                 }}
             "#
@@ -1275,6 +1282,16 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
             true,
         ),
         (
+            "{ let mut writer: Writer = { slot = &mut first }; forward(&mut writer); observe(&writer.slot); }",
+            "first",
+            true,
+        ),
+        (
+            "{ let mut writer: Writer = { slot = &mut first }; forward(&mut writer); writer.slot.epoch = 2; observe(&writer.slot); }",
+            "first",
+            false,
+        ),
+        (
             "{ let writer: Writer = { slot = &mut first }; }",
             "second",
             false,
@@ -1301,6 +1318,8 @@ fn borrowed_postconditions_name_the_updated_storage_only() {
             }}
             trusted func set(pos writer: &mut Writer)
                 ensures(trusted live(&writer.slot)) {{ writer.slot.epoch = 1; }}
+            func forward(pos writer: &mut Writer)
+                ensures(trusted live(&writer.slot)) {{ set(writer); }}
             func observe(pos owner: &Owner) requires(trusted live(owner)) {{}}
             func caller() {{
                 let mut first: Owner = {{ epoch = 0 }};
