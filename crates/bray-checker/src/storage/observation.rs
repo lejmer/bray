@@ -122,37 +122,20 @@ pub(crate) struct Footprint {
 }
 
 impl Footprint {
-    fn observe_identity(
-        &mut self,
-        path: StoragePath,
-        observation: Observation,
-        borrowed: Option<(StoragePath, bray_symbols::BorrowKind)>,
-    ) {
-        if observation == Observation::Marker {
-            // Typed payload stores cannot replace empty markers, including
-            // markers reached through mutable loans.
-            self.empty_markers.insert(path.clone());
-        }
-
-        if let Some((reference, kind)) = borrowed {
-            // An arbitrary mutable call can replace its owner. Only shared
-            // loans protect identity across calls.
-            if kind == bray_symbols::BorrowKind::Shared {
-                self.borrowed_identities
-                    .entry(reference)
-                    .or_default()
-                    .push(path);
-            }
-        } else {
-            self.identities.entry(path.root).or_default().push(path);
-        }
-    }
-
     fn observe_accesses<C: CheckerRequestContext + ?Sized>(
         &mut self,
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
     ) -> BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<TypeId>> {
+        self.atomic = Some(StorageInvalidation::Observed {
+            scope: bray_bound_tree::StorageMutationScope::Unbounded,
+            accesses: BTreeMap::new(),
+            snapshots: BTreeMap::new(),
+            referents: BTreeSet::new(),
+            stable_descriptors: BTreeSet::new(),
+            stable_values: BTreeSet::new(),
+        });
+
         let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
 
         let entry_owners = request
@@ -320,17 +303,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     memory: &bray_bound_tree::CheckedMemoryOperations,
     atomic: bool,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
-    let mut footprint = Footprint {
-        atomic: Some(StorageInvalidation::Observed {
-            scope: bray_bound_tree::StorageMutationScope::Unbounded,
-            accesses: BTreeMap::new(),
-            snapshots: BTreeMap::new(),
-            referents: BTreeSet::new(),
-            stable_descriptors: BTreeSet::new(),
-            stable_values: BTreeSet::new(),
-        }),
-        ..Footprint::default()
-    };
+    let mut footprint = Footprint::default();
 
     let static_types = footprint.observe_accesses(request, storage);
 
@@ -494,7 +467,25 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                                 })
                             });
 
-                            footprint.observe_identity(path, *observation, borrowed);
+                            if *observation == Observation::Marker {
+                                // Typed payload stores cannot replace empty markers,
+                                // including markers reached through mutable loans.
+                                footprint.empty_markers.insert(path.clone());
+                            }
+
+                            if let Some((reference, kind)) = borrowed {
+                                // An arbitrary mutable call can replace its owner.
+                                // Only shared loans protect identity across calls.
+                                if kind == bray_symbols::BorrowKind::Shared {
+                                    footprint
+                                        .borrowed_identities
+                                        .entry(reference)
+                                        .or_default()
+                                        .push(path);
+                                }
+                            } else {
+                                footprint.identities.entry(root).or_default().push(path);
+                            }
                         }
 
                         None

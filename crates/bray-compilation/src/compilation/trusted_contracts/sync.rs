@@ -700,6 +700,38 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
 }
 
 #[test]
+fn borrowed_completion_keeps_the_selected_static_instance() {
+    for (observed, valid) in [("u32", true), ("u64", false)] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Marker {{}}
+            struct Owner {{ marker: Marker; storage: Uninit<u32>; }}
+            static OWNED<T>: Owner = {{ marker = Marker {{}}, storage = core.memory.uninit<u32>() }};
+            trusted predicate held(owner: &Marker);
+            trusted func grant(pos owner: &Owner)
+                ensures(trusted held(owner = &owner.marker)) executes(pure, total) {{}}
+            func observe(pos owner: &Owner) requires(trusted held(owner = &owner.marker)) {{}}
+            func caller() {{
+                grant(&OWNED<u32>);
+                observe(&OWNED<{observed}>);
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
 fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_access() {
     for (body, valid) in [
         ("opaque(); observe_slot(&pointer);", true),

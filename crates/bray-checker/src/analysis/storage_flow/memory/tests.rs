@@ -2916,9 +2916,9 @@ fn retired_local_reference_slots_do_not_expose_their_former_targets() {
 
 #[test]
 fn unknown_references_cannot_reach_unaddressed_inline_storage() {
-    let ([local, borrowed, _, _], _) = places();
+    let ([local, borrowed, pointer, backing], origins) = places();
 
-    let state = State {
+    let mut state = State {
         unaddressed_storage: [local.root].into(),
         ..State::default()
     };
@@ -2927,8 +2927,60 @@ fn unknown_references_cannot_reach_unaddressed_inline_storage() {
     assert!(state.unknown_reference_may_reach(&Target::storage(borrowed)));
 
     assert!(state.unknown_reference_may_reach(
-        &Target::storage(local).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
+        &Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]),
     ));
+
+    let retained = super::model::References::one(Target::storage(backing));
+
+    state
+        .values
+        .insert(Target::storage(local.clone()), retained.clone());
+    state
+        .values
+        .insert(Target::storage(borrowed.clone()), retained.clone());
+    state.values.insert(
+        Target::storage(pointer.clone()),
+        super::model::References {
+            unknown: true,
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(
+        state.write(
+            &Target::storage(pointer.clone()),
+            error_type(),
+            origins[0],
+            None
+        ),
+        MemoryOperationStatus::Valid,
+    );
+    assert_eq!(
+        state.values.get(&Target::storage(local.clone())),
+        Some(&retained)
+    );
+    assert!(state.values[&Target::storage(borrowed)].unknown);
+
+    state.values.insert(
+        Target::storage(pointer.clone()),
+        super::model::References {
+            unknown: true,
+            ..super::model::References::one(Target::storage(local.clone()))
+        },
+    );
+    state.write(&Target::storage(pointer), error_type(), origins[0], None);
+
+    assert!(state.values[&Target::storage(local.clone())].unknown);
+
+    // A known target remains authoritative even when its slot is otherwise private.
+    state.write_value(
+        Target::storage(local.clone()),
+        error_type(),
+        origins[1],
+        None,
+    );
+
+    assert!(!state.values.contains_key(&Target::storage(local)));
 }
 
 #[test]

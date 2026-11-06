@@ -184,7 +184,7 @@ impl ExecutionCondition {
         }
 
         if self == consequence {
-            return true;
+            return !self.contains_unknown();
         }
 
         let mut evidence = BTreeSet::new();

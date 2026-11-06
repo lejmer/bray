@@ -128,7 +128,7 @@ trusted internal func binding_driver(pos context: DataPointer<Context>) -> Curre
 }
 
 @abi(c)
-trusted internal func close_owner_binding(pos owner: Owner) -> Owner
+trusted internal func close_owner_binding(pos mut owner: Owner) -> Owner
     requires(
         blocking_execution(),
         trusted retained(owner = &owner.execution),
@@ -148,15 +148,16 @@ trusted internal func close_owner_binding(pos owner: Owner) -> Owner
         trusted core.target.abort();
     }
 
-    return trusted close_owner(&selected, owner);
+    trusted close_owner(&selected, &mut owner);
+    return owner;
 }
 
-trusted internal func close_owner(pos selected: &Current, pos mut owner: Owner) -> Owner
+trusted internal func close_owner(pos selected: &Current, pos owner: &mut Owner)
     requires(
         blocking_execution(),
         trusted view_owned(owner = &selected.acquisition),
         trusted bray.runtime.bootstrap.execution.retained(owner = &owner.execution),
-        trusted service_owner(owner = &owner),
+        trusted service_owner(owner = owner),
         trusted pinned(owner = &owner.execution),
         trusted bray.runtime.bootstrap.entry.native_entry(),
         trusted bray.runtime.bootstrap.host.product.native_host(),
@@ -164,9 +165,9 @@ trusted internal func close_owner(pos selected: &Current, pos mut owner: Owner) 
     )
     ensures(
         trusted view_owned(owner = &selected.acquisition),
-        trusted retained(owner = &result.execution),
-        trusted pinned(owner = &result.execution),
-        trusted !service_owner(owner = &result)
+        trusted retained(owner = &owner.execution),
+        trusted pinned(owner = &owner.execution),
+        trusted !service_owner(owner = owner)
     )
     uses(foreign_call)
 {
@@ -211,8 +212,6 @@ trusted internal func close_owner(pos selected: &Current, pos mut owner: Owner) 
     owner.acquisition = Acquisition
     {
     };
-
-    return owner;
 }
 
 // The resident host owns product eligibility. This operation only closes the

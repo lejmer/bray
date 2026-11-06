@@ -211,12 +211,20 @@ impl State {
             .chain(self.values.keys())
             .chain(references.targets.iter())
             .filter(|candidate| {
-                regions.as_ref().is_none_or(|regions| {
-                    regions.iter().any(|target| {
-                        self.target_relationship(target, candidate)
-                            != bray_bound_tree::StorageRelationship::Disjoint
-                    })
-                })
+                let reaches = |target: &Target| {
+                    self.target_relationship(target, candidate)
+                        != bray_bound_tree::StorageRelationship::Disjoint
+                };
+
+                match &regions {
+                    Some(regions) => regions.iter().any(reaches),
+                    // An unresolved pointer can still retain explicit possible
+                    // targets. Its unknown part cannot address private inline slots.
+                    None => {
+                        self.unknown_reference_may_reach(candidate)
+                            || references.targets.iter().any(reaches)
+                    }
+                }
             })
             // Targets share immutable paths while each transition owns its affected set.
             .cloned()
