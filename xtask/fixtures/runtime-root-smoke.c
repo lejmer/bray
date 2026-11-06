@@ -137,17 +137,27 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
     {
         frame->value = 7;
         frame->lexical_cleanup = 1;
-        *progress = (ActivationProgress){ .kind = 1, .state = 1, .payload = (uintptr_t)&frame->value };
+        *progress = (ActivationProgress) {
+            .kind = 1,
+            .state = 1,
+            .payload = (uintptr_t)&frame->value,
+        };
         return;
     }
 
-    if (frame->mode == ROOT_SUCCESS && frame->resumes == 1)
+    if (
+        frame->mode == ROOT_SUCCESS &&
+        frame->resumes == 1
+    )
     {
         *progress = (ActivationProgress){ .kind = 5, .state = 1 };
         return;
     }
 
-    if (frame->mode == ROOT_SUCCESS && frame->resumes == 2)
+    if (
+        frame->mode == ROOT_SUCCESS &&
+        frame->resumes == 2
+    )
     {
         const ActivationDescriptor* descriptor = frame->header.descriptor;
         CleanupLease lease = { 0 };
@@ -181,7 +191,10 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
         RunOutcome child = { 0 };
         bray_runtime_frame_completion_move(&frame->header, &child);
 
-        if (child.state != 0 || frame->value != 7)
+        if (
+            child.state != 0 ||
+            frame->value != 7
+        )
             abort();
 
         frame->value = 101;
@@ -192,7 +205,11 @@ static void root_resume(ActivationProgress* progress, uintptr_t context)
     if (frame->mode == ROOT_PANICKED)
         *progress = (ActivationProgress){ .kind = 3, .state = 1, .report = panic_report() };
     else
-        *progress = (ActivationProgress){ .kind = 1, .state = 1, .payload = (uintptr_t)&frame->value };
+        *progress = (ActivationProgress) {
+            .kind = 1,
+            .state = 1,
+            .payload = (uintptr_t)&frame->value,
+        };
 }
 
 static void root_cancel(ActivationProgress* progress, uintptr_t context)
@@ -296,23 +313,37 @@ static int check_execution_roots(void)
     if (bray_runtime_cleanup_storage_admission(&descriptor.storage, &rejected_lease) != 0)
         return 249;
 
-    RootFrame* rejected_frame = bray_runtime_cleanup_storage_activation(&rejected_lease, &descriptor.storage);
+    RootFrame* rejected_frame = bray_runtime_cleanup_storage_activation(
+        &rejected_lease,
+        &descriptor.storage
+    );
     InactiveActivation rejected_token = { rejected_lease, &descriptor };
 
     if (rejected_frame == NULL)
         return 249;
 
-    bray_runtime_activation_initialization(&rejected_token, (uintptr_t)rejected_frame, &rejected_records);
+    bray_runtime_activation_initialization(
+        &rejected_token,
+        (uintptr_t)rejected_frame,
+        &rejected_records
+    );
     rejected_frame->mode = ROOT_REJECTED_BLOCKING;
     rejected_frame->resumes = 0;
 
     if (bray_runtime_activation_publication(&rejected_token) != 0)
         return 249;
 
-    RootAdmission rejected = bray_runtime_root_execution((uintptr_t)&rejected_token, &rejected_outcome);
+    RootAdmission rejected = bray_runtime_root_execution(
+        (uintptr_t)&rejected_token,
+        &rejected_outcome
+    );
     unsigned before_rejection_disposal = root_destructions;
 
-    if (rejected.status == 0 || rejected.task != 0 || rejected_frame->resumes != 0)
+    if (
+        rejected.status == 0 ||
+        rejected.task != 0 ||
+        rejected_frame->resumes != 0
+    )
         return 249;
 
     bray_runtime_inactive_frame_broadcast(
@@ -328,7 +359,10 @@ static int check_execution_roots(void)
         &rejected_outcome
     );
 
-    if (rejected_outcome.state != 0 || root_destructions != before_rejection_disposal + 1)
+    if (
+        rejected_outcome.state != 0 ||
+        root_destructions != before_rejection_disposal + 1
+    )
         return 249;
 
     for (enum RootMode mode = ROOT_SUCCESS; mode <= ROOT_CANCELLED; ++mode)
@@ -359,7 +393,10 @@ static int check_execution_roots(void)
         unsigned destructions = root_destructions;
         unsigned child_destructions = root_child_destructions;
 
-        if (admitted.status != 0 || admitted.task == 0)
+        if (
+            admitted.status != 0 ||
+            admitted.task == 0
+        )
             return 249;
 
         if (mode == ROOT_CANCELLED)
@@ -375,12 +412,18 @@ static int check_execution_roots(void)
 
         outcome = bray_runtime_root_terminal_observation(admitted.task);
 
-        if (frame->lexical_cleanup != 1 || root_destructions != destructions)
+        if (
+            frame->lexical_cleanup != 1 ||
+            root_destructions != destructions
+        )
             return 249;
 
         if (mode == ROOT_PANICKED)
         {
-            if (outcome.state != 2 || bray_runtime_panic_report_destruction(&outcome.report) != 0)
+            if (
+                outcome.state != 2 ||
+                bray_runtime_panic_report_destruction(&outcome.report) != 0
+            )
                 return 249;
         }
         else if (mode == ROOT_CANCELLED)
