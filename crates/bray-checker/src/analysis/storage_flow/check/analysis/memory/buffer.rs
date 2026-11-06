@@ -103,8 +103,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 owner.project(&[bray_bound_tree::StorageProjection::ProductField(
                     fields.initialized,
                 )]),
-                DependencyMutationKind::Write,
-            ));
+                DependencyMutationKind::Write, None));
 
             if let Some(kind) = transition {
                 effects.extend(
@@ -115,7 +114,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageProjection::ProductField(fields.pointer),
                         )?
                         .into_iter()
-                        .map(|target| Effect::Mutation(target, kind)),
+                        .map(|target| Effect::Mutation(target, kind, None)),
                 );
             }
         }
@@ -222,40 +221,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 for owner in owners {
                     effects.push(Effect::Mutation(
                         owner.project(&[StorageProjection::ProductField(fields.initialized)]),
-                        DependencyMutationKind::Write,
-                    ));
+                        DependencyMutationKind::Write, None));
                 }
 
                 effects.extend(
                     regions
                         .iter()
                         .flatten()
-                        .map(|target| Effect::Mutation(target.clone(), kind)),
+                        .map(|target| Effect::Mutation(target.clone(), kind, None)),
                 );
             }
         } else {
             effects.extend(destinations.iter().map(|target| {
-                Effect::Mutation(target.clone(), DependencyMutationKind::Replace(buffer_type))
+                Effect::Mutation(target.clone(), DependencyMutationKind::Replace(buffer_type), None)
             }));
 
             effects.extend(
                 sources
                     .iter()
-                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Clear)),
+                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Clear, None)),
             );
         }
 
         // A transfer can publish its payload through the destination, never the
         // address of either buffer descriptor or its enclosing allocation.
         if destinations.iter().any(|target| {
-            Effect::Mutation(target.clone(), DependencyMutationKind::Write)
+            Effect::Mutation(target.clone(), DependencyMutationKind::Write, None)
                 .may_retain_address(&state.memory)
         }) {
             effects.extend(
                 source_regions
                     .iter()
                     .flatten()
-                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Escape)),
+                    .map(|target| Effect::Mutation(target.clone(), DependencyMutationKind::Escape, None)),
             );
         }
 
@@ -299,8 +297,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         for owner in &owners {
             effects.push(Effect::Mutation(
                 owner.clone(),
-                DependencyMutationKind::Clear,
-            ));
+                DependencyMutationKind::Clear, None));
 
             effects.extend(
                 state
@@ -310,7 +307,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         bray_bound_tree::StorageProjection::ProductField(fields.pointer),
                     )?
                     .into_iter()
-                    .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire)),
+                    .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire, None)),
             );
         }
 

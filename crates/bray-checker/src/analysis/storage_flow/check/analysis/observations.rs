@@ -215,20 +215,26 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             _ => None,
         });
 
-        let mut types = std::collections::BTreeSet::new();
-        let mut complete = effects.is_some() || typed_transfer.is_some();
-        let mut writes = false;
+        let raw_operation = operation.is_some_and(|operation| matches!(operation.kind(),
+            Operation::Read { .. } | Operation::VolatileRead { .. } | Operation::Write { .. }
+            | Operation::Copy { .. } | Operation::VolatileWrite { .. }));
 
-        types.extend(typed_transfer);
+        let mut types = std::collections::BTreeMap::new();
+        let mut complete = effects.is_some() || typed_transfer.is_some();
+
+        if let Some(ty) = typed_transfer { types.insert(ty, raw_operation); }
 
         for effect in effects.into_iter().flatten() {
-            writes |= matches!(effect, Effect::Mutation(_, Mutation::Write | Mutation::Replace(_) | Mutation::Clear | Mutation::Retire)
-                | Effect::Cleanup(_));
+            let raw = raw_operation || match effect {
+                Effect::Mutation(_, _, Some(ty)) => crate::representation::reference_kind(self.request, *ty)
+                    == Some(bray_symbols::DependencyReferenceKind::Address),
+                _ => false,
+            };
 
             let ty = match effect {
-                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => continue,
-                Effect::Mutation(_, Mutation::Replace(ty)) => Some(*ty),
-                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
+                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic, _) => continue,
+                Effect::Mutation(_, Mutation::Replace(ty), _) => Some(*ty),
+                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear, _) => {
                     if typed_transfer.is_some() { continue; }
 
                     match memory.projected_type(self.request, target) {
@@ -240,7 +246,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         }
                     }
                 }
-                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire) => {
+                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire, _) => {
                     // A checked raw operation supplies its actual transfer type even
                     // when the reached address has an ambient storage summary.
                     if typed_transfer.is_some() { continue; }
@@ -249,13 +255,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
             };
 
-            if let Some(ty) = ty { types.insert(ty); } else { complete = false; }
+            if let Some(ty) = ty {
+                types.entry(ty).and_modify(|previous| *previous |= raw).or_insert(raw);
+            } else { complete = false; }
         }
 
         let transferred = self.input.footprint.preserve_transfer_markers(&types, complete, invalidation);
 
         self.preserve_active_borrows(state, memory, &transferred, invalidation);
-        self.preserve_shared_views(memory, &transferred, writes, invalidation);
+        self.preserve_shared_views(memory, &transferred, invalidation);
     }
 
     fn preserve_active_borrows(
@@ -348,11 +356,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         continue;
                     }
 
-                    let survives = match observation {
-                        bray_bound_tree::StorageObservationKind::Marker(ty) => !transferred.contains(&ty),
-                        bray_bound_tree::StorageObservationKind::Discriminant => false,
-                        _ => transferred.is_empty(),
-                    };
+                    let survives = observation_survives_transfer(observation, transferred);
 
                     if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
                         stable_values.insert(value.clone());
@@ -383,7 +387,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
         transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
-        writes: bool,
         invalidation: &mut StorageInvalidation,
     ) {
         let (stable_descriptors, stable_values, changed) = match invalidation {
@@ -408,7 +411,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // Replacing a reference slot ends that view. Changes reached through
             // its value use different accesses and do not replace the descriptor.
-            if access.is_some_and(|access| changed.as_ref().is_some_and(|paths| paths.contains_key(&access))) {
+            if access.is_some_and(|access| {
+                self.input.reference_paths.get(&access).is_none_or(|(_, path)| path.borrows().is_empty())
+                    && changed.as_ref().is_some_and(|paths| paths.contains_key(&access))
+            }) {
                 continue;
             }
 
@@ -444,13 +450,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             for (path, observation) in observations {
                 // A whole-value frame must not hide a retired marker inside it.
                 // Disjoint observations already survive the physical invalidation.
-                let retired = match observation {
-                    bray_bound_tree::StorageObservationKind::Marker(ty) => transferred.contains(ty),
-                    bray_bound_tree::StorageObservationKind::Value | bray_bound_tree::StorageObservationKind::Identity => !transferred.is_empty(),
-                    _ => false,
-                };
-
-                if retired || *observation == bray_bound_tree::StorageObservationKind::Discriminant {
+                if !observation_survives_transfer(*observation, transferred) {
                     continue;
                 }
 
@@ -474,11 +474,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
                                 let framed = if address { stable_descriptors.contains(path) } else { stable_values.contains(path) };
 
-                                framed || (!writes || changed.is_none()) && (immutable_value || address
+                                framed || immutable_value || address
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
-                                    }))
+                                    })
                             }
                             _ => target
                                 .storage_path()
@@ -638,7 +638,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 .any(|effect| matches!(effect, Effect::Escape | Effect::Atomic));
 
             let escaped = effects.iter().filter_map(|effect| match effect {
-                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape) => {
+                Effect::Mutation(target, bray_symbols::DependencyMutationKind::Escape, _) => {
                     Some(target.clone())
                 }
                 _ => None,
@@ -1096,5 +1096,19 @@ fn observable_path(
                 *projection != bray_bound_tree::StorageProjection::UninitPayload
             })
             .collect(),
+    }
+}
+
+fn observation_survives_transfer(
+    observation: bray_bound_tree::StorageObservationKind,
+    transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
+) -> bool {
+    use bray_bound_tree::StorageObservationKind as Observation;
+
+    match observation {
+        Observation::Marker(ty) => !transferred.contains(&ty),
+        Observation::Value | Observation::Mutable | Observation::Identity => transferred.is_empty(),
+        Observation::Address => true,
+        Observation::Discriminant | Observation::Reference(_) => false,
     }
 }

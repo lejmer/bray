@@ -480,7 +480,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         let mut effects = targets
             .into_iter()
-            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire))
+            .map(|target| Effect::Mutation(target, DependencyMutationKind::Retire, None))
             .collect::<Vec<_>>();
 
         if has_backing && *elements {
@@ -632,7 +632,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let contracts = &self.dependencies.lifecycle_dependencies()[&lifecycle.call.callable];
 
         Some(
-            self.resolve_effects(contracts.effects(), |subject, indirect| {
+            self.resolve_effects(contracts.effects(), |subject| {
+                self.input.lifecycle_paths.get(&(lifecycle.call.callable, subject.clone())).map(|(ty, _)| *ty)
+            }, |subject, indirect| {
                 if let Some(location) = self.static_location(subject) {
                     return if indirect {
                         memory.referenced_regions(&location)

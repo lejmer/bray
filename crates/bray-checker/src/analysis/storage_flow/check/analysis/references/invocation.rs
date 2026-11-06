@@ -125,7 +125,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .filter_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Escape) => Some(target),
+                Effect::Mutation(target, DependencyMutationKind::Escape, _) => Some(target),
                 _ => None,
             })
             .chain(roots.iter().filter(|_| all_inputs))
