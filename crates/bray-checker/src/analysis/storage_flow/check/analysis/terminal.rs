@@ -127,7 +127,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     state,
                     &state.memory,
                     operation,
-                    Some(&[Effect::Mutation(target.clone(), mutation, None)]),
+                    Some(&[Effect::Mutation(target.clone(), mutation)]),
                     [],
                 );
             } else if matches!(mutation, DependencyMutationKind::Replace(ty) if self.input.graceful_types.contains(&ty))
@@ -170,12 +170,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         // Unknown writes and opaque cleanup still need a reachability proof.
         let relevant = effects.is_none_or(|effects| {
             effects.iter().any(|effect| match effect {
-                Effect::Mutation(_, DependencyMutationKind::Replace(ty), _) => {
+                Effect::Mutation(_, DependencyMutationKind::Replace(ty)) | Effect::IndirectMutation(_, DependencyMutationKind::Replace(ty), _) => {
                     self.input.graceful_types.contains(ty)
                 }
-                Effect::Mutation(
-                    _,
-                    DependencyMutationKind::Write | DependencyMutationKind::Escape, _)
+                Effect::Mutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Write | DependencyMutationKind::Escape, _)
                 | Effect::Escape
                 | Effect::Unknown
                 | Effect::Ambient
@@ -212,7 +210,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .into_iter()
             .flatten()
             .find_map(|effect| match effect {
-                Effect::Mutation(target, DependencyMutationKind::Replace(ty), _)
+                Effect::Mutation(target, DependencyMutationKind::Replace(ty)) | Effect::IndirectMutation(target, DependencyMutationKind::Replace(ty), _)
                     if self.input.graceful_types.contains(ty) && overlaps(target) =>
                 {
                     Some(*ty)
@@ -241,7 +239,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let reached = memory.reachable_targets(roots.into_iter().filter(|_| inputs));
 
         let unproved = effects.into_iter().flatten().any(|effect| {
-            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape, _) if overlaps(target))
+            matches!(effect, Effect::Mutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape) | Effect::IndirectMutation(target, DependencyMutationKind::Write | DependencyMutationKind::Escape, _) if overlaps(target))
         }) || opaque && (unknown || reached.iter().any(overlaps));
 
         if introduced.is_some() || unproved {

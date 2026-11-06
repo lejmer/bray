@@ -2900,6 +2900,8 @@ fn raw_entry_addresses_do_not_replace_borrowed_owners_at_completion() {
 
 #[test]
 fn typed_data_transfers_preserve_borrowed_ownership_markers() {
+    let mut failures = Vec::new();
+
     for (pointee, value, valid) in [
         ("u32", "1", true),
         ("(u32?)", "none", true),
@@ -2931,6 +2933,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 ("forward(owner)", "", "", true),
             ] {
             let invoke = if through_call { "trusted transfer(destination);" } else { operation.as_str() };
+            let caller_capabilities = if through_call { String::new() } else { format!("uses({capabilities})") };
 
             let source = format!(
                 r#"
@@ -2971,7 +2974,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 requires(trusted held(&owner.marker)) executes(pure, total) {{}}
             trusted func caller(pos owner: &Owner)
                 requires(trusted held(&owner.marker))
-                uses({capabilities})
+                {caller_capabilities}
             {{
                 {expose}
                 let borrowed = {borrowed};
@@ -2985,11 +2988,10 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             let application = compilation(&source);
             let diagnostics = application.check_diagnostics();
 
-            assert_eq!(
-                !diagnostics.has_errors(),
-                valid,
-                "{source}: {diagnostics:#?}"
-            );
+            if diagnostics.has_errors() == valid {
+                failures.push(format!("{source}: {diagnostics:#?}"));
+                continue;
+            }
 
             if !valid {
                 bray_testing::assert_goal_state_diagnostic_kind(
@@ -3000,6 +3002,8 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             }
         }
     }
+
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
 #[test]

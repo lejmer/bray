@@ -14,9 +14,10 @@ pub(in crate::analysis::storage_flow) enum Effect {
     Ambient,
     Escape,
     Atomic,
-    // Keep the checked indirection type with the resolved target. Borrowed
-    // ownership and a raw address grant different mutation permissions.
-    Mutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
+    Mutation(Target, bray_symbols::DependencyMutationKind),
+    // Indirection remains explicit even when an external static has no prepared
+    // reference type. Unknown indirection cannot acquire ordinary borrow framing.
+    IndirectMutation(Target, bray_symbols::DependencyMutationKind, Option<TypeId>),
     Cleanup(TypeId),
 }
 
@@ -28,12 +29,12 @@ impl Effect {
     pub(in crate::analysis::storage_flow) fn is_atomic(&self) -> bool {
         matches!(
             self,
-            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic, _)
+            Self::Atomic | Self::Mutation(_, bray_symbols::DependencyMutationKind::Atomic) | Self::IndirectMutation(_, bray_symbols::DependencyMutationKind::Atomic, _)
         )
     }
 
     pub(super) fn retire(&mut self, current: &Target) {
-        if let Self::Mutation(target, _, _) = self
+        if let Self::Mutation(target, _) | Self::IndirectMutation(target, _, _) = self
             && current.contains(target)
         {
             target.previous = true;
@@ -44,7 +45,7 @@ impl Effect {
         match self {
             // Writes confined to an invocation-local slot do not publish an address.
             // Stored reference relations still track later publication of that slot.
-            Self::Mutation(target, kind, _) => {
+            Self::Mutation(target, kind) | Self::IndirectMutation(target, kind, _) => {
                 kind.is_write()
                     && *kind != bray_symbols::DependencyMutationKind::Clear
                     && target.storage_path().is_none_or(|path| {
@@ -67,8 +68,8 @@ impl Effect {
         &self,
     ) -> Option<(&Target, bray_symbols::DependencyMutationKind)> {
         match self {
-            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
-            Self::Mutation(target, kind, _) => Some((target, *kind)),
+            Self::Mutation(_, bray_symbols::DependencyMutationKind::Escape) | Self::IndirectMutation(_, bray_symbols::DependencyMutationKind::Escape, _) => None,
+            Self::Mutation(target, kind) | Self::IndirectMutation(target, kind, _) => Some((target, *kind)),
             Self::Unknown | Self::Ambient | Self::Escape | Self::Atomic | Self::Cleanup(_) => None,
         }
     }
@@ -215,7 +216,7 @@ impl CapturedEffects {
     pub(super) fn references(&self, current: &Target) -> bool {
         self.escaped.iter().any(|target| current.contains(target))
             || self.mutations.iter().any(
-                |effect| matches!(effect, Effect::Mutation(target, _, _) if current.contains(target)),
+                |effect| matches!(effect, Effect::Mutation(target, _) | Effect::IndirectMutation(target, _, _) if current.contains(target)),
             )
     }
 

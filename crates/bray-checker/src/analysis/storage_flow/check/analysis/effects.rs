@@ -511,8 +511,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind, _) => {
+                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Escape, _) => {}
+                Effect::Mutation(target, kind) | Effect::IndirectMutation(target, kind, _) => {
                     memory.invalidate_target(target, *kind, invalidation)
                 }
                 effect if effect.is_ambient() => {
@@ -525,7 +525,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         );
                     } else {
                         let escaped = effects.iter().filter_map(|effect| match effect {
-                            Effect::Mutation(target, DependencyMutationKind::Escape, _) => {
+                            Effect::Mutation(target, DependencyMutationKind::Escape) | Effect::IndirectMutation(target, DependencyMutationKind::Escape, _) => {
                                 Some(target.clone())
                             }
                             _ => None,
@@ -680,7 +680,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             let reference_type = indirect.then(|| reference_type(subject)).flatten();
 
             for target in targets {
-                resolved.push(Effect::Mutation(target.project(&suffix), kind, reference_type));
+                resolved.push(if indirect { Effect::IndirectMutation(target.project(&suffix), kind, reference_type) } else { Effect::Mutation(target.project(&suffix), kind) });
             }
         }
 
@@ -702,8 +702,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         for effect in effects {
             match effect {
-                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape, _) => {}
-                Effect::Mutation(target, kind, _) => {
+                Effect::Escape | Effect::Mutation(_, DependencyMutationKind::Escape) | Effect::IndirectMutation(_, DependencyMutationKind::Escape, _) => {}
+                Effect::Mutation(target, kind) | Effect::IndirectMutation(target, kind, _) => {
                     self.record_target_effect(memory, target, *kind, normal_effects)
                 }
                 Effect::Ambient => {

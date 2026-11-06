@@ -103,7 +103,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             CheckedMemoryOperationKind::RawDeallocate | CheckedMemoryOperationKind::Deallocate => {
                 return Some(self.expression_reference(state, operation.arguments()[0])?
                     .regions(&state.memory)?.into_iter().map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Retire, None)
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Retire)
                     }).collect());
             }
             CheckedMemoryOperationKind::InlineAssembly { .. }
@@ -132,7 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic, None)
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic)
                     })
                     .collect(),
             );
@@ -173,7 +173,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         Some(
             targets
                 .into_iter()
-                .map(|target| Effect::Mutation(target, kind, None))
+                .map(|target| Effect::Mutation(target, kind))
                 .collect(),
         )
     }
