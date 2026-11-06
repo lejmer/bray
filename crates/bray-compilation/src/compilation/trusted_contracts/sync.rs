@@ -2904,7 +2904,8 @@ fn borrowed_payload_writes_preserve_marker_evidence_without_retiring_the_carrier
                     requires(trusted held({argument})) executes(pure, total) {{}}
                 extern func opaque();
                 func caller(pos flag: bool) {{
-                    let mut payload: Payload = {{ value = false, counts = [0, 0] }};
+                    let zero: u32 = 0;
+                    let mut payload: Payload = {{ value = false, counts = [zero, zero] }};
                     let mut guard = acquire(&mut payload);
                     {mutation}
                     observe(&guard);
