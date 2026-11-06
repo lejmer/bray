@@ -5784,12 +5784,16 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         trusted module app;
         using core.memory;
         struct Marker {}
-        struct Access { marker: Marker; pointer: DataPointer<u8>; }
+        struct Access { marker: Marker; context: usize; pointer: DataPointer<u8>; }
         trusted predicate held(owner: &Marker);
+        trusted predicate native_callback(context: usize);
+        func invoke(pos context: usize)
+            requires(trusted native_callback(context)) executes(pure, total) {}
         trusted func permit(pos owner: &Access, pos pointer: DataPointer<u8>)
             requires(trusted held(owner = &owner.marker))
             ensures(
                 trusted held(owner = &owner.marker),
+                trusted native_callback(owner.context),
                 trusted core.memory.valid_read<u8>(pointer = pointer, count = 1)
             ) executes(pure, total) {}
         func address(pos owner: &Access) -> DataPointer<u8>
@@ -5806,6 +5810,9 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
         func copy_pointer(pos owner: &Access)
             requires(trusted held(owner = &owner.marker))
         {
+            permit(owner, owner.pointer);
+            let context = owner.context;
+            invoke(context);
             observe(address(owner));
         }
         trusted func pair(pos left: DataPointer<u8>, pos right: DataPointer<u8>)
