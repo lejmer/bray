@@ -54,8 +54,7 @@ trusted internal func delivery_access(pos owner: &Delivery) -> bray.runtime.boot
     requires(trusted delivery_owned(owner = owner))
     ensures(
         trusted delivery_owned(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();

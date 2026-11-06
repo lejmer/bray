@@ -400,14 +400,16 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             );
         }
 
-        if shared.is_none() && identity.is_invocation_owned(storage.kind()) && complete_value {
-            // A call that cannot reach any part of this value cannot change its
-            // whole-value contract. Scalar fields alone do not retain that contract.
-            footprint
-                .scalars
-                .entry(root)
-                .or_insert_with(Vec::new)
-                .push(StoragePath::root(root));
+        if complete_value {
+            let path = StoragePath::root(root);
+
+            if shared.is_some() {
+                // Borrowed owners retain their whole observation only while the
+                // existing referent and exposure checks preserve this exact value.
+                footprint.borrowed_identities.entry(path.clone()).or_default().push(path);
+            } else if identity.is_invocation_owned(storage.kind()) {
+                footprint.scalars.entry(root).or_default().push(path);
+            }
         }
 
         let mut borrowed_paths = observations

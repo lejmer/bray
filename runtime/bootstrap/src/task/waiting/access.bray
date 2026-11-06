@@ -12,8 +12,7 @@ trusted internal func wait_entry_access(
     ensures(
         trusted retained(owner = child),
         trusted retained(owner = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -23,8 +22,7 @@ trusted internal func registration_access(pos parent: &Reference) -> bray.runtim
     requires(trusted retained(owner = parent))
     ensures(
         trusted retained(owner = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -34,8 +32,7 @@ trusted internal func dispatch_wait_access(pos owner: &Dispatch) -> bray.runtime
     requires(trusted dispatch_acquired(owner = &owner.acquisition))
     ensures(
         trusted dispatch_acquired(owner = &owner.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -52,12 +49,10 @@ trusted internal func wait_coordinates(
     requires(
         trusted retained(owner = child),
         trusted retained(owner = parent),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
     if retirement > 1 || child.runtime != parent.runtime || child.handle == parent.handle
@@ -88,15 +83,13 @@ trusted internal func retain_waiter(
         lease.active,
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
     )
     ensures(
         trusted retained_option(owner = &result.0),
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
     )
 {
     return trusted retain_locked(lease, anchor, runtime, handle);

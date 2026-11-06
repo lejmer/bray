@@ -165,7 +165,6 @@ trusted internal func commit_locked(
     )
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted optional_delivery(owner = &result.2)
     )
 {

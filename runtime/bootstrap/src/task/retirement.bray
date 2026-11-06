@@ -22,8 +22,7 @@ trusted internal func recycling_access(pos owner: &Reference) -> bray.runtime.bo
     requires(trusted released(owner = owner))
     ensures(
         trusted released(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
 {
     return trusted bray.runtime.bootstrap.host.host_access();
@@ -122,13 +121,11 @@ trusted internal func take_released(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor, lease = lease),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition),
         trusted released(owner = reference)
     )
     ensures(
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease),
         trusted std.sync.spin_lock.valid(&result.0.prepared.instance),
         trusted bray.runtime.bootstrap.execution.optional_pin(owner = &result.1)
     )

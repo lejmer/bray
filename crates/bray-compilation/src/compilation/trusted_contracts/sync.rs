@@ -498,7 +498,10 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             struct Marker {{}}
             struct Heap {{ marker: Marker; }}
             extern func heap(pos owner: &Owner) -> &Heap executes(pure, total);
-            func selected_marker(pos owner: &Owner) -> &Marker {{ return &heap(owner).marker; }}
+            func selected_marker(pos owner: &Owner) -> &Marker {{
+                let backing: &Heap = heap(owner);
+                return &backing.marker;
+            }}
             func forwarded(pos owner: {parameter}) -> &Marker {{ return selected_marker({argument}); }}
             "#
         );
@@ -575,6 +578,7 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
 fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_access() {
     for (body, valid) in [
         ("opaque(); observe_slot(&pointer);", true),
+        ("overwrite(other); observe_slot(&pointer);", true),
         (
             "_ = trusted publish(&pointer); opaque(); observe_slot(&pointer);",
             false,
@@ -591,7 +595,17 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
             trusted func publish(pos owner: &DataPointer<u32>) -> usize uses(intrinsic) {{
                 return trusted core.target.expose_address<DataPointer<u32>>(core.memory.address_of<DataPointer<u32>>(owner));
             }}
-            func caller(pos pointer: DataPointer<u32>) requires(trusted slot(owner = &pointer)) {{ {body} }}
+            trusted func overwrite(pos pointer: DataPointer<u64>)
+                requires(
+                    trusted core.memory.valid_write<u64>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<u64>(pointer = pointer)
+                ) uses(raw_memory, unchecked_init) {{ trusted core.memory.write<u64>(pointer, 0); }}
+            func caller(pos pointer: DataPointer<u32>, pos other: DataPointer<u64>)
+                requires(
+                    trusted slot(owner = &pointer),
+                    trusted core.memory.valid_write<u64>(pointer = other, count = 1),
+                    trusted core.memory.aligned_for<u64>(pointer = other)
+                ) {{ {body} }}
         "#
         );
 
@@ -617,8 +631,10 @@ fn entry_slot_authority_preserves_its_pointer_without_granting_unowned_memory_ac
         trusted module app;
         using core.memory;
         extern func opaque() executes(total);
+        trusted predicate slot(owner: &DataPointer<u32>);
         trusted func caller(pos pointer: DataPointer<u32>) -> u32
             requires(
+                trusted slot(owner = &pointer),
                 trusted core.memory.valid_read<u32>(pointer = pointer, count = 1),
                 trusted core.memory.aligned_for<u32>(pointer = pointer),
                 trusted core.memory.initialized_as<u32>(pointer = pointer)
@@ -5305,5 +5321,61 @@ fn returned_owner_facts_follow_only_the_active_result_payload() {
             valid,
             "{source}: {diagnostics:#?}"
         );
+    }
+}
+
+#[test]
+fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
+    for (body, valid) in [
+        ("release(owner);", true),
+        (
+            "let fake: Owner = { storage = core.memory.uninit<[u64; 16]>(), finish = finish }; release(fake);",
+            false,
+        ),
+    ] {
+        let source = format!(r#"
+            trusted module app;
+            using core.memory;
+            callable Native = @abi(c) func();
+            @abi(c) func finish() {{}}
+            struct Owner {{ storage: Uninit<[u64; 16]>; finish: Native; }}
+            trusted predicate held(owner: &Owner);
+            extern func fill(pos storage: &mut Uninit<[u64; 16]>);
+            trusted func mark(pos owner: &Owner) ensures(trusted held(owner)) executes(pure, total) {{}}
+            const func present(pos owner: &(Owner?)) -> &Owner
+                requires(owner matches ?_) executes(pure, total) {{
+                return match owner {{ case ?value {{ yield &value; }} case none {{ panic("missing owner"); }} }};
+            }}
+            predicate optional_held(owner: &(Owner?)) = owner matches none || held(present(owner));
+            const func successful(pos owner: &Result<(Owner?), u32>) -> &(Owner?)
+                requires(owner matches Ok(_)) executes(pure, total) {{
+                return match owner {{ case Ok(value) {{ yield &value; }} case Error(_) {{ panic("missing success"); }} }};
+            }}
+            trusted func create(pos mode: u8) -> Result<(Owner?), u32>
+                ensures(result matches Error(_) || trusted optional_held(successful(&result))) {{
+                if mode == 1 {{ return Ok(none); }}
+                if mode == 2 {{ return Error(1); }}
+                let native: Native = finish;
+                let mut storage = core.memory.uninit<[u64; 16]>();
+                fill(&mut storage);
+                let owner: Owner = {{ storage = storage, finish = native }};
+                mark(&owner);
+                return Ok(owner);
+            }}
+            func release(pos owner: Owner) requires(trusted held(&owner)) {{}}
+            func caller(pos mode: u8) {{
+                match consume create(mode) {{
+                    case Ok(optional) {{
+                        match consume optional {{ case ?owner {{ {body} }} case none {{}} }}
+                    }}
+                    case Error(_) {{}}
+                }}
+            }}
+        "#);
+        let application = compilation(&source);
+        assert!(!application.syntax_tree_result().diagnostics().has_errors(), "{source}");
+        let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+            .expect("returned owners retain their complete producer context");
+        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {checked:#?}");
     }
 }

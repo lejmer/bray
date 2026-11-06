@@ -76,8 +76,7 @@ trusted internal func event_anchor(pos owner: &Reference, pos lease: &bray.runti
         trusted anchored(owner = &result),
         trusted anchor_matches(anchor = &result, lease = lease),
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
 {
     return
@@ -98,8 +97,7 @@ trusted internal func event_state(
     )
     ensures(
         trusted collection_owned(owner = &result),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = lease)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
     uses(raw_memory, unchecked_alias)
 {
@@ -154,8 +152,7 @@ trusted internal func event_access(pos owner: &Reference) -> bray.runtime.bootst
     requires(trusted retained(owner = owner))
     ensures(
         trusted retained(owner = owner),
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition),
-        trusted bray.runtime.bootstrap.host.host_access_idle(owner = &result)
+        trusted bray.runtime.bootstrap.host.host_access_live(owner = &result.acquisition)
     )
     when(trusted owned_reference(owner = owner))
     {
