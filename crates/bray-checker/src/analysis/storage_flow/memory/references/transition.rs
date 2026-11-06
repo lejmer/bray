@@ -454,6 +454,7 @@ impl State {
         // stored in an unexposed owner or reached through a protected shared entry borrow.
         // The established observation identifies the slot independently of its referent.
         let unaddressed = &self.unaddressed_storage;
+
         let unknown = matches!(
             invalidation,
             bray_bound_tree::StorageInvalidation::All { .. }

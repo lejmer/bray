@@ -378,7 +378,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .flat_map(|path| self.storage_path_values(state, path.clone()))
             .flat_map(|value| state.owned_values(&value).collect::<Vec<_>>())
             .filter(|value| *value != ExecutionCondition::Unknown)
-            .flat_map(|value| [value.owner_identity().clone(), value])
+            .flat_map(|value| {
+                // An unchanged storage value also retains observations through
+                // its existing loans. The loan does not establish ownership.
+                let owner = value.owner_identity().clone();
+
+                [owner.clone(), owner.borrowed(), value.clone(), value.borrowed()]
+            })
             .collect();
 
         (values, snapshots)
