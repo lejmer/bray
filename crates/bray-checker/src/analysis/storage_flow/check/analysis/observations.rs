@@ -175,6 +175,8 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         memory: &crate::analysis::storage_flow::memory::State,
         invalidation: &mut StorageInvalidation,
     ) {
+        let opaque = matches!(invalidation, StorageInvalidation::All { .. });
+
         let (stable_descriptors, stable_values) = match invalidation {
             StorageInvalidation::All {
                 stable_descriptors,
@@ -254,6 +256,14 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .into_iter()
                             .flatten()
                             .filter(|value| protected_referent && path.contains(value)),
+                    )
+                    .chain(
+                        // A shared reborrow also protects markers under a mutable
+                        // input. The live loan governs that subobject's authority.
+                        self.input.footprint.empty_markers
+                            .range(path.clone()..)
+                            .take_while(|value| path.contains(value))
+                            .filter(|_| opaque && protected_referent),
                     )
                     .peekable();
 

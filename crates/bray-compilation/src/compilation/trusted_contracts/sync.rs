@@ -5619,6 +5619,7 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
 
             struct Marker {{}}
             struct Owner {{ marker: Marker; pointer: DataPointer<u8>; }}
+            struct Holder {{ value: Owner; }}
             trusted predicate live(owner: &Marker);
             trusted func make(pos pointer: DataPointer<u8>) -> Owner
                 ensures(trusted live(&result.marker))
@@ -5639,12 +5640,24 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
             extern func exchange(pos pointer: DataPointer<u8>?) -> DataPointer<u8>;
             extern func replace(pos owner: (&mut Owner)?);
             extern func activity();
+            func observe(pos owner: &Owner) requires(trusted live(&owner.marker)) {{}}
+            func shared_view(pos owner: &mut Holder)
+                requires(trusted live(&owner.value.marker))
+                ensures(trusted live(&owner.value.marker))
+            {{
+                let selected = &owner.value;
+                activity();
+                observe(selected);
+            }}
             func release(pos owner: Owner) requires(trusted live(&owner.marker)) {{}}
             func forward(pos owner: Owner?, pos reject: bool) -> Result<unit, (Owner?, u32)>
                 requires(trusted optional_live(&owner))
             {{
                 activity();
-                if reject {{ return Error((owner, 4)); }}
+                if reject {{
+                    let rejected: (Owner?, u32) = (owner, 4);
+                    return Error(rejected);
+                }}
                 return Ok(unit);
             }}
             func caller(pos pointer: DataPointer<u8>, pos reject: bool) {{
