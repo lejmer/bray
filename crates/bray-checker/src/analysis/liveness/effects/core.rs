@@ -397,6 +397,7 @@ impl OperationEffects {
                 .entry(*occurrence)
                 .or_default()
                 .extend(contracts.result().requirements().iter().cloned());
+
             let mut invocation =
                 dependency_subjects(request, contracts.invocation().requirements(), storage);
 

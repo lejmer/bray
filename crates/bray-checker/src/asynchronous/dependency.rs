@@ -57,6 +57,7 @@ fn collect_unsatisfied_dependency_subjects(
         BoundDependencyRequirement::Value { source, .. } => {
             let subject = BoundDependencySubject::StorageAccess(*source);
             let kind = BoundDependencyRequirementKind::ValueDependencies;
+
             if !dependency_subject_is_satisfied(values, storage, state, subject, kind)? {
                 unsatisfied.push(UnsatisfiedDependency {
                     subject,

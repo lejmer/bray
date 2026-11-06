@@ -314,6 +314,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
             state
                 .result_dependencies
                 .discard_report_candidates(occurrence);
+
             return;
         };
 
@@ -325,6 +326,7 @@ impl<'analysis, C: CheckerRequestContext + ?Sized> StorageFlowCollector<'analysi
         if !output.is_abnormal() {
             self.reporting_completions.insert(occurrence);
         }
+
         state
             .result_dependencies
             .commit_reports(occurrence, output, self.report_boundary);
