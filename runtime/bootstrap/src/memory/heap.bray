@@ -18,6 +18,46 @@ trusted internal func allocate(pos bytes: usize, align: usize) -> DataPointer<u8
     return trusted internal std.runtime.memory.try_allocate(bytes, align);
 }
 
+// Preserve the actual standard allocation owner across fallible startup. The
+// native allocation boundary keeps its null convention outside this owner.
+trusted internal func try_allocation(pos bytes: usize, align: usize) -> std.memory.RawAllocation?
+    ensures(
+        result matches none || allocation_value(&result).bytes == bytes,
+        result matches none || allocation_value(&result).align == align,
+        result matches none || trusted core.memory.owned_allocation(
+            pointer = allocation_value(&result).pointer,
+            bytes = bytes,
+            align = align
+        ),
+        result matches none || trusted core.memory.valid_write<u8>(
+            pointer = allocation_value(&result).pointer,
+            count = bytes
+        )
+    )
+{
+    let pointer = trusted allocate(bytes, align = align);
+
+    if std.memory.is_null<u8>(pointer)
+    {
+        return none;
+    }
+
+    let allocation: std.memory.RawAllocation = { pointer = pointer, bytes = bytes, align = align };
+
+    return allocation;
+}
+
+internal const func allocation_value(pos owner: &(std.memory.RawAllocation?)) -> &std.memory.RawAllocation
+    requires(owner matches ?_)
+    executes(pure, total)
+{
+    return match owner
+    {
+        case ?value { yield &value; }
+        case none { panic("missing allocation owner"); }
+    };
+}
+
 trusted internal func deallocate_bytes(pos pointer: DataPointer<u8>, pos bytes: usize, align: usize)
     requires(trusted core.memory.owned_allocation(pointer = pointer, bytes = bytes, align = align))
     uses(manual_alloc)

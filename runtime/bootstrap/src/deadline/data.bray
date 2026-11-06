@@ -21,7 +21,9 @@ internal struct Reference
 
 internal struct Domain
 {
-    backing: bray.runtime.bootstrap.scheduler.Backing;
+    allocation: std.memory.RawAllocation;
+    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    execution: bray.runtime.bootstrap.execution.Reference?;
     limit: usize;
     state: std.sync.SpinLock<State>;
 }

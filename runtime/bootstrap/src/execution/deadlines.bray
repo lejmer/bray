@@ -53,9 +53,7 @@ trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execut
         case none { return 0; }
         case ?attempt
         {
-            let backing = trusted bray.runtime.bootstrap.scheduler.execution_backing(trusted pin(owner));
-
-            match consume bray.runtime.bootstrap.deadline.create(backing, value.configuration.timers)
+            match consume bray.runtime.bootstrap.deadline.create_execution(trusted pin(owner), value.configuration.timers)
             {
                 case Ok(service)
                 {
@@ -65,7 +63,7 @@ trusted internal func ensure_deadlines(pos owner: &bray.runtime.bootstrap.execut
                 }
                 case Error((rejected, status))
                 {
-                    trusted discard_backing(rejected);
+                    _ = trusted release_pin(rejected);
                     return status;
                 }
             }

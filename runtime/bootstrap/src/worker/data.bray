@@ -79,7 +79,9 @@ internal struct Failure
 
 internal struct Domain
 {
-    backing: bray.runtime.bootstrap.scheduler.Backing;
+    allocation: std.memory.RawAllocation;
+    scheduler: bray.runtime.bootstrap.scheduler.Reference;
+    execution: bray.runtime.bootstrap.execution.Reference?;
     callback: Callback;
     demand_service: Demand;
     stop_service: Stop;

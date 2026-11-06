@@ -139,18 +139,18 @@ trusted internal func close_binding(pos owner: Binding) -> Binding
     let suspend = owner.suspend;
     let resume = owner.resume;
 
-    let execution = if let ?close = owner.close
+    let retained = if let ?close = owner.close
     {
         yield trusted close(trusted take_binding_owner(owner));
     }
     else
     {
-        yield trusted take_binding_execution(owner);
+        yield trusted take_binding_owner(owner);
     };
 
     return
     {
-        execution = execution,
+        owner = retained,
         close = none,
         release = release,
         suspend = suspend,

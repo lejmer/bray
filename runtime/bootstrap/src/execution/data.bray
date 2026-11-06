@@ -31,12 +31,12 @@ internal struct Reference
     pointer: DataPointer<Domain>;
 }
 
-// One service claim owns admission in addition to its storage pin. Closing
-// consumes this owner and returns that same pin with no service claim.
+// An open acquisition owns admission in addition to its storage pin. Closing
+// retires that acquisition while the same owner retains its pin for disposal.
 @layout(c)
 internal struct Owner
 {
-    acquisition: Acquisition;
+    mut acquisition: Acquisition;
     execution: Reference;
 }
 
@@ -50,6 +50,7 @@ internal predicate retiring(owner: &Reference) = domain_retiring(owner = &owner.
 
 internal struct Domain
 {
+    allocation: std.memory.RawAllocation;
     scheduler: bray.runtime.bootstrap.scheduler.Reference;
     identity: u64;
     configuration: Configuration;

@@ -70,15 +70,17 @@ trusted internal func driver_startup() -> u32
         return prepared;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
         std.memory.stride_of<Context>(),
         align = std.memory.align_of<Context>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    )
     {
+        case ?owner { yield owner; }
+        case none
+        {
         return 4;
-    }
+            }
+    };
 
     return trusted commit_driver(allocation, trusted root_context(attachment));
 }
@@ -159,15 +161,17 @@ trusted internal func origin_driver_startup() -> u32
         return prepared;
     }
 
-    let allocation = trusted bray.runtime.bootstrap.heap.allocate(
+    let allocation = match consume trusted bray.runtime.bootstrap.heap.try_allocation(
         std.memory.stride_of<Context>(),
         align = std.memory.align_of<Context>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
+    )
     {
+        case ?owner { yield owner; }
+        case none
+        {
         return 4;
-    }
+            }
+    };
 
     return trusted commit_driver(allocation, trusted origin_context(attachment));
 }

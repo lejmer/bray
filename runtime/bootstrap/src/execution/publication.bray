@@ -111,15 +111,18 @@ trusted internal func publish_driver(
     }
 }
 
-trusted internal func commit_driver(pos allocation: DataPointer<u8>, pos value: Context) -> u32
+trusted internal func commit_driver(pos allocation: std.memory.RawAllocation, pos value: Context) -> u32
     requires(
         trusted context_owned(owner = &value),
+        value.allocation matches none,
+        allocation.bytes == std.memory.stride_of<Context>(),
+        allocation.align == std.memory.align_of<Context>(),
         trusted core.memory.owned_allocation(
-            pointer = allocation,
+            pointer = allocation.pointer,
             bytes = std.memory.stride_of<Context>(),
             align = std.memory.align_of<Context>()
         ),
-        trusted core.memory.valid_write<u8>(pointer = allocation, count = std.memory.stride_of<Context>())
+        trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Context>())
     )
 {
     let execution = trusted initialize_context(allocation, value);
