@@ -132,6 +132,7 @@ trusted internal func worker_callback(
         case 6 { yield trusted deadline_wait(owner, 1000); }
         case 7
         {
+            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
             let incoming = trusted std.memory.read<bray.runtime.bootstrap.ReportOutcome>(outcome);
 
             let failure: bray.runtime.bootstrap.worker.Failure =
@@ -146,7 +147,6 @@ trusted internal func worker_callback(
                 trusted core.target.abort();
             }
 
-            let actual = trusted bray.runtime.bootstrap.worker.read_scope(&scope, scope);
             let selected = trusted worker_current(actual);
 
             if selected.status != 0

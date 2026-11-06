@@ -159,9 +159,12 @@ unchanged current storage, so an ownership transfer does not restore an old valu
 only presence or variant observations, while inline values retain their complete contents. Reachable mutable state
 remains a separate observation.
 
-A contents update changes the observed snapshot without
-replacing a still-live owner's identity. Ownership transitions carry the existing value into its destination, including
-values extracted through raw storage. Published storage targets retain the identity needed to interpret those moves.
+A returned loan carries its completion promises for its own lifetime, including observations of reached children.
+Checked consuming transitions publish complete child snapshots with their existing identity, contents and ownership
+lineage, rather than leaving them represented as partial accesses through their former container.
+A contents update changes the observed snapshot without replacing a still-live owner's identity. Ownership transitions
+carry the existing value into its destination, including values extracted through raw storage. Published storage targets
+retain the identity needed to interpret those moves.
 
 Live trusted evidence belongs to its complete carrier and required dependencies in the composite flow state. Effect
 framing preserves established observations, while cleanup retains evidence only through surviving complete owners.

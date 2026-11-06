@@ -2679,6 +2679,8 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
             trusted module app;
             struct Token {{}}
             struct Owner {{ token: Token; }}
+            struct Holder {{ current: Owner; label: u32; }}
+            extern func opaque();
             impl Owner {{ func check() executes(pure, total) {{}} }}
             trusted predicate live(owner: &Token);
             func project(pos owner: &Owner) -> &Owner
@@ -2688,6 +2690,16 @@ fn field_projection_preserves_the_evidence_of_a_borrowed_call_result() {
             {{ return owner; }}
             func observe(pos token: &Token)
                 requires(trusted live(token)) executes(pure, total) {{}}
+            trusted func nested(pos owner: &Holder) -> &Holder
+                ensures(trusted live(&result.current.token))
+                executes(pure, total)
+            {{ return owner; }}
+            func nested_caller(pos owner: &Holder)
+            {{
+                let selected = nested(owner);
+                opaque();
+                observe(&selected.current.token);
+            }}
             func caller(pos owner: &Owner)
                 requires(trusted live(&owner.token))
             {{
@@ -5848,6 +5860,42 @@ fn copied_pointer_components_keep_storage_facts_without_owning_the_tuple() {
 }
 
 #[test]
+fn returned_shared_views_do_not_freeze_mutable_referents() {
+    for (input, subject) in [("Owner", "borrowed"), ("Holder", "&borrowed.current")] {
+        let observed = subject.replace("borrowed", "result");
+
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.atomic;
+            struct Owner {{ value: core.atomic.Atomic<u32>; }}
+            struct Holder {{ current: Owner; label: u32; }}
+            trusted predicate observed(owner: &Owner);
+            trusted func selected(pos owner: &{input}) -> &{input}
+                ensures(trusted observed({observed})) executes(pure, total)
+            {{ return owner; }}
+            extern func change();
+            func observe(pos owner: &Owner)
+                requires(trusted observed(owner)) executes(pure, total) {{}}
+            func caller(pos owner: &{input}) {{
+                let borrowed = selected(owner);
+                change();
+                observe({subject});
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingTrustedObligationNotProven,
+        );
+    }
+}
+
+#[test]
 fn consuming_transitions_introduce_child_owners_without_detaching_parent_authority() {
     for (result, field, guarantee, valid) in [
         ("Child", "child", "trusted child_owned(&result.marker)", true),
@@ -5859,10 +5907,34 @@ fn consuming_transitions_introduce_child_owners_without_detaching_parent_authori
             trusted module app;
             using core.memory;
             struct Marker {{}}
-            struct Child {{ marker: Marker; value: u32; }}
-            struct Parent {{ marker: Marker; child: Child; }}
+            struct ChildMarker {{}}
+            struct Child {{ marker: ChildMarker; value: u32; }}
+            struct Parent {{ marker: Marker; mut child: Child; }}
             trusted predicate parent_owned(marker: &Marker);
-            trusted predicate child_owned(marker: &Marker);
+            trusted predicate child_owned(marker: &ChildMarker);
+            trusted func make() -> Parent
+                ensures(trusted parent_owned(&result.marker)) executes(pure, total)
+            {{ return {{ marker = Marker {{}}, child = {{ marker = ChildMarker {{}}, value = 1 }} }}; }}
+            trusted func extract(pos owner: &mut Parent) -> Child
+                requires(trusted parent_owned(&owner.marker))
+                ensures(trusted parent_owned(&owner.marker), trusted child_owned(&result.marker))
+                uses(raw_memory, unchecked_init)
+            {{
+                let pointer = core.memory.address_of_mut<Child>(&mut owner.child);
+                let previous = trusted core.memory.read<Child>(pointer);
+                trusted core.memory.write<Child>(pointer, {{ marker = ChildMarker {{}}, value = 0 }});
+                return previous;
+            }}
+            func observe_parent(pos owner: &Parent)
+                requires(trusted parent_owned(&owner.marker)) executes(pure, total) {{}}
+            func local_transition() -> Child
+                ensures(trusted child_owned(&result.marker))
+            {{
+                let mut owner = make();
+                let child = extract(&mut owner);
+                observe_parent(&owner);
+                return child;
+            }}
             trusted func take(pos owner: Parent, pos flag: bool) -> {result}
                 requires(trusted parent_owned(&owner.marker))
                 ensures({guarantee})

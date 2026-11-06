@@ -149,7 +149,7 @@ pub(super) fn collect_returned_witness_transfers<C: CheckerRequestContext + ?Siz
     }
 }
 
-fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
+pub(super) fn independent_result_owner<C: CheckerRequestContext + ?Sized>(
     domain: &ExecutionFlowDomain<'_, '_, C>,
     invocation: bray_bound_tree::BoundExecutionSite,
     entry: &crate::ExecutionCallEvidence,
