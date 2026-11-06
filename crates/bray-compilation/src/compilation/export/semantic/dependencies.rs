@@ -91,16 +91,18 @@ impl<'a> SemanticExporter<'a> {
                     DependencyStorageEffect::Cleanup(ty) => {
                         DependencyStorageEffect::Cleanup(self.type_id(*ty)?)
                     }
-                    DependencyStorageEffect::Direct { subject, kind } => {
+                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.dependency_subject(subject)?,
                             kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                            access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections,
                         kind,
+                        access_type,
                     } => DependencyStorageEffect::Indirect {
                         reference: self.dependency_subject(reference)?,
                         projections: projections
@@ -108,6 +110,7 @@ impl<'a> SemanticExporter<'a> {
                             .map(|projection| self.dependency_projection(projection))
                             .collect::<Result<_, PackageInterfaceExportError>>()?,
                         kind: kind.try_map_type(|ty| self.type_id(ty))?,
+                        access_type: access_type.map(|ty| self.type_id(ty)).transpose()?,
                     },
                 })
             })

@@ -741,31 +741,38 @@ mod tests {
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
                 projections: [].into(),
                 kind: DependencyMutationKind::Escape,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Write,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Clear,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Consume,
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Atomic,
+                access_type: None,
             },
             DependencyStorageEffect::Direct {
                 subject: subject.clone(),
                 kind: DependencyMutationKind::Replace(crate::InterfaceTypeId::new(0)),
+                access_type: Some(crate::InterfaceTypeId::new(0)),
             },
             DependencyStorageEffect::Indirect {
                 reference: subject.clone(),
@@ -774,6 +781,7 @@ mod tests {
                 )]
                 .into(),
                 kind: DependencyMutationKind::Retire,
+                access_type: None,
             },
         ];
 

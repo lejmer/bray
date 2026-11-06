@@ -618,12 +618,19 @@ fn prepare_effects<'a, C: CheckerRequestContext + ?Sized>(
             }
             Effect::Direct { kind: Mutation::Replace(ty), .. }
             | Effect::Indirect { kind: Mutation::Replace(ty), .. } => (*ty, &[][..]),
-            Effect::Direct { subject, kind: Mutation::Write | Mutation::Consume | Mutation::Clear } => {
+            Effect::Direct { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
+            | Effect::Indirect { access_type: Some(ty), kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. }
+                if crate::representation::reference_kind(request, *ty) == Some(bray_symbols::DependencyReferenceKind::Address) => {
+                let Some(ty) = crate::representation::reference_target_type(request, *ty) else { continue; };
+
+                (ty, &[][..])
+            }
+            Effect::Direct { subject, kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
                 let Some(ty) = reference_type(subject) else { continue; };
 
                 (ty, &[][..])
             }
-            Effect::Indirect { reference, projections, kind: Mutation::Write | Mutation::Consume | Mutation::Clear } => {
+            Effect::Indirect { reference, projections, kind: Mutation::Write | Mutation::Consume | Mutation::Clear, .. } => {
                 let Some(ty) = reference_type(reference) else { continue; };
 
                 // A lifecycle root already denotes its physical receiver.

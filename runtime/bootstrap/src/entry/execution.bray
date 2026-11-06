@@ -134,23 +134,15 @@ trusted internal func invoke(
     }
 
     let scope = trusted bray.runtime.bootstrap.execution.entry_scope(main == 0);
-    let scope_status = scope.status;
 
-    let records_status = if scope_status == 0
-    {
-        yield trusted bray.runtime.bootstrap.report.chain.invoke(
-            &attachment,
-            &scope,
-            admitted,
-            selected,
-            context,
-            outcome
-        );
-    }
-    else
-    {
-        yield scope_status;
-    };
+    let records_status = trusted bray.runtime.bootstrap.report.chain.invoke(
+        &attachment,
+        &scope,
+        admitted,
+        selected,
+        context,
+        outcome
+    );
 
     let execution_status = trusted bray.runtime.bootstrap.execution.finish_entry_scope(scope);
     let attachment_status = trusted bray.runtime.bootstrap.host.attachment.finish(attachment);

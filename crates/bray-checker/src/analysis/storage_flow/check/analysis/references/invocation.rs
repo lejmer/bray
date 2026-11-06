@@ -139,6 +139,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 memory,
                 target,
                 DependencyMutationKind::Escape,
+                None,
                 normal_effects,
             );
         }

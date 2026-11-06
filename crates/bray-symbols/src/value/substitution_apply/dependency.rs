@@ -250,17 +250,19 @@ impl SemanticValueStore {
                     DependencyStorageEffect::Cleanup(ty) => DependencyStorageEffect::Cleanup(
                         self.substitute_type_data(*ty, substitution)?,
                     ),
-                    DependencyStorageEffect::Direct { subject, kind } => {
+                    DependencyStorageEffect::Direct { subject, kind, access_type } => {
                         DependencyStorageEffect::Direct {
                             subject: self.substitute_dependency_subject(subject, substitution)?,
                             kind: kind
                                 .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                            access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                         }
                     }
                     DependencyStorageEffect::Indirect {
                         reference,
                         projections,
                         kind,
+                        access_type,
                     } => DependencyStorageEffect::Indirect {
                         reference: self.substitute_dependency_subject(reference, substitution)?,
                         projections: projections
@@ -271,6 +273,7 @@ impl SemanticValueStore {
                             .collect::<Result<_, SemanticValueStoreError>>()?,
                         kind: kind
                             .try_map_type(|ty| self.substitute_type_data(ty, substitution))?,
+                        access_type: access_type.map(|ty| self.substitute_type_data(ty, substitution)).transpose()?,
                     },
                 })
             })

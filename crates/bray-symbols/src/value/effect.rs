@@ -42,6 +42,9 @@ pub enum DependencyStorageEffect<
     Direct {
         /// Entry value slot.
         subject: Subject,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
@@ -51,12 +54,31 @@ pub enum DependencyStorageEffect<
         reference: Subject,
         /// Checked projections after dereferencing the entry reference.
         projections: Arc<[Projection]>,
+        /// Original checked access type, independent of the region that bounds aliases.
+        /// Forwarding a raw access through a borrowed owner preserves this type.
+        access_type: Option<Type>,
         /// Possible transition.
         kind: DependencyMutationKind<Type>,
     },
 }
 
 impl<Subject, Projection, Type> DependencyStorageEffect<Subject, Projection, Type> {
+    /// Types required to retain and interpret this effect across semantic boundaries.
+    pub fn referenced_types(&self) -> impl Iterator<Item = &Type> {
+        match self {
+            Self::Cleanup(ty) => [Some(ty), None],
+            Self::Direct { access_type, kind, .. }
+            | Self::Indirect { access_type, kind, .. } => [
+                access_type.as_ref(),
+                match kind {
+                    DependencyMutationKind::Replace(ty) => Some(ty),
+                    _ => None,
+                },
+            ],
+            Self::Atomic | Self::Ambient | Self::Unknown | Self::Escape => [None, None],
+        }.into_iter().flatten()
+    }
+
     /// Conservative effects when the callable can have an unknown captured environment.
     pub const fn opaque_call() -> [Self; 2] {
         [Self::Unknown, Self::Escape]
@@ -139,11 +161,13 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: subject.clone(),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         let atomic = DependencyStorageEffect::Direct {
             subject,
             kind: DependencyMutationKind::Atomic,
+            access_type: None,
         };
 
         assert_eq!(
@@ -172,6 +196,7 @@ mod tests {
         let write: DependencyStorageEffect = DependencyStorageEffect::Direct {
             subject: DependencySubject::root(super::super::DependencySubjectRoot::Receiver),
             kind: DependencyMutationKind::Write,
+            access_type: None,
         };
 
         assert_eq!(
