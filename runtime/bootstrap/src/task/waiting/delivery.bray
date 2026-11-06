@@ -142,7 +142,7 @@ trusted internal func wake_waiter(
 {
     trusted wake_service(
         trusted dispatch_services(owner),
-        &registration.waiter,
+        trusted registration_waiter(registration),
         bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT
     );
 

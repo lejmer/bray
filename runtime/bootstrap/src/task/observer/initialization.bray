@@ -182,6 +182,10 @@ trusted internal func take_state_provider(pos owner: &mut State) -> bray.runtime
         trusted owned_state(owner = &owner),
         trusted bray.runtime.bootstrap.provider.native_owned_reference(reference = &result)
     )
+    when(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &owner.reference))
+    {
+        ensures(trusted bray.runtime.bootstrap.task.resolution_owner(owner = &owner.reference))
+    }
 {
     return trusted std.memory.replace_value<bray.runtime.bootstrap.provider.Reference>(
         &mut owner.provider,

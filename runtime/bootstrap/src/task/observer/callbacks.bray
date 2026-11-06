@@ -253,8 +253,8 @@ trusted internal func destroy(pos context: usize)
         trusted core.target.abort();
     }
 
-    let reference = trusted take_state_reference(&mut owner);
     let provider = trusted take_state_provider(&mut owner);
+    let reference = trusted take_state_reference(&mut owner);
 
     if trusted bray.runtime.bootstrap.execution.destroy_reference(&selected, &reference) != 0
     {

@@ -189,13 +189,31 @@ trusted internal func compose(
         yield 0;
     };
 
-    let own = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
-        &value,
-        0,
-        operation,
-        argument,
-        origin
-    )
+    let inspect_child = trusted lambda(
+        pos cursor: &mut bray.runtime.bootstrap.activation.run.Cursor,
+        pos value: &bray.runtime.bootstrap.activation.Inactive,
+        pos operation: u32,
+        pos argument: usize,
+        pos origin: u64
+    ) -> bray.runtime.bootstrap.activation.requirements.Execution?
+        requires(
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+            trusted bray.runtime.bootstrap.activation.producer(token = value),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = value),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.activation.run.selected(cursor = &cursor),
+            trusted bray.runtime.bootstrap.activation.producer(token = value),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = value)
+        )
+    {
+        // The metadata protocol retains both owners through provider reentry.
+        // Its callback cannot dispatch the exclusively held parent or child.
+        return trusted bray.runtime.bootstrap.activation.requirements.read(value, 0, operation, argument, origin);
+    };
+
+    let own = match consume trusted inspect_child(&mut cursor, &value, operation, argument, origin)
     {
         case ?requirements { yield requirements; }
         case none { return 0; }

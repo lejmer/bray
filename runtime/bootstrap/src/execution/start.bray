@@ -231,62 +231,102 @@ trusted internal func start_frame(
         }
     }
 
-    let initial = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
-        token,
-        0,
-        0,
-        0,
-        active.thread
-    )
+    let reserve = trusted lambda(
+        pos active: &Context,
+        pos execution: &bray.runtime.bootstrap.execution.Reference,
+        pos reference: &bray.runtime.bootstrap.task.Reference,
+        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos driver: bray.runtime.bootstrap.scheduler.Lane?,
+        pos outcome: DataPointer<bray.runtime.bootstrap.ReportOutcome>
+    ) -> Result<(
+        bray.runtime.bootstrap.scheduler.Lane,
+        u64,
+        bray.runtime.bootstrap.activation.requirements.Execution
+    ), u32>
+        requires(
+            blocking_execution(),
+            trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+            trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+            trusted bray.runtime.bootstrap.task.retained(owner = reference),
+            trusted bray.runtime.bootstrap.activation.producer(token = token),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token),
+            trusted bray.runtime.bootstrap.entry.native_entry(),
+            trusted bray.runtime.bootstrap.host.product.native_host(),
+            trusted bray.runtime.bootstrap.pool.protocol_access()
+        )
+        ensures(
+            trusted bray.runtime.bootstrap.execution.retained(owner = execution),
+            trusted bray.runtime.bootstrap.task.resolution_owner(owner = reference),
+            trusted bray.runtime.bootstrap.task.retained(owner = reference),
+            trusted bray.runtime.bootstrap.activation.producer(token = token),
+            trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
+        )
     {
-        case ?initial_execution { yield initial_execution; }
-        case none { return 3; }
+        let initial = match consume trusted bray.runtime.bootstrap.activation.requirements.read(
+            token,
+            0,
+            0,
+            0,
+            active.thread
+        )
+        {
+            case ?initial_execution { yield initial_execution; }
+            case none { return Error(3); }
+        };
+
+        let (lane, status) = trusted select_lane(execution, 0, &initial, driver);
+
+        if status != 0
+        {
+            return Error(status);
+        }
+
+        let registration = trusted register_task(execution, reference.handle, lane, driver);
+
+        if registration == 0
+        {
+            return Error(4);
+        }
+
+        let failure = trusted demand_lane(execution, lane);
+
+        if failure.stage != 0
+        {
+            trusted withdraw_registration(execution, registration);
+
+            trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
+                outcome,
+                trusted bray.runtime.bootstrap.worker.failure_outcome(&failure)
+            );
+
+            return Error(5);
+        }
+
+        return Ok((lane, registration, initial));
     };
 
-    let (lane, status) = trusted select_lane(execution, 0, &initial, driver);
-
-    if status != 0
+    // Reservation can invoke metadata and worker providers. The same inactive
+    // owner remains private until successful admission authorizes its first entry.
+    let (lane, registration, initial) = match consume trusted reserve(active, execution, reference, token, driver, outcome)
     {
-        return status;
-    }
+        case Ok(reserved) { yield reserved; }
+        case Error(status) { return status; }
+    };
 
-    let registration = trusted register_task(execution, reference.handle, lane, driver);
-
-    if registration == 0
-    {
-        return 4;
-    }
-
-    let failure = trusted demand_lane(execution, lane);
-
-    if failure.stage != 0
-    {
-        trusted withdraw_registration(execution, registration);
-
-        trusted bray.runtime.bootstrap.host.product.publish_provider<bray.runtime.bootstrap.ReportOutcome>(
-            outcome,
-            trusted bray.runtime.bootstrap.worker.failure_outcome(&failure)
-        );
-
-        return 5;
-    }
-
-    let authorize = trusted lambda(pos selected: &Current, pos token: &bray.runtime.bootstrap.activation.Inactive)
+    let authorize = trusted lambda(pos active: &Context, pos token: &bray.runtime.bootstrap.activation.Inactive)
         requires(
-            trusted view_owned(owner = &selected.acquisition),
-            selected.status == 0,
             trusted bray.runtime.bootstrap.activation.producer(token = token),
             trusted bray.runtime.bootstrap.activation.requirements.inactive_owner(token = token)
         )
         ensures(
             trusted bray.runtime.bootstrap.activation.entry_authorized(
                 token = token,
-                origin = (trusted context(selected)).thread
+                origin = active.thread
             )
         )
         executes(pure, total) {};
 
-    trusted authorize(selected, token);
+    trusted authorize(active, token);
 
     let root = trusted bray.runtime.bootstrap.activation.begin(token, active.thread);
 
