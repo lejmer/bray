@@ -848,7 +848,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
 
         if !transfers && let StorageInvalidation::Observed { snapshots, .. } = invalidation {
-            self.observe_references(state, snapshots);
+            self.observe_references(state, mutation, snapshots);
         }
     }
     fn extend_static_changes(
@@ -898,6 +898,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     pub(in crate::analysis) fn observe_references(
         &self,
         state: &mut ExecutionState,
+        mutation: bray_bound_tree::StorageMutation,
         observations: &BTreeMap<bray_bound_tree::StoragePath, bray_bound_tree::StorageTarget>,
     ) {
         // Read all targets before assigning aliases, so map order cannot change the result.
@@ -917,6 +918,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let place = crate::ExecutionPlace::storage_path(self.storage, path);
                 let previous = self.storage_path_value(state, path);
                 let value = self.storage_path_value(state, &target);
+
+                // The completed call owns a fresh symbolic result even when its
+                // protected backing has no ordinary value projection. Existing
+                // aliases still refresh to unknown after their contents change.
+                if value == ExecutionCondition::Unknown
+                    && matches!((self.storage.identity(path.root), mutation), (
+                        Some(bray_bound_tree::StorageIdentity::Temporary(expression)),
+                        bray_bound_tree::StorageMutation::Operation(bray_bound_tree::BoundExecutionSite::Node(bray_bound_tree::AnyBoundNodeId::Expression(completed)))
+                    ) if expression == completed)
+                {
+                    return None;
+                }
 
                 let value = if matches!(previous.owner_identity(), ExecutionCondition::Borrowed(_)) || path.projections.is_empty()
                     && self.storage.storage_type(path.root).is_some_and(|ty| {

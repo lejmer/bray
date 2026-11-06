@@ -194,10 +194,75 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         }
     }
 
-    pub(super) fn preserve_borrowed_values(
+    pub(super) fn preserve_storage_values(
+        &mut self,
+        state: &StorageFlowState,
+        memory: &crate::analysis::storage_flow::memory::State,
+        operation: Option<&bray_bound_tree::CheckedMemoryOperation>,
+        effects: Option<&[Effect]>,
+        invalidation: &mut StorageInvalidation,
+    ) {
+        use bray_bound_tree::CheckedMemoryOperationKind as Operation;
+        use bray_symbols::DependencyMutationKind as Mutation;
+
+        let typed_transfer = operation.and_then(|operation| match operation.kind() {
+            Operation::Read { pointee, kind: bray_bound_tree::MemoryReadKind::Move }
+            | Operation::VolatileRead { pointee, kind: bray_bound_tree::MemoryReadKind::Move, .. }
+            | Operation::Write { pointee } | Operation::Copy { pointee, .. }
+            | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
+            Operation::UninitMove { element } | Operation::UninitAssumeInitialized { element }
+            | Operation::UninitWrite { element } => Some(*element),
+            _ => None,
+        });
+
+        let mut types = std::collections::BTreeSet::new();
+        let mut complete = effects.is_some() || typed_transfer.is_some();
+        let mut writes = false;
+
+        types.extend(typed_transfer);
+
+        for effect in effects.into_iter().flatten() {
+            writes |= matches!(effect, Effect::Mutation(_, Mutation::Write | Mutation::Replace(_) | Mutation::Clear | Mutation::Retire)
+                | Effect::Cleanup(_));
+
+            let ty = match effect {
+                Effect::Escape | Effect::Atomic | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => continue,
+                Effect::Mutation(_, Mutation::Replace(ty)) => Some(*ty),
+                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
+                    if typed_transfer.is_some() { continue; }
+
+                    match memory.projected_type(self.request, target) {
+                        Ok(ty) => ty,
+                        Err(error) => {
+                            self.query_failure = Some(error);
+
+                            None
+                        }
+                    }
+                }
+                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_) | Effect::Mutation(_, Mutation::Retire) => {
+                    // A checked raw operation supplies its actual transfer type even
+                    // when the reached address has an ambient storage summary.
+                    if typed_transfer.is_some() { continue; }
+
+                    None
+                }
+            };
+
+            if let Some(ty) = ty { types.insert(ty); } else { complete = false; }
+        }
+
+        let transferred = self.input.footprint.preserve_transfer_markers(&types, complete, invalidation);
+
+        self.preserve_active_borrows(state, memory, &transferred, invalidation);
+        self.preserve_shared_views(memory, &transferred, writes, invalidation);
+    }
+
+    fn preserve_active_borrows(
         &self,
         state: &StorageFlowState,
         memory: &crate::analysis::storage_flow::memory::State,
+        transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
         invalidation: &mut StorageInvalidation,
     ) {
         let opaque = matches!(invalidation, StorageInvalidation::All { .. });
@@ -263,26 +328,39 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 }
 
                 let discriminants = self.input.footprint.discriminants.get(&path.root);
+                let mut observed = false;
 
-                let mut values = self.input.opaque_values
-                    .range(path.clone()..)
-                    .take_while(|value| path.contains(value))
-                    .filter(|_| !exposed_referent)
-                    .chain(self.input.footprint.observations(path)
-                        .filter(|(_, observation)| protected_referent
-                            && *observation != bray_bound_tree::StorageObservationKind::Discriminant
-                            && (!exposed_referent || opaque && observation.is_immutable_inline()))
-                        .map(|(value, _)| value))
-                    .peekable();
-
-                if exposed_referent {
-                    stable_values.extend(values.cloned());
-                    continue;
+                if !exposed_referent && transferred.is_empty() {
+                    for value in self.input.opaque_values.range(path.clone()..).take_while(|value| path.contains(value)) {
+                        stable_values.insert(value.clone());
+                        observed = true;
+                    }
                 }
 
-                if values.peek().is_none() && discriminants.is_none() {
-                    continue;
+                for (value, observation) in self.input.footprint.observations(path) {
+                    if !protected_referent { continue; }
+
+                    // Pointer descriptors belong to the shared owner, separately
+                    // from the mutable storage they reach.
+                    if observation == bray_bound_tree::StorageObservationKind::Address {
+                        stable_descriptors.insert(value.clone());
+                        observed = true;
+                        continue;
+                    }
+
+                    let survives = match observation {
+                        bray_bound_tree::StorageObservationKind::Marker(ty) => !transferred.contains(&ty),
+                        bray_bound_tree::StorageObservationKind::Discriminant => false,
+                        _ => transferred.is_empty(),
+                    };
+
+                    if survives && (!exposed_referent || opaque && observation.is_immutable_inline()) {
+                        stable_values.insert(value.clone());
+                        observed = true;
+                    }
                 }
+
+                if exposed_referent || !observed && discriminants.is_none() { continue; }
 
                 // The logical access can be an invocation input. Its exact physical
                 // referent still retains the complete owner for this shared loan.
@@ -296,20 +374,24 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                         .cloned(),
                 );
 
-                stable_values.extend(values.cloned());
             }
         }
 
-        self.preserve_shared_views(memory, invalidation);
     }
 
     fn preserve_shared_views(
         &self,
         memory: &crate::analysis::storage_flow::memory::State,
+        transferred: &std::collections::BTreeSet<bray_symbols::TypeId>,
+        writes: bool,
         invalidation: &mut StorageInvalidation,
     ) {
-        let StorageInvalidation::All { stable_values, .. } = invalidation else {
-            return;
+        let (stable_descriptors, stable_values, changed) = match invalidation {
+            StorageInvalidation::All { stable_descriptors, stable_values, .. } => (stable_descriptors, stable_values, None),
+            StorageInvalidation::Observed { stable_descriptors, stable_values, accesses, .. } => {
+                (stable_descriptors, stable_values, Some(accesses))
+            }
+            StorageInvalidation::Paths(_) => return,
         };
 
         let exposed = memory.raw_exposed_regions();
@@ -322,7 +404,15 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             }
 
-            let location = match reference.access_id(self.storage) {
+            let access = reference.access_id(self.storage);
+
+            // Replacing a reference slot ends that view. Changes reached through
+            // its value use different accesses and do not replace the descriptor.
+            if access.is_some_and(|access| changed.as_ref().is_some_and(|paths| paths.contains_key(&access))) {
+                continue;
+            }
+
+            let location = match access {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
                 Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
                 None if self
@@ -339,17 +429,33 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             // A shared loan protects each possible referent. Exact pointer identity
             // is unnecessary, but unknown or retired backing supplies no protection.
-            let Some(targets) = location.and_then(|location| memory.referenced_regions(&location))
-            else {
+            let Some(location) = location else {
                 continue;
             };
 
+            let source = Source::Value(location);
+
+            let Some(targets) = source.regions(memory) else {
+                continue;
+            };
+
+            let exact = source.is_exact(memory);
+
             for (path, observation) in observations {
-                if *observation == bray_bound_tree::StorageObservationKind::Discriminant {
+                // A whole-value frame must not hide a retired marker inside it.
+                // Disjoint observations already survive the physical invalidation.
+                let retired = match observation {
+                    bray_bound_tree::StorageObservationKind::Marker(ty) => transferred.contains(ty),
+                    bray_bound_tree::StorageObservationKind::Value | bray_bound_tree::StorageObservationKind::Identity => !transferred.is_empty(),
+                    _ => false,
+                };
+
+                if retired || *observation == bray_bound_tree::StorageObservationKind::Discriminant {
                     continue;
                 }
 
                 let immutable_value = observation.is_immutable_inline();
+                let address = *observation == bray_bound_tree::StorageObservationKind::Address;
 
                 if !targets.is_empty()
                     && targets.iter().all(|target| {
@@ -366,20 +472,35 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                immutable_value
+                                let framed = if address { stable_descriptors.contains(path) } else { stable_values.contains(path) };
+
+                                framed || (!writes || changed.is_none()) && (immutable_value || address
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
-                                    })
+                                    }))
                             }
                             _ => target
                                 .storage_path()
-                                .is_some_and(|path| stable_values.contains(path)),
+                                .is_some_and(|path| stable_values.contains(path)
+                                    || address && stable_descriptors.contains(path)),
                         }
                     })
                 {
                     // The copied logical path shares immutable projection metadata.
-                    stable_values.insert(path.clone());
+                    if address {
+                        stable_descriptors.insert(path.clone());
+
+                        if exact
+                            && let Some(physical) = targets[0]
+                                .project(&path.projections[reference.projections.len()..])
+                                .observation_path()
+                        {
+                            stable_descriptors.insert(physical);
+                        }
+                    } else {
+                        stable_values.insert(path.clone());
+                    }
                 }
             }
         }

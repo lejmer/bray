@@ -1081,79 +1081,14 @@ where
         let occurrence = kind.occurrence();
 
         self.preserve_returned_observations(occurrence, invalidation);
-        self.preserve_borrowed_values(state, &state.memory, invalidation);
+
+        let operation = occurrence.expression().and_then(|expression| self.memory.operation(expression));
+
+        self.preserve_storage_values(state, &state.memory, operation, effects, invalidation);
 
         if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {
             self.preserve_store_values(&state.memory, invalidation, true, *contents);
         }
-
-        if self.input.footprint.empty_markers.is_empty() {
-            return;
-        }
-
-        let operation = occurrence
-            .expression()
-            .and_then(|expression| self.memory.operation(expression));
-
-        let typed_transfer = operation.and_then(|operation| {
-            use bray_bound_tree::CheckedMemoryOperationKind as Operation;
-
-            let pointee = match operation.kind() {
-                Operation::Read {
-                    pointee,
-                    kind: bray_bound_tree::MemoryReadKind::Move,
-                }
-                | Operation::VolatileRead {
-                    pointee,
-                    kind: bray_bound_tree::MemoryReadKind::Move,
-                    ..
-                }
-                | Operation::Write { pointee }
-                | Operation::Copy { pointee, .. }
-                | Operation::VolatileWrite { pointee, .. } => Some(*pointee),
-                Operation::UninitMove { element }
-                | Operation::UninitAssumeInitialized { element }
-                | Operation::UninitWrite { element } => Some(*element),
-                _ => None,
-            };
-
-            pointee
-        });
-
-        let mut transferred_types = BTreeSet::new();
-
-        if let Some(ty) = typed_transfer {
-            transferred_types.insert(ty);
-        } else if let Some(effects) = effects {
-            use crate::analysis::storage_flow::memory::Effect;
-            use bray_symbols::DependencyMutationKind as Mutation;
-
-            for effect in effects {
-                let ty = match effect {
-                    Effect::Escape | Effect::Atomic
-                    | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => continue,
-                    Effect::Mutation(_, Mutation::Replace(ty)) => *ty,
-                    Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
-                        match state.memory.projected_type(self.request, target) {
-                            Ok(Some(ty)) => ty,
-                            Ok(None) => return,
-                            Err(error) => {
-                                self.query_failure = Some(error);
-                                return;
-                            }
-                        }
-                    }
-                    Effect::Unknown | Effect::Ambient | Effect::Cleanup(_)
-                    | Effect::Mutation(_, Mutation::Retire) => return,
-                };
-
-                transferred_types.insert(ty);
-            }
-        } else {
-            return;
-        }
-
-        self.input.footprint.preserve_transfer_markers(&transferred_types, invalidation);
     }
 
     fn apply_invocation_inputs(

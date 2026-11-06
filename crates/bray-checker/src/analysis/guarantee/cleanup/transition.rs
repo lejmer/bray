@@ -324,7 +324,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         );
 
         if let Some(completion) = flow.completion(mutation) {
-            self.observe_references(state, completion.references());
+            self.observe_references(state, mutation, completion.references());
         }
     }
 

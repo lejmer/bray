@@ -326,31 +326,33 @@ impl Footprint {
     pub(crate) fn preserve_transfer_markers(
         &self,
         types: &BTreeSet<TypeId>,
+        mut complete: bool,
         invalidation: &mut StorageInvalidation,
-    ) {
+    ) -> BTreeSet<TypeId> {
         let mut transferred = BTreeSet::new();
 
         for ty in types {
-            let Some(shape) = self.shapes.get(ty) else {
-                return;
-            };
-
-            let Some(markers) = &shape.inline_markers else {
-                return;
-            };
-
-            transferred.extend(markers.iter().copied());
+            if let Some(markers) = self.shapes.get(ty).and_then(|shape| shape.inline_markers.as_ref()) {
+                transferred.extend(markers.iter().copied());
+            } else {
+                complete = false;
+                transferred.extend(self.empty_markers.values().copied());
+            }
         }
 
         let stable_values = match invalidation {
             StorageInvalidation::All { stable_values, .. }
             | StorageInvalidation::Observed { stable_values, .. } => stable_values,
-            StorageInvalidation::Paths(_) => return,
+            StorageInvalidation::Paths(_) => return transferred,
         };
 
-        stable_values.extend(self.empty_markers.iter().filter_map(|(path, marker)| {
-            (!transferred.contains(marker)).then(|| path.clone())
-        }));
+        if complete {
+            stable_values.extend(self.empty_markers.iter().filter_map(|(path, marker)| {
+                (!transferred.contains(marker)).then(|| path.clone())
+            }));
+        }
+
+        transferred
     }
 
 }
@@ -505,7 +507,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 let borrowed = match observation {
-                    Observation::Value | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
+                    Observation::Value | Observation::Address | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
                         (0..=projections.len()).rev().find_map(|length| {
                             borrowed_paths.get(&projections[..length]).map(|kind| {
                                 (StoragePath {
@@ -569,21 +571,18 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
                         None
                     }
-                    Observation::Value => {
-                        if let Some((reference, kind)) = borrowed {
-                            footprint
-                                .borrowed_observations
-                                .entry(reference)
-                                .or_insert_with(|| (kind, Vec::new()))
-                                .1.push((path.clone(), Observation::Value));
-                        } else if identity.is_invocation_owned(storage.kind()) {
-                            footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
+                    Observation::Value | Observation::Address => {
+                        if *observation == Observation::Address {
+                            stable_descriptors.insert(path.clone());
                         }
 
-                        Some(path)
-                    }
-                    Observation::Address => {
-                        stable_descriptors.insert(path.clone());
+                        if let Some((reference, kind)) = borrowed {
+                            footprint.borrowed_observations.entry(reference)
+                                .or_insert_with(|| (kind, Vec::new()))
+                                .1.push((path.clone(), *observation));
+                        } else if identity.is_invocation_owned(storage.kind()) && *observation == Observation::Value {
+                            footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
+                        }
 
                         Some(path)
                     }

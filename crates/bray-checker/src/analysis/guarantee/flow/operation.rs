@@ -410,7 +410,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         // Mutation refreshes only current contents. The completion retains entry
         // layers and returned origins for consumers that can interpret them.
-        self.observe_references(state, observations.references());
+        self.observe_references(
+            state,
+            bray_bound_tree::StorageMutation::Operation(operation.occurrence()),
+            observations.references(),
+        );
 
         if input {
             let invocation = operation.occurrence();
