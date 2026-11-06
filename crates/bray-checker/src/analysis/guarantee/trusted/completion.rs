@@ -157,10 +157,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &mut ExecutionState,
         invocation: bray_bound_tree::BoundExecutionSite,
         result: ExecutionCondition,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) -> ExecutionCondition {
         // Calls without trusted clauses still establish checked result identities.
         // An empty contract contributes no authority or preservation guarantees.
@@ -241,7 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             && let Some((expression, call)) = self.observation_call(invocation)
         {
             // Completion clauses observe final contents, independently of trusted authority.
-            self.refresh_borrowed_arguments(state, invocation, &mut arguments);
+            self.refresh_borrowed_arguments(state, invocation, &mut arguments, observations);
 
             self.prepare_call_observations(
                 state,
@@ -249,7 +246,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 call,
                 &mut arguments,
                 &entry.addresses,
-                observations,
+                observations.borrow_origins(),
                 !guarantees.is_empty(),
             )
         } else {

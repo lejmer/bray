@@ -182,7 +182,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     self.request.semantic_values(),
                     expression,
                 )
-                .or_else(|| self.observed_expression_place(expression))
             }
             BoundExecutionSite::Iterate(_) | BoundExecutionSite::Next(_) => {
                 let access = self
@@ -197,43 +196,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             BoundExecutionSite::ScopedEnter(_) => None,
             _ => panic!("call input has an evaluated value site: {input:?}"),
         }
-    }
-
-    pub(super) fn observed_expression_place(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<ExecutionPlace> {
-        // Exact completion origins retain the storage reached by an evaluated
-        // getter. Reuse that origin to observe current contents through the borrow.
-        self.storage.node_plans(expression.into()).find_map(|plan| {
-            let path = self.storage.logical_path(plan.access())?;
-
-            let bray_bound_tree::StorageIdentity::Temporary(owner) =
-                self.storage.identity(path.root)?
-            else {
-                return None;
-            };
-
-            let completion = self
-                .checked_body?
-                .storage_flow()
-                .completion(bray_bound_tree::StorageMutation::Operation(owner.into()))?;
-
-            let root = bray_bound_tree::StoragePath {
-                root: path.root,
-                projections: [].into(),
-            };
-
-            let target = completion.references().get(&root)?;
-
-            let target = crate::storage::storage_observation_path(
-                self.storage,
-                self.request.semantic_values(),
-                target,
-            )?;
-
-            ExecutionPlace::storage_path(self.storage, &target)?.project(&path.projections)
-        })
     }
 
     pub(in crate::analysis::guarantee) fn current_input(

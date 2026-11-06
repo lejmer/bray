@@ -40,13 +40,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state: &ExecutionState,
         expression: BoundExpressionId,
     ) -> ExecutionCondition {
-        if let Some(place) = self.observed_expression_place(expression) {
-            return place
-                .value_in(&state.current)
-                .unwrap_or(ExecutionCondition::Input(place))
-                .borrowed();
-        }
-
         // Borrow checking keeps the evaluated access path valid through this call.
         // Completion reads its current contents, without the cached entry snapshot.
         expression_condition(

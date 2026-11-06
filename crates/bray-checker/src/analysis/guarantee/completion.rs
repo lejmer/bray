@@ -419,7 +419,8 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     ) -> Option<crate::ExecutionCallEvidence> {
         let mut entry = self.invocation_entry(state, invocation)?;
 
-        entry.witness_inputs = state.owned_witnesses(entry.owned_arguments())
+        entry.witness_inputs = state
+            .owned_witnesses(entry.owned_arguments())
             .filter(|(_, witness)| witness.available)
             .map(|(owner, _)| owner.clone())
             .collect();
@@ -723,10 +724,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         &self,
         state: &mut ExecutionState,
         expression: BoundExpressionId,
-        observations: &BTreeMap<
-            bray_bound_tree::BoundExecutionSite,
-            BTreeSet<bray_bound_tree::StoragePath>,
-        >,
+        observations: &bray_bound_tree::StorageCompletion,
     ) {
         let result = self.invocation_value(state, expression.into());
 
