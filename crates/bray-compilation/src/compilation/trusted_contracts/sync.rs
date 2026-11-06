@@ -5333,7 +5333,8 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
             false,
         ),
     ] {
-        let source = format!(r#"
+        let source = format!(
+            r#"
             trusted module app;
             using core.memory;
             callable Native = @abi(c) func();
@@ -5371,11 +5372,24 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
                     case Error(_) {{}}
                 }}
             }}
-        "#);
+        "#
+        );
+
         let application = compilation(&source);
-        assert!(!application.syntax_tree_result().diagnostics().has_errors(), "{source}");
-        let checked = application.lowered_unit(source_function_body_key(&application, "caller"))
+
+        assert!(
+            !application.syntax_tree_result().diagnostics().has_errors(),
+            "{source}"
+        );
+
+        let checked = application
+            .lowered_unit(source_function_body_key(&application, "caller"))
             .expect("returned owners retain their complete producer context");
-        assert_eq!(!checked.diagnostics().has_errors(), valid, "{source}: {checked:#?}");
+
+        assert_eq!(
+            !checked.diagnostics().has_errors(),
+            valid,
+            "{source}: {checked:#?}"
+        );
     }
 }

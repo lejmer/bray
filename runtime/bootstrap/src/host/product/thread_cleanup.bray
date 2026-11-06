@@ -22,9 +22,7 @@ trusted internal func select_domain_exit_locked(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
 {
     let mut anchor = trusted bray.runtime.bootstrap.host.host_anchor(lease);
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, &mut anchor);
@@ -69,9 +67,7 @@ trusted internal func acknowledge_domain_locked(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(intrinsic)
 {
     let mut worker: bool = false;

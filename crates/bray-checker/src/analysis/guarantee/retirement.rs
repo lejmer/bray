@@ -360,12 +360,14 @@ impl ExecutionState {
             !preserved.contains(condition)
                 && !condition.observes_only(stable_values)
                 && !matches!(predicate, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
-                && condition.observations_except(|observation| {
-                    // A borrow of an address slot observes the descriptor itself.
-                    // Pointee mutation still revokes claims on the unborrowed address.
-                    matches!(observation, ExecutionCondition::Borrowed(value)
+                && condition
+                    .observations_except(|observation| {
+                        // A borrow of an address slot observes the descriptor itself.
+                        // Pointee mutation still revokes claims on the unborrowed address.
+                        matches!(observation, ExecutionCondition::Borrowed(value)
                         if address_slots.contains(value.owner_identity()))
-                }).any(|observation| referents.overlaps(observation))
+                    })
+                    .any(|observation| referents.overlaps(observation))
         };
 
         let revokes_observation = |condition: &ExecutionCondition| {

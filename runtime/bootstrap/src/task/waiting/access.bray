@@ -51,9 +51,7 @@ trusted internal func wait_coordinates(
         trusted retained(owner = parent),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
 {
     if retirement > 1 || child.runtime != parent.runtime || child.handle == parent.handle
     {
@@ -83,13 +81,19 @@ trusted internal func retain_waiter(
         lease.active,
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     ensures(
         trusted retained_option(owner = &result.0),
         trusted retained(owner = observed),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
 {
     return trusted retain_locked(lease, anchor, runtime, handle);

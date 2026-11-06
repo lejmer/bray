@@ -513,15 +513,21 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     continue;
                 };
 
-                let ty = path.access_id(self.storage)
+                let ty = path
+                    .access_id(self.storage)
                     .and_then(|access| self.storage.access(access))
                     .map(|access| access.reached_type())
-                    .or_else(|| path.projections.is_empty()
-                        .then(|| self.storage.storage_type(path.root)).flatten());
+                    .or_else(|| {
+                        path.projections
+                            .is_empty()
+                            .then(|| self.storage.storage_type(path.root))
+                            .flatten()
+                    });
 
-                if ty.is_some_and(|ty| crate::representation::reference_kind(self.request, ty)
-                    == Some(bray_symbols::DependencyReferenceKind::Address))
-                {
+                if ty.is_some_and(|ty| {
+                    crate::representation::reference_kind(self.request, ty)
+                        == Some(bray_symbols::DependencyReferenceKind::Address)
+                }) {
                     address_slots.insert(value.owner_identity().clone());
                 }
 

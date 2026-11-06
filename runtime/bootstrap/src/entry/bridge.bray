@@ -159,11 +159,12 @@ trusted internal func exchange(
         trusted native_provider(),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
         )
+    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     executes(total)
     uses(raw_memory, unchecked_init, intrinsic)
 {
@@ -304,11 +305,12 @@ trusted internal func read(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
         )
+    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     executes(total)
 {
     // Native TLS is empty during final cleanup. The host retains one closing row

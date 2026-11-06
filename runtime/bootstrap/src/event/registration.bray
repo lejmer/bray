@@ -119,7 +119,10 @@ trusted internal func publish_event_wait(
         trusted bray.runtime.bootstrap.task.registration_owned(owner = &owner.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     ensures(
         trusted bray.runtime.bootstrap.task.optional_registration(owner = &result),

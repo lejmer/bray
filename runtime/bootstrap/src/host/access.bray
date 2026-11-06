@@ -36,7 +36,9 @@ trusted internal func host_anchor(pos lease: &HostLease) -> HostAnchor
 {
     return
     {
-        acquisition = Acquisition {},
+        acquisition = Acquisition
+        {
+        },
         owner = lease.owner
     };
 }
@@ -54,10 +56,7 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
     let pointer = std.memory.uninit_pointer<HostOwner>(lease.owner);
 
     let authorize = trusted lambda(pos lease: &HostLease, pos pointer: DataPointer<HostOwner>)
-        requires(
-            lease.active,
-            trusted host_access_live(owner = &lease.acquisition)
-        )
+        requires(lease.active, trusted host_access_live(owner = &lease.acquisition))
         ensures(
             trusted host_access_live(owner = &lease.acquisition),
             trusted core.memory.valid_read<HostOwner>(pointer = pointer, count = 1),
@@ -175,7 +174,7 @@ trusted internal func access_prepared_host(pos storage: &(HostStorage?)) -> Host
         result.active,
         trusted prepared_host_storage(owner = storage),
         trusted host_access_live(owner = &result.acquisition),
-        )
+    )
 {
     while true
     {

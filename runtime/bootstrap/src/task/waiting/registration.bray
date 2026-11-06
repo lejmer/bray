@@ -103,12 +103,18 @@ trusted internal func admit_wait(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     ensures(
         trusted optional_registration(owner = &result.0),
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     uses(intrinsic)
 {
@@ -185,7 +191,10 @@ trusted internal func publish_wait(
         trusted registration_owned(owner = &registration.marker),
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        )
     )
     ensures(
         trusted optional_registration(owner = &result.1),

@@ -406,7 +406,11 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             if shared.is_some() {
                 // Borrowed owners retain their whole observation only while the
                 // existing referent and exposure checks preserve this exact value.
-                footprint.borrowed_identities.entry(path.clone()).or_default().push(path);
+                footprint
+                    .borrowed_identities
+                    .entry(path.clone())
+                    .or_default()
+                    .push(path);
             } else if identity.is_invocation_owned(storage.kind()) {
                 footprint.scalars.entry(root).or_default().push(path);
             }

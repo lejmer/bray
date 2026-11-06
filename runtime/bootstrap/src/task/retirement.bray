@@ -121,7 +121,10 @@ trusted internal func take_released(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
+        ),
         trusted released(owner = reference)
     )
     ensures(
