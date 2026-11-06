@@ -138,20 +138,20 @@ impl Footprint {
         for (access_id, access) in storage.access_entries() {
             if let bray_bound_tree::StorageAccessRoot::Storage(root) = access.root()
                 && access.projections().is_empty()
-                && !self.scalars.contains_key(root)
+                && !self.scalars.contains_key(&root)
                 && storage
-                    .identity(*root)
+                    .identity(root)
                     .is_some_and(|identity| identity.is_invocation_owned(storage.kind()))
-                && storage.storage_type(*root).is_some_and(|ty| {
+                && storage.storage_type(root).is_some_and(|ty| {
                     crate::representation::reference_kind(request, ty)
                         == Some(bray_symbols::DependencyReferenceKind::Address)
                 })
-                && crate::ExecutionPlace::storage_identity(storage, *root)
+                && crate::ExecutionPlace::storage_identity(storage, root)
                     .is_some_and(|owner| entry_owners.contains(&&owner))
             {
                 // This owned slot is a protocol witness for the current entry.
                 // Keeping its address value grants no unowned pointee permission.
-                self.scalars.insert(*root, vec![StoragePath::root(*root)]);
+                self.scalars.insert(root, vec![StoragePath::root(root)]);
             }
 
             let ty = request
