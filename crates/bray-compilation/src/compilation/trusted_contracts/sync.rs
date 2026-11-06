@@ -2924,7 +2924,14 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 "raw_memory",
             ),
         ] {
-            for view in ["owner", "forward(owner)"] {
+            for (borrowed, mutable, expose, through_call) in [
+                ("owner", "mut ", "_ = core.memory.address_of<Owner>(owner);", false),
+                ("forward(owner)", "mut ", "_ = core.memory.address_of<Owner>(owner);", false),
+                ("forward(owner)", "", "", false),
+                ("forward(owner)", "", "", true),
+            ] {
+            let invoke = if through_call { "trusted transfer(destination);" } else { operation.as_str() };
+
             let source = format!(
                 r#"
             trusted module app;
@@ -2936,7 +2943,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             struct OtherPayload {{ marker: OtherMarker; value: u32; }}
             struct Owner {{
                 marker: Marker;
-                mut data: u64;
+                {mutable}data: u64;
                 trusted destruct() requires(trusted held(&self.marker)) executes(total) {{}}
             }}
             trusted predicate held(marker: &Marker);
@@ -2950,6 +2957,13 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                     trusted core.memory.aligned_for<{pointee}>(pointer = result)
                 )
                 executes(pure, total);
+            trusted func transfer(pos destination: DataPointer<{pointee}>)
+                requires(
+                    trusted core.memory.valid_write<{pointee}>(pointer = destination, count = 1),
+                    trusted core.memory.valid_read<{pointee}>(pointer = destination, count = 1),
+                    trusted core.memory.initialized_as<{pointee}>(pointer = destination),
+                    trusted core.memory.aligned_for<{pointee}>(pointer = destination)
+                ) uses({capabilities}) {{ {operation} }}
             func forward(pos owner: &Owner) -> &Owner
                 requires(trusted held(&owner.marker))
                 ensures(trusted held(&result.marker)) executes(pure, total) {{ return owner; }}
@@ -2959,11 +2973,11 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
                 requires(trusted held(&owner.marker))
                 uses({capabilities})
             {{
-                _ = core.memory.address_of<Owner>(owner);
-                let view = {view};
-                let destination = pointer(view);
-                {operation}
-                observe(view);
+                {expose}
+                let borrowed = {borrowed};
+                let destination = pointer(borrowed);
+                {invoke}
+                observe(borrowed);
             }}
             "#
             );

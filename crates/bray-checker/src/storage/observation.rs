@@ -325,25 +325,29 @@ impl Footprint {
     /// Keep marker identities that none of these typed transfers can replace.
     pub(crate) fn preserve_transfer_markers(
         &self,
-        types: &BTreeSet<TypeId>,
+        types: &BTreeMap<TypeId, bool>,
         mut complete: bool,
         invalidation: &mut StorageInvalidation,
     ) -> BTreeSet<TypeId> {
         let mut transferred = BTreeSet::new();
+        let mut raw_transferred = BTreeSet::new();
 
-        for ty in types {
+        for (ty, raw) in types {
             if let Some(markers) = self.shapes.get(ty).and_then(|shape| shape.inline_markers.as_ref()) {
                 transferred.extend(markers.iter().copied());
+
+                if *raw { raw_transferred.extend(markers.iter().copied()); }
             } else {
                 complete = false;
-                transferred.extend(self.empty_markers.values().copied());
+
+                if *raw { raw_transferred.extend(self.empty_markers.values().copied()); }
             }
         }
 
         let stable_values = match invalidation {
             StorageInvalidation::All { stable_values, .. }
             | StorageInvalidation::Observed { stable_values, .. } => stable_values,
-            StorageInvalidation::Paths(_) => return transferred,
+            StorageInvalidation::Paths(_) => return raw_transferred,
         };
 
         if complete {
@@ -352,7 +356,7 @@ impl Footprint {
             }));
         }
 
-        transferred
+        raw_transferred
     }
 
 }
