@@ -282,8 +282,10 @@ impl Compilation {
         if let Some(role) =
             crate::compilation::foreign::compiler_known_representation(self, *definition)
         {
-            return Ok(matches!(role,
-                bray_compiler_known::RepresentationRole::RawPointer
+            return Ok(role.numeric_kind().is_some() || matches!(role,
+                bray_compiler_known::RepresentationRole::ScalarBool
+                    | bray_compiler_known::RepresentationRole::ScalarChar
+                    | bray_compiler_known::RepresentationRole::RawPointer
                     | bray_compiler_known::RepresentationRole::FunctionPointer
                     | bray_compiler_known::RepresentationRole::DevicePointer));
         }
