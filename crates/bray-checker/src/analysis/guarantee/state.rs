@@ -468,11 +468,17 @@ impl ExecutionState {
         });
 
         // Opaque predicates cannot observe mutable state absent from their arguments.
-        // Preserve established facts with no observations, without creating new evidence.
+        // Preserve established facts with no observations and unchanged ordinary
+        // guards. A predicate observing a value still needs its complete witness.
         let no_values = BTreeSet::new();
 
         let preserves = |fact: &(ExecutionCondition, bool)| {
             retained.contains(fact) || fact.0.observes_only(&no_values)
+                || (fact.0.observes_only(stable_values)
+                    && fact.0.observations().all(|value| {
+                        !matches!(value, ExecutionCondition::Predicate(_, _, _) | ExecutionCondition::Call(_, _, _, _))
+                            || value.observes_only(&no_values)
+                    }))
         };
 
         // Private moved inputs retain historical entry facts while child execution
@@ -658,6 +664,39 @@ mod tests {
 
     use super::ExecutionState;
     use crate::{ExecutionCondition, ExecutionPlace};
+
+    #[test]
+    fn cleanup_keeps_observation_free_guarantees_with_unchanged_guards() {
+        let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
+            "ValidWrite",
+        );
+        let substitution = crate::test_support::empty_substitution(symbol.into());
+        let predicate = |arguments: Vec<_>| ExecutionCondition::Trusted(Arc::new(
+            ExecutionCondition::Predicate(symbol.into(), substitution, arguments.into()),
+        ));
+        let guard = input(0);
+        let independent = predicate(Vec::new());
+        let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), independent.clone()]);
+        let observed = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), predicate(vec![input(1).borrowed()])]);
+
+        for unchanged in [false, true] {
+            let mut state = ExecutionState::default();
+            state.trusted_assumptions.extend([
+                (independent.clone(), true), (guarded.clone(), true), (observed.clone(), true),
+            ]);
+            let stable = if unchanged {
+                BTreeSet::from([guard.clone(), input(1).borrowed()])
+            } else { BTreeSet::new() };
+
+            state.invalidate_cleanup(&stable, &BTreeSet::new());
+
+            assert!(state.trusted_assumptions.contains(&(independent.clone(), true)));
+            assert_eq!(state.trusted_assumptions.contains(&(guarded.clone(), true)), unchanged);
+            assert!(!state.trusted_assumptions.contains(&(observed.clone(), true)));
+        }
+    }
 
     fn input(ordinal: u32) -> ExecutionCondition {
         ExecutionCondition::Input(ExecutionPlace::argument(SymbolOrdinal::new(ordinal)))

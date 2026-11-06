@@ -402,6 +402,49 @@ impl State {
         self.contents.get(target)?.storage_type
     }
 
+    pub(in crate::analysis::storage_flow) fn projected_type<C: crate::CheckerRequestContext + ?Sized>(
+        &self,
+        request: crate::CheckerUnitView<'_, C>,
+        target: &Target,
+    ) -> crate::CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
+        // A projection keeps its containing storage's checked type even when no
+        // operation has declared that component as a separate memory cell.
+        let mut ancestor = target.clone();
+
+        loop {
+            if let Some(mut ty) = self.declared_type(&ancestor) {
+                for projection in &target.projections()[ancestor.projections().len()..] {
+                    let projected = crate::storage::projected_storage_type(request, ty, *projection)?;
+
+                    let Some(projected) = *projected.value() else {
+                        return Ok(None);
+                    };
+
+                    ty = projected;
+                }
+
+                return Ok(Some(ty));
+            }
+
+            let length = ancestor.projections().len();
+
+            if length == 0 {
+                return Ok(None);
+            }
+
+            match &mut ancestor.origin {
+                Origin::Entry { projections, .. }
+                | Origin::Returned { projections, .. }
+                | Origin::Static { projections, .. } => {
+                    *projections = projections[..length - 1].into();
+                }
+                Origin::Storage(path) | Origin::Allocation(path) => {
+                    path.projections = path.projections[..length - 1].into();
+                }
+            }
+        }
+    }
+
     fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
         if !references.is_exact() {
             return None;

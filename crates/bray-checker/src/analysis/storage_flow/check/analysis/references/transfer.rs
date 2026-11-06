@@ -351,7 +351,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(super) fn reference_wrapping(
         &self,
         expression: bray_bound_tree::BoundExpressionId,
-        mut target: bray_symbols::TypeId,
+        target: bray_symbols::TypeId,
     ) -> Option<Vec<bray_bound_tree::StorageProjection>> {
         let source_type = self
             .execution
@@ -361,20 +361,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .expect("transferred value has a checked type")
             .ty();
 
-        let mut projections = Vec::new();
-
-        while target != source_type {
-            let data = self.request.semantic_values().type_data(target);
-
-            let TypeData::Nullable(inner) = data.as_ref() else {
-                return None;
-            };
-
-            projections.push(bray_bound_tree::StorageProjection::NullableValue);
-            target = *inner;
-        }
-
-        Some(projections)
+        crate::storage::nullable_wrapping(self.request.semantic_values(), source_type, target)
     }
 
     fn observe_transferred_payloads(

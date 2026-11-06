@@ -2801,6 +2801,7 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
         ("u32", "1", true),
         ("(u32?)", "none", true),
         ("Data", "Data { value = 1 }", true),
+        ("OtherPayload", "OtherPayload { marker = OtherMarker {}, value = 1 }", true),
         (
             "Payload",
             "Payload { marker = Marker {}, value = 1 }",
@@ -2822,8 +2823,10 @@ fn typed_data_transfers_preserve_borrowed_ownership_markers() {
             trusted module app;
             using core.memory;
             struct Marker {{}}
+            struct OtherMarker {{}}
             struct Data {{ value: u32; }}
             struct Payload {{ marker: Marker; value: u32; }}
+            struct OtherPayload {{ marker: OtherMarker; value: u32; }}
             struct Owner {{
                 marker: Marker;
                 mut data: u64;
@@ -5646,6 +5649,7 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
                 ensures(trusted live(&owner.value.marker))
             {{
                 let selected = &owner.value;
+                _ = exchange(selected.pointer);
                 activity();
                 observe(selected);
             }}
@@ -5660,8 +5664,9 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
                 }}
                 return Ok(unit);
             }}
-            func caller(pos pointer: DataPointer<u8>, pos reject: bool) {{
-                let mut owner = make(pointer);
+            func caller_existing(pos mut owner: Owner, pos reject: bool)
+                requires(trusted live(&owner.marker))
+            {{
                 _ = exchange(owner.pointer);
                 {operation}
                 match consume forward(owner, reject) {{
@@ -5673,6 +5678,9 @@ fn nullable_input_adaptation_preserves_physical_owners_and_rejected_values() {
                         }}
                     }}
                 }}
+            }}
+            func caller(pos pointer: DataPointer<u8>, pos reject: bool) {{
+                caller_existing(make(pointer), reject);
             }}
             "#
         );

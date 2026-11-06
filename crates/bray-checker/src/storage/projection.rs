@@ -3,6 +3,28 @@ use bray_bound_tree::StorageProjection;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{DependencyProjection, TypeData, TypeId};
 
+/// The present-value projections introduced by a checked nullable adaptation.
+pub(crate) fn nullable_wrapping(
+    values: &bray_symbols::SemanticValueStore,
+    source: TypeId,
+    mut target: TypeId,
+) -> Option<Vec<StorageProjection>> {
+    let mut projections = Vec::new();
+
+    while target != source {
+        let data = values.type_data(target);
+
+        let TypeData::Nullable(inner) = data.as_ref() else {
+            return None;
+        };
+
+        projections.push(StorageProjection::NullableValue);
+        target = *inner;
+    }
+
+    Some(projections)
+}
+
 /// Resolves physical storage only when it denotes a logical value in this plan.
 /// A raw pointer's incoming pointee is distinct from the pointer value itself.
 pub(crate) fn storage_observation_path(
