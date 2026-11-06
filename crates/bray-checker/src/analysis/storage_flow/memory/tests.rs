@@ -40,8 +40,11 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
     let element = tuple_type([]);
     let array = array_type(element, 2);
     let generator = values.intern_type(bray_symbols::TypeData::Generator(array)).unwrap();
+
     let ([owner, ..], _, capability) = borrowed_places();
+
     let (unit, _) = expression_unit(owner.root.unit(), |_, _| Vec::new());
+
     let context = TestCheckerContext::new(false);
     let entry = callable_entry(unit.key());
     let request = crate::CheckerUnitView::new(&unit, &entry, &context);
@@ -51,12 +54,15 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
     state.borrow_target_storage(values, capability, owner.clone(), generator);
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
+
     state.observe_effect_types(&[super::Effect::Mutation(
         backing.clone(), bray_symbols::DependencyMutationKind::Replace(array),
     )]);
+
     let cell = backing.project(&[StorageProjection::ElementFromStart(
         bray_symbols::SymbolOrdinal::new(0),
     )]);
+
     let member = cell.project(&[StorageProjection::ElementFromStart(
         bray_symbols::SymbolOrdinal::new(1),
     )]);

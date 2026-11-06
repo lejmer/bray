@@ -642,13 +642,11 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         return Err(CheckerQueryError::Cancelled);
     }
 
-    let reference = matches!(
-        request.semantic_values().type_data(ty).as_ref(),
-        TypeData::Borrow { .. }
-    );
+    let data = request.semantic_values().type_data(ty);
+    let reference = matches!(data.as_ref(), TypeData::Borrow { .. });
 
     let borrowed = matches!(
-        request.semantic_values().type_data(ty).as_ref(),
+        data.as_ref(),
         TypeData::Borrow {
             kind: bray_symbols::BorrowKind::Mutable,
             ..
@@ -660,50 +658,44 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let mut fields = Vec::new();
     let mut complete_references = true;
     let mut inline_markers = Some(BTreeSet::new());
-    let mut nominal = false;
+
+    let role = match data.as_ref() {
+        TypeData::Callable(_) => Some(bray_compiler_known::RepresentationRole::FunctionPointer),
+        TypeData::Named { definition, .. } => {
+            let symbols = request.available_compiler_known_symbols();
+
+            match definition {
+                NamedTypeSymbolId::Struct(id) => symbols.symbol_representation(*id),
+                NamedTypeSymbolId::Union(id) => symbols.symbol_representation(*id),
+            }
+        }
+        _ => None,
+    };
+
+    let nominal = matches!(data.as_ref(), TypeData::Named { .. }) && role.is_none();
+
+    if let Some(role) = role.filter(|role| {
+        !matches!(
+            role,
+            bray_compiler_known::RepresentationRole::Result
+                | bray_compiler_known::RepresentationRole::RunResult
+        )
+    }) {
+        return known_shape(
+            request,
+            ty,
+            role,
+            reference,
+            visiting,
+            complete_reference_types,
+        );
+    }
 
     let definition = match data.as_ref() {
-        TypeData::Callable(_) => {
-            // Callable values carry code and checked contracts, never captured storage.
-            return known_shape(
-                request,
-                ty,
-                bray_compiler_known::RepresentationRole::FunctionPointer,
-                reference,
-                visiting,
-                complete_reference_types,
-            );
-        }
         TypeData::Named {
             definition,
             substitution,
         } => {
-            let symbols = request.available_compiler_known_symbols();
-
-            let role = match definition {
-                NamedTypeSymbolId::Struct(id) => symbols.symbol_representation(*id),
-                NamedTypeSymbolId::Union(id) => symbols.symbol_representation(*id),
-            };
-
-            nominal = role.is_none();
-
-            if let Some(role) = role.filter(|role| {
-                !matches!(
-                    role,
-                    bray_compiler_known::RepresentationRole::Result
-                        | bray_compiler_known::RepresentationRole::RunResult
-                )
-            }) {
-                return known_shape(
-                    request,
-                    ty,
-                    role,
-                    reference,
-                    visiting,
-                    complete_reference_types,
-                );
-            }
-
             let buffer_element = request
                 .context()
                 .raw_buffer_element(*definition, *substitution)?;
@@ -810,14 +802,18 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         _ => return Ok(Shape::unknown()),
     };
 
-    let mut result = if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
+    let mut result = Vec::new();
+
+    if matches!(definition, Some(NamedTypeSymbolId::Struct(_)))
         && fields.is_empty()
         && !borrowed
     {
-        vec![(Vec::new(), Observation::Marker(ty))]
-    } else {
-        Vec::new()
-    };
+        if let Some(markers) = &mut inline_markers {
+            markers.insert(ty);
+        }
+
+        result.push((Vec::new(), Observation::Marker(ty)));
+    }
 
     if matches!(
         data.as_ref(),
@@ -831,12 +827,6 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut complete_value = !reference;
-    if let Some(markers) = &mut inline_markers {
-        markers.extend(result.iter().filter_map(|(_, observation)| match observation {
-            Observation::Marker(ty) => Some(*ty),
-            _ => None,
-        }));
-    }
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;

@@ -298,6 +298,7 @@ mod tests {
                     return action;
                 }}
             "#);
+
             let application = compilation(&source);
             let diagnostics = application.check_diagnostics();
 
