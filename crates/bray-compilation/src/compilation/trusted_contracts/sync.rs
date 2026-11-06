@@ -493,16 +493,43 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
     for (parameter, argument, valid) in [("&Owner", "owner", true), ("Owner", "&owner", false)] {
         let source = format!(
             r#"
-            module app;
-            struct Owner {{}}
+            trusted module app;
+            using core.memory;
+            struct Owner {{ pointer: DataPointer<ForeignPayload>; }}
             struct Marker {{}}
-            struct Heap {{ marker: Marker; }}
-            extern func heap(pos owner: &Owner) -> &Heap executes(pure, total);
-            func selected_marker(pos owner: &Owner) -> &Marker {{
-                let backing: &Heap = heap(owner);
+            struct ForeignPayload {{ marker: Marker; }}
+            trusted predicate retained(owner: &Owner);
+            trusted func referent(pos owner: &Owner) -> &ForeignPayload
+                requires(trusted retained(owner))
+                executes(pure, total)
+                uses(raw_memory, unchecked_alias)
+            {{
+                let permit = trusted lambda(pos owner: &Owner) -> DataPointer<ForeignPayload>
+                    requires(trusted retained(owner))
+                    ensures(
+                        trusted valid_read<ForeignPayload>(pointer = result, count = 1),
+                        trusted aligned_for<ForeignPayload>(pointer = result),
+                        trusted initialized_as<ForeignPayload>(pointer = result),
+                        trusted shared_alias_valid<ForeignPayload>(pointer = result),
+                        trusted epoch_current<ForeignPayload>(pointer = result),
+                        trusted synchronized_access<ForeignPayload>(pointer = result),
+                        trusted movement_stable<ForeignPayload>(pointer = result),
+                        trusted finalization_pending<ForeignPayload>(pointer = result),
+                    )
+                    executes(pure, total)
+                {{ return owner.pointer; }};
+
+                return trusted borrow_from<ForeignPayload, Owner>(owner, trusted permit(owner));
+            }}
+            func selected_marker(pos owner: &Owner) -> &Marker
+                requires(trusted retained(owner))
+            {{
+                let backing = referent(owner);
                 return &backing.marker;
             }}
-            func forwarded(pos owner: {parameter}) -> &Marker {{ return selected_marker({argument}); }}
+            func forwarded(pos owner: {parameter}) -> &Marker
+                requires(trusted retained({argument}))
+            {{ return selected_marker({argument}); }}
             "#
         );
 
@@ -571,6 +598,51 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 "{source}: {checked:#?}"
             );
         }
+    }
+}
+
+#[test]
+fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
+    for (use_owner, valid) in [
+        ("observe(&owner.acquisition);", true),
+        ("let fabricated: Marker = {}; observe(&fabricated);", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            using core.target;
+            struct Marker {{}}
+            struct Owner {{ acquisition: Marker; pointer: DataPointer<u64>; }}
+            trusted predicate held(owner: &Marker);
+            extern func opaque(pos pointer: DataPointer<u64>) executes(total);
+            func observe(pos marker: &Marker) requires(trusted held(owner = marker)) executes(pure, total) {{}}
+            trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
+                return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
+            }}
+            func caller(pos owner: &Owner, pos count: u32)
+                requires(trusted held(owner = &owner.acquisition))
+            {{
+                _ = trusted publish(owner);
+                let mut index: u32 = 0;
+                while index < count {{
+                    opaque(owner.pointer);
+                    {use_owner}
+                    index += 1;
+                }}
+                observe(&owner.acquisition);
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
     }
 }
 
@@ -5353,7 +5425,7 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
                 return match owner {{ case Ok(value) {{ yield &value; }} case Error(_) {{ panic("missing success"); }} }};
             }}
             trusted func create(pos mode: u8) -> Result<(Owner?), u32>
-                ensures(result matches Error(_) || trusted optional_held(successful(&result))) {{
+                ensures(!(result matches Ok(_)) || trusted optional_held(successful(&result))) {{
                 if mode == 1 {{ return Ok(none); }}
                 if mode == 2 {{ return Error(1); }}
                 let native: Native = finish;

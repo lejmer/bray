@@ -49,7 +49,10 @@ trusted internal func host_value(pos lease: &HostLease, pos anchor: &mut HostAnc
         trusted host_access_live(owner = &lease.acquisition),
         trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition),
     )
-    ensures(trusted host_access_live(owner = &lease.acquisition))
+    ensures(
+        trusted host_access_live(owner = &lease.acquisition),
+        trusted host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition),
+    )
     executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {

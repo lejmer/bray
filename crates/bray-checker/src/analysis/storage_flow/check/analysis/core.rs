@@ -932,10 +932,6 @@ where
             })
             .unwrap_or_default();
 
-        let marker_exposure = (!escaped.is_empty()
-            && !self.input.footprint.borrowed_identities.is_empty())
-        .then(|| state.memory.raw_exposed_regions());
-
         if preserve_normal_storage {
             // Opaque effects can reach the whole exposed allocation on abnormal return.
             // Resolve that region now, while all invocation inputs still exist.
@@ -966,7 +962,6 @@ where
                     assignment.as_ref(),
                     call_effects.as_deref(),
                     invocation_roots.as_deref(),
-                    marker_exposure.as_ref(),
                 )
             })
             .flatten();
