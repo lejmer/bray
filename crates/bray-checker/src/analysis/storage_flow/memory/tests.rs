@@ -55,7 +55,7 @@ fn projected_region_types_keep_array_elements_distinct_from_array_valued_cells()
 
     let backing = owner.project(&[StorageProjection::OwnedTarget]);
 
-    state.observe_effect_types(&[super::Effect::Mutation(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array))]);
+    state.observe_effect_types(&[super::Effect::Mutation(backing.clone(), bray_symbols::DependencyMutationKind::Replace(array), None)]);
 
     let cell = backing.project(&[StorageProjection::ElementFromStart(
         bray_symbols::SymbolOrdinal::new(0),
@@ -3192,11 +3192,11 @@ fn local_mutation_does_not_publish_an_invocation_address() {
         ..State::default()
     };
 
-    let local_write = super::model::Effect::Mutation(Target::storage(local.clone()), bray_symbols::DependencyMutationKind::Replace(error_type()));
+    let local_write = super::model::Effect::Mutation(Target::storage(local.clone()), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let external_write = super::model::Effect::Mutation(Target::storage(external), bray_symbols::DependencyMutationKind::Replace(error_type()));
+    let external_write = super::model::Effect::Mutation(Target::storage(external), bray_symbols::DependencyMutationKind::Replace(error_type()), None);
 
-    let heap_write = super::model::Effect::Mutation(Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write);
+    let heap_write = super::model::Effect::Mutation(Target::storage(local.clone()).project(&[bray_bound_tree::StorageProjection::OwnedTarget]), bray_symbols::DependencyMutationKind::Write, None);
 
     assert!(!local_write.may_retain_address(&state));
     assert!(external_write.may_retain_address(&state));
@@ -3248,7 +3248,7 @@ fn normal_completion_discards_captured_failure_effects() {
     state.capture_failure_effects(
         occurrence,
         super::CapturedEffects {
-            mutations: [super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write)]
+            mutations: [super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None)]
             .into(),
             escaped: [Target::storage(source)].into(),
             invalidation: bray_bound_tree::StorageInvalidation::unknown(),
@@ -3280,8 +3280,8 @@ fn captured_failure_targets_follow_storage_retirement() {
         occurrence,
         super::CapturedEffects {
             mutations: [
-                super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write),
-                super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write),
+                super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None),
+                super::Effect::Mutation(Target::storage(source.clone()), bray_symbols::DependencyMutationKind::Write, None),
             ]
             .into(),
             escaped: [previous, Target::storage(source.clone())].into(),
@@ -3302,7 +3302,7 @@ fn captured_failure_targets_follow_storage_retirement() {
 
     assert_eq!(
         effects.mutations.as_slice(),
-        &[super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write)]
+        &[super::Effect::Mutation(previous.clone(), bray_symbols::DependencyMutationKind::Write, None)]
     );
 
     assert_eq!(effects.escaped.as_slice(), &[previous]);

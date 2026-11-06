@@ -108,7 +108,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 return Some(self.expression_reference(state, argument)?
                     .regions(&state.memory)?.into_iter().map(|target| {
-                        Effect::IndirectMutation(target, bray_symbols::DependencyMutationKind::Retire, Some(ty))
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Retire, Some(ty))
                     }).collect());
             }
             CheckedMemoryOperationKind::InlineAssembly { .. }
@@ -137,7 +137,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 targets
                     .into_iter()
                     .map(|target| {
-                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic)
+                        Effect::Mutation(target, bray_symbols::DependencyMutationKind::Atomic, None)
                     })
                     .collect(),
             );
@@ -178,12 +178,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         let access_type = (!protected).then(|| self.execution.semantics.types()
             .expression(argument).expect("checked memory access retains its argument type").ty());
 
-        Some(targets.into_iter().map(|target| {
-            if let Some(ty) = access_type {
-                Effect::IndirectMutation(target, kind, Some(ty))
-            } else {
-                Effect::Mutation(target, kind)
-            }
-        }).collect())
+        Some(targets.into_iter().map(|target| Effect::Mutation(target, kind, access_type)).collect())
     }
 }
