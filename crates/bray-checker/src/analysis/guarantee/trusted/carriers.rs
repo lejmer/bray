@@ -32,14 +32,14 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
     }
 
     /// Select the checked input owner without promoting a child's authority to its input container.
-    pub(super) fn input_witness_owner<'a>(
+    pub(super) fn input_witness_owner(
         &self,
         template: &ExecutionCondition,
         subject: &ExecutionCondition,
-        condition: &'a ExecutionCondition,
-        carriers: &'a [ExecutionCondition],
+        condition: &ExecutionCondition,
+        arguments: &BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
         addresses: &[(ExecutionCondition, ExecutionCondition, bool)],
-    ) -> Option<&'a ExecutionCondition> {
+    ) -> Option<ExecutionCondition> {
         if addresses.iter()
             .filter(|(guarantee, address, _)| guarantee == template && address == subject)
             .map(|(_, _, owning)| *owning)
@@ -49,15 +49,33 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
             return None;
         }
 
-        let carrier = carriers.iter().find(|carrier| {
-            **carrier != ExecutionCondition::Unknown && condition.observes(carrier)
-        })?;
+        // Only a current borrowed input can establish an input owner's contract.
+        // A consumed by-value input remains an entry snapshot, not a live owner.
+        let borrowed = subject.inputs().into_iter().any(|place| {
+            let mut root = place.clone();
 
-        Some(match condition.owner_identity() {
-            ExecutionCondition::Borrowed(value)
-                if value.owner_identity() == carrier.owner_identity() => carrier,
-            _ => condition,
-        })
+            root.projections = std::sync::Arc::new([]);
+
+            let Some(mut value) = root.value_in(arguments) else { return false; };
+
+            for projection in place.projections.iter() {
+                if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+                    return true;
+                }
+
+                value = value.component(*projection);
+            }
+
+            matches!(value.owner_identity(), ExecutionCondition::Borrowed(_))
+        });
+
+        if !borrowed { return None; }
+
+        // The typed subject was projected from this same current argument context.
+        // Its physical owner can change while the input loan remains the same.
+        let owner = condition.clone().into_referent();
+
+        (owner != ExecutionCondition::Unknown).then_some(owner)
     }
 
     /// Combine declared completion clauses with checked portable carrier promises.
