@@ -4,7 +4,7 @@ use crate::analysis::storage_flow::memory::{Place, Target};
 use crate::analysis::storage_flow::model::StorageFlowState;
 use crate::storage::storage_projections;
 use bray_bound_tree::BoundExecutionSite;
-use bray_symbols::{DependencySubjectRoot, TypeData};
+use bray_symbols::DependencySubjectRoot;
 
 impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     pub(in crate::analysis::storage_flow::check::analysis) fn transfer_memory_result_state(

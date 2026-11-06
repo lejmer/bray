@@ -159,7 +159,18 @@ pub fn callable_contract_conversion_is_valid(
         return false;
     };
 
-    source.parameters() == target.parameters()
+    source.parameters().len() == target.parameters().len()
+        // Owned binding mutation is local to each implementation. Borrow
+        // authority remains part of the parameter type and must still match.
+        && source
+            .parameters()
+            .iter()
+            .zip(target.parameters())
+            .all(|(source, target)| {
+                source.name() == target.name()
+                    && source.position() == target.position()
+                    && source.ty() == target.ty()
+            })
         && source.is_variadic() == target.is_variadic()
         && source.result() == target.result()
         && source.constness() == target.constness()

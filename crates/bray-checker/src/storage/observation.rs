@@ -21,6 +21,9 @@ struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
     complete_value: bool,
     complete_references: bool,
+    // Inline ownership differs from observable referents and protected contents.
+    // None means that this type's possible marker transfers remain unknown.
+    inline_markers: Option<BTreeSet<TypeId>>,
 }
 
 impl Shape {
@@ -37,6 +40,7 @@ impl Shape {
             observations: vec![(Vec::new(), Observation::Mutable)],
             complete_value: false,
             complete_references: false,
+            inline_markers: None,
         }
     }
 }
@@ -56,6 +60,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
             observations: Vec::new(),
             complete_value: !reference,
             complete_references: true,
+            inline_markers: Some(BTreeSet::new()),
         });
     }
 
@@ -85,6 +90,8 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         observations: vec![(Vec::new(), observation)],
         complete_value: scalar && !reference,
         complete_references: scalar || matches!(observation, Observation::Address),
+        inline_markers: (scalar || matches!(observation, Observation::Address))
+            .then(BTreeSet::new),
     };
 
     if matches!(
@@ -96,8 +103,10 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
             .unary_representation_argument(request.semantic_values(), role, ty)
             .expect("checked protected storage retains its payload type");
 
-        shape.complete_references =
-            paths(request, element, visiting, complete_reference_types)?.is_reference_free();
+        let element = paths(request, element, visiting, complete_reference_types)?;
+
+        shape.complete_references = element.is_reference_free();
+        shape.inline_markers = element.inline_markers;
 
         // Protected storage exposes no ordinary payload value. A reference-free
         // slot retains its opaque snapshot while its inline bytes are unreachable.
@@ -314,18 +323,11 @@ impl Footprint {
                 return;
             };
 
-            if !(shape.complete_references || shape.complete_value) {
+            let Some(markers) = &shape.inline_markers else {
                 return;
-            }
+            };
 
-            for (_, observation) in &shape.observations {
-                match observation {
-                    Observation::Scalar | Observation::Discriminant | Observation::Address
-                    | Observation::Reference(_) => {},
-                    Observation::Marker(ty) => { transferred.insert(*ty); },
-                    Observation::Mutable | Observation::Identity => return,
-                }
-            }
+            transferred.extend(markers.iter().copied());
         }
 
         let stable_values = match invalidation {
@@ -620,6 +622,7 @@ fn paths<C: CheckerRequestContext + ?Sized>(
 
         // A reference value has one explicit pointer slot, independently of its pointee shape.
         shape.complete_references = true;
+        shape.inline_markers = Some(BTreeSet::new());
     }
 
     if shape.complete_references {
@@ -656,6 +659,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let data = request.semantic_values().type_data(ty);
     let mut fields = Vec::new();
     let mut complete_references = true;
+    let mut inline_markers = Some(BTreeSet::new());
     let mut nominal = false;
 
     let definition = match data.as_ref() {
@@ -719,8 +723,10 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
             let representation = request.declared_type_representation(*definition)?;
 
-            complete_references &= !representation.value().is_recovered()
-                && !representation.diagnostics().has_errors();
+            if representation.value().is_recovered() || representation.diagnostics().has_errors() {
+                complete_references = false;
+                inline_markers = None;
+            }
 
             let members: Vec<_> = match representation.value().storage() {
                 DeclaredStorageShape::Structure(members) => members
@@ -778,6 +784,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
             // Element shape proves this without enumerating the array extent.
             shape.complete_references = element.is_reference_free();
             shape.complete_value = !reference && element.complete_value;
+            shape.inline_markers = element.inline_markers;
 
             return Ok(shape);
         }
@@ -824,6 +831,12 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut complete_value = !reference;
+    if let Some(markers) = &mut inline_markers {
+        markers.extend(result.iter().filter_map(|(_, observation)| match observation {
+            Observation::Marker(ty) => Some(*ty),
+            _ => None,
+        }));
+    }
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
@@ -840,6 +853,12 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
 
         complete_value &= shape.complete_value || address;
         complete_references &= shape.complete_references;
+
+        match (&mut inline_markers, shape.inline_markers) {
+            (Some(markers), Some(field_markers)) => markers.extend(field_markers),
+            (_, None) => inline_markers = None,
+            (None, Some(_)) => {},
+        }
 
         result.extend(
             shape.observations.into_iter().map(|(path, descriptor)| {
@@ -869,6 +888,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         observations: result,
         complete_value,
         complete_references,
+        inline_markers,
     })
 }
 

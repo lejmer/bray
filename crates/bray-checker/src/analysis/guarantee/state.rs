@@ -670,22 +670,29 @@ mod tests {
         let symbol = crate::test_support::compiler_known_symbol::<bray_symbols::PredicateSymbolId>(
             "ValidWrite",
         );
+
         let substitution = crate::test_support::empty_substitution(symbol.into());
+
         let predicate = |arguments: Vec<_>| ExecutionCondition::Trusted(Arc::new(
             ExecutionCondition::Predicate(symbol.into(), substitution, arguments.into()),
         ));
+
         let guard = input(0);
         let independent = predicate(Vec::new());
+
         let guarded = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
             vec![guard.clone(), independent.clone()]);
+
         let observed = ExecutionCondition::operation(bray_bound_tree::BoundOperator::LogicalOr,
             vec![guard.clone(), predicate(vec![input(1).borrowed()])]);
 
         for unchanged in [false, true] {
             let mut state = ExecutionState::default();
+
             state.trusted_assumptions.extend([
                 (independent.clone(), true), (guarded.clone(), true), (observed.clone(), true),
             ]);
+
             let stable = if unchanged {
                 BTreeSet::from([guard.clone(), input(1).borrowed()])
             } else { BTreeSet::new() };

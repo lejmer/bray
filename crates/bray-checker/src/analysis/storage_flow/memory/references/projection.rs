@@ -412,18 +412,38 @@ impl State {
         let mut ancestor = target.clone();
 
         loop {
-            if let Some(mut ty) = self.declared_type(&ancestor) {
+            // An enclosing element region stores its element type. Resolve a
+            // longer route from its owner so an array element is not mistaken
+            // for an element of an array-valued cell.
+            if let Some(mut ty) = self.declared_type(&ancestor)
+                && (ancestor == *target || !matches!(ancestor.projections().last(),
+                    Some(StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. })))
+            {
+                let mut element_region = false;
+
                 for projection in &target.projections()[ancestor.projections().len()..] {
+                    if element_region && !matches!(projection,
+                        StorageProjection::Element(_) | StorageProjection::ElementFromStart(_)
+                            | StorageProjection::ElementFromEnd(_) | StorageProjection::SliceRange { .. }) {
+                        ty = Self::owned_element_type(request.semantic_values(), ty);
+                    }
+
                     let projected = crate::storage::projected_storage_type(request, ty, *projection)?;
 
                     let Some(projected) = *projected.value() else {
                         return Ok(None);
                     };
 
+                    element_region = matches!(projection,
+                        StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. })
+                        && matches!(request.semantic_values().type_data(projected).as_ref(),
+                            bray_symbols::TypeData::Slice(_));
                     ty = projected;
                 }
 
-                return Ok(Some(ty));
+                return Ok(Some(if element_region {
+                    Self::owned_element_type(request.semantic_values(), ty)
+                } else { ty }));
             }
 
             let length = ancestor.projections().len();
@@ -466,10 +486,7 @@ impl State {
         ty: TypeId,
     ) {
         let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
-            match values.type_data(ty).as_ref() {
-                bray_symbols::TypeData::Slice(element) => *element,
-                _ => ty,
-            }
+            Self::owned_element_type(values, ty)
         } else {
             ty
         };
@@ -481,6 +498,15 @@ impl State {
             .get_or_insert(ty);
 
         self.borrows.insert(capability, References::one(target));
+    }
+
+    fn owned_element_type(values: &bray_symbols::SemanticValueStore, ty: TypeId) -> TypeId {
+        // An owned slice denotes an element region in physical memory, rather
+        // than a separately stored slice descriptor.
+        match values.type_data(ty).as_ref() {
+            bray_symbols::TypeData::Slice(element) => *element,
+            _ => ty,
+        }
     }
 }
 

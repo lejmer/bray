@@ -266,6 +266,50 @@ mod tests {
     use crate::test_support::compilation;
 
     #[test]
+    fn callable_conversion_keeps_borrow_authority_and_local_owned_binding_mutability() {
+        use bray_diagnostics::DiagnosticKind;
+
+        for (source_mode, target_mode, source_type, target_type, body, failure) in [
+            ("mut ", "", "i32", "i32", "value += 1; return value;", None),
+            ("", "mut ", "i32", "i32", "return value;", None),
+            ("", "mut ", "i32", "i32", "value += 1; return value;",
+                Some(DiagnosticKind::CheckingMissingMutationAuthority)),
+            ("", "", "&mut Counter", "&Counter", "value.value += 1; return value.value;",
+                Some(DiagnosticKind::CheckingIncompatibleExpressionType)),
+        ] {
+            let source = format!(r#"
+                module app;
+
+                struct Counter
+                {{
+                    mut value: i32;
+                }}
+
+                callable Action = func(pos {target_mode}value: {target_type}) -> i32;
+
+                func supplied(pos {source_mode}value: {source_type}) -> i32
+                {{
+                    {body}
+                }}
+
+                func select() -> Action
+                {{
+                    let action: Action = supplied;
+                    return action;
+                }}
+            "#);
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), failure.is_none(), "{source}: {diagnostics:#?}");
+
+            if let Some(kind) = failure {
+                bray_testing::assert_goal_state_diagnostic_kind(diagnostics, kind);
+            }
+        }
+    }
+
+    #[test]
     fn inherent_constructor_self_resolves_with_its_generic_subject() {
         for (subject, construct_result, call, caller_result) in [
             ("Value", "Self", "Value(true)", "Value"),
