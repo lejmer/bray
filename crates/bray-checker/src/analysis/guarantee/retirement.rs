@@ -370,11 +370,23 @@ impl ExecutionState {
                     .any(|observation| referents.overlaps(observation))
         };
 
+        // A referent write changes observations through borrows and callable or
+        // predicate contracts. A by-value guard, including a nullable tag, still
+        // describes the same live owner. Physical replacement retires its observations separately.
         let revokes_observation = |condition: &ExecutionCondition| {
-            condition.observations().any(|observation| {
+            if preserved.contains(condition) || condition.observes_only(stable_values) {
+                return false;
+            }
+
+            condition.observations_except(|observation| {
+                preserved.contains(observation)
+                    || matches!(observation, ExecutionCondition::Predicate(symbol, _, _) if stable_predicates.contains(symbol))
+            }).any(|observation| {
                 matches!(
                     observation,
-                    ExecutionCondition::Borrowed(_) | ExecutionCondition::Predicate(_, _, _)
+                    ExecutionCondition::Borrowed(_)
+                        | ExecutionCondition::Predicate(_, _, _)
+                        | ExecutionCondition::Call(_, _, _, _)
                 ) && revokes(observation)
             })
         };
@@ -383,16 +395,16 @@ impl ExecutionState {
             .retain(|(condition, _)| !revokes_observation(condition));
 
         self.trusted_assumptions
-            .retain(|(condition, _)| !revokes(condition));
+            .retain(|(condition, _)| !revokes_observation(condition));
 
         self.witnesses.retain(|_, witness| {
-            witness.retain_conditions(|condition, _| !revokes(condition));
+            witness.retain_conditions(|condition, _| !revokes_observation(condition));
 
             !witness.conditions.is_empty() || !witness.dependencies.is_empty()
         });
 
         self.allocation_owners
-            .retain(|condition, _| !revokes(condition));
+            .retain(|condition, _| !revokes_observation(condition));
 
         for entry in self.pending_entries_mut(&|entry| {
             entry
@@ -402,7 +414,7 @@ impl ExecutionState {
                 || entry
                     .trusted_assumptions
                     .iter()
-                    .any(|(condition, _)| revokes(condition))
+                    .any(|(condition, _)| revokes_observation(condition))
         }) {
             entry
                 .assumptions
@@ -410,7 +422,7 @@ impl ExecutionState {
 
             entry
                 .trusted_assumptions
-                .retain(|(condition, _)| !revokes(condition));
+                .retain(|(condition, _)| !revokes_observation(condition));
         }
     }
 

@@ -914,6 +914,54 @@ mod tests {
     }
 
     #[test]
+    fn referent_writes_preserve_nullable_owner_guards_and_retire_access_claims() {
+        let carrier = input(0);
+        let payload = carrier.clone().component(ConstantProjectionKind::NullableValue);
+        let marker = payload.clone().component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(0)));
+        let pointer = payload.component(ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)));
+
+        let absent = ExecutionCondition::Literal(Arc::new(bray_symbols::ConstantValueData::new(
+            crate::test_support::error_type(),
+            bray_symbols::ConstantValueKind::NullableAbsent,
+        )));
+
+        let guard = ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![carrier.clone(), absent],
+        );
+
+        let guarded = |subject| ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::LogicalOr,
+            vec![guard.clone(), permission(1).with_equalities(&[(input(1), subject)].into())],
+        );
+
+        let ownership = guarded(ExecutionCondition::Borrowed(Arc::new(marker)));
+        let access = guarded(pointer.clone());
+        let mut state = ExecutionState::default();
+
+        for condition in [&ownership, &access] {
+            condition.clone().assume(true, &mut state.trusted_assumptions);
+            state.carry_guarantee(carrier.clone(), condition.clone());
+        }
+
+        state.invalidate_referents(
+            &[pointer],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+        );
+
+        assert!(state.trusted_assumptions.contains(&(ownership.clone(), true)));
+        assert!(state.witnesses[&carrier].conditions.contains_key(&ownership));
+        assert!(!state.trusted_assumptions.contains(&(access.clone(), true)));
+        assert!(!state.witnesses[&carrier].conditions.contains_key(&access));
+
+        state.invalidate_contents(&BTreeSet::new(), [carrier], &BTreeSet::new(), &BTreeSet::new());
+        assert!(!state.trusted_assumptions.contains(&(ownership, true)));
+    }
+
+    #[test]
     fn guarded_refinement_preserves_only_the_derived_clauses_address_dependencies() {
         for select_marker in [false, true] {
             let carrier = input(20);
