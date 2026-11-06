@@ -30,7 +30,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .access();
 
         self.input
-            .reference_target(&state.memory, self.storage, access)
+            .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
     }
 
     pub(in crate::analysis::storage_flow::check::analysis) fn expression_is_borrowed(
@@ -88,7 +88,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             .or_else(|| {
                 self.storage.node_plans(expression.into()).find_map(|plan| {
                     self.input
-                        .reference_target(&state.memory, self.storage, plan.access())
+                        .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access())
                 })
             })
             .or_else(|| self.argument_storage(expression).map(Target::storage))
@@ -142,7 +142,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         if let Some(target) = self.storage.node_plans(expression.into()).find_map(|plan| {
             let target = self
                 .input
-                .reference_target(&state.memory, self.storage, plan.access())?;
+                .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access())?;
 
             state.memory.has_value(&target).then_some(target)
         }) {

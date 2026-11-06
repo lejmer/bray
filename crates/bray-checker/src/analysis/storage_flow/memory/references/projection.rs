@@ -215,6 +215,7 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn reference_location(
         &self,
+        values: &bray_symbols::SemanticValueStore,
         mut target: Target,
         path: &bray_bound_tree::StorageReferencePath,
         mut root_borrow: Option<Target>,
@@ -226,7 +227,30 @@ impl State {
 
             target = match root_borrow.take().filter(|_| step == 0 && *index == 0) {
                 Some(root) => root,
-                None => self.value_target(&target, *ty)?,
+                None => self.value_target(&target, *ty).or_else(|| {
+                    let data = values.type_data(*ty);
+
+                    let bray_symbols::TypeData::Slice(element) = data.as_ref() else {
+                        return None;
+                    };
+
+                    let reference = self.values.get(&target)?;
+
+                    if reference.unknown || reference.displaced || reference.targets.len() != 1 {
+                        return None;
+                    }
+
+                    let reached = reference.targets.first().expect("one bounded slice target");
+                    let declared = self.contents.get(reached)?.storage_type;
+
+                    // A buffer view reaches its existing element allocation. A
+                    // dynamic owner projection remains inexact in the target itself.
+                    // Never turn a merely inexact view into an exact cell identity.
+                    (!reached.previous
+                        && (!reference.inexact || !reached.is_exact())
+                        && (declared == Some(*ty) || declared == Some(*element)))
+                    .then(|| reached.clone())
+                })?,
             };
 
             copied = *index;
@@ -374,6 +398,10 @@ impl State {
         self.typed_target(self.values.get(location)?, ty)
     }
 
+    pub(in crate::analysis::storage_flow) fn declared_type(&self, target: &Target) -> Option<TypeId> {
+        self.contents.get(target)?.storage_type
+    }
+
     fn typed_target(&self, references: &References, ty: TypeId) -> Option<Target> {
         if !references.is_exact() {
             return None;
@@ -389,10 +417,20 @@ impl State {
 
     pub(in crate::analysis::storage_flow) fn borrow_target_storage(
         &mut self,
+        values: &bray_symbols::SemanticValueStore,
         capability: BorrowCapabilityId,
         target: Target,
         ty: TypeId,
     ) {
+        let ty = if target.projections().last() == Some(&StorageProjection::OwnedTarget) {
+            match values.type_data(ty).as_ref() {
+                bray_symbols::TypeData::Slice(element) => *element,
+                _ => ty,
+            }
+        } else {
+            ty
+        };
+
         self.contents
             .entry(target.clone())
             .or_default()

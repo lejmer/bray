@@ -1486,7 +1486,7 @@ fn projected_entry_address_does_not_read_the_reference_held_in_that_field() {
 
     state.entry_reference_at(slot.clone(), 1, target.clone(), Some(ty));
     state.transfer_value(&target, field_reference.clone());
-    state.borrow_target_storage(capability, target, ty);
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, target, ty);
     state.retain_borrow(capability, address.clone());
     state.transfer_value(&Target::storage(address.clone()), copied.clone());
 
@@ -1607,7 +1607,7 @@ fn projected_entry_selectors_do_not_establish_exact_initialization() {
         .expect("fixture `borrow_target` call must succeed")
         .project(&[StorageProjection::Element(origins[0])]);
 
-    state.borrow_target_storage(capability, selected, error_type());
+    state.borrow_target_storage(crate::test_support::semantic_values(), capability, selected, error_type());
     state.retain_borrow(capability, pointer.clone());
     state.expose_address(&pointer, error_type(), origins[1]);
     assert_eq!(state.exact_references(&pointer).count(), 0);
@@ -2095,7 +2095,82 @@ fn repeated_dereferences_have_distinct_entry_snapshots() {
 
     let path = bray_bound_tree::StorageReferencePath::new([].into(), [(0, ty), (0, ty)].into());
 
-    assert_eq!(state.reference_location(slot, &path, None), Some(second));
+    assert_eq!(state.reference_location(crate::test_support::semantic_values(), slot, &path, None), Some(second));
+}
+
+#[test]
+fn slice_projection_retains_the_element_allocation_without_retyping_it() {
+    let values = crate::test_support::semantic_values();
+
+    let ([owner, view, nested, _], selectors) = places();
+
+    let element = error_type();
+    let slice = values.intern_type(bray_symbols::TypeData::Slice(element)).unwrap();
+    let mut state = State::default();
+    let owner = Target::storage(owner);
+    let view = Target::storage(view);
+
+    state.owned_region(&[owner.clone()], view.clone(), element, BUFFER_POINTER, false);
+
+    let projection = StorageProjection::Element(selectors[0]);
+
+    let path = bray_bound_tree::StorageReferencePath::new(
+        [projection, BUFFER_POINTER].into(),
+        [(0, slice)].into(),
+    );
+
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+    let selected = backing.project(&[projection, BUFFER_POINTER]);
+
+    assert_eq!(
+        state.reference_location(values, view.clone(), &path, None),
+        Some(selected.clone())
+    );
+
+    assert!(!selected.is_exact());
+    assert_eq!(state.contents[&backing].storage_type, Some(element));
+    assert!(state.value_target(&view, slice).is_none());
+
+    let (_, _, capability) = borrowed_places();
+
+    let mut alternate = State::default();
+
+    alternate.borrow_target_storage(values, capability, backing.clone(), slice);
+
+    assert_eq!(alternate.declared_type(&backing), Some(element));
+
+    let mut merged = state.clone();
+
+    merged.merge(&alternate);
+
+    assert_eq!(merged.declared_type(&backing), Some(element));
+
+    let nested = Target::storage(nested);
+
+    state.owned_region(&[selected.clone()], nested.clone(), element, BUFFER_POINTER, true);
+
+    assert_eq!(
+        state.reference_location(values, nested.clone(), &path, None),
+        Some(selected.project(&[StorageProjection::OwnedTarget, projection, BUFFER_POINTER]))
+    );
+
+    assert!(state.value_targets(&nested).is_none());
+
+    let wrong_slice = values.intern_type(bray_symbols::TypeData::Slice(slice)).unwrap();
+    let wrong = bray_bound_tree::StorageReferencePath::new([].into(), [(0, wrong_slice)].into());
+
+    assert!(state.reference_location(values, view.clone(), &wrong, None).is_none());
+
+    state.values.get_mut(&view).unwrap().inexact = true;
+
+    assert!(state.reference_location(values, view.clone(), &path, None).is_none());
+
+    let reference = state.values.get_mut(&view).unwrap();
+
+    reference.inexact = false;
+    reference.unknown = true;
+
+    assert!(state.reference_location(values, view, &path, None).is_none());
 }
 
 #[test]

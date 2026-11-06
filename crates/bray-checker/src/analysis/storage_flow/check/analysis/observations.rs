@@ -46,7 +46,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 match path.access_id(self.storage) {
                     Some(access) => {
                         self.input
-                            .reference_target(&state.memory, self.storage, access)
+                            .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
                     }
                     None if path.projections.is_empty()
                         && self.storage.identity(path.root).is_some_and(|identity| {
@@ -106,29 +106,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        self.preserve_shared_values(memory, &[], &mut stable_values);
-
-        StorageInvalidation::All {
-            stable_descriptors,
-            stable_values,
-        }
-    }
-
-    fn preserve_shared_values(
-        &self,
-        memory: &crate::analysis::storage_flow::memory::State,
-        effects: &[Effect],
-        stable_values: &mut std::collections::BTreeSet<StoragePath>,
-    ) {
-        let exposed = memory.raw_exposed_regions();
-
         // A valid shared loan protects immutable marker identity even when an
         // address escapes. Raw reachability grants no permission to replace that
         // owner. Payload and pointee observations still follow exposure below.
         for (reference, markers) in &self.input.footprint.borrowed_identities {
             let location = match reference.access_id(self.storage) {
                 _ if reference.projections.is_empty() => Some(Target::storage(reference.clone())),
-                Some(access) => self.input.reference_target(memory, self.storage, access),
+                Some(access) => self.input.reference_target(self.request.semantic_values(), memory, self.storage, access),
                 None if reference.projections.is_empty()
                     || self
                         .storage
@@ -161,13 +145,11 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                !effects.iter().filter_map(Effect::mutation).any(|(changed, _)| {
-                                    changed.contains(&target)
-                                }) && (immutable_marker
+                                immutable_marker
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
-                                    }))
+                                    })
                             }
                             _ => target
                                 .storage_path()
@@ -181,6 +163,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        StorageInvalidation::All {
+            stable_descriptors,
+            stable_values,
+        }
     }
 
     pub(super) fn preserve_borrowed_values(
@@ -327,7 +313,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             .storage
                             .root_access(**root)
                             .and_then(|access| {
-                                self.input.reference_target(memory, self.storage, access)
+                                self.input.reference_target(self.request.semantic_values(), memory, self.storage, access)
                             })
                             .unwrap_or_else(|| Target::storage(StoragePath::root(**root)));
 
@@ -486,10 +472,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if atomic && ordinary.clone().next().is_some() {
             invalidation.merge(&self.target_observations(memory, ordinary));
-        }
-
-        if let StorageInvalidation::Observed { stable_values, .. } = &mut invalidation {
-            self.preserve_shared_values(memory, effects, stable_values);
         }
 
         invalidation
@@ -774,7 +756,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 continue;
             };
 
-            let observed = self.input.reference_target(memory, self.storage, access);
+            let observed = self.input.reference_target(self.request.semantic_values(), memory, self.storage, access);
 
             self.stable_descriptors(
                 memory,
@@ -873,6 +855,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
             let Some(location) =
                 crate::analysis::storage_flow::model::StorageFlowInput::reference_location(
+                    self.request.semantic_values(),
                     memory,
                     root,
                     &descriptor,

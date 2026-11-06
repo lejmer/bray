@@ -131,7 +131,7 @@ where
     }
 
     fn boundary(&self) -> Self::State {
-        let mut state = StorageFlowState::entry(self.storage, self.input);
+        let mut state = StorageFlowState::entry(self.request.semantic_values(), self.storage, self.input);
 
         state.execution = self.execution.boundary();
         state.reachable = state.execution.is_some();

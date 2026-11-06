@@ -11,7 +11,7 @@ impl State {
         source: Place,
         ty: TypeId,
     ) {
-        self.borrow_target_storage(capability, Target::storage(source), ty);
+        self.borrow_target_storage(crate::test_support::semantic_values(), capability, Target::storage(source), ty);
     }
 
     pub(in crate::analysis::storage_flow) fn reborrow_value(

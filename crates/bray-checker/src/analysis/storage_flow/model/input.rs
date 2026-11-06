@@ -104,38 +104,9 @@ impl StorageFlowInput {
             }
         }
 
-        let atomic = dependencies
-            .calls()
-            .values()
-            .flat_map(|call| {
-                call.effects()
-                    .iter()
-                    .chain(call.deferred_effects().into_iter().flatten())
-            })
-            .chain(
-                dependencies
-                    .lifecycle_dependencies()
-                    .values()
-                    .flat_map(|contract| contract.effects()),
-            )
-            .any(|effect| {
-                matches!(
-                    effect,
-                    bray_symbols::DependencyStorageEffect::Atomic
-                        | bray_symbols::DependencyStorageEffect::Direct {
-                            kind: bray_symbols::DependencyMutationKind::Atomic,
-                            ..
-                        }
-                        | bray_symbols::DependencyStorageEffect::Indirect {
-                            kind: bray_symbols::DependencyMutationKind::Atomic,
-                            ..
-                        }
-                )
-            });
-
         // Returned reference origins are needed even when a body has no memory effects.
         // Share the same type-shape preparation with mutation observations.
-        let footprint = crate::storage::observation::prepare(request, storage, memory, atomic)?;
+        let footprint = crate::storage::observation::prepare(request, storage, memory, dependencies)?;
 
         let tag_preserving_assignments = Self::prepare_assignment_observations(
             cleanup_shapes,

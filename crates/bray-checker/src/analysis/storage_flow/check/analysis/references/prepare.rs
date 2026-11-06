@@ -197,6 +197,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
 
     pub(in crate::analysis::storage_flow) fn reference_target(
         &self,
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         storage: &bray_bound_tree::StoragePlan,
         access: bray_bound_tree::StorageAccessId,
@@ -215,10 +216,11 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
                     .is_some_and(|borrow| borrow.entry_binding().is_some())
             });
 
-        Self::reference_location(memory, logical.root, path, entry)
+        Self::reference_location(values, memory, logical.root, path, entry)
     }
 
     pub(in crate::analysis::storage_flow) fn reference_location(
+        values: &bray_symbols::SemanticValueStore,
         memory: &crate::analysis::storage_flow::memory::State,
         root: bray_bound_tree::StorageIdentityId,
         path: &bray_bound_tree::StorageReferencePath,
@@ -230,6 +232,7 @@ impl crate::analysis::storage_flow::model::StorageFlowInput {
         };
 
         memory.reference_location(
+            values,
             crate::analysis::storage_flow::memory::Target::storage(Place::root(root)),
             path,
             root_borrow,

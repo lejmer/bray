@@ -204,8 +204,10 @@ impl Footprint {
         request: CheckerUnitView<'_, C>,
         storage: &StoragePlan,
         memory: &bray_bound_tree::CheckedMemoryOperations,
-        mut atomic: bool,
+        dependencies: &bray_bound_tree::CheckedDependencyContracts,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let mut atomic = false;
+
         let complete_reference_types = std::sync::Arc::get_mut(&mut self.complete_reference_types)
             .expect("a new footprint owns its type cache before publication");
 
@@ -257,6 +259,24 @@ impl Footprint {
             cached_shape(request, pointee, &mut self.shapes, complete_reference_types)?;
         }
 
+        // Prepare mutation types and atomic framing in the same effect walk.
+        for effect in dependencies.calls().values().flat_map(|call| {
+            call.effects().iter().chain(call.deferred_effects().into_iter().flatten())
+        }).chain(dependencies.lifecycle_dependencies().values().flat_map(|contract| contract.effects())) {
+            use bray_symbols::{DependencyMutationKind as Mutation, DependencyStorageEffect as Effect};
+
+            match effect {
+                Effect::Atomic
+                | Effect::Direct { kind: Mutation::Atomic, .. }
+                | Effect::Indirect { kind: Mutation::Atomic, .. } => atomic = true,
+                Effect::Direct { kind: Mutation::Replace(ty), .. }
+                | Effect::Indirect { kind: Mutation::Replace(ty), .. } => {
+                    cached_shape(request, *ty, &mut self.shapes, complete_reference_types)?;
+                }
+                _ => {}
+            }
+        }
+
         if !atomic {
             self.atomic = None;
         }
@@ -284,11 +304,11 @@ impl Footprint {
     /// A typed data transfer cannot move an empty ownership marker.
     pub(crate) fn marker_free_transfer(&self, ty: TypeId) -> bool {
         self.shapes.get(&ty).is_some_and(|shape| {
-            shape.is_reference_free()
+            (shape.complete_references || shape.complete_value)
                 && shape.observations.iter().all(|(_, observation)| {
                     matches!(
                         observation,
-                        Observation::Scalar | Observation::Discriminant | Observation::Address
+                        Observation::Scalar | Observation::Discriminant | Observation::Address | Observation::Reference(_)
                     )
                 })
         })
@@ -301,7 +321,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     memory: &bray_bound_tree::CheckedMemoryOperations,
-    atomic: bool,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
 ) -> Result<Footprint, CheckerQueryError<C::UpstreamError>> {
     let mut footprint = Footprint::default();
 
@@ -535,7 +555,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    footprint.prepare_stores(request, storage, memory, atomic)?;
+    footprint.prepare_stores(request, storage, memory, dependencies)?;
 
     Ok(footprint)
 }

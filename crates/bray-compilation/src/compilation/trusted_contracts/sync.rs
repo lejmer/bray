@@ -668,6 +668,15 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
         ("replace(owner);", false),
         ("owner.acquisition = Marker {};", false),
     ] {
+        let raw = operation.contains("core.memory.write");
+        let capabilities = if raw { "uses(raw_memory, unchecked_init)" } else { "" };
+
+        let memory_requirements = if raw {
+            "trusted core.memory.valid_write<u32>(pointer = pointer, count = 1), trusted core.memory.aligned_for<u32>(pointer = pointer),"
+        } else {
+            ""
+        };
+
         let source = format!(
             r#"
             trusted module app;
@@ -681,9 +690,8 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
             trusted func caller(pos owner: &mut Owner, pos pointer: DataPointer<u32>)
                 requires(
                     trusted held(owner = &owner.acquisition),
-                    trusted core.memory.valid_write<u32>(pointer = pointer, count = 1),
-                    trusted core.memory.aligned_for<u32>(pointer = pointer)
-                ) uses(raw_memory, unchecked_init)
+                    {memory_requirements}
+                ) {capabilities}
             {{
                 {operation}
                 observe(&owner.acquisition);
@@ -699,6 +707,13 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
             valid,
             "{source}: {diagnostics:#?}"
         );
+
+        if !valid {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingTrustedObligationNotProven,
+            );
+        }
     }
 }
 
@@ -732,6 +747,36 @@ fn borrowed_completion_keeps_the_selected_static_instance() {
             "{source}: {diagnostics:#?}"
         );
     }
+}
+
+#[test]
+fn nested_buffer_views_preserve_checked_storage_effects() {
+    let application = crate::test_support::production_standard_library_compilation(
+        crate::SelectedTarget::baseline(),
+        r#"
+        trusted module app;
+        struct Row { mut slots: std.memory.RawBuffer<u32>; }
+        trusted func inspect_buffer(pos buffer: &mut std.memory.RawBuffer<Row>, pos index: usize) -> &mut u32
+            uses(raw_memory)
+        {
+            let rows = trusted std.memory.initialized_slice_mut<Row>(buffer);
+            let slots = trusted std.memory.initialized_slice_mut<u32>(&mut rows[index].slots);
+            return &mut slots[0];
+        }
+        "#,
+    );
+
+    assert!(!application.syntax_tree_result().diagnostics().has_errors());
+
+    let key = source_function_body_key(&application, "inspect_buffer");
+    let checked = application.lowered_unit(key.clone()).unwrap();
+
+    assert!(!checked.diagnostics().has_errors(), "{checked:#?}");
+
+    let flow = application.storage_flow(key).unwrap();
+
+    assert!(!flow.value().is_recovered());
+    assert!(flow.value().dependencies().preserves_storage_on_normal_return());
 }
 
 #[test]

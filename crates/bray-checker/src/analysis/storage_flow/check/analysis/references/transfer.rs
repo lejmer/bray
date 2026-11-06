@@ -29,7 +29,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
                 if let Some(source) =
                     self.input
-                        .reference_target(&state.memory, self.storage, access)
+                        .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
                 {
                     state
                         .memory
@@ -864,10 +864,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                     // Candidate roots share the prepared starting path's immutable projections.
                     state
                         .memory
-                        .reference_location(start.clone(), path, Some(target))
+                        .reference_location(self.request.semantic_values(), start.clone(), path, Some(target))
                 })
                 .collect(),
-            None => Some(vec![state.memory.reference_location(start, path, None)?]),
+            None => Some(vec![state.memory.reference_location(self.request.semantic_values(), start, path, None)?]),
         }
     }
     pub(in crate::analysis::storage_flow::check::analysis) fn prepare_result_references(

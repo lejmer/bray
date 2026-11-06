@@ -967,7 +967,7 @@ where
             .flatten();
 
         if let Some(invalidation) = &mut invalidation {
-            self.preserve_operation_values(state, kind, invalidation);
+            self.preserve_operation_values(state, kind, call_effects.as_deref(), invalidation);
         }
 
         if !completing {
@@ -1066,6 +1066,7 @@ where
         &self,
         state: &StorageFlowState,
         kind: AnalysisOperationKind,
+        effects: Option<&[crate::analysis::storage_flow::memory::Effect]>,
         invalidation: &mut bray_bound_tree::StorageInvalidation,
     ) {
         let occurrence = kind.occurrence();
@@ -1076,10 +1077,11 @@ where
             self.preserve_store_values(&state.memory, invalidation, true, *contents);
         }
 
-        if let Some(operation) = occurrence
+        let operation = occurrence
             .expression()
-            .and_then(|expression| self.memory.operation(expression))
-        {
+            .and_then(|expression| self.memory.operation(expression));
+
+        let typed_transfer = operation.and_then(|operation| {
             use bray_bound_tree::CheckedMemoryOperationKind as Operation;
 
             let pointee = match operation.kind() {
@@ -1101,9 +1103,27 @@ where
                 _ => None,
             };
 
-            if pointee.is_some_and(|pointee| self.input.footprint.marker_free_transfer(pointee)) {
-                self.preserve_store_values(&state.memory, invalidation, false, true);
-            }
+            pointee.map(|pointee| self.input.footprint.marker_free_transfer(pointee))
+        });
+
+        let marker_free = typed_transfer.or_else(|| effects.map(|effects| {
+            use crate::analysis::storage_flow::memory::Effect;
+            use bray_symbols::DependencyMutationKind as Mutation;
+
+            effects.iter().all(|effect| match effect {
+                Effect::Escape | Effect::Atomic
+                | Effect::Mutation(_, Mutation::Escape | Mutation::Atomic) => true,
+                Effect::Mutation(_, Mutation::Replace(ty)) => self.input.footprint.marker_free_transfer(*ty),
+                Effect::Mutation(target, Mutation::Write | Mutation::Consume | Mutation::Clear) => {
+                    state.memory.declared_type(target).is_some_and(|ty| self.input.footprint.marker_free_transfer(ty))
+                }
+                Effect::Unknown | Effect::Ambient | Effect::Cleanup(_)
+                | Effect::Mutation(_, Mutation::Retire) => false,
+            })
+        }));
+
+        if marker_free == Some(true) {
+            self.preserve_store_values(&state.memory, invalidation, false, true);
         }
     }
 
@@ -1661,7 +1681,7 @@ where
         if matches!(status, StorageOperationStatus::Valid) {
             let target = self
                 .input
-                .reference_target(&state.memory, self.storage, plan.access());
+                .reference_target(self.request.semantic_values(), &state.memory, self.storage, plan.access());
 
             if self.publish {
                 // The transition and publication share immutable target paths.
@@ -1863,7 +1883,7 @@ where
 
                         if let Some(source) =
                             self.input
-                                .reference_target(&state.memory, self.storage, access)
+                                .reference_target(self.request.semantic_values(), &state.memory, self.storage, access)
                         {
                             let ty = self
                                 .storage
@@ -1887,7 +1907,7 @@ where
                                     .memory
                                     .reborrow_value(borrow, &source, capability.parent());
                             } else {
-                                state.memory.borrow_target_storage(borrow, source, ty);
+                                state.memory.borrow_target_storage(self.request.semantic_values(), borrow, source, ty);
                             }
                         }
                     }
