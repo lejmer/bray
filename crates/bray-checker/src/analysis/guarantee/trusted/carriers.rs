@@ -6,6 +6,60 @@ use bray_bound_tree::StorageProjection;
 use bray_symbols::{DependencyProjection, DependencyWitnessCarrier};
 
 impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlowDomain<'_, '_, C> {
+    /// A loan's completion contract belongs to that loan, including observations of reached children.
+    pub(super) fn borrowed_result_carrier(
+        &self,
+        result: &ExecutionCondition,
+        subject: &ExecutionCondition,
+    ) -> Option<ExecutionCondition> {
+        let (root, path) = subject.observation_path()?;
+
+        if root != ExecutionCondition::Result {
+            return None;
+        }
+
+        let mut value = result.clone();
+
+        for projection in path {
+            if matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)) {
+                return Some(value);
+            }
+
+            value = value.component(projection);
+        }
+
+        matches!(value.owner_identity(), ExecutionCondition::Borrowed(_)).then_some(value)
+    }
+
+    /// Select the checked input owner without promoting a child's authority to its input container.
+    pub(super) fn input_witness_owner<'a>(
+        &self,
+        template: &ExecutionCondition,
+        subject: &ExecutionCondition,
+        condition: &'a ExecutionCondition,
+        carriers: &'a [ExecutionCondition],
+        addresses: &[(ExecutionCondition, ExecutionCondition, bool)],
+    ) -> Option<&'a ExecutionCondition> {
+        if addresses.iter()
+            .filter(|(guarantee, address, _)| guarantee == template && address == subject)
+            .map(|(_, _, owning)| *owning)
+            .reduce(|left, right| left || right) == Some(false)
+        {
+            // The access producer retains these bounds with their non-owning classification.
+            return None;
+        }
+
+        let carrier = carriers.iter().find(|carrier| {
+            **carrier != ExecutionCondition::Unknown && condition.observes(carrier)
+        })?;
+
+        Some(match condition {
+            ExecutionCondition::Borrowed(value)
+                if value.owner_identity() == carrier.owner_identity() => carrier,
+            value => value,
+        })
+    }
+
     /// Combine declared completion clauses with checked portable carrier promises.
     pub(super) fn completion_guarantees(
         &self,

@@ -427,13 +427,37 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
                 state.refine_witnesses();
 
-                Some(construct(
-                    result,
-                    self.returned_owned_values(invocation, arguments, [transfer])
-                        .into_iter()
-                        .collect(),
-                    transfer.condition().is_none(),
-                ))
+                let mut fields = self.returned_owned_values(invocation, arguments, [transfer]);
+
+                for (_, value) in &mut fields {
+                    if !state.witness_projection(value).1 {
+                        continue;
+                    }
+
+                    let ExecutionCondition::Input(input) = crate::execution_condition_from_type_term(
+                        self.request.semantic_values(), transfer.input(), dependencies.input_count(),
+                    ).expect("checked ownership source decodes in the same semantic store") else {
+                        unreachable!("a checked ownership source names an input projection");
+                    };
+
+                    let independent = value.ownership_ancestors().skip(1)
+                        .filter(|parent| state.directly_carries_witness(parent))
+                        .all(|parent| super::transfers::independent_result_owner(
+                            self, invocation, &state.entries[&invocation], transfer, &input,
+                            &state.witnesses[parent.owner_identity()],
+                        ));
+
+                    if independent {
+                        // The checked transition publishes a complete child. Its existing
+                        // identity, contents, evidence and portable lineage travel together.
+                        let ownership = state.owned_result(value);
+
+                        *value = ExecutionCondition::Constructed(std::sync::Arc::new(value.clone()), [].into());
+                        state.owned_results.insert(value.clone(), ownership);
+                    }
+                }
+
+                Some(construct(result, fields.into_iter().collect(), transfer.condition().is_none()))
             }
             DependencyOwnedResult::All(values) => {
                 for (index, value) in values.iter().enumerate() {

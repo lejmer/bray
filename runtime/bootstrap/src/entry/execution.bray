@@ -138,7 +138,7 @@ trusted internal func invoke(
 
     let records_status = if scope_status == 0
     {
-        yield trusted bray.runtime.bootstrap.report.chain.invoke(admitted, selected, context, outcome);
+        yield trusted bray.runtime.bootstrap.report.chain.invoke(&scope, admitted, selected, context, outcome);
     }
     else
     {

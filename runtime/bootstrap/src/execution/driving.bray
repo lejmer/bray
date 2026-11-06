@@ -165,12 +165,13 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
     }
 
     let dispatched = trusted bray.runtime.bootstrap.task.take_retained(task);
-    let returned = trusted dispatch_task(selected, owner, &dispatched, ready.registration, ready.lane);
+    let reference = &dispatched;
+    let returned = trusted dispatch_task(selected, owner, reference, ready.registration, ready.lane);
     let (progress, execution, kind) = returned;
 
     if kind == 0 && progress.kind == 6
     {
-        if trusted bray.runtime.bootstrap.event.wait_execution(owner, &dispatched, progress.payload) != 0
+        if trusted bray.runtime.bootstrap.event.wait_execution(owner, reference, progress.payload) != 0
         {
             trusted core.target.abort();
         }
@@ -186,16 +187,16 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
             trusted core.target.abort();
         }
 
-        if lane.placement == 0 && (trusted task_failure(&dispatched)).stage == 0
+        if lane.placement == 0 && (trusted task_failure(reference)).stage == 0
         {
             let failure = trusted demand_lane(owner, lane);
 
             if failure.stage != 0
             {
-                trusted record_task_failure(&dispatched, failure);
+                trusted record_task_failure(reference, failure);
                 trusted retain_ready_driver(trusted context(selected), owner, ready.registration);
 
-                _ = trusted wake_reference(&dispatched, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
+                _ = trusted wake_reference(reference, bray.runtime.bootstrap.scheduler.WAKE_EXPLICIT);
 
                 let (recovery, recovery_status) = trusted select_lane(owner, ready.registration, &execution, none);
 
@@ -217,6 +218,7 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
 
     trusted release_ready(
         owner,
+        reference,
         ready.registration,
         lane,
         if kind == 0 && progress.kind == 5
@@ -234,12 +236,21 @@ trusted internal func dispatch_ready(pos selected: &Current, pos owner: &Referen
 
 trusted internal func release_ready(
     pos owner: &bray.runtime.bootstrap.execution.Reference,
+    pos reference: &bray.runtime.bootstrap.task.Reference,
     pos registration: u64,
     pos lane: bray.runtime.bootstrap.scheduler.Lane,
     pos cause: u32
 )
-    requires(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
-    ensures(trusted bray.runtime.bootstrap.execution.retained(owner = owner))
+    requires(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = reference)
+    )
+    ensures(
+        trusted bray.runtime.bootstrap.execution.retained(owner = owner),
+        trusted bray.runtime.bootstrap.task.retained(owner = reference),
+        trusted bray.runtime.bootstrap.task.owned_reference(owner = reference)
+    )
 {
     if trusted bray.runtime.bootstrap.scheduler.release_registration(
         trusted scheduler_reference(owner),
