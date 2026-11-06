@@ -106,6 +106,22 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
+        self.preserve_shared_values(memory, &[], &mut stable_values);
+
+        StorageInvalidation::All {
+            stable_descriptors,
+            stable_values,
+        }
+    }
+
+    fn preserve_shared_values(
+        &self,
+        memory: &crate::analysis::storage_flow::memory::State,
+        effects: &[Effect],
+        stable_values: &mut std::collections::BTreeSet<StoragePath>,
+    ) {
+        let exposed = memory.raw_exposed_regions();
+
         // A valid shared loan protects immutable marker identity even when an
         // address escapes. Raw reachability grants no permission to replace that
         // owner. Payload and pointee observations still follow exposure below.
@@ -145,11 +161,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                             bray_bound_tree::StorageOrigin::Entry { .. }
                             | bray_bound_tree::StorageOrigin::Returned { .. }
                             | bray_bound_tree::StorageOrigin::Static { .. } => {
-                                immutable_marker
+                                !effects.iter().filter_map(Effect::mutation).any(|(changed, _)| {
+                                    changed.contains(&target)
+                                }) && (immutable_marker
                                     || !exposed.iter().any(|raw| {
                                         memory.target_relationship(raw, &target)
                                             != StorageRelationship::Disjoint
-                                    })
+                                    }))
                             }
                             _ => target
                                 .storage_path()
@@ -163,10 +181,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             }
         }
 
-        StorageInvalidation::All {
-            stable_descriptors,
-            stable_values,
-        }
     }
 
     pub(super) fn preserve_borrowed_values(
@@ -472,6 +486,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
 
         if atomic && ordinary.clone().next().is_some() {
             invalidation.merge(&self.target_observations(memory, ordinary));
+        }
+
+        if let StorageInvalidation::Observed { stable_values, .. } = &mut invalidation {
+            self.preserve_shared_values(memory, effects, stable_values);
         }
 
         invalidation

@@ -554,6 +554,7 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             let expected = DiagnosticKind::CheckingEscapingStorageDependency;
 
             bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
+
             assert!(
                 diagnostics
                     .iter()
@@ -628,6 +629,7 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
             trusted predicate held(owner: &Marker);
             extern func opaque(pos pointer: DataPointer<u64>) executes(total);
             func observe(pos marker: &Marker) requires(trusted held(owner = marker)) executes(pure, total) {{}}
+            func advance(pos value: &mut u32) {{ value += 1; }}
             trusted func publish(pos owner: &Owner) -> usize uses(intrinsic) {{
                 return trusted core.target.expose_address<Owner>(core.memory.address_of<Owner>(owner));
             }}
@@ -639,7 +641,7 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                 while index < count {{
                     opaque(owner.pointer);
                     {use_owner}
-                    index += 1;
+                    advance(&mut index);
                 }}
                 observe(&owner.acquisition);
             }}
@@ -660,6 +662,8 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
 #[test]
 fn mutable_protocol_markers_survive_only_marker_free_writes() {
     for (operation, valid) in [
+        ("owner.payload += 1;", true),
+        ("advance(&mut owner.payload);", true),
         ("trusted core.memory.write<u32>(pointer, 1);", true),
         ("replace(owner);", false),
         ("owner.acquisition = Marker {};", false),
@@ -672,6 +676,7 @@ fn mutable_protocol_markers_survive_only_marker_free_writes() {
             struct Owner {{ mut acquisition: Marker; mut payload: u32; }}
             trusted predicate held(owner: &Marker);
             extern func replace(pos owner: &mut Owner);
+            func advance(pos value: &mut u32) {{ value += 1; }}
             func observe(pos marker: &Marker) requires(trusted held(owner = marker)) {{}}
             trusted func caller(pos owner: &mut Owner, pos pointer: DataPointer<u32>)
                 requires(
