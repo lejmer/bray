@@ -61,18 +61,22 @@ impl ExecutionCondition {
         callable: bray_symbols::CallableInstanceData,
         implementation: Option<bray_symbols::ImplementationInstanceData>,
         witnesses: impl IntoIterator<Item = bray_symbols::ImplementationInstanceData>,
-        arguments: Vec<Self>,
+        mut arguments: Vec<Self>,
     ) -> Self {
-        if arguments.iter().any(Self::contains_unknown) {
-            Self::Unknown
-        } else {
-            Self::Call(
-                callable,
-                implementation,
-                bray_base::shared_slice(witnesses),
-                arguments.into(),
-            )
+        for argument in &mut arguments {
+            argument.observe_contents();
+
+            if argument.contains_unknown() {
+                return Self::Unknown;
+            }
         }
+
+        Self::Call(
+            callable,
+            implementation,
+            bray_base::shared_slice(witnesses),
+            arguments.into(),
+        )
     }
 
     pub(crate) fn coerce(
@@ -235,6 +239,12 @@ impl ExecutionCondition {
         let identity = self.owner_identity();
 
         if matches!(identity, Self::Borrowed(_)) {
+            if let Self::Borrowed(previous) = self
+                && previous.as_ref() == &contents
+            {
+                return self.clone();
+            }
+
             if identity == contents.owner_identity() {
                 return contents;
             }
@@ -246,6 +256,13 @@ impl ExecutionCondition {
         } else {
             // Replacing a reference slot has already retired its prior loan.
             contents.borrowed()
+        }
+    }
+
+    /// Terms observe current contents. The enclosing flow value retains the loan context.
+    fn observe_contents(&mut self) {
+        if matches!(self, Self::Constructed(base, _) if matches!(base.owner_identity(), Self::Borrowed(_))) {
+            *self = self.clone().into_referent().borrowed();
         }
     }
 
@@ -295,13 +312,17 @@ impl ExecutionCondition {
     pub(crate) fn predicate(
         predicate: bray_symbols::PredicateDefinitionSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-        arguments: Vec<Self>,
+        mut arguments: Vec<Self>,
     ) -> Self {
-        if arguments.iter().any(Self::contains_unknown) {
-            Self::Unknown
-        } else {
-            Self::Predicate(predicate, substitution, arguments.into())
+        for argument in &mut arguments {
+            argument.observe_contents();
+
+            if argument.contains_unknown() {
+                return Self::Unknown;
+            }
         }
+
+        Self::Predicate(predicate, substitution, arguments.into())
     }
 
     pub(crate) fn field(field: bray_symbols::AnySymbolId, value: Self) -> Self {
@@ -542,6 +563,8 @@ impl ExecutionCondition {
 
     pub(crate) fn operation(operator: BoundOperator, mut operands: Vec<Self>) -> Self {
         for operand in &mut operands {
+            operand.observe_contents();
+
             if let Self::Constructed(base, fields) = operand {
                 let contents = Self::component_base(base, fields);
 
