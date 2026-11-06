@@ -98,7 +98,7 @@ where
         )
     );
 
-    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies);
+    let disposal = crate::analysis::guarantee::Cleanup::new(&prepared.cleanup, &dependencies, request.semantic_values());
 
     let completion_contracts = std::collections::BTreeMap::new();
 
