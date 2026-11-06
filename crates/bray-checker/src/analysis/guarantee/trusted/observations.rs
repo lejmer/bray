@@ -51,6 +51,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         retain_carriers: bool,
     ) -> Vec<ExecutionCondition> {
         let mut carriers = Vec::new();
+
         let Some(selection) = invocation
             .expression()
             .and_then(|expression| self.semantics.selections().expression(expression))
@@ -226,6 +227,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 arguments.insert(reference.into(), value.clone());
             }
         }
+
         carriers
     }
 
@@ -252,6 +254,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         let expression = invocation
             .expression()
             .expect("visible selected call retains its expression");
+
         let mut owners = BTreeMap::<_, GuaranteeSource>::new();
 
         for argument in call.arguments() {
