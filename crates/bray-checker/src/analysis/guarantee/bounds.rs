@@ -249,10 +249,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 }
 
-fn referent(mut condition: &ExecutionCondition) -> &ExecutionCondition {
-    while let ExecutionCondition::Borrowed(value) = condition {
-        condition = value;
-    }
-
-    condition.owner_identity()
+fn referent(condition: &ExecutionCondition) -> ExecutionCondition {
+    condition.clone().into_referent().owner_identity().clone()
 }

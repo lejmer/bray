@@ -435,6 +435,14 @@ mod tests {
         assert_eq!(refreshed.owned_components().count(), 0);
         assert_eq!(refreshed.clone().into_referent(), changed);
 
+        let observation = |value| ExecutionCondition::operation(
+            bray_bound_tree::BoundOperator::Equal,
+            vec![value, ExecutionCondition::Result],
+        );
+
+        assert_eq!(observation(refreshed.clone()), observation(changed.borrowed()));
+        assert_ne!(observation(refreshed.clone()), observation(loan.clone()));
+
         let joined = join_components(&loan, &refreshed);
 
         assert_eq!(joined.owner_identity(), loan.owner_identity());
