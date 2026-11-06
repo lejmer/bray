@@ -13,6 +13,23 @@ use std::sync::Arc;
 const BUFFER_POINTER: StorageProjection =
     StorageProjection::TupleElement(bray_symbols::SymbolOrdinal::new(0));
 
+fn addressed_reference(
+    ty: bray_symbols::TypeId,
+    kind: bray_symbols::DependencyReferenceKind,
+) -> bray_bound_tree::BoundCallReference {
+    let entry = bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Parameter(
+        bray_symbols::SymbolOrdinal::new(0),
+    ));
+
+    let exit = bray_symbols::DependencySubject::root(bray_symbols::DependencySubjectRoot::Result);
+
+    bray_bound_tree::BoundCallReference::new(
+        bray_symbols::DependencyBorrowRelation::new(Some(entry), exit, kind),
+        false,
+        Some(ty),
+    )
+}
+
 fn places() -> ([Place; 4], Vec<BoundExpressionId>) {
     let (places, expressions, _) = borrowed_places();
 
@@ -2174,6 +2191,51 @@ fn slice_projection_retains_the_element_allocation_without_retyping_it() {
 }
 
 #[test]
+fn bounded_returned_regions_do_not_declare_or_initialize_a_cell() {
+    use bray_symbols::{DependencyProjection, DependencyReferenceKind, TypeData};
+
+    let values = crate::test_support::semantic_values();
+
+    let ([owner, output, view, _], calls) = places();
+
+    let element = error_type();
+    let slice = values.intern_type(TypeData::Slice(element)).unwrap();
+    let exact = addressed_reference(slice, DependencyReferenceKind::Address);
+
+    let bounded = bray_bound_tree::BoundCallReference::new(
+        exact.relation().clone().with_exactness(false)
+            .with_target_projections([DependencyProjection::OwnedTarget]),
+        false,
+        Some(slice),
+    );
+
+    let owner = Target::storage(owner);
+    let backing = owner.project(&[StorageProjection::OwnedTarget]);
+    let output = Target::storage(output);
+    let mut state = State::default();
+
+    state.stage_address(calls[0].into(), backing.clone(), output.clone(), &bounded);
+    state.complete_transition(calls[0].into());
+
+    assert_eq!(state.declared_type(&backing), None);
+    assert_eq!(state.referenced_regions(&output), Some(vec![backing.clone()]));
+    assert!(state.value_targets(&output).is_none());
+    assert_eq!(state.raw_exposed_regions(), BTreeSet::from([backing.clone()]));
+
+    assert_eq!(
+        state.read(&output, element, MemoryReadKind::Copy, None, None),
+        MemoryOperationStatus::UninitializedRawStorage
+    );
+
+    let mut actual = State::default();
+
+    actual.owned_region(&[owner], Target::storage(view), element, BUFFER_POINTER, false);
+    state.merge(&actual, &Default::default(), &Default::default());
+
+    assert_eq!(state.declared_type(&backing), Some(element));
+}
+
+#[test]
 fn returned_references_snapshot_previously_published_inline_storage() {
     use bray_bound_tree::StorageRelationship;
 
@@ -3279,8 +3341,7 @@ fn raw_exposure_of_an_entry_referent_revokes_its_shared_protection() {
             origins[0].into(),
             target.clone(),
             Target::storage(pointer.clone()),
-            ty,
-            bray_symbols::DependencyReferenceKind::Address,
+            &addressed_reference(ty, bray_symbols::DependencyReferenceKind::Address),
         );
 
         assert_eq!(state.raw_exposed_regions(), BTreeSet::from([target]));
@@ -3356,8 +3417,7 @@ fn published_returned_aliases_survive_repeated_reference_reads() {
         origins[0].into(),
         original.clone(),
         Target::storage(pointer),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Address,
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
     );
 
     state.observe_reference(slot.clone(), reference, error_type(), []);
@@ -3603,8 +3663,7 @@ fn independent_returned_references_may_alias_and_merge_with_input_alternatives()
         call,
         Target::storage(owner.clone()),
         Target::storage(first.clone()),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Address,
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Address),
     );
 
     state.complete_transition(call);
@@ -3757,8 +3816,7 @@ fn bounded_forwarding_retains_a_typed_result_and_the_call_input_regions() {
         call,
         payload.clone(),
         destination.clone(),
-        region_type,
-        bray_symbols::DependencyReferenceKind::Borrow,
+        &addressed_reference(region_type, bray_symbols::DependencyReferenceKind::Borrow),
     );
 
     state.bound_staged_reference(call, &destination);
@@ -3925,8 +3983,7 @@ fn staged_future_moves_retain_completion_effects_and_references() {
         producer,
         Target::storage(payload.clone()),
         Target::storage(frame.clone()),
-        error_type(),
-        bray_symbols::DependencyReferenceKind::Borrow,
+        &addressed_reference(error_type(), bray_symbols::DependencyReferenceKind::Borrow),
     );
 
     state.capture_deferred_transition(producer, frame.clone());
