@@ -438,6 +438,7 @@ impl State {
                         StorageProjection::OwnedTarget | StorageProjection::SliceRange { .. })
                         && matches!(request.semantic_values().type_data(projected).as_ref(),
                             bray_symbols::TypeData::Slice(_));
+
                     ty = projected;
                 }
 
