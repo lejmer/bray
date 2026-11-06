@@ -76,9 +76,9 @@ trusted internal func root_scope() -> EntryScope
         case ?owner { yield owner; }
         case none
         {
-        scope.status = 4;
-        return scope;
-            }
+            scope.status = 4;
+            return scope;
+        }
     };
 
     scope.status = trusted commit_driver(allocation, trusted nested_context(&scope.current, attachment));

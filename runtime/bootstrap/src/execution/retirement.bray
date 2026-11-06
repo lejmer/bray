@@ -192,6 +192,7 @@ trusted internal func retire_driver(pos owner: bray.runtime.bootstrap.host.Execu
     // The temporary inspection borrow ends before the context packet moves.
     // Its binding, provider, attachment and predecessor slots are already empty.
     let retired = trusted std.memory.read<Context>(pointer);
+
     let allocation = match consume retired.allocation
     {
         case ?allocation { yield allocation; }

@@ -137,10 +137,7 @@ trusted internal func take_owned_binding(pos owner: Binding?) -> Binding
 // entry fact while transferring the same complete owner out of the binding.
 trusted internal func take_binding_owner(pos owner: Binding) -> Owner
     requires(trusted kernel_binding(owner = &owner))
-    ensures(
-        trusted retained(owner = &result.execution),
-        trusted pinned(owner = &result.execution)
-    )
+    ensures(trusted retained(owner = &result.execution), trusted pinned(owner = &result.execution))
     when(owner.close matches ?_)
     {
         ensures(trusted service_owner(owner = &result))

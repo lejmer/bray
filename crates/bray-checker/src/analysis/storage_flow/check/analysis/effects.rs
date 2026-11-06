@@ -6,7 +6,6 @@ use bray_symbols::{
 };
 
 use super::core::StorageFlowCollector;
-use std::collections::BTreeSet;
 use crate::CheckerRequestContext;
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperationKind};
 use crate::analysis::storage_flow::memory::{Origin, Target};
@@ -33,9 +32,13 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         ) = operation.occurrence()
             && self.memory.operation(expression).is_some()
         {
-            if matches!(operation, AnalysisOperationKind::Call {
-                phase: AnalysisCallPhase::Input | AnalysisCallPhase::Completion, ..
-            }) {
+            if matches!(
+                operation,
+                AnalysisOperationKind::Call {
+                    phase: AnalysisCallPhase::Input | AnalysisCallPhase::Completion,
+                    ..
+                }
+            ) {
                 return Some(Vec::new());
             }
 
@@ -251,7 +254,6 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
                 None,
                 effects.as_deref(),
                 Some(&roots),
-                None,
             );
 
             self.capture_failure_effects(
@@ -383,17 +385,10 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
     ) -> Option<StorageInvalidation> {
         let mut observed = effects
             .map(|effects| {
-                self.call_observations(
-                    state,
-                    kind.occurrence(),
-                    effects,
-                    roots.unwrap_or(&[]),
-                )
+                self.call_observations(state, kind.occurrence(), effects, roots.unwrap_or(&[]))
             })
             .or_else(|| {
-                roots.map(|roots| {
-                    self.opaque_observations(&state.memory, roots.iter().cloned())
-                })
+                roots.map(|roots| self.opaque_observations(&state.memory, roots.iter().cloned()))
             })
             .or_else(|| {
                 assignment
@@ -785,7 +780,9 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
             Origin::Allocation(_) => None,
             Origin::Static { root, projections } => {
                 // An unresolved selector widens within the same static identity.
-                let projections = projections.iter().copied()
+                let projections = projections
+                    .iter()
+                    .copied()
                     .map_while(crate::storage::dependency_projection);
 
                 Some(DependencyStorageEffect::Direct {

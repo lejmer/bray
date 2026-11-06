@@ -504,22 +504,24 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
                 executes(pure, total)
                 uses(raw_memory, unchecked_alias)
             {{
-                let permit = trusted lambda(pos owner: &Owner) -> DataPointer<ForeignPayload>
+                let permit = trusted lambda(pos owner: &Owner)
                     requires(trusted retained(owner))
                     ensures(
-                        trusted valid_read<ForeignPayload>(pointer = result, count = 1),
-                        trusted aligned_for<ForeignPayload>(pointer = result),
-                        trusted initialized_as<ForeignPayload>(pointer = result),
-                        trusted shared_alias_valid<ForeignPayload>(pointer = result),
-                        trusted epoch_current<ForeignPayload>(pointer = result),
-                        trusted synchronized_access<ForeignPayload>(pointer = result),
-                        trusted movement_stable<ForeignPayload>(pointer = result),
-                        trusted finalization_pending<ForeignPayload>(pointer = result),
+                        trusted valid_read<ForeignPayload>(pointer = owner.pointer, count = 1),
+                        trusted aligned_for<ForeignPayload>(pointer = owner.pointer),
+                        trusted initialized_as<ForeignPayload>(pointer = owner.pointer),
+                        trusted shared_alias_valid<ForeignPayload>(pointer = owner.pointer),
+                        trusted epoch_current<ForeignPayload>(pointer = owner.pointer),
+                        trusted synchronized_access<ForeignPayload>(pointer = owner.pointer),
+                        trusted movement_stable<ForeignPayload>(pointer = owner.pointer),
+                        trusted finalization_pending<ForeignPayload>(pointer = owner.pointer),
                     )
                     executes(pure, total)
-                {{ return owner.pointer; }};
+                {{}};
 
-                return trusted borrow_from<ForeignPayload, Owner>(owner, trusted permit(owner));
+                trusted permit(owner);
+
+                return trusted core.memory.borrow_from<ForeignPayload, Owner>(owner, owner.pointer);
             }}
             func selected_marker(pos owner: &Owner) -> &Marker
                 requires(trusted retained(owner))
@@ -540,6 +542,17 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
             "{source}: {:?}",
             application.syntax_tree_result().diagnostics()
         );
+
+        for producer in ["referent", "selected_marker"] {
+            let checked = application
+                .lowered_unit(source_function_body_key(&application, producer))
+                .expect("anchored-borrow producers retain checked semantics");
+
+            assert!(
+                !checked.diagnostics().has_errors(),
+                "{source}: {producer}: {checked:#?}"
+            );
+        }
 
         let checked = application
             .lowered_unit(source_function_body_key(&application, "forwarded"))
@@ -630,6 +643,46 @@ fn shared_protocol_markers_survive_native_exposure_and_loop_merges() {
                     {use_owner}
                     index += 1;
                 }}
+                observe(&owner.acquisition);
+            }}
+            "#
+        );
+
+        let application = compilation(&source);
+        let diagnostics = application.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            valid,
+            "{source}: {diagnostics:#?}"
+        );
+    }
+}
+
+#[test]
+fn mutable_protocol_markers_survive_only_marker_free_writes() {
+    for (operation, valid) in [
+        ("trusted core.memory.write<u32>(pointer, 1);", true),
+        ("replace(owner);", false),
+        ("owner.acquisition = Marker {};", false),
+    ] {
+        let source = format!(
+            r#"
+            trusted module app;
+            using core.memory;
+            struct Marker {{}}
+            struct Owner {{ mut acquisition: Marker; mut payload: u32; }}
+            trusted predicate held(owner: &Marker);
+            extern func replace(pos owner: &mut Owner);
+            func observe(pos marker: &Marker) requires(trusted held(owner = marker)) {{}}
+            trusted func caller(pos owner: &mut Owner, pos pointer: DataPointer<u32>)
+                requires(
+                    trusted held(owner = &owner.acquisition),
+                    trusted core.memory.valid_write<u32>(pointer = pointer, count = 1),
+                    trusted core.memory.aligned_for<u32>(pointer = pointer)
+                ) uses(raw_memory, unchecked_init)
+            {{
+                {operation}
                 observe(&owner.acquisition);
             }}
             "#
@@ -5452,6 +5505,15 @@ fn opaque_returned_owners_keep_their_carrier_inside_optional_result_payloads() {
         assert!(
             !application.syntax_tree_result().diagnostics().has_errors(),
             "{source}"
+        );
+
+        let producer = application
+            .lowered_unit(source_function_body_key(&application, "create"))
+            .expect("the optional owner producer has a complete checked contract");
+
+        assert!(
+            !producer.diagnostics().has_errors(),
+            "{source}: {producer:#?}"
         );
 
         let checked = application

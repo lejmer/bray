@@ -58,15 +58,8 @@ impl<C: crate::CheckerRequestContext + ?Sized> super::super::flow::ExecutionFlow
                 if subject.observes_completion_result()
                     && inferred
                         .iter()
-                        .any(|(condition, _)| {
-                            let mut evidence = BTreeSet::new();
-
-                            condition.clone().assume(true, &mut evidence);
-
-                            // One complete inferred owner must independently support
-                            // the clause before replacing its conservative carrier.
-                            guarantee.prove_trusted(&evidence, &BTreeSet::new()) == Some(true)
-                        })
+                        // One complete owner must independently support the clause.
+                        .any(|(condition, _)| condition.implies(&guarantee))
                 {
                     None
                 } else {

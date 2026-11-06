@@ -42,7 +42,12 @@ trusted internal func try_allocation(pos bytes: usize, align: usize) -> std.memo
         return none;
     }
 
-    let allocation: std.memory.RawAllocation = { pointer = pointer, bytes = bytes, align = align };
+    let allocation: std.memory.RawAllocation =
+    {
+        pointer = pointer,
+        bytes = bytes,
+        align = align
+    };
 
     return allocation;
 }

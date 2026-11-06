@@ -87,11 +87,7 @@ trusted internal func initialize_context(
 {
     let typed = trusted lambda(pos allocation: &std.memory.RawAllocation) -> DataPointer<Context>
         requires(
-            trusted core.memory.owned_allocation(
-                pointer = allocation.pointer,
-                bytes = std.memory.stride_of<Context>(),
-                align = std.memory.align_of<Context>()
-            ),
+            allocation.align == std.memory.align_of<Context>(),
             trusted core.memory.valid_write<u8>(pointer = allocation.pointer, count = std.memory.stride_of<Context>())
         )
         ensures(
