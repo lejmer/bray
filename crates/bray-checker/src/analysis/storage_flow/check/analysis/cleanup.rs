@@ -678,6 +678,7 @@ fn preserve_run_descriptor(
     let StorageInvalidation::All {
         stable_descriptors,
         stable_values,
+        ..
     } = invalidation
     else {
         return;

@@ -1,3 +1,29 @@
+/// The state observed through one checked value, independently of access authority.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum StorageObservationKind {
+    /// Contents can change through protected or unresolved reachable state.
+    Mutable,
+    /// An ordinary inline value with no mutable reachable contents.
+    Value,
+    /// An address value whose reachable contents remain independent observations.
+    Address,
+    /// An identity whose protected contents can progress independently.
+    Identity,
+    /// An empty ownership marker of the exact checked type.
+    Marker(bray_symbols::TypeId),
+    /// A nullable presence bit or active union tag, separately from its payload.
+    Discriminant,
+    /// A reference boundary with its original checked type and borrow layers.
+    Reference(bray_symbols::TypeId),
+}
+
+impl StorageObservationKind {
+    /// Whether retaining this exact value preserves all of its observable contents.
+    pub const fn is_immutable_inline(self) -> bool {
+        matches!(self, Self::Value | Self::Marker(_))
+    }
+}
+
 /// Identity of a checked operation that creates a new contents observation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum StorageMutation {

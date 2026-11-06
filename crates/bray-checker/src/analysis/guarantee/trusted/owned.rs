@@ -50,6 +50,7 @@ impl super::check::TrustedChecks {
             domain.semantics.types().expression(root)
                 .expect("checked default or constant producer retains its result type").ty()
         });
+
         let result = result.clone().coerce(domain.request.semantic_values(), result_type, result_type);
         let result = &result;
 

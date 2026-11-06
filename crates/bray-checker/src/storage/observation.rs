@@ -5,27 +5,13 @@ use bray_symbols::{DeclaredStorageShape, NamedTypeSymbolId, TypeData, TypeId};
 
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Observation {
-    Mutable,
-    Scalar,
-    Address,
-    Identity,
-    Marker(TypeId),
-    Discriminant,
-    Reference(TypeId),
-}
-
-impl Observation {
-    pub(crate) const fn is_immutable_inline(self) -> bool {
-        matches!(self, Self::Scalar | Self::Marker(_))
-    }
-}
+use bray_bound_tree::StorageObservationKind as Observation;
 
 #[derive(Debug)]
 struct Shape {
     observations: Vec<(Vec<StorageProjection>, Observation)>,
     complete_value: bool,
+    inline_only: bool,
     complete_references: bool,
     // Inline ownership differs from observable referents and protected contents.
     // None means that this type's possible marker transfers remain unknown.
@@ -45,6 +31,7 @@ impl Shape {
         Self {
             observations: vec![(Vec::new(), Observation::Mutable)],
             complete_value: false,
+            inline_only: false,
             complete_references: false,
             inline_markers: None,
         }
@@ -65,6 +52,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         return Ok(Shape {
             observations: Vec::new(),
             complete_value: !reference,
+            inline_only: true,
             complete_references: true,
             inline_markers: Some(BTreeSet::new()),
         });
@@ -77,7 +65,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
         );
 
     let observation = if scalar {
-        Observation::Scalar
+        Observation::Value
     } else if matches!(
         role,
         RepresentationRole::RawPointer
@@ -95,6 +83,7 @@ fn known_shape<C: CheckerRequestContext + ?Sized>(
     let mut shape = Shape {
         observations: vec![(Vec::new(), observation)],
         complete_value: scalar && !reference,
+        inline_only: scalar,
         complete_references: scalar || matches!(observation, Observation::Address),
         inline_markers: (scalar || matches!(observation, Observation::Address))
             .then(BTreeSet::new),
@@ -128,9 +117,8 @@ pub(crate) struct Footprint {
     pub(crate) atomic: Option<StorageInvalidation>,
     pub(crate) references: Vec<(StoragePath, TypeId)>,
     pub(crate) complete_reference_types: std::sync::Arc<BTreeMap<TypeId, bool>>,
-    pub(crate) scalars: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
+    pub(crate) owned_observations: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<(StoragePath, Observation)>>,
     pub(crate) borrowed_observations: BTreeMap<StoragePath, (bray_symbols::BorrowKind, Vec<(StoragePath, Observation)>)>,
-    pub(crate) identities: BTreeMap<bray_bound_tree::StorageIdentityId, Vec<StoragePath>>,
     pub(crate) empty_markers: BTreeMap<StoragePath, TypeId>,
     pub(crate) discriminants: BTreeMap<bray_bound_tree::StorageIdentityId, BTreeSet<StoragePath>>,
     shapes: BTreeMap<TypeId, Shape>,
@@ -149,6 +137,7 @@ impl Footprint {
             referents: BTreeSet::new(),
             stable_descriptors: BTreeSet::new(),
             stable_values: BTreeSet::new(),
+            normal_snapshots: Default::default(),
         });
 
         let mut static_types = BTreeMap::<_, BTreeSet<_>>::new();
@@ -162,7 +151,7 @@ impl Footprint {
         for (access_id, access) in storage.access_entries() {
             if let bray_bound_tree::StorageAccessRoot::Storage(root) = access.root()
                 && access.projections().is_empty()
-                && !self.scalars.contains_key(&root)
+                && !self.owned_observations.contains_key(&root)
                 && storage
                     .identity(root)
                     .is_some_and(|identity| identity.is_invocation_owned(storage.kind()))
@@ -175,7 +164,7 @@ impl Footprint {
             {
                 // This owned slot is a protocol witness for the current entry.
                 // Keeping its address value grants no unowned pointee permission.
-                self.scalars.insert(root, vec![StoragePath::root(root)]);
+                self.owned_observations.entry(root).or_default().push((StoragePath::root(root), Observation::Identity));
             }
 
             let ty = request
@@ -299,6 +288,23 @@ impl Footprint {
         Ok(())
     }
 
+    /// Borrows the original classification from the nearest owning or loan context.
+    pub(crate) fn observations<'a>(&'a self, path: &'a StoragePath) -> impl Iterator<Item = (&'a StoragePath, Observation)> {
+        let borrowed = (0..=path.projections.len()).rev().find_map(|length| {
+            self.borrowed_observations.get(&StoragePath {
+                root: path.root,
+                projections: path.projections[..length].into(),
+            })
+        });
+
+        let values = borrowed.map(|(_, values)| values)
+            .or_else(|| self.owned_observations.get(&path.root));
+
+        values.into_iter().flatten()
+            .filter(|(observed, _)| path.contains(observed))
+            .map(|(path, kind)| (path, *kind))
+    }
+
     /// Tag-free stores, with whether they also preserve unrelated identities.
     pub(crate) fn tag_free_store(&self, ty: TypeId) -> Option<bool> {
         let shape = self.shapes.get(&ty)?;
@@ -311,7 +317,7 @@ impl Footprint {
         .then_some(
             shape.complete_value
                 && shape.observations.iter().all(|(_, observation)| {
-                    matches!(observation, Observation::Scalar | Observation::Address)
+                    matches!(observation, Observation::Value | Observation::Address)
                 }),
         )
     }
@@ -438,7 +444,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
             complete_value &= shape.complete_value;
 
             observations.retain(|observation| {
-                !matches!(observation.1, Observation::Identity | Observation::Marker(_))
+                !matches!(observation.1, Observation::Value | Observation::Identity | Observation::Marker(_))
                     || shape.observations.contains(observation)
             });
 
@@ -447,7 +453,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     .observations
                     .iter()
                     .filter(|(_, observation)| {
-                        !matches!(observation, Observation::Identity | Observation::Marker(_))
+                        !matches!(observation, Observation::Value | Observation::Identity | Observation::Marker(_))
                     })
                     .cloned(),
             );
@@ -465,7 +471,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                     .or_insert_with(|| (bray_symbols::BorrowKind::Shared, Vec::new()))
                     .1.push((path, Observation::Mutable));
             } else if identity.is_invocation_owned(storage.kind()) {
-                footprint.scalars.entry(root).or_default().push(path);
+                footprint.owned_observations.entry(root).or_default().push((path, Observation::Mutable));
             }
         }
 
@@ -499,7 +505,7 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                 };
 
                 let borrowed = match observation {
-                    Observation::Scalar | Observation::Identity | Observation::Marker(_) =>
+                    Observation::Value | Observation::Identity | Observation::Marker(_) | Observation::Discriminant =>
                         (0..=projections.len()).rev().find_map(|length| {
                             borrowed_paths.get(&projections[..length]).map(|kind| {
                                 (StoragePath {
@@ -535,13 +541,24 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
                                     .or_insert_with(|| (kind, Vec::new()))
                                     .1.push((path, *observation));
                             } else {
-                                footprint.identities.entry(root).or_default().push(path);
+                                footprint.owned_observations.entry(root).or_default().push((path, *observation));
                             }
                         }
 
                         None
                     }
                     Observation::Discriminant => {
+                        if borrowed.is_none() && identity.is_invocation_owned(storage.kind()) {
+                            footprint.owned_observations.entry(root).or_default()
+                                .push((path.clone(), Observation::Discriminant));
+                        }
+
+                        if let Some((reference, kind)) = borrowed {
+                            footprint.borrowed_observations.entry(reference)
+                                .or_insert_with(|| (kind, Vec::new()))
+                                .1.push((path.clone(), Observation::Discriminant));
+                        }
+
                         if shared.is_some() || identity.is_invocation_owned(storage.kind()) {
                             footprint
                                 .discriminants
@@ -552,15 +569,15 @@ pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
 
                         None
                     }
-                    Observation::Scalar => {
+                    Observation::Value => {
                         if let Some((reference, kind)) = borrowed {
                             footprint
                                 .borrowed_observations
                                 .entry(reference)
                                 .or_insert_with(|| (kind, Vec::new()))
-                                .1.push((path.clone(), Observation::Scalar));
+                                .1.push((path.clone(), Observation::Value));
                         } else if identity.is_invocation_owned(storage.kind()) {
-                            footprint.scalars.entry(root).or_default().push(path.clone());
+                            footprint.owned_observations.entry(root).or_default().push((path.clone(), *observation));
                         }
 
                         Some(path)
@@ -644,6 +661,9 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     let data = request.semantic_values().type_data(ty);
     let reference = matches!(data.as_ref(), TypeData::Borrow { .. });
 
+    let nested_borrow = matches!(data.as_ref(), TypeData::Borrow { target, .. }
+        if matches!(request.semantic_values().type_data(*target).as_ref(), TypeData::Borrow { .. }));
+
     let ty = request.semantic_values().unborrowed_type(ty);
     let data = request.semantic_values().type_data(ty);
     let mut fields = Vec::new();
@@ -672,14 +692,18 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 | bray_compiler_known::RepresentationRole::RunResult
         )
     }) {
-        return known_shape(
+        let mut shape = known_shape(
             request,
             ty,
             role,
             reference,
             visiting,
             complete_reference_types,
-        );
+        )?;
+
+        shape.inline_only &= !nested_borrow;
+
+        return Ok(shape);
     }
 
     let definition = match data.as_ref() {
@@ -767,7 +791,12 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
             // Element shape proves this without enumerating the array extent.
             shape.complete_references = element.is_reference_free();
             shape.complete_value = !reference && element.complete_value;
+            shape.inline_only = !nested_borrow && element.inline_only && element.is_reference_free();
             shape.inline_markers = element.inline_markers;
+
+            if shape.inline_only {
+                shape.observations.push((Vec::new(), Observation::Value));
+            }
 
             return Ok(shape);
         }
@@ -817,6 +846,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
     }
 
     let mut complete_value = !reference;
+    let mut inline_only = !nested_borrow && inline_markers.is_some();
 
     for (field, ty) in fields {
         let shape = paths(request, ty, visiting, complete_reference_types)?;
@@ -832,6 +862,7 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
                 ));
 
         complete_value &= shape.complete_value || address;
+        inline_only &= shape.inline_only && shape.is_reference_free();
         complete_references &= shape.complete_references;
 
         match (&mut inline_markers, shape.inline_markers) {
@@ -851,9 +882,15 @@ fn value_paths<C: CheckerRequestContext + ?Sized>(
         visiting.remove(&definition);
     }
 
+    if inline_only && !result.iter().any(|(path, observation)| path.is_empty()
+        && matches!(observation, Observation::Value | Observation::Marker(_))) {
+        result.push((Vec::new(), Observation::Value));
+    }
+
     Ok(Shape {
         observations: result,
         complete_value,
+        inline_only,
         complete_references,
         inline_markers,
     })
@@ -873,7 +910,7 @@ pub(crate) fn restrict(
         unreachable!("prepared atomic frame contains resolved observations");
     };
 
-    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values) =
+    let (mut accesses, mut referents, mut snapshots, mut stable_descriptors, stable_values, normal_snapshots) =
         match invalidation {
             StorageInvalidation::Observed {
                 accesses,
@@ -881,6 +918,7 @@ pub(crate) fn restrict(
                 snapshots,
                 stable_descriptors,
                 stable_values,
+                normal_snapshots,
                 ..
             } => (
                 accesses,
@@ -888,10 +926,12 @@ pub(crate) fn restrict(
                 snapshots,
                 stable_descriptors,
                 stable_values,
+                normal_snapshots,
             ),
             StorageInvalidation::All {
                 stable_values,
                 mut stable_descriptors,
+                normal_snapshots,
             } => {
                 let mut accesses = frame_paths.clone();
 
@@ -910,6 +950,7 @@ pub(crate) fn restrict(
                     snapshots: BTreeMap::new(),
                     stable_descriptors,
                     stable_values,
+                    normal_snapshots,
                 };
             }
             StorageInvalidation::Paths(_) => return frame.clone(),
@@ -953,5 +994,6 @@ pub(crate) fn restrict(
         snapshots,
         stable_descriptors,
         stable_values,
+        normal_snapshots,
     }
 }

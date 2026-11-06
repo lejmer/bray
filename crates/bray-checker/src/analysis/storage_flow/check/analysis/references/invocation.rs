@@ -571,7 +571,7 @@ impl<C: CheckerRequestContext + ?Sized> StorageFlowCollector<'_, C> {
         None
     }
 
-    pub(super) fn invocation_wrapping(
+    pub(in crate::analysis::storage_flow::check::analysis) fn invocation_wrapping(
         &self,
         occurrence: BoundExecutionSite,
         root: DependencySubjectRoot,

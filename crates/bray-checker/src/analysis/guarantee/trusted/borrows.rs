@@ -44,7 +44,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         }
     }
 
-    fn returned_owned_values<'a>(
+    pub(in crate::analysis::guarantee) fn returned_owned_values<'a>(
         &self,
         invocation: BoundExecutionSite,
         arguments: &BTreeMap<ExecutionPlace, ExecutionCondition>,

@@ -966,6 +966,10 @@ where
             })
             .flatten();
 
+        if !completing {
+            self.observe_memory_read(state, &mut execution, kind, invalidation.as_mut());
+        }
+
         if let Some(invalidation) = &mut invalidation {
             self.preserve_operation_values(
                 state,
@@ -991,8 +995,6 @@ where
                 .as_ref()
                 .and_then(|target| target.storage_path())
                 .and_then(|path| crate::ExecutionPlace::storage_path(self.storage, path));
-
-            self.observe_memory_read(state, &mut execution, kind);
 
             self.execution.transfer_operation(
                 &mut execution,
@@ -1078,6 +1080,7 @@ where
     ) {
         let occurrence = kind.occurrence();
 
+        self.preserve_returned_observations(occurrence, invalidation);
         self.preserve_borrowed_values(state, &state.memory, invalidation);
 
         if let Some(contents) = self.input.tag_preserving_assignments.get(&occurrence) {

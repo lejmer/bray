@@ -159,6 +159,7 @@ pub(super) fn constructed_condition(
 
             let element = semantics.types().expression(*operand)
                 .expect("checked repeated element retains its value type").ty();
+
             let value = value(*operand).coerce(values, element, element);
 
             let fields = (0..count)

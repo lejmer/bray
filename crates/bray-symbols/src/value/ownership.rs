@@ -175,6 +175,34 @@ impl<Projection, Input> DependencyOwnedResult<Projection, Input> {
         })
     }
 
+    /// Returns unchanged inputs transferred in every normal owning alternative.
+    /// A conditional transfer alone does not establish unconditional ownership.
+    pub fn guaranteed_transfers(&self) -> std::collections::BTreeSet<&DependencyOwnedTransfer<Projection, Input>>
+    where Projection: Ord, Input: Ord {
+        match self {
+            Self::Transfer(transfer) if transfer.condition.is_none() => [transfer].into(),
+            Self::Transfer(_) | Self::Case { .. } => Default::default(),
+            Self::All(values) => values.iter().flat_map(Self::guaranteed_transfers).collect(),
+            Self::Choice(values) => {
+                let mut values = values.iter();
+
+                let Some(first) = values.next() else {
+                    return Default::default();
+                };
+
+                let mut shared = first.guaranteed_transfers();
+
+                for value in values {
+                    let incoming = value.guaranteed_transfers();
+
+                    shared.retain(|transfer| incoming.contains(transfer));
+                }
+
+                shared
+            }
+        }
+    }
+
     /// Visits exact moves with the ordinary conditions of their complete alternatives.
     pub fn guarded_transfers(
         &self,
@@ -261,6 +289,20 @@ mod tests {
     use super::{DependencyOwnedResult, DependencyOwnedTransfer};
 
     type Layout = DependencyOwnedResult<u8, u8>;
+
+    #[test]
+    fn guaranteed_transfers_require_the_same_move_in_every_alternative() {
+        let common = DependencyOwnedTransfer::new(5, [0]);
+        let other = DependencyOwnedTransfer::new(7, [1]);
+        let simultaneous = Layout::all([Layout::Transfer(common.clone()), Layout::Transfer(other.clone())]);
+        let choice = Layout::choice([simultaneous.clone(), Layout::Transfer(common.clone())]);
+
+        assert_eq!(choice.guaranteed_transfers(), [&common].into());
+        assert_eq!(simultaneous.guaranteed_transfers(), [&common, &other].into());
+        assert!(Layout::case(2, simultaneous).guaranteed_transfers().is_empty());
+        assert!(Layout::choice([choice, Layout::default()]).guaranteed_transfers().is_empty());
+        assert!(Layout::Transfer(common.with_condition(Some(2))).guaranteed_transfers().is_empty());
+    }
 
     #[test]
     fn guarded_loop_alternatives_reach_a_fixed_point() {
