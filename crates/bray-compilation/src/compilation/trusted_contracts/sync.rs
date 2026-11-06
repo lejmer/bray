@@ -567,12 +567,18 @@ fn borrowed_heap_fields_preserve_the_anchor_without_projecting_onto_it() {
 
 #[test]
 fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_exposed() {
-    for fields in [
-        "tag: usize; pointer: DataPointer<u8>;",
-        "storage: Uninit<[u64; 16]>; finish: Native;",
-        "first: &Uninit<u32>; second: &Uninit<u32>;",
+    for (fields, operation) in [
+        ("tag: usize; pointer: DataPointer<u8>;", "opaque();"),
+        ("storage: Uninit<[u64; 16]>; finish: Native;", "opaque();"),
+        ("first: &Uninit<u32>; second: &Uninit<u32>;", ""),
     ] {
-        for (publish, valid) in [("", true), ("_ = trusted publish(&owner);", false)] {
+        let exposures: &[(&str, bool)] = if operation.is_empty() {
+            &[("", true)]
+        } else {
+            &[("", true), ("_ = trusted publish(&owner);", false)]
+        };
+
+        for &(publish, valid) in exposures {
             let source = format!(
                 r#"
                 trusted module app;
@@ -592,7 +598,7 @@ fn complete_protocol_owners_survive_unrelated_calls_until_their_storage_is_expos
                 }}
                 func caller(pos owner: Owner) requires(trusted live(owner = &owner)) {{
                     {publish}
-                    opaque();
+                    {operation}
                     inspect(&owner);
                     observe(&owner);
                     release_owner(owner);

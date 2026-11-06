@@ -493,19 +493,18 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     fn preserve_contents_owners<'place>(
         &self,
         state: &ExecutionState,
-        retained: &BTreeMap<crate::ExecutionPlace, (ExecutionCondition, bray_bound_tree::StoragePath)>,
+        retained: &crate::execution_guarantees::ObservationSet,
         places: impl IntoIterator<Item = &'place crate::ExecutionPlace>,
         descriptors: &mut BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     ) {
         for place in places {
-            if descriptors.contains_key(place)
-                || !retained.range(place.clone()..).next()
-                    .is_some_and(|(component, _)| place.contains(component))
-            {
+            if descriptors.contains_key(place) {
                 continue;
             }
 
-            if let Some(value) = place.value_in(&state.current) {
+            if let Some(value) = place.value_in(&state.current)
+                && retained.overlaps(&value) {
+                // Retained observations name this same value through every alias.
                 // A surviving component belongs to this same complete owner.
                 // The separate post-state still replaces its contents observation.
                 descriptors.insert(place.clone(), value.owner_identity().clone());
@@ -581,7 +580,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        self.preserve_contents_owners(state, &retained, &roots, &mut descriptors);
+        self.preserve_contents_owners(state, &snapshots, &roots, &mut descriptors);
 
         state.current.clear();
 
@@ -790,7 +789,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         if !transfers {
-            self.preserve_contents_owners(state, &stable_places, &changed_places, &mut descriptors);
+            self.preserve_contents_owners(state, &stable_values, &changed_places, &mut descriptors);
         }
 
         let no_predicates = BTreeSet::new();
