@@ -33,7 +33,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 return Some(value.clone());
             }
 
-
         }
 
         let selection = self.semantics.selections().expression(expression)?;
