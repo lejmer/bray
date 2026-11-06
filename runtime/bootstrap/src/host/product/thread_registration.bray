@@ -35,9 +35,7 @@ trusted internal func registration_slot_locked(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
     )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition)
-    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(raw_memory)
 {
     let attachment = trusted bray.runtime.bootstrap.host.current_attachment_locked(lease);

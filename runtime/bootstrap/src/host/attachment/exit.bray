@@ -219,10 +219,7 @@ trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &Att
         trusted core.memory.valid_write<(AttachmentExit?)>(pointer = slot.storage, count = 1),
         trusted core.memory.aligned_for<(AttachmentExit?)>(pointer = slot.storage)
     )
-    ensures(
-        trusted host_access_live(owner = &lease.acquisition),
-        trusted attachment_exit_selected(owner = &result)
-    )
+    ensures(trusted host_access_live(owner = &lease.acquisition), trusted attachment_exit_selected(owner = &result))
     executes(total)
     uses(raw_memory, unchecked_init)
 {
@@ -235,10 +232,7 @@ trusted internal func take_attachment_exit(pos lease: &HostLease, pos slot: &Att
 }
 
 trusted internal func release_attachment_exit(pos lease: HostLease, pos selected: AttachmentExit) -> AttachmentExit
-    requires(
-        trusted host_access_live(owner = &lease.acquisition),
-        trusted attachment_exit_selected(owner = &selected)
-    )
+    requires(trusted host_access_live(owner = &lease.acquisition), trusted attachment_exit_selected(owner = &selected))
     ensures(trusted attachment_exit_selected(owner = &result))
     executes(total)
 {

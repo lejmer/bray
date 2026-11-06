@@ -374,10 +374,7 @@ trusted internal func current_native_thread_identity() -> u64
 }
 
 trusted internal func current_attachment_locked(pos lease: &HostLease) -> u64
-    requires(
-        lease.active,
-        trusted host_access_live(owner = &lease.acquisition)
-    )
+    requires(lease.active, trusted host_access_live(owner = &lease.acquisition))
     ensures(trusted host_access_live(owner = &lease.acquisition))
     executes(total)
 {
@@ -578,7 +575,7 @@ trusted internal func shutdown_host() -> u32
             ensures(
                 trusted prepared_host_storage(owner = &retired),
                 trusted host_access_live(owner = &lease.acquisition),
-                )
+            )
             executes(total)
             uses(raw_memory, unchecked_alias)
         {

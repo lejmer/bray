@@ -34,11 +34,12 @@ trusted internal func transition_locked(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
         )
+    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     executes(total)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
@@ -90,11 +91,12 @@ trusted internal func caller_locked(
     requires(
         lease.active,
         trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
-        trusted bray.runtime.bootstrap.host.host_anchor_matches(anchor = &anchor.acquisition, lease = &lease.acquisition)
-    )
-    ensures(
-        trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition),
+        trusted bray.runtime.bootstrap.host.host_anchor_matches(
+            anchor = &anchor.acquisition,
+            lease = &lease.acquisition
         )
+    )
+    ensures(trusted bray.runtime.bootstrap.host.host_access_live(owner = &lease.acquisition))
     uses(intrinsic)
 {
     let host = trusted bray.runtime.bootstrap.host.host_value(lease, anchor);
