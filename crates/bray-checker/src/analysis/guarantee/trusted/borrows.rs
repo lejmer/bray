@@ -650,7 +650,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
             let value = match relation.kind() {
                 DependencyReferenceKind::Borrow => value.borrowed(),
-                DependencyReferenceKind::Address => value,
+                DependencyReferenceKind::Address => value.into_referent(),
             };
 
             fields.insert(path, value);
