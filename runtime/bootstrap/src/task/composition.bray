@@ -29,6 +29,18 @@ trusted internal predicate composition_input(
     ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
 );
 
+// This call retains the exact parent, inactive token and provider-backed callback.
+// Progress in their reachable runtime state does not end its admission permission.
+internal struct Composition
+{
+    acquisition: Marker;
+    reference: &Reference;
+    token: &bray.runtime.bootstrap.activation.Inactive;
+    ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>;
+}
+
+trusted internal predicate composition_acquired(owner: &Marker);
+
 @abi(c)
 trusted internal func composition(
     pos pointer: DataPointer<Reference>,
@@ -137,6 +149,31 @@ trusted internal func compose_reference(
     }
     uses(intrinsic)
 {
+    let acquire = trusted lambda(
+        pos reference: &Reference,
+        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>
+    ) -> Composition
+        requires(
+            trusted retained(owner = reference),
+            trusted composition_input(owner = &reference.acquisition, token = token, ready = ready)
+        )
+        ensures(trusted composition_acquired(owner = &result.acquisition))
+        executes(pure, total)
+    {
+        return
+        {
+            acquisition = Marker
+            {
+            },
+            reference = reference,
+            token = token,
+            ready = ready
+        };
+    };
+
+    let input = trusted acquire(reference, token, ready);
+
     if disposition > 2
     {
         return 3;
@@ -144,7 +181,7 @@ trusted internal func compose_reference(
 
     let address =
     {
-        let mut guard = trusted lock_cell(reference);
+        let mut guard = trusted lock_cell(input.reference);
         let control = trusted guard.get();
 
         yield if control.dispatching && control.resumable
@@ -165,20 +202,15 @@ trusted internal func compose_reference(
     let parent = trusted core.target.from_exposed_address<bray.runtime.bootstrap.activation.Header>(address = address);
 
     let permit = trusted lambda(
-        pos reference: &Reference,
-        pos token: &bray.runtime.bootstrap.activation.Inactive,
+        pos owner: &Composition,
         pos pointer: DataPointer<bray.runtime.bootstrap.activation.Inactive>,
-        pos ready: FunctionPointer<bray.runtime.bootstrap.activation.callback.Ready>,
         pos parent: DataPointer<bray.runtime.bootstrap.activation.Header>,
         pos state: u32,
         pos origin: u64,
         pos destination: usize,
         pos disposition: u8
     )
-        requires(
-            trusted retained(owner = reference),
-            trusted composition_input(owner = &reference.acquisition, token = token, ready = ready)
-        )
+        requires(trusted retained(owner = owner.reference), trusted composition_acquired(owner = &owner.acquisition))
         ensures(
             trusted bray.runtime.bootstrap.activation.execution.owned(pointer = parent),
             trusted bray.runtime.bootstrap.activation.composition.authorized(
@@ -190,14 +222,14 @@ trusted internal func compose_reference(
                 disposition = disposition
             ),
             trusted core.memory.callable_address_valid<bray.runtime.bootstrap.activation.callback.Ready>(
-                pointer = ready
+                pointer = owner.ready
             )
         )
         executes(pure, total) {};
 
-    let pointer = std.memory.address_of<bray.runtime.bootstrap.activation.Inactive>(token);
+    let pointer = std.memory.address_of<bray.runtime.bootstrap.activation.Inactive>(input.token);
 
-    trusted permit(reference, token, pointer, ready, parent, state, origin, destination, disposition);
+    trusted permit(&input, pointer, parent, state, origin, destination, disposition);
 
     let attached = trusted bray.runtime.bootstrap.activation.composition.compose(
         parent,
@@ -206,7 +238,7 @@ trusted internal func compose_reference(
         origin,
         destination,
         disposition,
-        ready
+        input.ready
     );
 
     return if attached == 0
